@@ -531,6 +531,18 @@ export function BoardGantt({
     setDetailItem(created);
   }
 
+  // Both modals hold the item they were opened on, but a schedule edit inside
+  // them recomputes Start/Finish server-side and router.refresh()es — so read
+  // the refreshed row back out of board.items rather than keep showing the
+  // snapshot from the click. Falls back to the snapshot for an item that was
+  // just created and hasn't landed in board.items yet.
+  const liveAssignmentItem = assignmentItem
+    ? (board.items.find((i) => i.id === assignmentItem.id) ?? assignmentItem)
+    : null;
+  const liveDetailItem = detailItem
+    ? (board.items.find((i) => i.id === detailItem.id) ?? detailItem)
+    : null;
+
   const manualScheduleHint = useMemo(
     () =>
       buildManualScheduleHint(board.columns, board.manualStartColumnId, board.manualDurationColumnId),
@@ -931,7 +943,7 @@ export function BoardGantt({
 
       <AssignmentModal
         boardId={board.id}
-        item={assignmentItem}
+        item={liveAssignmentItem}
         users={users}
         currentUserId={currentUserId}
         userRole={userRole}
@@ -945,13 +957,17 @@ export function BoardGantt({
         manualStartColumnId={board.manualStartColumnId}
         ganttStartColumnId={startColumnId}
         ganttEndColumnId={endColumnId}
-        canEditSchedule={assignmentItem ? canEditItemSchedule(assignmentItem) : false}
-        groupItems={assignmentItem ? board.items.filter((i) => i.groupId === assignmentItem.groupId) : undefined}
+        canEditSchedule={liveAssignmentItem ? canEditItemSchedule(liveAssignmentItem) : false}
+        groupItems={
+          liveAssignmentItem
+            ? board.items.filter((i) => i.groupId === liveAssignmentItem.groupId)
+            : undefined
+        }
       />
 
       <ItemDetailModal
         boardId={board.id}
-        item={detailItem}
+        item={liveDetailItem}
         columns={board.columns}
         users={users}
         progressColumnId={board.progressColumnId}
@@ -959,7 +975,9 @@ export function BoardGantt({
         ganttDurationColumnId={durationColumnId}
         ganttEndColumnId={endColumnId}
         predColumnId={predColumnId}
-        groupItems={detailItem ? board.items.filter((i) => i.groupId === detailItem.groupId) : undefined}
+        groupItems={
+          liveDetailItem ? board.items.filter((i) => i.groupId === liveDetailItem.groupId) : undefined
+        }
         lockedScheduleFields={lockedScheduleFields}
         manualScheduleHint={manualScheduleHint}
         userRole={userRole}

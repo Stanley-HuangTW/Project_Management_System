@@ -91,6 +91,23 @@ export function WorkloadDetailSection({
   const timelineWidth = weeks.length * WEEK_WIDTH;
   const timelineOrigin = weeks[0]?.start ?? null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // The timeline runs far wider than the pane and the member list runs long,
+  // so panning sideways shouldn't mean scrolling to the bottom of the list to
+  // reach a scrollbar — there's a second one above the dates, kept in step
+  // with the real one below.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const syncingScroll = useRef(false);
+  function syncScrollLeft(from: "top" | "main") {
+    if (syncingScroll.current) return;
+    const source = from === "top" ? topScrollRef.current : scrollContainerRef.current;
+    const target = from === "top" ? scrollContainerRef.current : topScrollRef.current;
+    if (!source || !target || target.scrollLeft === source.scrollLeft) return;
+    syncingScroll.current = true;
+    target.scrollLeft = source.scrollLeft;
+    requestAnimationFrame(() => {
+      syncingScroll.current = false;
+    });
+  }
   const today = toIsoDate(new Date());
   const todayOffsetPx = timelineOrigin
     ? ((new Date(today).getTime() - timelineOrigin.getTime()) / DAY_MS / 7) * WEEK_WIDTH
@@ -100,6 +117,7 @@ export function WorkloadDetailSection({
     const el = scrollContainerRef.current;
     if (!el || todayOffsetPx === null) return;
     el.scrollLeft = Math.max(0, LABEL_WIDTH + todayOffsetPx - el.clientWidth / 2);
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
     // Only center on today once, when the timeline first renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -231,16 +249,31 @@ export function WorkloadDetailSection({
       {users.length === 0 ? (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">目前沒有成員資料。</p>
       ) : (
-        <div ref={scrollContainerRef} className="overflow-x-auto">
+        <>
+        <div
+          ref={topScrollRef}
+          onScroll={() => syncScrollLeft("top")}
+          className="overflow-x-auto overflow-y-hidden"
+        >
+          <div style={{ width: LABEL_WIDTH + timelineWidth, height: 1 }} />
+        </div>
+        <div
+          ref={scrollContainerRef}
+          onScroll={() => syncScrollLeft("main")}
+          className="max-h-[70vh] overflow-auto"
+        >
           <div className="relative" style={{ width: LABEL_WIDTH + timelineWidth }}>
             {todayOffsetPx !== null && (
               <div
-                className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-red-400"
+                className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400"
                 style={{ left: LABEL_WIDTH + todayOffsetPx }}
                 title="今天"
               />
             )}
-            <div className="mb-2 overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
+            {/* Stays put while the member rows scroll under it, so a bar
+                further down the list still has its weeks labelled. */}
+            <div className="sticky top-0 z-10 mb-2 bg-white pb-2 dark:bg-neutral-900">
+            <div className="overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
               <div className="flex border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
                 <div style={{ width: LABEL_WIDTH }} className="shrink-0 border-r border-neutral-100 dark:border-neutral-700 px-2 py-1">
                   成員
@@ -271,6 +304,7 @@ export function WorkloadDetailSection({
                   ))}
                 </div>
               </div>
+            </div>
             </div>
 
             <div className="space-y-2">
@@ -594,6 +628,7 @@ export function WorkloadDetailSection({
             </div>
           </div>
         </div>
+        </>
       )}
     </section>
   );

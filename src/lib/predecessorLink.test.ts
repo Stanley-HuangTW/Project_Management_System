@@ -4,6 +4,7 @@ import {
   resolveWbsCode,
   computeScheduledRange,
   resolveLockedScheduleFields,
+  resolveScheduleDays,
 } from "./predecessorLink";
 
 function iso(date: Date) {
@@ -122,5 +123,40 @@ describe("resolveLockedScheduleFields", () => {
     );
     expect(locks.get("a")).toEqual({ startLocked: true, endLocked: true, daysLocked: true });
     expect(locks.get("b")).toEqual({ startLocked: true, endLocked: true, daysLocked: true });
+  });
+});
+
+describe("resolveScheduleDays", () => {
+  it("uses the manual duration column when it has a value", () => {
+    const cells = [
+      { columnId: "durationCol", value: 5 },
+      { columnId: "daysCol", value: 30 },
+    ];
+    expect(resolveScheduleDays(cells, "durationCol", "daysCol")).toBe(5);
+  });
+
+  it("keeps a zero duration rather than falling through to Days", () => {
+    const cells = [
+      { columnId: "durationCol", value: 0 },
+      { columnId: "daysCol", value: 30 },
+    ];
+    expect(resolveScheduleDays(cells, "durationCol", "daysCol")).toBe(0);
+  });
+
+  it("falls back to Days when the manual duration is blank — an item imported with a length but no duration is still schedulable from its Pred", () => {
+    const cells = [{ columnId: "daysCol", value: 30 }];
+    expect(resolveScheduleDays(cells, "durationCol", "daysCol")).toBe(30);
+  });
+
+  it("is null when neither is set — nothing to compute a Finish from", () => {
+    expect(resolveScheduleDays([], "durationCol", "daysCol")).toBeNull();
+  });
+
+  it("ignores non-numeric values in either column", () => {
+    const cells = [
+      { columnId: "durationCol", value: "" },
+      { columnId: "daysCol", value: "abc" },
+    ];
+    expect(resolveScheduleDays(cells, "durationCol", "daysCol")).toBeNull();
   });
 });

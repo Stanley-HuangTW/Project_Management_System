@@ -118,6 +118,28 @@ export function computeScheduledRange(
 export type ScheduleLock = { startLocked: boolean; endLocked: boolean; daysLocked: boolean };
 
 /**
+ * How many days long an item is, in an "always computed" board: its manual
+ * duration column, falling back to the Days column when that's blank.
+ *
+ * Days is what scheduling *writes*, so reading it back as the length is a
+ * fixpoint, not a circular input — and it's what keeps an item imported with
+ * a length but no manual duration (URSROBOT專案 has a handful) schedulable
+ * from its predecessor at the length it already has, instead of frozen at
+ * whatever dates it was imported with. Null only when neither is set, which
+ * genuinely leaves nothing to compute a Finish from.
+ */
+export function resolveScheduleDays(
+  cellValues: { columnId: string; value: unknown }[],
+  manualDurationColumnId: string | null | undefined,
+  daysColumnId: string
+): number | null {
+  const manual = cellValues.find((cv) => cv.columnId === manualDurationColumnId)?.value;
+  if (typeof manual === "number") return manual;
+  const days = cellValues.find((cv) => cv.columnId === daysColumnId)?.value;
+  return typeof days === "number" ? days : null;
+}
+
+/**
  * For every item, which of its Start/Finish/Days is computed elsewhere and
  * therefore not manually editable:
  *  - when the board has both a manual-start and manual-duration column
@@ -331,8 +353,7 @@ async function buildScheduleContext(boardId: string, groupId?: string) {
    *  manual-column base range to fall back to when no predecessor applies. */
   function myDaysAndBase(item: (typeof items)[number]): { myDays: number | null; baseRange: DateRange | null } {
     if (alwaysComputed) {
-      const durValue = item.cellValues.find((cv) => cv.columnId === manualDurationColumnId)?.value;
-      const myDays = typeof durValue === "number" ? durValue : null;
+      const myDays = resolveScheduleDays(item.cellValues, manualDurationColumnId, durId);
       const baseRange = getItemDateRange(item, manualStartColumnId!, manualDurationColumnId!, mode, holidays);
       return { myDays, baseRange };
     }
@@ -524,8 +545,7 @@ export async function previewScheduleChange(
   let myDays: number | null;
   let baseRange: DateRange | null = null;
   if (alwaysComputed) {
-    const durValue = cellValues.find((cv) => cv.columnId === manualDurationColumnId)?.value;
-    myDays = typeof durValue === "number" ? durValue : null;
+    myDays = resolveScheduleDays(cellValues, manualDurationColumnId, durId);
     baseRange = getItemDateRange(overriddenItem, manualStartColumnId!, manualDurationColumnId!, mode, holidays);
   } else {
     const daysValue = cellValues.find((cv) => cv.columnId === durId)?.value;
