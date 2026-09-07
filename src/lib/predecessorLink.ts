@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
-import { shiftDate } from "@/lib/workday";
+import { endFromStartAndDays, shiftDate } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -118,6 +118,27 @@ export function computeScheduledRange(
 export type ScheduleLock = { startLocked: boolean; endLocked: boolean; daysLocked: boolean };
 
 /**
+ * The range start(set) + the resolved length describe, for an "always
+ * computed" board. Not getItemDateRange against the two manual columns:
+ * that needs a number in the duration cell, so an item with a start(set)
+ * but a blank duration would have no base range at all and could never be
+ * moved — even though resolveScheduleDays knows how long it is.
+ */
+function manualBaseRange(
+  cellValues: { columnId: string; value: unknown }[],
+  manualStartColumnId: string,
+  days: number | null,
+  mode: GanttDurationMode,
+  holidays: Set<string>
+): DateRange | null {
+  const startValue = cellValues.find((cv) => cv.columnId === manualStartColumnId)?.value;
+  if (typeof startValue !== "string" || days === null || days < 0) return null;
+  const start = new Date(startValue);
+  if (Number.isNaN(start.getTime())) return null;
+  return { start, end: endFromStartAndDays(start, days, mode, holidays) };
+}
+
+/**
  * How many days long an item is, in an "always computed" board: its manual
  * duration column, falling back to the Days column when that's blank.
  *
@@ -164,7 +185,12 @@ export function resolveLockedScheduleFields(
   typeColumnId?: string | null,
   typeColumnOptions?: unknown,
   manualStartColumnId?: string | null,
-  manualDurationColumnId?: string | null
+  manualDurationColumnId?: string | null,
+  /** The manual-start column, for testing whether an item has a schedule rule
+   *  of its own, when the caller is deliberately NOT applying the blanket
+   *  always-computed lock above — the drag paths, which need to know what
+   *  really decides the dates rather than which cells are typeable. */
+  ownRuleStartColumnId?: string | null
 ): Map<string, ScheduleLock> {
   const result = new Map<string, ScheduleLock>();
 
@@ -183,6 +209,10 @@ export function resolveLockedScheduleFields(
   for (const item of items) {
     if (item.parentId) childCount.set(item.parentId, (childCount.get(item.parentId) ?? 0) + 1);
   }
+  const ownRuleColumns = {
+    predColumnId,
+    manualStartColumnId: ownRuleStartColumnId ?? manualStartColumnId,
+  };
 
   function ensure(id: string): ScheduleLock {
     let lock = result.get(id);
@@ -194,7 +224,11 @@ export function resolveLockedScheduleFields(
   }
 
   for (const item of items) {
-    if ((childCount.get(item.id) ?? 0) > 0) {
+    // A summary with a schedule rule of its own keeps its own dates instead of
+    // taking them from its subtree — the same exception computeRolledUpDateRange
+    // makes. Without this its bar shows its own dates but refuses to be
+    // dragged, with nothing to point at as the cause.
+    if ((childCount.get(item.id) ?? 0) > 0 && !hasOwnScheduleRule(item, ownRuleColumns)) {
       const lock = ensure(item.id);
       lock.startLocked = true;
       lock.endLocked = true;
@@ -354,7 +388,7 @@ async function buildScheduleContext(boardId: string, groupId?: string) {
   function myDaysAndBase(item: (typeof items)[number]): { myDays: number | null; baseRange: DateRange | null } {
     if (alwaysComputed) {
       const myDays = resolveScheduleDays(item.cellValues, manualDurationColumnId, durId);
-      const baseRange = getItemDateRange(item, manualStartColumnId!, manualDurationColumnId!, mode, holidays);
+      const baseRange = manualBaseRange(item.cellValues, manualStartColumnId!, myDays, mode, holidays);
       return { myDays, baseRange };
     }
     const daysValue = item.cellValues.find((cv) => cv.columnId === durId)?.value;
@@ -532,7 +566,6 @@ export async function previewScheduleChange(
   const itemsById = new Map(items.map((i) => [i.id, i]));
 
   const cellValues = item.cellValues.map((cv) => (cv.columnId === columnId ? { ...cv, value: newValue } : cv));
-  const overriddenItem = { ...item, cellValues };
 
   const predValue = predColumnId ? cellValues.find((cv) => cv.columnId === predColumnId)?.value : null;
   const predItemId =
@@ -546,7 +579,7 @@ export async function previewScheduleChange(
   let baseRange: DateRange | null = null;
   if (alwaysComputed) {
     myDays = resolveScheduleDays(cellValues, manualDurationColumnId, durId);
-    baseRange = getItemDateRange(overriddenItem, manualStartColumnId!, manualDurationColumnId!, mode, holidays);
+    baseRange = manualBaseRange(cellValues, manualStartColumnId!, myDays, mode, holidays);
   } else {
     const daysValue = cellValues.find((cv) => cv.columnId === durId)?.value;
     myDays = typeof daysValue === "number" ? daysValue : null;

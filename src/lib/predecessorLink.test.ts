@@ -124,6 +124,60 @@ describe("resolveLockedScheduleFields", () => {
     expect(locks.get("a")).toEqual({ startLocked: true, endLocked: true, daysLocked: true });
     expect(locks.get("b")).toEqual({ startLocked: true, endLocked: true, daysLocked: true });
   });
+
+  describe("a summary's rollup lock", () => {
+    const cell = (columnId: string, value: unknown) => ({ id: `${columnId}-cv`, itemId: "p", columnId, value: value as never });
+    const parent = { id: "p", parentId: null, order: 0, groupId: "g1", cellValues: [] as ReturnType<typeof cell>[] };
+    const child = { id: "c", parentId: "p", order: 0, groupId: "g1", cellValues: [] };
+
+    it("locks Start/Finish on a summary whose dates really do come from its subtree", () => {
+      const locks = resolveLockedScheduleFields([parent, child], "predCol", "linkCol");
+      expect(locks.get("p")).toEqual({ startLocked: true, endLocked: true, daysLocked: false });
+    });
+
+    it("leaves a summary with its own start(set) draggable — its bar shows its own dates", () => {
+      const withStartSet = {
+        ...parent,
+        cellValues: [cell("manualStartCol", "2026-07-24")],
+      };
+      const locks = resolveLockedScheduleFields(
+        [withStartSet, child],
+        "predCol",
+        "linkCol",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "manualStartCol"
+      );
+      expect(locks.get("p")).toBeUndefined();
+    });
+
+    it("leaves a summary with its own Pred draggable at the end its Link doesn't pin", () => {
+      const withPred = { ...parent, cellValues: [cell("predCol", "1.1")] };
+      const locks = resolveLockedScheduleFields([withPred, child], "predCol", "linkCol");
+      // No link options given, so the Pred branch pins neither end — what
+      // matters is that the rollup no longer locks both.
+      expect(locks.get("p")).toBeUndefined();
+    });
+
+    it("ignores a blank start(set) — an empty string is not a rule", () => {
+      const blank = { ...parent, cellValues: [cell("manualStartCol", "  ")] };
+      const locks = resolveLockedScheduleFields(
+        [blank, child],
+        "predCol",
+        "linkCol",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "manualStartCol"
+      );
+      expect(locks.get("p")).toEqual({ startLocked: true, endLocked: true, daysLocked: false });
+    });
+  });
 });
 
 describe("resolveScheduleDays", () => {

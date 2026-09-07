@@ -276,9 +276,12 @@ export function BoardGantt({
       linkColumnId,
       linkColumn?.options,
       typeColumnId,
-      typeColumn?.options
+      typeColumn?.options,
+      undefined,
+      undefined,
+      board.manualStartColumnId
     );
-  }, [board.items, board.columns, predColumnId, linkColumnId, typeColumnId]);
+  }, [board.items, board.columns, predColumnId, linkColumnId, typeColumnId, board.manualStartColumnId]);
 
   const typeOptions = useMemo(() => {
     const typeColumn = board.columns.find((c) => c.id === typeColumnId);
