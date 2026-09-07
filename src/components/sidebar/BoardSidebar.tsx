@@ -10,8 +10,12 @@ import {
   Pencil,
   Trash2,
   Users,
+  Users2,
   Settings,
   Shield,
+  Upload,
+  Download,
+  Zap,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -21,11 +25,20 @@ import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { useBoardAdminActions, type BoardAdminAction } from "@/components/board/BoardAdminActions";
 import { ProfileModal } from "./ProfileModal";
 import { createBoard, renameBoard, deleteBoard } from "@/lib/actions/board";
 import { logout } from "@/lib/actions/auth";
 
 type Board = { id: string; name: string };
+
+/** Board-admin tasks the open board view offers — see BoardAdminActions. */
+const ADMIN_ACTIONS: { id: BoardAdminAction; label: string; Icon: typeof Upload }[] = [
+  { id: "import", label: "匯入", Icon: Download },
+  { id: "export", label: "匯出", Icon: Upload },
+  { id: "resources", label: "Resource 對應", Icon: Users2 },
+  { id: "automation", label: "自動化", Icon: Zap },
+];
 
 const DEFAULT_WIDTH = 256;
 const MIN_WIDTH = 180;
@@ -46,6 +59,7 @@ export function BoardSidebar({
   avatarUrl?: string | null;
 }) {
   const canManage = canManageBoard(userRole);
+  const openBoardAdmin = useBoardAdminActions();
   const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -242,6 +256,7 @@ export function BoardSidebar({
         )}
         {boards.map((board) => {
           const active = pathname === `/boards/${board.id}`;
+          const admin = openBoardAdmin?.boardId === board.id ? openBoardAdmin : null;
           return (
             <div
               key={board.id}
@@ -258,23 +273,36 @@ export function BoardSidebar({
                 <LayoutGrid size={14} className="shrink-0" />
                 <span className="truncate">{board.name}</span>
               </Link>
-              {canManage && (
+              {(canManage || admin) && (
                 <RowMenu>
-                  <RowMenuItem
-                    onSelect={() => {
-                      setRenameTarget(board);
-                      setRenameValue(board.name);
-                    }}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Pencil size={14} /> 重新命名
-                    </span>
-                  </RowMenuItem>
-                  <RowMenuItem danger onSelect={() => handleDelete(board)}>
-                    <span className="flex items-center gap-2">
-                      <Trash2 size={14} /> 刪除
-                    </span>
-                  </RowMenuItem>
+                  {ADMIN_ACTIONS.filter((a) => admin?.actions.includes(a.id)).map(
+                    ({ id, label, Icon }) => (
+                      <RowMenuItem key={id} onSelect={() => admin?.open(id)}>
+                        <span className="flex items-center gap-2">
+                          <Icon size={14} /> {label}
+                        </span>
+                      </RowMenuItem>
+                    )
+                  )}
+                  {canManage && (
+                    <RowMenuItem
+                      onSelect={() => {
+                        setRenameTarget(board);
+                        setRenameValue(board.name);
+                      }}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Pencil size={14} /> 重新命名
+                      </span>
+                    </RowMenuItem>
+                  )}
+                  {canManage && (
+                    <RowMenuItem danger onSelect={() => handleDelete(board)}>
+                      <span className="flex items-center gap-2">
+                        <Trash2 size={14} /> 刪除
+                      </span>
+                    </RowMenuItem>
+                  )}
                 </RowMenu>
               )}
             </div>

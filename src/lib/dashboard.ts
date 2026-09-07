@@ -1,6 +1,6 @@
 import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/board";
 import { getPersonIds, getStatusOptions, type StatusOption } from "@/types/column";
-import { getItemDateRange, computeDailyLoadByUser } from "@/lib/gantt";
+import { getItemDateRange, computeDailyLoadByUser, manualScheduleHint } from "@/lib/gantt";
 import { computeItemProgress } from "@/lib/progress";
 import { resolveLockedScheduleFields, type ScheduleLock } from "@/lib/predecessorLink";
 
@@ -388,6 +388,9 @@ export type PersonalItemEntry = {
    *  as the Gantt view (BoardGantt.tsx's ganttStatusColor) — 完成 beats
    *  逾期 beats 實作中, 尚未處理 gets no override. */
   nameColor: string | undefined;
+  /** What to tell the user to edit instead when this item's Start/Days/
+   *  Finish are locked — see manualScheduleHint in @/lib/gantt. */
+  scheduleHint: string | undefined;
 };
 
 /**
@@ -414,6 +417,11 @@ export function computePersonalItems(
       board.columns.find((c) => c.type === "STATUS");
     const statusOptions = statusColumn ? getStatusOptions(statusColumn.options) : [];
     const groupNameById = new Map(board.groups.map((g) => [g.id, g.name]));
+    const scheduleHint = manualScheduleHint(
+      board.columns,
+      board.manualStartColumnId,
+      board.manualDurationColumnId
+    );
     const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
     const typeColumn = board.columns.find((c) => c.id === board.typeColumnId);
     const scheduleLocks = resolveLockedScheduleFields(
@@ -492,6 +500,7 @@ export function computePersonalItems(
         groupItems: itemsByGroup.get(item.groupId) ?? [],
         scheduleLock: scheduleLocks.get(item.id) ?? null,
         nameColor,
+        scheduleHint,
       });
     }
   }

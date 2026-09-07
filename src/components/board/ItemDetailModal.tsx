@@ -33,6 +33,7 @@ export function ItemDetailModal({
   predColumnId,
   groupItems,
   lockedScheduleFields,
+  manualScheduleHint,
   userRole,
   currentUserId,
   open,
@@ -52,6 +53,9 @@ export function ItemDetailModal({
   predColumnId?: string | null;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
+  /** What to tell the user to edit instead when a Start/Days/Finish field
+   *  is locked — see manualScheduleHint in @/lib/gantt. */
+  manualScheduleHint?: string;
   userRole: UserRole;
   currentUserId: string;
   open: boolean;
@@ -105,6 +109,7 @@ export function ItemDetailModal({
           predColumnId={predColumnId}
           groupItems={groupItems}
           lockedScheduleFields={lockedScheduleFields}
+          manualScheduleHint={manualScheduleHint}
           userRole={userRole}
           currentUserId={currentUserId}
         />

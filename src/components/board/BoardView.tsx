@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Table2, LayoutGrid, Upload, Download, GanttChartSquare, Users2, Zap, BarChart3 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { Table2, LayoutGrid, GanttChartSquare, BarChart3 } from "lucide-react";
 import type { BoardWithData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
@@ -13,7 +13,10 @@ import { AddColumnDialog } from "./AddColumnDialog";
 import { ImportWizard } from "./ImportWizard";
 import { ResourceMappingModal } from "./ResourceMappingModal";
 import { AutomationRulesModal } from "./AutomationRulesModal";
-import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
+import {
+  useRegisterBoardAdminActions,
+  type BoardAdminAction,
+} from "./BoardAdminActions";
 import { ExportGanttModal } from "./ExportGanttModal";
 
 export function BoardView({
@@ -60,6 +63,24 @@ export function BoardView({
     (c) => c.id === board.progressColumnId
   );
 
+  // 匯入/匯出/Resource 對應/自動化 are occasional board-admin tasks, so they
+  // hang off the board's "…" in the sidebar instead of taking up room in the
+  // header next to the views the user switches between all day. The modals
+  // stay here, where the board's columns/groups/items already are.
+  const adminActions = useMemo<BoardAdminAction[]>(() => {
+    const list: BoardAdminAction[] = [];
+    if (canManageBoard(userRole)) list.push("import", "export", "resources");
+    if (canManageStructure(userRole)) list.push("automation");
+    return list;
+  }, [userRole]);
+  const openAdminAction = useCallback((action: BoardAdminAction) => {
+    if (action === "import") setImportOpen(true);
+    else if (action === "export") setExportOpen(true);
+    else if (action === "resources") setResourceMappingOpen(true);
+    else setAutomationOpen(true);
+  }, []);
+  useRegisterBoardAdminActions(board.id, adminActions, openAdminAction);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-6 py-4">
@@ -79,41 +100,6 @@ export function BoardView({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* 匯入/匯出/Resource 對應/自動化 are occasional board-admin tasks,
-              so they live behind one "…" instead of taking four slots away
-              from the views the user switches between all day. */}
-          {(canManageBoard(userRole) || canManageStructure(userRole)) && (
-            <RowMenu triggerClassName="flex items-center gap-1.5 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800">
-              {canManageBoard(userRole) && (
-                <RowMenuItem onSelect={() => setImportOpen(true)}>
-                  <span className="flex items-center gap-2">
-                    <Download size={14} /> 匯入
-                  </span>
-                </RowMenuItem>
-              )}
-              {canManageBoard(userRole) && (
-                <RowMenuItem onSelect={() => setExportOpen(true)}>
-                  <span className="flex items-center gap-2">
-                    <Upload size={14} /> 匯出
-                  </span>
-                </RowMenuItem>
-              )}
-              {canManageBoard(userRole) && (
-                <RowMenuItem onSelect={() => setResourceMappingOpen(true)}>
-                  <span className="flex items-center gap-2">
-                    <Users2 size={14} /> Resource 對應
-                  </span>
-                </RowMenuItem>
-              )}
-              {canManageStructure(userRole) && (
-                <RowMenuItem onSelect={() => setAutomationOpen(true)}>
-                  <span className="flex items-center gap-2">
-                    <Zap size={14} /> 自動化
-                  </span>
-                </RowMenuItem>
-              )}
-            </RowMenu>
-          )}
           <div className="flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
             <button
               type="button"

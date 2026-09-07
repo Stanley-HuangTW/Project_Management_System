@@ -11,6 +11,7 @@ import {
   computeRolledUpDateRange,
   computeDailyLoadByUser,
   hasOwnScheduleRule,
+  manualScheduleHint as buildManualScheduleHint,
   type DateRange,
 } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
@@ -530,6 +531,12 @@ export function BoardGantt({
     setDetailItem(created);
   }
 
+  const manualScheduleHint = useMemo(
+    () =>
+      buildManualScheduleHint(board.columns, board.manualStartColumnId, board.manualDurationColumnId),
+    [board.columns, board.manualStartColumnId, board.manualDurationColumnId]
+  );
+
   /** Names whatever actually decides this item's dates, so a refused drag can
    *  say which item (or which field) to change instead of just "it's
    *  computed". Returns null when nothing is driving it. */
@@ -954,6 +961,7 @@ export function BoardGantt({
         predColumnId={predColumnId}
         groupItems={detailItem ? board.items.filter((i) => i.groupId === detailItem.groupId) : undefined}
         lockedScheduleFields={lockedScheduleFields}
+        manualScheduleHint={manualScheduleHint}
         userRole={userRole}
         currentUserId={currentUserId}
         open={detailItem !== null}

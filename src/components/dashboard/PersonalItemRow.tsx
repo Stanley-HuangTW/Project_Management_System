@@ -155,6 +155,7 @@ export function PersonalItemRow({
         lockedScheduleFields={
           item.scheduleLock ? new Map([[item.itemId, item.scheduleLock]]) : undefined
         }
+        manualScheduleHint={item.scheduleHint}
         userRole={userRole}
         currentUserId={currentUserId}
         open={detailOpen}

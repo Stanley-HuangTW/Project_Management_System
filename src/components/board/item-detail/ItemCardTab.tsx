@@ -23,6 +23,7 @@ export function ItemCardTab({
   predColumnId,
   groupItems,
   lockedScheduleFields,
+  manualScheduleHint,
   userRole,
   currentUserId,
 }: {
@@ -37,6 +38,9 @@ export function ItemCardTab({
   predColumnId?: string | null;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
+  /** What to tell the user to edit instead when a Start/Days/Finish field
+   *  is locked — see manualScheduleHint in @/lib/gantt. */
+  manualScheduleHint?: string;
   userRole: UserRole;
   currentUserId: string;
 }) {
@@ -122,7 +126,8 @@ export function ItemCardTab({
             ? !canModifySchedule
               ? "權限不足:僅建立者或管理者可以修改此項目的時程"
               : isLockedField
-                ? "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定"
+                ? (manualScheduleHint ??
+                  "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定")
                 : null
             : null;
         return (
@@ -131,7 +136,9 @@ export function ItemCardTab({
               className={`flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5 ${
                 scheduleBlockedReason ? "cursor-not-allowed" : ""
               }`}
-              title={isLockedField ? "由前置依賴或子項目統計自動計算" : undefined}
+              title={
+                isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined
+              }
               onClick={scheduleBlockedReason ? () => alert(scheduleBlockedReason) : undefined}
             >
               <span className="text-xs text-neutral-400 dark:text-neutral-500">{col.name}</span>

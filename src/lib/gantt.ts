@@ -175,3 +175,21 @@ export function computeDailyLoadByUser(
 
   return loadByUser;
 }
+
+/**
+ * When a board computes Start/Days/Finish from two manual columns, a user
+ * who clicks one of those locked cells has a concrete answer to "then what
+ * do I change?" — name the two columns rather than leaving the generic
+ * "it's calculated" message. Undefined when the board isn't in that mode.
+ */
+export function manualScheduleHint(
+  columns: { id: string; name: string }[],
+  manualStartColumnId?: string | null,
+  manualDurationColumnId?: string | null
+): string | undefined {
+  if (!manualStartColumnId || !manualDurationColumnId) return undefined;
+  const start = columns.find((c) => c.id === manualStartColumnId)?.name;
+  const duration = columns.find((c) => c.id === manualDurationColumnId)?.name;
+  if (!start || !duration) return undefined;
+  return `此日期/天數由「${start}」與「${duration}」加上前置依賴自動計算,請改這兩個欄位`;
+}

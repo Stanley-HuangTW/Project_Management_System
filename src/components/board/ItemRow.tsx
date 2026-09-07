@@ -287,6 +287,7 @@ export function ItemRow({
           predColumnId={predColumnId}
           groupItems={allGroupItems}
           lockedScheduleFields={lockedScheduleFields}
+          manualScheduleHint={manualScheduleHint}
           userRole={userRole}
           currentUserId={currentUserId}
           open={detailOpen}
@@ -305,6 +306,7 @@ export function ItemRow({
           predColumnId={predColumnId}
           groupItems={allGroupItems}
           lockedScheduleFields={lockedScheduleFields}
+          manualScheduleHint={manualScheduleHint}
           userRole={userRole}
           currentUserId={currentUserId}
           open={newChildItem !== null}
@@ -323,6 +325,7 @@ export function ItemRow({
           predColumnId={predColumnId}
           groupItems={allGroupItems}
           lockedScheduleFields={lockedScheduleFields}
+          manualScheduleHint={manualScheduleHint}
           userRole={userRole}
           currentUserId={currentUserId}
           open={insertedItem !== null}

@@ -25,7 +25,7 @@ import { canManageStructure } from "@/lib/permissions";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
 import { computeAncestorIds } from "@/lib/wbs";
 import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
-import { computeRolledUpDateRange } from "@/lib/gantt";
+import { computeRolledUpDateRange, manualScheduleHint as buildManualScheduleHint } from "@/lib/gantt";
 import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
 import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
@@ -220,14 +220,11 @@ export function BoardTable({
   // When the board computes Start/Days/Finish from manual columns, a locked
   // cell has a concrete answer to "then what do I change?" — name those two
   // columns rather than leaving the generic "it's calculated" message.
-  const manualScheduleHint = useMemo(() => {
-    if (!board.manualStartColumnId || !board.manualDurationColumnId) return undefined;
-    const name = (id: string) => board.columns.find((c) => c.id === id)?.name;
-    const start = name(board.manualStartColumnId);
-    const duration = name(board.manualDurationColumnId);
-    if (!start || !duration) return undefined;
-    return `此日期/天數由「${start}」與「${duration}」加上前置依賴自動計算,請改這兩個欄位`;
-  }, [board.columns, board.manualStartColumnId, board.manualDurationColumnId]);
+  const manualScheduleHint = useMemo(
+    () =>
+      buildManualScheduleHint(board.columns, board.manualStartColumnId, board.manualDurationColumnId),
+    [board.columns, board.manualStartColumnId, board.manualDurationColumnId]
+  );
 
   // Task-name color by status — same rule and board-configured colors as
   // the Gantt view (BoardGantt.tsx's ganttStatusColor), via the shared
@@ -564,6 +561,7 @@ export function BoardTable({
         predColumnId={board.predColumnId}
         groupItems={autoOpenItem ? board.items.filter((i) => i.groupId === autoOpenItem.groupId) : undefined}
         lockedScheduleFields={lockedScheduleFields}
+        manualScheduleHint={manualScheduleHint}
         userRole={userRole}
         currentUserId={currentUserId}
         open={autoOpenItem !== null}
