@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useDialogs } from "@/components/ui/DialogProvider";
 
 /**
  * Runs a cell-update server action and surfaces its error instead of leaving
@@ -11,6 +12,7 @@ import { useRouter } from "next/navigation";
  */
 export function useCellSave() {
   const router = useRouter();
+  const { notify } = useDialogs();
   return (run: () => Promise<unknown>) => {
     run()
       .then((result) => {
@@ -21,12 +23,12 @@ export function useCellSave() {
             ? (result as { error?: unknown }).error
             : null;
         if (typeof error === "string") {
-          window.alert(error);
+          notify(error, { title: "無法儲存" });
           router.refresh();
         }
       })
       .catch(() => {
-        window.alert("儲存失敗,請重新整理後再試一次。");
+        notify("儲存失敗,請重新整理後再試一次。", { title: "無法儲存" });
         router.refresh();
       });
   };

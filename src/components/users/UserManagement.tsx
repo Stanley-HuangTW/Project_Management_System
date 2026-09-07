@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, KeyRound, Lock, Pencil, Plus, Trash2, Unlock } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   createUser,
   updateUser,
@@ -206,6 +207,7 @@ export function UserManagement({
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { confirm } = useDialogs();
 
   const [resetTarget, setResetTarget] = useState<UserRow | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
@@ -288,7 +290,12 @@ export function UserManagement({
   }
 
   async function handleDelete(user: UserRow) {
-    if (!window.confirm(`確定要刪除使用者「${user.name}」嗎?此操作無法復原。`)) return;
+    const ok = await confirm(`確定要刪除使用者「${user.name}」嗎?此操作無法復原。`, {
+      title: "刪除使用者",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
     setDeleteError(null);
     try {
       await deleteUser(user.id);

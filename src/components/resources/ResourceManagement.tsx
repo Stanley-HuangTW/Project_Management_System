@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   createResource,
   updateResource,
@@ -130,6 +131,7 @@ export function ResourceManagement({
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { confirm } = useDialogs();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -190,7 +192,12 @@ export function ResourceManagement({
   }
 
   async function handleDelete(resource: ResourceRow) {
-    if (!window.confirm(`確定要刪除資源「${resource.name}」嗎?此操作無法復原。`)) return;
+    const ok = await confirm(`確定要刪除資源「${resource.name}」嗎?此操作無法復原。`, {
+      title: "刪除資源",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
     setDeleteError(null);
     try {
       await deleteResource(resource.id);

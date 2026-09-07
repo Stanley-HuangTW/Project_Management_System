@@ -9,6 +9,7 @@ import { isItemAssignedToUser } from "@/lib/itemAssignment";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
 import { CellEditor } from "../cell-editors/CellEditor";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
 
 export function ItemCardTab({
@@ -45,6 +46,7 @@ export function ItemCardTab({
   currentUserId: string;
 }) {
   const [todoStats, setTodoStats] = useState<{ done: number; total: number } | null>(null);
+  const { notify } = useDialogs();
   const [name, setName] = useState(item.name);
   // Resync the local draft when a different item's name arrives (switching
   // items, or another user's rename) — adjusted during render, not an
@@ -139,7 +141,7 @@ export function ItemCardTab({
               title={
                 isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined
               }
-              onClick={scheduleBlockedReason ? () => alert(scheduleBlockedReason) : undefined}
+              onClick={scheduleBlockedReason ? () => notify(scheduleBlockedReason) : undefined}
             >
               <span className="text-xs text-neutral-400 dark:text-neutral-500">{col.name}</span>
               <span className="w-40 text-sm text-neutral-800 dark:text-neutral-100">

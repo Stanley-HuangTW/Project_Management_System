@@ -20,6 +20,7 @@ import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
 import { AssignmentModal } from "./AssignmentModal";
 import { ItemDetailModal } from "./ItemDetailModal";
@@ -1076,6 +1077,8 @@ function GanttBar({
     offsetPx: number;
   } | null>(null);
 
+  const { confirm, notify } = useDialogs();
+
   const canResizeStart = canEdit && !startLocked && !daysLocked;
   const canResizeEnd = canEdit && !endLocked && !daysLocked;
   const canMove = canEdit && !startLocked && !endLocked;
@@ -1125,7 +1128,7 @@ function GanttBar({
     e.stopPropagation();
     const reason = blockedReason(edge);
     if (reason) {
-      alert(reason);
+      notify(reason);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1165,7 +1168,7 @@ function GanttBar({
       }
       const moveReason = blockedReason("move");
       if (moveReason) {
-        alert(moveReason);
+        await notify(moveReason);
         return;
       }
       if (deltaIndex === 0) return;
@@ -1183,11 +1186,11 @@ function GanttBar({
         holidaySet,
         fixedDurationDays
       );
-      if (!window.confirm(message)) return;
+      if (!(await confirm(message, { title: "調整時程" }))) return;
       try {
         await moveItemBar(boardId, item.id, toIsoDate(newStartDate));
       } catch (err) {
-        alert(err instanceof Error ? err.message : "調整失敗");
+        await notify(err instanceof Error ? err.message : "調整失敗", { title: "無法調整時程" });
       }
       return;
     }
@@ -1204,12 +1207,12 @@ function GanttBar({
     const newStart = current.edge === "start" ? newDate : range.start;
     const newEnd = current.edge === "end" ? newDate : range.end;
     const message = describeScheduleChange(range.start, range.end, newStart, newEnd, durationMode, holidaySet);
-    if (!window.confirm(message)) return;
+    if (!(await confirm(message, { title: "調整時程" }))) return;
 
     try {
       await resizeItemBar(boardId, item.id, current.edge, toIsoDate(newDate));
     } catch (err) {
-      alert(err instanceof Error ? err.message : "調整失敗");
+      await notify(err instanceof Error ? err.message : "調整失敗", { title: "無法調整時程" });
     }
   }
 

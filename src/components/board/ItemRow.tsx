@@ -19,6 +19,7 @@ import { CellEditor } from "./cell-editors/CellEditor";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { AssignmentModal } from "./AssignmentModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import { deleteItem, createItem, insertItem } from "@/lib/actions/item";
 import { computeItemProgress } from "@/lib/progress";
 import type { ScheduleLock } from "@/lib/predecessorLink";
@@ -105,6 +106,7 @@ export function ItemRow({
   const isAncestorOfHighlight = expandIds?.has(item.id) ?? false;
   const expanded = !collapsedIds.has(item.id) || isAncestorOfHighlight;
   const [detailOpen, setDetailOpen] = useState(false);
+  const { notify } = useDialogs();
   const [detailTab, setDetailTab] = useState<"updates" | "card">("updates");
   const [assignOpen, setAssignOpen] = useState(false);
   const [newChildItem, setNewChildItem] = useState<ItemData | null>(null);
@@ -397,7 +399,7 @@ export function ItemRow({
               className={`border-r border-neutral-100 dark:border-neutral-700 px-1 ${scheduleBlockedReason ? "cursor-not-allowed" : ""}`}
               style={isLockedField ? { backgroundColor: "#f3f4f6" } : undefined}
               title={isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined}
-              onClick={scheduleBlockedReason ? () => alert(scheduleBlockedReason) : undefined}
+              onClick={scheduleBlockedReason ? () => notify(scheduleBlockedReason) : undefined}
             >
               {hasChildren && col.id === progressColumnId ? (
                 <RollupProgress

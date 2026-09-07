@@ -15,6 +15,7 @@ import {
   setManualDurationColumn,
 } from "@/lib/actions/column";
 import { recomputeBoardSchedule } from "@/lib/actions/predecessorSchedule";
+import { useDialogs } from "@/components/ui/DialogProvider";
 
 export type GanttMappingBoard = {
   id: string;
@@ -33,6 +34,7 @@ export type GanttMappingBoard = {
 
 function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
   const router = useRouter();
+  const { confirm } = useDialogs();
   const [recomputing, setRecomputing] = useState(false);
 
   const dateColumns = board.columns.filter((c) => c.type === "DATE");
@@ -43,17 +45,26 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
   // Changing which column drives Start/Days/Finish/Pred/Link/Type/Lag affects
   // every item's displayed schedule and lock state board-wide, so confirm
   // before applying — same as the per-board Gantt view's own settings row.
-  function confirmChange(fieldLabel: string, currentId: string | null, nextValue: string, columns: ColumnData[]): boolean {
+  async function confirmChange(
+    fieldLabel: string,
+    currentId: string | null,
+    nextValue: string,
+    columns: ColumnData[]
+  ): Promise<boolean> {
     const currentLabel = currentId ? (columns.find((c) => c.id === currentId)?.name ?? currentId) : "未設定";
     const nextLabel = nextValue ? (columns.find((c) => c.id === nextValue)?.name ?? nextValue) : "未設定";
     if (currentLabel === nextLabel) return true;
-    return window.confirm(
-      `確定要將「${board.name}」的「${fieldLabel}」從「${currentLabel}」改為「${nextLabel}」嗎?這會影響該看板的甘特圖計算(時程顯示、鎖定判斷、自動排程)。`
+    return confirm(
+      `確定要將「${board.name}」的「${fieldLabel}」從「${currentLabel}」改為「${nextLabel}」嗎?這會影響該看板的甘特圖計算(時程顯示、鎖定判斷、自動排程)。`,
+      { title: "變更甘特圖欄位對應" }
     );
   }
 
   async function handleRecomputeAll() {
-    if (!window.confirm(`將重新計算「${board.name}」所有有前置依賴的項目時間,確定繼續?`)) return;
+    const ok = await confirm(`將重新計算「${board.name}」所有有前置依賴的項目時間,確定繼續?`, {
+      title: "重算全部時程",
+    });
+    if (!ok) return;
     setRecomputing(true);
     try {
       await recomputeBoardSchedule(board.id);
@@ -70,9 +81,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">開始日期欄位</span>
           <select
             value={board.ganttStartColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("開始日期欄位", board.ganttStartColumnId, e.target.value, dateColumns)) return;
-              setGanttStartColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("開始日期欄位", board.ganttStartColumnId, next, dateColumns))) return;
+              setGanttStartColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -88,9 +102,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">天數欄位</span>
           <select
             value={board.ganttDurationColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("天數欄位", board.ganttDurationColumnId, e.target.value, numberColumns)) return;
-              setGanttDurationColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("天數欄位", board.ganttDurationColumnId, next, numberColumns))) return;
+              setGanttDurationColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -106,9 +123,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">結束日期欄位</span>
           <select
             value={board.ganttEndColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("結束日期欄位", board.ganttEndColumnId, e.target.value, dateColumns)) return;
-              setGanttEndColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("結束日期欄位", board.ganttEndColumnId, next, dateColumns))) return;
+              setGanttEndColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -124,9 +144,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">前置依賴欄位</span>
           <select
             value={board.predColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("前置依賴欄位", board.predColumnId, e.target.value, textColumns)) return;
-              setPredColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("前置依賴欄位", board.predColumnId, next, textColumns))) return;
+              setPredColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -142,9 +165,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">關聯類型欄位</span>
           <select
             value={board.linkColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("關聯類型欄位", board.linkColumnId, e.target.value, statusColumns)) return;
-              setLinkColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("關聯類型欄位", board.linkColumnId, next, statusColumns))) return;
+              setLinkColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -160,9 +186,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">Type 欄位</span>
           <select
             value={board.typeColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("Type 欄位", board.typeColumnId, e.target.value, statusColumns)) return;
-              setGanttTypeColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("Type 欄位", board.typeColumnId, next, statusColumns))) return;
+              setGanttTypeColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -178,9 +207,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">Lag 欄位</span>
           <select
             value={board.lagColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("Lag 欄位", board.lagColumnId, e.target.value, numberColumns)) return;
-              setGanttLagColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("Lag 欄位", board.lagColumnId, next, numberColumns))) return;
+              setGanttLagColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -196,9 +228,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">手動開始日期欄位</span>
           <select
             value={board.manualStartColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("手動開始日期欄位", board.manualStartColumnId, e.target.value, dateColumns)) return;
-              setManualStartColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("手動開始日期欄位", board.manualStartColumnId, next, dateColumns))) return;
+              setManualStartColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >
@@ -214,9 +249,12 @@ function BoardGanttMapping({ board }: { board: GanttMappingBoard }) {
           <span className="text-neutral-500 dark:text-neutral-400">手動天數欄位</span>
           <select
             value={board.manualDurationColumnId ?? ""}
-            onChange={(e) => {
-              if (!confirmChange("手動天數欄位", board.manualDurationColumnId, e.target.value, numberColumns)) return;
-              setManualDurationColumn(board.id, e.target.value || null).then(() => router.refresh());
+            onChange={async (e) => {
+              // Captured before awaiting: React re-renders this controlled select
+              // back to its stored value while the confirm dialog is open.
+              const next = e.target.value;
+              if (!(await confirmChange("手動天數欄位", board.manualDurationColumnId, next, numberColumns))) return;
+              setManualDurationColumn(board.id, next || null).then(() => router.refresh());
             }}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           >

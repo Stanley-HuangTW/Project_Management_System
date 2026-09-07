@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { BoardSidebar } from "@/components/sidebar/BoardSidebar";
 import { BoardAdminActionsProvider } from "@/components/board/BoardAdminActions";
+import { DialogProvider } from "@/components/ui/DialogProvider";
 
 export default async function DashboardLayout({
   children,
@@ -21,6 +22,7 @@ export default async function DashboardLayout({
   ]);
 
   return (
+    <DialogProvider>
     <BoardAdminActionsProvider>
       <div className="flex h-screen w-full">
         <BoardSidebar
@@ -32,5 +34,6 @@ export default async function DashboardLayout({
         <div className="flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800">{children}</div>
       </div>
     </BoardAdminActionsProvider>
+    </DialogProvider>
   );
 }

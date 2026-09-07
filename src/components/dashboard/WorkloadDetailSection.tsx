@@ -13,6 +13,7 @@ import {
 import { createTeamSubtask } from "@/lib/actions/teamTask";
 import { loadItemScheduleContext, type ItemScheduleContext } from "@/lib/actions/itemSchedule";
 import { AssignmentModal } from "@/components/board/AssignmentModal";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import type { UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { findTreeNode, firstTreeItemId, type ParentTreeNode } from "@/lib/parentTaskTree";
@@ -63,6 +64,7 @@ export function WorkloadDetailSection({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
+  const { notify } = useDialogs();
 
   const [creatingForUserId, setCreatingForUserId] = useState<string | null>(null);
   const [anchorIdx, setAnchorIdx] = useState<number | null>(null);
@@ -86,12 +88,12 @@ export function WorkloadDetailSection({
     try {
       const context = await loadItemScheduleContext(itemId);
       if (!context) {
-        alert("權限不足:僅該項目的負責人或管理者可以調整人員分配");
+        await notify("權限不足:僅該項目的負責人或管理者可以調整人員分配");
         return;
       }
       setScheduleContext(context);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "載入失敗");
+      await notify(err instanceof Error ? err.message : "載入失敗");
     } finally {
       setOpeningItemId(null);
     }

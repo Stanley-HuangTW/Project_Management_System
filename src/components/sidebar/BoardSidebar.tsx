@@ -26,6 +26,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useBoardAdminActions, type BoardAdminAction } from "@/components/board/BoardAdminActions";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import { ProfileModal } from "./ProfileModal";
 import { createBoard, renameBoard, deleteBoard } from "@/lib/actions/board";
 import { logout } from "@/lib/actions/auth";
@@ -60,6 +61,7 @@ export function BoardSidebar({
 }) {
   const canManage = canManageBoard(userRole);
   const openBoardAdmin = useBoardAdminActions();
+  const { confirm } = useDialogs();
   const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -146,8 +148,13 @@ export function BoardSidebar({
     });
   }
 
-  function handleDelete(board: Board) {
-    if (!confirm(`確定要刪除看板「${board.name}」嗎?此操作無法復原。`)) return;
+  async function handleDelete(board: Board) {
+    const ok = await confirm(`確定要刪除看板「${board.name}」嗎?此操作無法復原。`, {
+      title: "刪除看板",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
     startTransition(async () => {
       await deleteBoard(board.id);
       if (pathname === `/boards/${board.id}`) {
