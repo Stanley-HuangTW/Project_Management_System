@@ -216,26 +216,5 @@ export async function upsertCellValue(
     }
   }
 
-  // Revalidating makes Next re-render the page this action was posted from
-  // and ship it back with the response — on a 5000-item board that is ~800ms
-  // on top of a ~28ms write. It's only worth paying when the server changed
-  // something the client can't already see: a schedule edit cascades through
-  // the engine and rewrites Start/Days/Finish on this item and its
-  // dependents. A plain value edit changed exactly the cell the user typed
-  // into, which their own screen is already showing.
-  const writesOtherCells =
-    !!column &&
-    !!board &&
-    [
-      board.ganttStartColumnId,
-      board.ganttDurationColumnId,
-      board.ganttEndColumnId,
-      board.predColumnId,
-      board.linkColumnId,
-      board.manualStartColumnId,
-      board.manualDurationColumnId,
-    ].includes(column.id);
-  if (writesOtherCells) {
-    revalidatePath(`/boards/${boardId}`);
-  }
+  revalidatePath(`/boards/${boardId}`);
 }

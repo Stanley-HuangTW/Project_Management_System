@@ -36,6 +36,7 @@ export function GroupSection({
   expandIds,
   levelColors,
   nameColors,
+  manualScheduleHint,
   collapsedIds,
   onToggleCollapse,
   onExpandGroup,
@@ -62,6 +63,7 @@ export function GroupSection({
   expandIds?: Set<string>;
   levelColors?: string[];
   nameColors?: Map<string, string>;
+  manualScheduleHint?: string;
   collapsedIds: Set<string>;
   onToggleCollapse: (itemId: string) => void;
   onExpandGroup: () => void;
@@ -211,6 +213,7 @@ export function GroupSection({
                 expandIds={expandIds}
                 levelColors={levelColors}
                 nameColors={nameColors}
+                manualScheduleHint={manualScheduleHint}
                 collapsedIds={collapsedIds}
                 onToggleCollapse={onToggleCollapse}
                 hasGroupScheduleRole={myGroupAccess.hasScheduleRole}
@@ -261,6 +264,7 @@ export function GroupSection({
                 expandIds={expandIds}
                 levelColors={levelColors}
                 nameColors={nameColors}
+                manualScheduleHint={manualScheduleHint}
                 collapsedIds={collapsedIds}
                 onToggleCollapse={onToggleCollapse}
                 hasGroupScheduleRole={myGroupAccess.hasScheduleRole}
