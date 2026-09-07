@@ -188,6 +188,9 @@ export default async function DashboardPage({
         threshold={workloadThreshold}
         canCreateSubtask={canManageStructure(session.role)}
         parentTaskTree={parentTaskTree}
+        allUsers={users}
+        currentUserId={session.userId}
+        userRole={session.role}
       />
 
       <section>

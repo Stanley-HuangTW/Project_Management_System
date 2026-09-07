@@ -34,6 +34,7 @@ export function AssignmentModal({
   ganttEndColumnId,
   canEditSchedule = false,
   groupItems,
+  onScheduleApplied,
 }: {
   boardId: string;
   item: ItemData | null;
@@ -71,6 +72,10 @@ export function AssignmentModal({
    *  dropdown (item name -> its WBS code, since that's what's actually
    *  stored) instead of making the user type a WBS code by hand. */
   groupItems?: ItemData[];
+  /** Called after a schedule field is saved, for callers whose `item` is a
+   *  fetched snapshot rather than a prop that router.refresh() updates —
+   *  otherwise the recomputed Start/Finish never reach the display above. */
+  onScheduleApplied?: () => void;
 }) {
   const router = useRouter();
   const [assignments, setAssignments] = useState<
@@ -131,6 +136,7 @@ export function AssignmentModal({
       if (!preview || (preview.start === currentStart && preview.end === currentEnd)) {
         await upsertCellValue(boardId, item.id, columnId, value);
         router.refresh();
+        onScheduleApplied?.();
         return;
       }
       setPendingChange({ columnId, value, preview });
@@ -144,6 +150,7 @@ export function AssignmentModal({
     await upsertCellValue(boardId, item.id, pendingChange.columnId, pendingChange.value);
     setPendingChange(null);
     router.refresh();
+    onScheduleApplied?.();
   }
 
   function cancelPendingChange() {

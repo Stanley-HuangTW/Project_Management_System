@@ -11,11 +11,16 @@ import {
   type WeekColumn,
 } from "@/lib/workload";
 import { createTeamSubtask } from "@/lib/actions/teamTask";
-import { upsertAssignment } from "@/lib/actions/assignment";
+import { loadItemScheduleContext, type ItemScheduleContext } from "@/lib/actions/itemSchedule";
+import { AssignmentModal } from "@/components/board/AssignmentModal";
+import type { UserOption } from "@/types/board";
+import type { UserRole } from "@prisma/client";
 import { findTreeNode, firstTreeItemId, type ParentTreeNode } from "@/lib/parentTaskTree";
 import { ParentTaskPicker } from "./ParentTaskPicker";
 
-const LABEL_WIDTH = 140;
+const DEFAULT_LABEL_WIDTH = 140;
+const MIN_LABEL_WIDTH = 90;
+const MAX_LABEL_WIDTH = 460;
 const WEEK_WIDTH = 26;
 const DAY_MS = 86_400_000;
 
@@ -39,6 +44,9 @@ export function WorkloadDetailSection({
   threshold,
   canCreateSubtask,
   parentTaskTree,
+  allUsers,
+  currentUserId,
+  userRole,
 }: {
   users: { id: string; name: string }[];
   tasksByUser: Record<string, MemberTask[]>;
@@ -47,8 +55,14 @@ export function WorkloadDetailSection({
   threshold: WorkloadThresholdSettings;
   canCreateSubtask: boolean;
   parentTaskTree: ParentTreeNode[];
+  /** Everyone assignable, for the 人員分配 modal a bar click opens — wider
+   *  than `users`, which is only the members this timeline charts. */
+  allUsers: UserOption[];
+  currentUserId: string;
+  userRole: UserRole;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
 
   const [creatingForUserId, setCreatingForUserId] = useState<string | null>(null);
   const [anchorIdx, setAnchorIdx] = useState<number | null>(null);
@@ -61,27 +75,51 @@ export function WorkloadDetailSection({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [editPct, setEditPct] = useState(100);
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  // Clicking a task bar opens the same 人員分配 modal the Gantt uses, so the
+  // item's Start/Finish/Pred/Link/Lag and everyone's allocation % are in one
+  // place. Its data is fetched per click — see loadItemScheduleContext.
+  const [scheduleContext, setScheduleContext] = useState<ItemScheduleContext | null>(null);
+  const [openingItemId, setOpeningItemId] = useState<string | null>(null);
 
-  function startEditingPct(userId: string, itemId: string, currentPct: number) {
-    setEditingKey(`${userId}:${itemId}`);
-    setEditPct(currentPct);
+  async function openTask(itemId: string) {
+    setOpeningItemId(itemId);
+    try {
+      const context = await loadItemScheduleContext(itemId);
+      if (!context) {
+        alert("權限不足:僅該項目的負責人或管理者可以調整人員分配");
+        return;
+      }
+      setScheduleContext(context);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningItemId(null);
+    }
   }
 
-  async function savePct(userId: string, boardId: string, itemId: string) {
-    setEditSubmitting(true);
-    try {
-      await upsertAssignment(boardId, itemId, userId, editPct);
-      setEditingKey(null);
-    } catch (err) {
-      // A rejected upsert (e.g. permission) just leaves the editor open with
-      // its current value — the user can retry or cancel.
-      alert(err instanceof Error ? err.message : "更新失敗");
-    } finally {
-      setEditSubmitting(false);
+  /** A schedule edit recomputes Start/Finish server-side, so the snapshot the
+   *  modal is showing has to be re-read. */
+  async function reloadOpenTask() {
+    const itemId = scheduleContext?.item.id;
+    if (!itemId) return;
+    const context = await loadItemScheduleContext(itemId);
+    if (context) setScheduleContext(context);
+  }
+
+  function startLabelResize(e: React.PointerEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = labelWidth;
+    function onMove(ev: PointerEvent) {
+      const next = startWidth + (ev.clientX - startX);
+      setLabelWidth(Math.min(MAX_LABEL_WIDTH, Math.max(MIN_LABEL_WIDTH, next)));
     }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   const selectedParentNode = formParentId ? findTreeNode(parentTaskTree, formParentId) : null;
@@ -116,7 +154,7 @@ export function WorkloadDetailSection({
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el || todayOffsetPx === null) return;
-    el.scrollLeft = Math.max(0, LABEL_WIDTH + todayOffsetPx - el.clientWidth / 2);
+    el.scrollLeft = Math.max(0, labelWidth + todayOffsetPx - el.clientWidth / 2);
     if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
     // Only center on today once, when the timeline first renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -255,18 +293,18 @@ export function WorkloadDetailSection({
           onScroll={() => syncScrollLeft("top")}
           className="overflow-x-auto overflow-y-hidden"
         >
-          <div style={{ width: LABEL_WIDTH + timelineWidth, height: 1 }} />
+          <div style={{ width: labelWidth + timelineWidth, height: 1 }} />
         </div>
         <div
           ref={scrollContainerRef}
           onScroll={() => syncScrollLeft("main")}
           className="max-h-[70vh] overflow-auto"
         >
-          <div className="relative" style={{ width: LABEL_WIDTH + timelineWidth }}>
+          <div className="relative" style={{ width: labelWidth + timelineWidth }}>
             {todayOffsetPx !== null && (
               <div
                 className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400"
-                style={{ left: LABEL_WIDTH + todayOffsetPx }}
+                style={{ left: labelWidth + todayOffsetPx }}
                 title="今天"
               />
             )}
@@ -275,8 +313,17 @@ export function WorkloadDetailSection({
             <div className="sticky top-0 z-10 mb-2 bg-white pb-2 dark:bg-neutral-900">
             <div className="overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
               <div className="flex border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
-                <div style={{ width: LABEL_WIDTH }} className="shrink-0 border-r border-neutral-100 dark:border-neutral-700 px-2 py-1">
+                <div
+                  style={{ width: labelWidth }}
+                  className="relative shrink-0 border-r border-neutral-100 dark:border-neutral-700 px-2 py-1"
+                >
                   成員
+                  <div
+                    onPointerDown={startLabelResize}
+                    title="拖曳調整名稱欄寬度"
+                    className="absolute right-0 top-0 z-20 h-full w-1 cursor-col-resize hover:bg-blue-400"
+                    style={{ touchAction: "none" }}
+                  />
                 </div>
                 <div className="flex">
                   {monthGroups.map((g, i) => (
@@ -291,7 +338,7 @@ export function WorkloadDetailSection({
                 </div>
               </div>
               <div className="flex bg-neutral-50 dark:bg-neutral-800 text-[9px] text-neutral-400 dark:text-neutral-500">
-                <div style={{ width: LABEL_WIDTH }} className="shrink-0 border-r border-neutral-100 dark:border-neutral-700" />
+                <div style={{ width: labelWidth }} className="shrink-0 border-r border-neutral-100 dark:border-neutral-700" />
                 <div className="flex">
                   {weeks.map((w, i) => (
                     <div
@@ -346,7 +393,7 @@ export function WorkloadDetailSection({
                       className="flex w-full items-center text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
                     >
                       <div
-                        style={{ width: LABEL_WIDTH }}
+                        style={{ width: labelWidth }}
                         className="flex shrink-0 items-center gap-1 border-r border-neutral-100 dark:border-neutral-700 px-2 py-2"
                       >
                         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -381,12 +428,10 @@ export function WorkloadDetailSection({
                             const hasRange = t.startDate && t.endDate;
                             const startIdx = hasRange ? weekIndexForDate(t.startDate!, weeks) : 0;
                             const endIdx = hasRange ? weekIndexForDate(t.endDate!, weeks) : 0;
-                            const key = `${user.id}:${t.itemId}`;
-                            const isEditingPct = editingKey === key;
                             return (
                               <div key={`${t.boardId}-${t.itemId}`} className="flex items-center">
                                 <div
-                                  style={{ width: LABEL_WIDTH }}
+                                  style={{ width: labelWidth }}
                                   className="shrink-0 truncate border-r border-neutral-100 dark:border-neutral-700 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-400"
                                   title={t.itemName}
                                 >
@@ -398,46 +443,13 @@ export function WorkloadDetailSection({
                                   </Link>
                                 </div>
                                 <div className="relative flex items-center" style={{ width: timelineWidth, height: 18 }}>
-                                  {isEditingPct ? (
-                                    <div
-                                      className="absolute top-0 z-10 flex items-center gap-1 rounded border border-blue-300 bg-white dark:bg-neutral-900 px-1 py-0.5 shadow-sm"
-                                      style={{ left: hasRange ? startIdx * WEEK_WIDTH : 0 }}
-                                    >
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        max={100}
-                                        autoFocus
-                                        value={editPct}
-                                        onChange={(e) => setEditPct(Number(e.target.value))}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") savePct(user.id, t.boardId, t.itemId);
-                                          if (e.key === "Escape") setEditingKey(null);
-                                        }}
-                                        className="w-11 rounded border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1 py-0.5 text-[10px] outline-none focus:border-blue-500"
-                                      />
-                                      <button
-                                        type="button"
-                                        disabled={editSubmitting}
-                                        onClick={() => savePct(user.id, t.boardId, t.itemId)}
-                                        className="text-[10px] font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                                      >
-                                        ✓
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingKey(null)}
-                                        className="text-[10px] text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-400"
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
-                                  ) : canCreateSubtask ? (
+                                  {canCreateSubtask ? (
                                     <button
                                       type="button"
-                                      onClick={() => startEditingPct(user.id, t.itemId, t.allocationPct)}
-                                      title="點選調整百分比"
-                                      className={`flex h-3.5 items-center justify-center overflow-hidden rounded-sm text-[9px] font-medium text-white hover:ring-1 hover:ring-blue-400 ${
+                                      disabled={openingItemId === t.itemId}
+                                      onClick={() => openTask(t.itemId)}
+                                      title="點選查看時程並調整百分比"
+                                      className={`flex h-3.5 items-center justify-center overflow-hidden rounded-sm text-[9px] font-medium text-white hover:ring-1 hover:ring-blue-400 disabled:opacity-60 ${
                                         hasRange ? "absolute top-0.5" : "px-1.5"
                                       }`}
                                       style={{
@@ -474,7 +486,7 @@ export function WorkloadDetailSection({
                             <>
                               <div className="flex items-center">
                                 <div
-                                  style={{ width: LABEL_WIDTH }}
+                                  style={{ width: labelWidth }}
                                   className="shrink-0 border-r border-neutral-100 dark:border-neutral-700 px-2 py-1 text-[10px] text-neutral-500 dark:text-neutral-400"
                                 >
                                   拖曳或點選,亦可於下方輸入
@@ -630,6 +642,27 @@ export function WorkloadDetailSection({
         </div>
         </>
       )}
+
+      <AssignmentModal
+        boardId={scheduleContext?.item.boardId ?? ""}
+        item={scheduleContext?.item ?? null}
+        users={allUsers}
+        currentUserId={currentUserId}
+        userRole={userRole}
+        open={scheduleContext !== null}
+        onOpenChange={(open) => !open && setScheduleContext(null)}
+        columns={scheduleContext?.columns}
+        predColumnId={scheduleContext?.predColumnId}
+        linkColumnId={scheduleContext?.linkColumnId}
+        lagColumnId={scheduleContext?.lagColumnId}
+        durationColumnId={scheduleContext?.durationColumnId}
+        manualStartColumnId={scheduleContext?.manualStartColumnId}
+        ganttStartColumnId={scheduleContext?.ganttStartColumnId}
+        ganttEndColumnId={scheduleContext?.ganttEndColumnId}
+        canEditSchedule={scheduleContext?.canEditSchedule ?? false}
+        groupItems={scheduleContext?.groupItems}
+        onScheduleApplied={reloadOpenTask}
+      />
     </section>
   );
 }
