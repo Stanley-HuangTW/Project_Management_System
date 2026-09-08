@@ -1,7 +1,7 @@
 import type { BoardWithData, ColumnData, ItemData } from "@/types/board";
 import { classifyItemStatus, resolveStatusColumn } from "@/lib/dashboard";
 import { getItemDateRange } from "@/lib/gantt";
-import { buildWbsIndexFromItems, resolvePredValue } from "@/lib/predecessorLink";
+import { buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
 
 /**
  * What the predecessor's own state means for THIS item:
@@ -38,45 +38,57 @@ export function resolvePredLamp(
   if (typeof predValue !== "string" || !predValue) return null;
 
   const index = buildWbsIndexFromItems(groupItems);
-  const predId = resolvePredValue(index, item.groupId, predValue);
-  const predecessor = predId ? groupItems.find((i) => i.id === predId) : undefined;
-  if (!predecessor) return null;
+  const predecessors = resolvePredValues(index, item.groupId, predValue)
+    .map((predId) => groupItems.find((i) => i.id === predId))
+    .filter((p): p is ItemData => !!p);
+  if (predecessors.length === 0) return null;
 
-  const range =
-    board.ganttStartColumnId && board.ganttDurationColumnId
-      ? getItemDateRange(
-          predecessor,
-          board.ganttStartColumnId,
-          board.ganttDurationColumnId,
-          board.ganttDurationMode,
-          holidays
-        )
-      : null;
-  const kind = classifyItemStatus(predecessor, board, statusColumn, range);
-  const code = index.wbsByItemId.get(predecessor.id) ?? "";
-  const named = `${code} ${predecessor.name}`.trim();
+  const named = (predecessor: ItemData) =>
+    `${index.wbsByItemId.get(predecessor.id) ?? ""} ${predecessor.name}`.trim();
+  const kindOf = (predecessor: ItemData) => {
+    const range =
+      board.ganttStartColumnId && board.ganttDurationColumnId
+        ? getItemDateRange(
+            predecessor,
+            board.ganttStartColumnId,
+            board.ganttDurationColumnId,
+            board.ganttDurationMode,
+            holidays
+          )
+        : null;
+    return classifyItemStatus(predecessor, board, statusColumn, range);
+  };
 
-  if (kind === "done") {
-    return {
-      state: "ready",
-      color: board.predReadyColor,
-      label: `前置「${named}」已完成,此項目可以開始執行`,
-    };
-  }
-  if (kind === "overdue") {
+  const graded = predecessors.map((predecessor) => ({ predecessor, kind: kindOf(predecessor) }));
+
+  // With several predecessors the lamp reports the one holding this item up:
+  // a late one beats a running one beats "all done". Saying 可以開始 while any
+  // of them is unfinished would be exactly the wrong signal.
+  const blocked = graded.filter((g) => g.kind === "overdue");
+  if (blocked.length > 0) {
     return {
       state: "blocked",
       color: board.predBlockedColor,
-      label: `前置「${named}」已逾期,此項目被延後執行`,
+      label: `前置${blocked.map((g) => `「${named(g.predecessor)}」`).join("")}已逾期,此項目被延後執行`,
+    };
+  }
+  const pending = graded.filter((g) => g.kind !== "done");
+  if (pending.length > 0) {
+    const running = pending.filter((g) => g.kind === "inProgress");
+    const names = pending.map((g) => `「${named(g.predecessor)}」`).join("");
+    return {
+      state: "waiting",
+      color: board.predWaitingColor,
+      label:
+        running.length === pending.length
+          ? `前置${names}進行中,要等它完成才能開始`
+          : `前置${names}尚未完成,要等它完成才能開始`,
     };
   }
   return {
-    state: "waiting",
-    color: board.predWaitingColor,
-    label:
-      kind === "inProgress"
-        ? `前置「${named}」進行中,要等它完成才能開始`
-        : `前置「${named}」尚未開始,要等它完成才能開始`,
+    state: "ready",
+    color: board.predReadyColor,
+    label: `前置${graded.map((g) => `「${named(g.predecessor)}」`).join("")}已完成,此項目可以開始執行`,
   };
 }
 

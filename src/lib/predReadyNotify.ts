@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notifyEmailIfNeeded } from "@/lib/notify";
 import { getPersonIds } from "@/types/column";
-import { buildWbsIndexFromItems, resolvePredValue } from "@/lib/predecessorLink";
+import { buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
 
 type CompletionColumns = {
   progressColumnId: string | null;
@@ -106,7 +106,7 @@ export async function notifyDependentsWhenDone(
   const dependents = groupItems.filter((candidate) => {
     if (candidate.id === itemId) return false;
     const value = candidate.cellValues.find((cv) => cv.columnId === board.predColumnId)?.value;
-    return typeof value === "string" && resolvePredValue(index, candidate.groupId, value) === itemId;
+    return resolvePredValues(index, candidate.groupId, value).includes(itemId);
   });
   if (dependents.length === 0) return;
 

@@ -97,6 +97,36 @@ export function resolvePredValue(index: WbsIndex, groupId: string, value: string
   return index.itemIdByGroupWbs.get(`${groupId}:${value}`);
 }
 
+/**
+ * Every item a Pred cell points at. A task can wait on more than one thing —
+ * integration testing needs the software ported AND the mechanical sample
+ * delivered — so the cell holds a comma-separated list, the same notation MS
+ * Project uses ("12,15"). A single value is just a list of one, which is what
+ * every board held before this and what a spreadsheet import still brings in.
+ *
+ * Unresolvable entries are dropped rather than reported: a reference to a
+ * deleted item is simply not a dependency any more. Duplicates are collapsed,
+ * and the referencing item can never be its own predecessor.
+ */
+export function resolvePredValues(index: WbsIndex, groupId: string, value: unknown): string[] {
+  if (typeof value !== "string" || !value.trim()) return [];
+  const seen = new Set<string>();
+  for (const part of value.split(",")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const resolved = resolvePredValue(index, groupId, trimmed);
+    if (resolved) seen.add(resolved);
+  }
+  return [...seen];
+}
+
+/** The stored form of a Pred cell — null when nothing is selected, so the cell
+ *  clears rather than holding an empty string. */
+export function formatPredValue(itemIds: string[]): string | null {
+  const unique = [...new Set(itemIds.filter(Boolean))];
+  return unique.length > 0 ? unique.join(",") : null;
+}
+
 export async function buildWbsIndex(boardId: string) {
   const items = await prisma.item.findMany({
     where: { boardId },
@@ -259,14 +289,16 @@ export function resolveLockedScheduleFields(
 
     if (predColumnId && linkColumnId) {
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-      if (typeof predValue === "string" && predValue) {
-        const predItemId = resolvePredValue(wbsIndex, item.groupId, predValue);
-        if (predItemId && predItemId !== item.id) {
-          const linkValue = item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value;
-          const label = linkOptions.find((o) => o.id === linkValue)?.label;
-          if (label === "FS" || label === "SS") ensure(item.id).startLocked = true;
-          else if (label === "FF" || label === "SF") ensure(item.id).endLocked = true;
-        }
+      // One resolvable predecessor is enough: whichever end the relationship
+      // drives is computed, no matter how many things this item waits on.
+      const predIds = resolvePredValues(wbsIndex, item.groupId, predValue).filter(
+        (predId) => predId !== item.id
+      );
+      if (predIds.length > 0) {
+        const linkValue = item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value;
+        const label = linkOptions.find((o) => o.id === linkValue)?.label;
+        if (label === "FS" || label === "SS") ensure(item.id).startLocked = true;
+        else if (label === "FF" || label === "SF") ensure(item.id).endLocked = true;
       }
     }
 
@@ -391,11 +423,12 @@ async function buildScheduleContext(
     }
   }
 
-  function predecessorOf(id: string): string | undefined {
-    if (!predColumnId) return undefined;
+  function predecessorsOf(id: string): string[] {
+    if (!predColumnId) return [];
     const item = itemsById.get(id);
-    const predValue = item?.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-    return item && typeof predValue === "string" ? resolvePredValue(wbsIndex, item.groupId, predValue) : undefined;
+    if (!item) return [];
+    const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+    return resolvePredValues(wbsIndex, item.groupId, predValue).filter((predId) => predId !== id);
   }
 
   function dependentsOf(id: string): string[] {
@@ -408,7 +441,7 @@ async function buildScheduleContext(
       .filter((i) => {
         if (i.id === id || i.groupId !== item.groupId) return false;
         const value = i.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-        return typeof value === "string" && resolvePredValue(wbsIndex, i.groupId, value) === id;
+        return resolvePredValues(wbsIndex, i.groupId, value).includes(id);
       })
       .map((i) => i.id);
   }
@@ -431,30 +464,34 @@ async function buildScheduleContext(
 
     const item = itemsById.get(id);
     if (item) {
-      const predItemId = predecessorOf(id);
+      const predItemIds = predecessorsOf(id);
       const linkValue = linkColumnId ? item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
       const relationship = linkOptions.find((o) => o.id === linkValue)?.label;
       const lagValue = lagColumnId ? item.cellValues.find((cv) => cv.columnId === lagColumnId)?.value : null;
       const lag = typeof lagValue === "number" ? lagValue : 0;
       const { myDays, baseRange } = myDaysAndBase(item);
 
-      let scheduled: DateRange | null = null;
-      if (
-        predItemId &&
-        predItemId !== id &&
-        relationship &&
-        (RELATIONSHIP_TYPES as string[]).includes(relationship) &&
-        myDays !== null
-      ) {
-        const predRange = readRange(predItemId);
-        if (predRange) {
-          scheduled = computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
-        }
-      }
-      if (!scheduled && alwaysComputed && baseRange) {
-        scheduled = baseRange;
-      }
-      if (scheduled) await writeRange(id, scheduled, myDays);
+      // With several predecessors the binding one is whichever pushes this
+      // item latest — you cannot start until the last thing you wait on is
+      // out of the way. They share this item's own Link and Lag; per-edge
+      // relationships would have to live in the Pred cell itself, which is
+      // not what the Link/Lag columns mean here.
+      const scheduled = pickLatest(
+        predItemIds.map((predItemId) => {
+          if (
+            !relationship ||
+            !(RELATIONSHIP_TYPES as string[]).includes(relationship) ||
+            myDays === null
+          ) {
+            return null;
+          }
+          const predRange = readRange(predItemId);
+          if (!predRange) return null;
+          return computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
+        })
+      );
+      const effective = scheduled ?? (alwaysComputed ? baseRange : null);
+      if (effective) await writeRange(id, effective, myDays);
     }
 
     for (const depId of dependentsOf(id)) {
@@ -475,7 +512,7 @@ async function buildScheduleContext(
     wbsByItemId,
     overrides,
     readRange,
-    predecessorOf,
+    predecessorsOf,
     dependentsOf,
     recompute,
     ownTriggers,
@@ -669,8 +706,9 @@ export async function previewScheduleChange(
   const cellValues = item.cellValues.map((cv) => (cv.columnId === columnId ? { ...cv, value: newValue } : cv));
 
   const predValue = predColumnId ? cellValues.find((cv) => cv.columnId === predColumnId)?.value : null;
-  const predItemId =
-    predColumnId && typeof predValue === "string" ? resolvePredValue(wbsIndex, item.groupId, predValue) : undefined;
+  const predItemIds = predColumnId
+    ? resolvePredValues(wbsIndex, item.groupId, predValue).filter((predId) => predId !== itemId)
+    : [];
   const linkValue = linkColumnId ? cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
   const relationship = linkOptions.find((o) => o.id === linkValue)?.label;
   const lagValue = lagColumnId ? cellValues.find((cv) => cv.columnId === lagColumnId)?.value : null;
@@ -687,18 +725,18 @@ export async function previewScheduleChange(
   }
 
   let scheduled: DateRange | null = null;
-  if (
-    predItemId &&
-    predItemId !== itemId &&
-    relationship &&
-    (RELATIONSHIP_TYPES as string[]).includes(relationship) &&
-    myDays !== null
-  ) {
-    const predItem = itemsById.get(predItemId);
-    const predRange = predItem ? getItemDateRange(predItem, startId, durId, mode, holidays) : null;
-    if (predRange) {
-      scheduled = computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
-    }
+  if (relationship && (RELATIONSHIP_TYPES as string[]).includes(relationship) && myDays !== null) {
+    // Same rule as recompute: the binding predecessor is the one that pushes
+    // this item latest.
+    scheduled = pickLatest(
+      predItemIds.map((predItemId) => {
+        const predItem = itemsById.get(predItemId);
+        const predRange = predItem ? getItemDateRange(predItem, startId, durId, mode, holidays) : null;
+        return predRange
+          ? computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays)
+          : null;
+      })
+    );
   }
   if (!scheduled && alwaysComputed && baseRange) {
     scheduled = baseRange;
@@ -861,7 +899,7 @@ export async function recomputeAllSchedules(boardId: string): Promise<number> {
 
   const visited = new Set<string>();
   for (const item of ctx.items) {
-    if (!ctx.predecessorOf(item.id)) {
+    if (ctx.predecessorsOf(item.id).length === 0) {
       await ctx.recompute(item.id, visited);
     }
   }
@@ -897,13 +935,19 @@ export async function normalizePredReferences(
   let rewritten = 0;
   for (const item of items) {
     const value = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-    if (typeof value !== "string" || !value) continue;
-    if (index.groupByItemId.get(value) === item.groupId) continue; // already an id
-    const targetId = index.itemIdByGroupWbs.get(`${item.groupId}:${value}`);
-    if (!targetId) continue; // dangling code — leave it for the user to see
+    if (typeof value !== "string" || !value.trim()) continue;
+    // Each entry independently: a list can mix an already-pinned id with a
+    // freshly imported code.
+    const parts = value.split(",").map((p) => p.trim()).filter(Boolean);
+    const pinned = parts.map((part) => {
+      if (index.groupByItemId.get(part) === item.groupId) return part;
+      return index.itemIdByGroupWbs.get(`${item.groupId}:${part}`) ?? part;
+    });
+    const next = pinned.join(",");
+    if (next === value) continue; // nothing resolvable, or all already ids
     await client.cellValue.update({
       where: { itemId_columnId: { itemId: item.id, columnId: predColumnId } },
-      data: { value: targetId },
+      data: { value: next },
     });
     rewritten++;
   }
@@ -955,7 +999,7 @@ export function listDependentItems(
     .filter((candidate) => {
       if (candidate.id === itemId) return false;
       const value = text(candidate, predColumnId);
-      return !!value && resolvePredValue(index, candidate.groupId, value) === itemId;
+      return resolvePredValues(index, candidate.groupId, value).includes(itemId);
     })
     .map((candidate) => ({
       itemId: candidate.id,
@@ -966,4 +1010,19 @@ export function listDependentItems(
       end: text(candidate, endColumnId),
     }))
     .sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+}
+
+/**
+ * Of several candidate ranges, the one that starts latest — the predecessor
+ * that actually constrains this item. All candidates share the same duration,
+ * so the latest start is also the latest finish; nulls (a predecessor with no
+ * dates of its own yet) simply do not constrain anything.
+ */
+export function pickLatest(candidates: (DateRange | null)[]): DateRange | null {
+  let latest: DateRange | null = null;
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (!latest || candidate.start.getTime() > latest.start.getTime()) latest = candidate;
+  }
+  return latest;
 }

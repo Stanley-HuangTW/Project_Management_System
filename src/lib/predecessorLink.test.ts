@@ -3,6 +3,9 @@ import {
   buildWbsIndexFromItems,
   resolveWbsCode,
   resolvePredValue,
+  resolvePredValues,
+  formatPredValue,
+  pickLatest,
   computeScheduledRange,
   resolveLockedScheduleFields,
   resolveScheduleDays,
@@ -258,5 +261,85 @@ describe("resolvePredValue", () => {
   it("is undefined for a dangling reference — a deleted item's id resolves to nothing", () => {
     const index = buildWbsIndexFromItems(before);
     expect(resolvePredValue(index, "g1", "deleted-item")).toBeUndefined();
+  });
+});
+
+describe("resolvePredValues", () => {
+  const items = [
+    { id: "sw", parentId: null, order: 0, groupId: "g1" },
+    { id: "me", parentId: null, order: 1, groupId: "g1" },
+    { id: "integration", parentId: null, order: 2, groupId: "g1" },
+    { id: "other-group", parentId: null, order: 0, groupId: "g2" },
+  ];
+  const index = buildWbsIndexFromItems(items);
+
+  it("reads a comma-separated list — a task can wait on several things", () => {
+    expect(resolvePredValues(index, "g1", "sw,me")).toEqual(["sw", "me"]);
+  });
+
+  it("still reads a single value, which is every board written before this", () => {
+    expect(resolvePredValues(index, "g1", "sw")).toEqual(["sw"]);
+  });
+
+  it("mixes ids and legacy WBS codes in one list", () => {
+    // "2" is me's code; a sheet import can leave codes beside pinned ids.
+    expect(resolvePredValues(index, "g1", "sw,2")).toEqual(["sw", "me"]);
+  });
+
+  it("drops entries that resolve to nothing, and tolerates stray spacing", () => {
+    expect(resolvePredValues(index, "g1", " sw , deleted-item ,, me ")).toEqual(["sw", "me"]);
+  });
+
+  it("collapses duplicates, including an id repeated as its own code", () => {
+    expect(resolvePredValues(index, "g1", "me,2,me")).toEqual(["me"]);
+  });
+
+  it("refuses entries from another group", () => {
+    expect(resolvePredValues(index, "g1", "sw,other-group")).toEqual(["sw"]);
+  });
+
+  it("is empty for a blank cell", () => {
+    expect(resolvePredValues(index, "g1", "")).toEqual([]);
+    expect(resolvePredValues(index, "g1", null)).toEqual([]);
+  });
+});
+
+describe("formatPredValue", () => {
+  it("joins ids the way the cell stores them", () => {
+    expect(formatPredValue(["a", "b"])).toBe("a,b");
+  });
+
+  it("clears the cell rather than storing an empty string", () => {
+    expect(formatPredValue([])).toBeNull();
+  });
+
+  it("collapses duplicates", () => {
+    expect(formatPredValue(["a", "a", "b"])).toBe("a,b");
+  });
+});
+
+describe("pickLatest", () => {
+  const r = (start: string, end: string) => ({ start: new Date(start), end: new Date(end) });
+
+  it("takes the predecessor that pushes this item latest — you wait for the last one", () => {
+    // Software porting frees this task on the 10th, the mechanical sample not
+    // until the 20th. The 20th is the one that actually governs.
+    const chosen = pickLatest([r("2026-08-10", "2026-08-14"), r("2026-08-20", "2026-08-24")]);
+    expect(chosen?.start.toISOString().slice(0, 10)).toBe("2026-08-20");
+  });
+
+  it("ignores predecessors with no dates of their own — they constrain nothing", () => {
+    const chosen = pickLatest([null, r("2026-08-10", "2026-08-14"), null]);
+    expect(chosen?.start.toISOString().slice(0, 10)).toBe("2026-08-10");
+  });
+
+  it("is null when nothing constrains the item, so it falls back to its own start(set)", () => {
+    expect(pickLatest([])).toBeNull();
+    expect(pickLatest([null, null])).toBeNull();
+  });
+
+  it("keeps a single predecessor exactly as it was — the pre-existing behaviour", () => {
+    const only = r("2026-08-10", "2026-08-14");
+    expect(pickLatest([only])).toBe(only);
   });
 });

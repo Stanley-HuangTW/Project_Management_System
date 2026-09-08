@@ -299,7 +299,13 @@ function buildRowMeta(
   function predCode(item: ItemData): string {
     const raw = getRawValue(item, predColumn);
     if (typeof raw !== "string" || !raw) return "";
-    return wbsCodes.get(raw) ?? raw;
+    // A list stays a list: "12,15" is the notation the sheet expects too.
+    return raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => wbsCodes.get(part) ?? part)
+      .join(",");
   }
 
   function leafPercent(item: ItemData): number | null {
