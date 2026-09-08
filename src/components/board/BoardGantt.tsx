@@ -18,6 +18,8 @@ import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
 import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolveWbsCode } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
+import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
+import type { CascadedItem } from "@/lib/predecessorLink";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -1023,9 +1025,24 @@ function describeScheduleChange(
     `開始日期:${toIsoDate(oldStart)} → ${toIsoDate(newStart)}`,
     `結束日期:${toIsoDate(oldEnd)} → ${toIsoDate(newEnd)}`,
     `天數:${oldDays ?? "-"} → ${newDays ?? "-"}(${deltaLabel})`,
-    "",
-    "確定要套用這個時程調整嗎?",
   ].join("\n");
+}
+
+/** Enough of the knock-on list to judge the blast radius without turning the
+ *  dialog into a wall of text. */
+const MAX_CASCADE_LINES = 12;
+
+/** The "and these move with it" section of the drag confirmation. */
+function describeCascade(cascaded: CascadedItem[]): string[] {
+  if (cascaded.length === 0) return [];
+  const shown = cascaded.slice(0, MAX_CASCADE_LINES);
+  const lines = shown.map(
+    (c) => `・${c.wbsCode} ${c.name}:${c.oldStart}~${c.oldEnd} → ${c.newStart}~${c.newEnd}`
+  );
+  if (cascaded.length > shown.length) {
+    lines.push(`・…另外還有 ${cascaded.length - shown.length} 項`);
+  }
+  return ["", `依前置依賴連動,以下 ${cascaded.length} 個項目也會一起移動:`, ...lines];
 }
 
 function GanttBar({
@@ -1124,6 +1141,20 @@ function GanttBar({
   // different number of business days once it crosses a weekend/holiday.
   const fixedDurationDays = countDaysInRange(range.start, range.end, durationMode, holidaySet) ?? 1;
 
+  /** Confirms a drag, spelling out both this item's change and every item the
+   *  Pred/Link chain would carry along with it. A failed preview must not
+   *  block the drag — the list is just left out. */
+  async function confirmScheduleChange(summary: string, newStart: Date, newEnd: Date): Promise<boolean> {
+    let cascaded: CascadedItem[] = [];
+    try {
+      cascaded = await previewDragCascade(boardId, item.id, toIsoDate(newStart), toIsoDate(newEnd));
+    } catch {
+      cascaded = [];
+    }
+    const message = [summary, ...describeCascade(cascaded), "", "確定要套用這個時程調整嗎?"].join("\n");
+    return confirm(message, { title: "調整時程" });
+  }
+
   function handleResizeDown(edge: "start" | "end", e: React.PointerEvent<HTMLDivElement>) {
     e.stopPropagation();
     const reason = blockedReason(edge);
@@ -1186,7 +1217,7 @@ function GanttBar({
         holidaySet,
         fixedDurationDays
       );
-      if (!(await confirm(message, { title: "調整時程" }))) return;
+      if (!(await confirmScheduleChange(message, newStartDate, newEndDate))) return;
       try {
         await moveItemBar(boardId, item.id, toIsoDate(newStartDate));
       } catch (err) {
@@ -1207,7 +1238,7 @@ function GanttBar({
     const newStart = current.edge === "start" ? newDate : range.start;
     const newEnd = current.edge === "end" ? newDate : range.end;
     const message = describeScheduleChange(range.start, range.end, newStart, newEnd, durationMode, holidaySet);
-    if (!(await confirm(message, { title: "調整時程" }))) return;
+    if (!(await confirmScheduleChange(message, newStart, newEnd))) return;
 
     try {
       await resizeItemBar(boardId, item.id, current.edge, toIsoDate(newDate));

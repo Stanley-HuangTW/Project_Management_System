@@ -273,7 +273,13 @@ export function resolveLockedScheduleFields(
  * mode, which also works without Pred/Link configured — then only the
  * manual columns feed Start/Finish/Days, with no predecessor override).
  */
-async function buildScheduleContext(boardId: string, groupId?: string) {
+async function buildScheduleContext(
+  boardId: string,
+  groupId?: string,
+  /** Walk the cascade without touching the database — used to show the user
+   *  which downstream items a drag would move, before it moves them. */
+  dryRun = false
+) {
   const board = await prisma.board.findUnique({
     where: { id: boardId },
     select: {
@@ -313,7 +319,7 @@ async function buildScheduleContext(boardId: string, groupId?: string) {
     // item's group, while a whole-board recompute passes no groupId.
     prisma.item.findMany({
       where: groupId ? { groupId } : { boardId },
-      select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
+      select: { id: true, name: true, parentId: true, order: true, cellValues: true, groupId: true },
     }),
     listHolidays(),
   ]);
@@ -336,6 +342,7 @@ async function buildScheduleContext(boardId: string, groupId?: string) {
 
   async function writeRange(id: string, range: DateRange, days: number | null) {
     overrides.set(id, range);
+    if (dryRun) return;
     const startIso = range.start.toISOString().slice(0, 10);
     await prisma.cellValue.upsert({
       where: { itemId_columnId: { itemId: id, columnId: startId } },
@@ -439,7 +446,78 @@ async function buildScheduleContext(boardId: string, groupId?: string) {
   ).filter((id): id is string => !!id);
   const cascadeTriggers = [startId, endId].filter((id): id is string => !!id);
 
-  return { items, predecessorOf, dependentsOf, recompute, ownTriggers, cascadeTriggers };
+  return {
+    items,
+    itemsById,
+    wbsByItemId,
+    overrides,
+    readRange,
+    predecessorOf,
+    dependentsOf,
+    recompute,
+    ownTriggers,
+    cascadeTriggers,
+  };
+}
+
+/** One item a drag would shift, for the confirmation prompt. */
+export type CascadedItem = {
+  itemId: string;
+  name: string;
+  wbsCode: string;
+  oldStart: string;
+  oldEnd: string;
+  newStart: string;
+  newEnd: string;
+};
+
+const isoDay = (date: Date) => date.toISOString().slice(0, 10);
+
+/**
+ * Which OTHER items would move if this one were rescheduled to `range`, and
+ * where they would land — the Pred/Link chain below it, transitively, the
+ * same walk syncPredecessorSchedule performs for real. Read-only: nothing is
+ * written, so this can run while the user is still deciding.
+ */
+export async function previewScheduleCascade(
+  boardId: string,
+  itemId: string,
+  range: DateRange
+): Promise<CascadedItem[]> {
+  const self = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true } });
+  if (!self) return [];
+  const ctx = await buildScheduleContext(boardId, self.groupId, true);
+  if (!ctx) return [];
+
+  const before = new Map<string, DateRange>();
+  for (const item of ctx.items) {
+    const current = ctx.readRange(item.id);
+    if (current) before.set(item.id, current);
+  }
+  // Seed the dragged item's new dates, then let the walk carry them down the
+  // chain exactly as the real recompute would.
+  ctx.overrides.set(itemId, range);
+  const visited = new Set([itemId]);
+  for (const depId of ctx.dependentsOf(itemId)) await ctx.recompute(depId, visited);
+
+  const moved: CascadedItem[] = [];
+  for (const [id, next] of ctx.overrides) {
+    if (id === itemId) continue;
+    const previous = before.get(id);
+    if (previous && isoDay(previous.start) === isoDay(next.start) && isoDay(previous.end) === isoDay(next.end)) {
+      continue;
+    }
+    moved.push({
+      itemId: id,
+      name: ctx.itemsById.get(id)?.name ?? "",
+      wbsCode: ctx.wbsByItemId.get(id) ?? "",
+      oldStart: previous ? isoDay(previous.start) : "-",
+      oldEnd: previous ? isoDay(previous.end) : "-",
+      newStart: isoDay(next.start),
+      newEnd: isoDay(next.end),
+    });
+  }
+  return moved.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
 }
 
 /**
