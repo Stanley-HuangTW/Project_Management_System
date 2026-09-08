@@ -13,6 +13,7 @@ import { DependentItemsRow } from "../DependentItemsRow";
 import { PredLampDot } from "../PredLampDot";
 import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
+import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
@@ -29,6 +30,7 @@ export function ItemCardTab({
   predColumnId,
   linkColumnId,
   predLamp,
+  scheduleFloat,
   groupItems,
   lockedScheduleFields,
   manualScheduleHint,
@@ -48,6 +50,8 @@ export function ItemCardTab({
   linkColumnId?: string | null;
   /** What this item's predecessor's state means for it — see resolvePredLamp. */
   predLamp?: PredLamp | null;
+  /** Total float from the CPM backward pass — see computeCriticalPath. */
+  scheduleFloat?: ScheduleFloat;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
@@ -203,6 +207,26 @@ export function ItemCardTab({
               </div>
             )}
             {col.name === "Lvl" && <DependentItemsRow dependents={dependents} />}
+            {col.name === "Lvl" && scheduleFloat && (
+              <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">總浮時</span>
+                <span className="text-right text-sm text-neutral-800 dark:text-neutral-100">
+                  {scheduleFloat.totalFloat > 0
+                    ? `${scheduleFloat.totalFloat} 天`
+                    : scheduleFloat.totalFloat === 0
+                      ? "0 天"
+                      : `落後 ${Math.abs(scheduleFloat.totalFloat)} 天`}
+                  {scheduleFloat.isCritical && (
+                    <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                      要徑
+                    </span>
+                  )}
+                  <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
+                    最晚 {scheduleFloat.lateFinish.toISOString().slice(0, 10)}
+                  </span>
+                </span>
+              </div>
+            )}
             {col.name === "Lvl" && baseline && (
               <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">基準線</span>

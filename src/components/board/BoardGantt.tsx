@@ -11,6 +11,7 @@ import {
   ArrowUpToLine,
   ArrowDownToLine,
   Trash2,
+  Zap,
   Maximize2,
   Minimize2,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
 import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
 import { resolvePredLamps } from "@/lib/predLamp";
 import { resolveBaselineVariance } from "@/lib/baseline";
+import { computeCriticalPath, type ScheduleFloat } from "@/lib/criticalPath";
 import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
@@ -306,6 +308,40 @@ export function BoardGantt({
 
   // Nothing to draw against until a plan has actually been saved.
   const showBaseline = board.baselineCapturedAt !== null;
+
+  // Total float per item, from the CPM backward pass. Computed per group,
+  // since a Pred chain never crosses one.
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const scheduleFloats = useMemo(() => {
+    const merged = new Map<string, ScheduleFloat>();
+    const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
+    const holidaySet = new Set(holidays.map((h) => h.date));
+    const byGroup = new Map<string, ItemData[]>();
+    for (const item of board.items) {
+      byGroup.set(item.groupId, [...(byGroup.get(item.groupId) ?? []), item]);
+    }
+    for (const groupItems of byGroup.values()) {
+      const floats = computeCriticalPath(
+        groupItems,
+        {
+          predColumnId: board.predColumnId,
+          linkColumnId: board.linkColumnId,
+          linkColumnOptions: linkColumn?.options,
+          lagColumnId: board.lagColumnId,
+          startColumnId: board.ganttStartColumnId,
+          durationColumnId: board.ganttDurationColumnId,
+          durationMode: board.ganttDurationMode,
+        },
+        holidaySet
+      );
+      for (const [id, value] of floats) merged.set(id, value);
+    }
+    return merged;
+  }, [board, holidays]);
+  const criticalCount = useMemo(
+    () => [...scheduleFloats.values()].filter((f) => f.isCritical).length,
+    [scheduleFloats]
+  );
 
   // A lamp beside the Pred field in both modals, coloured by what the
   // PREDECESSOR's own state means for the item that depends on it.
@@ -787,6 +823,8 @@ export function BoardGantt({
                 endLocked={dragLocks.get(item.id)?.endLocked ?? false}
                 daysLocked={dragLocks.get(item.id)?.daysLocked ?? false}
                 lockCause={scheduleLockCause(item)}
+                scheduleFloat={scheduleFloats.get(item.id)}
+                highlightCritical={showCriticalPath}
                 canEdit={canEditItemSchedule(item)}
                 onClick={canEditItem(item) ? () => setAssignmentItem(item) : undefined}
               />
@@ -840,6 +878,18 @@ export function BoardGantt({
           className="w-28"
         />
         <span className="w-10 text-xs text-neutral-500 dark:text-neutral-400">{scalePct}%</span>
+        <button
+          type="button"
+          onClick={() => setShowCriticalPath((on) => !on)}
+          title={`要徑上的工作項延一天,整個專案就延一天。目前有 ${criticalCount} 項總浮時為 0`}
+          className={`ml-2 flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+            showCriticalPath
+              ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+              : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <Zap size={13} /> 要徑 {criticalCount > 0 && `(${criticalCount})`}
+        </button>
         <div className="ml-2 flex items-center gap-2">
           <span className="text-neutral-500 dark:text-neutral-400">專案(分組)</span>
           <select
@@ -1077,6 +1127,7 @@ export function BoardGantt({
         predColumnId={predColumnId}
         linkColumnId={linkColumnId}
         predLamp={liveDetailItem ? predLamps.get(liveDetailItem.id) : null}
+        scheduleFloat={liveDetailItem ? scheduleFloats.get(liveDetailItem.id) : undefined}
         groupItems={
           liveDetailItem ? board.items.filter((i) => i.groupId === liveDetailItem.groupId) : undefined
         }
@@ -1156,6 +1207,8 @@ function GanttBar({
   endLocked,
   daysLocked,
   lockCause,
+  scheduleFloat,
+  highlightCritical = false,
   canEdit,
   onClick,
 }: {
@@ -1174,6 +1227,12 @@ function GanttBar({
   daysLocked: boolean;
   /** What is actually driving these dates — see scheduleLockCause. */
   lockCause?: string | null;
+  /** Total float from the CPM backward pass; absent for summaries and for
+   *  items with no dates, which are not in the network. */
+  scheduleFloat?: ScheduleFloat;
+  /** Whether the 要徑 toggle is on — the ring only draws then, so the chart
+   *  isn't permanently striped in red. */
+  highlightCritical?: boolean;
   canEdit: boolean;
   onClick?: () => void;
 }) {
@@ -1364,16 +1423,21 @@ function GanttBar({
         onKeyDown={(e) => {
           if (onClick && (e.key === "Enter" || e.key === " ")) onClick();
         }}
-        className={`absolute inset-0 flex rounded ${isMilestone ? "overflow-visible" : "overflow-hidden"}`}
+        className={`absolute inset-0 flex rounded ${isMilestone ? "overflow-visible" : "overflow-hidden"} ${
+          highlightCritical && scheduleFloat?.isCritical ? "ring-2 ring-red-500" : ""
+        }`}
         style={{
           cursor: drag?.edge === "move" ? "grabbing" : canMove ? "grab" : onClick ? "pointer" : "not-allowed",
           touchAction: "none",
         }}
-        title={
+        title={[
           isMilestone
             ? `里程碑:${toIsoDate(range.start)}`
-            : item.assignments.map((a) => `${a.user.name} ${a.allocationPct}%`).join(", ")
-        }
+            : item.assignments.map((a) => `${a.user.name} ${a.allocationPct}%`).join(", "),
+          scheduleFloat ? describeFloat(scheduleFloat) : "",
+        ]
+          .filter(Boolean)
+          .join("\n")}
       >
         {isMilestone ? (
           <div className="flex h-full w-full items-center justify-center">
@@ -1447,4 +1511,17 @@ function BaselineBar({
       }`}
     />
   );
+}
+
+/** The float line on a bar's hover, in the words a schedule is read in. */
+function describeFloat(scheduleFloat: ScheduleFloat): string {
+  if (scheduleFloat.totalFloat < 0) {
+    return `要徑・已落後 ${Math.abs(scheduleFloat.totalFloat)} 天(最晚需完成於 ${toIsoDate(
+      scheduleFloat.lateFinish
+    )})`;
+  }
+  if (scheduleFloat.totalFloat === 0) {
+    return "要徑・總浮時 0 天,延一天整個專案就延一天";
+  }
+  return `總浮時 ${scheduleFloat.totalFloat} 天(最晚可完成於 ${toIsoDate(scheduleFloat.lateFinish)})`;
 }

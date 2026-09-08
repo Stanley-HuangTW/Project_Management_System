@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
+import type { ScheduleFloat } from "@/lib/criticalPath";
 import type { UserRole } from "@prisma/client";
 import { UpdatesTab } from "./item-detail/UpdatesTab";
 import { FilesTab } from "./item-detail/FilesTab";
@@ -34,6 +35,7 @@ export function ItemDetailModal({
   predColumnId,
   linkColumnId,
   predLamp,
+  scheduleFloat,
   groupItems,
   lockedScheduleFields,
   manualScheduleHint,
@@ -58,6 +60,8 @@ export function ItemDetailModal({
   linkColumnId?: string | null;
   /** What this item's predecessor's state means for it — see resolvePredLamp. */
   predLamp?: PredLamp | null;
+  /** Total float from the CPM backward pass — see computeCriticalPath. */
+  scheduleFloat?: ScheduleFloat;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
@@ -116,6 +120,7 @@ export function ItemDetailModal({
           predColumnId={predColumnId}
           linkColumnId={linkColumnId}
           predLamp={predLamp}
+          scheduleFloat={scheduleFloat}
           groupItems={groupItems}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
