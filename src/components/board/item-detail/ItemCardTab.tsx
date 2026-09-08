@@ -8,6 +8,8 @@ import { canEditCellValue, canManageStructure, canModifyItemSchedule } from "@/l
 import { isItemAssignedToUser } from "@/lib/itemAssignment";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
+import { listDependentItems } from "@/lib/predecessorLink";
+import { DependentItemsRow } from "../DependentItemsRow";
 import { CellEditor } from "../cell-editors/CellEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
@@ -22,6 +24,7 @@ export function ItemCardTab({
   ganttDurationColumnId,
   ganttEndColumnId,
   predColumnId,
+  linkColumnId,
   groupItems,
   lockedScheduleFields,
   manualScheduleHint,
@@ -37,6 +40,8 @@ export function ItemCardTab({
   ganttDurationColumnId: string | null;
   ganttEndColumnId: string | null;
   predColumnId?: string | null;
+  /** For the 相關項目 list's Link labels — see listDependentItems. */
+  linkColumnId?: string | null;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
@@ -81,6 +86,17 @@ export function ItemCardTab({
   const parent = groupItems?.find((i) => i.id === item.parentId);
   const parentWbsCode = parent ? wbsCodes?.get(parent.id) : undefined;
   const createdByName = users.find((u) => u.id === item.createdById)?.name;
+  // Who is scheduled off this item — the other side of Pred, which on its own
+  // only says what this item points at.
+  const dependents = groupItems
+    ? listDependentItems(item.id, groupItems, {
+        predColumnId,
+        linkColumnId,
+        linkColumnOptions: columns.find((c) => c.id === linkColumnId)?.options,
+        startColumnId: ganttStartColumnId,
+        endColumnId: ganttEndColumnId,
+      })
+    : [];
 
   function saveName() {
     if (name.trim() && name !== item.name) {
@@ -166,6 +182,7 @@ export function ItemCardTab({
                 </span>
               </div>
             )}
+            {col.name === "Lvl" && <DependentItemsRow dependents={dependents} />}
           </div>
         );
       })}

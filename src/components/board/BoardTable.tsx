@@ -514,6 +514,7 @@ export function BoardTable({
                   ganttDurationColumnId={board.ganttDurationColumnId}
                   ganttEndColumnId={board.ganttEndColumnId}
                   predColumnId={board.predColumnId}
+                  linkColumnId={board.linkColumnId}
                   lockedScheduleFields={lockedScheduleFields}
                   userRole={userRole}
                   currentUserId={currentUserId}
@@ -559,6 +560,7 @@ export function BoardTable({
         ganttDurationColumnId={board.ganttDurationColumnId}
         ganttEndColumnId={board.ganttEndColumnId}
         predColumnId={board.predColumnId}
+        linkColumnId={board.linkColumnId}
         groupItems={autoOpenItem ? board.items.filter((i) => i.groupId === autoOpenItem.groupId) : undefined}
         lockedScheduleFields={lockedScheduleFields}
         manualScheduleHint={manualScheduleHint}

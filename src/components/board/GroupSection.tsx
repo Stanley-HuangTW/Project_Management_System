@@ -27,6 +27,7 @@ export function GroupSection({
   ganttDurationColumnId,
   ganttEndColumnId,
   predColumnId,
+  linkColumnId,
   lockedScheduleFields,
   userRole,
   currentUserId,
@@ -54,6 +55,8 @@ export function GroupSection({
   ganttDurationColumnId: string | null;
   ganttEndColumnId: string | null;
   predColumnId?: string | null;
+  /** For the item card's 相關項目 list — see listDependentItems. */
+  linkColumnId?: string | null;
   lockedScheduleFields: Map<string, ScheduleLock>;
   userRole: UserRole;
   currentUserId: string;
@@ -203,6 +206,7 @@ export function GroupSection({
                 ganttDurationColumnId={ganttDurationColumnId}
                 ganttEndColumnId={ganttEndColumnId}
                 predColumnId={predColumnId}
+                linkColumnId={linkColumnId}
                 lockedScheduleFields={lockedScheduleFields}
                 userRole={userRole}
                 currentUserId={currentUserId}
@@ -254,6 +258,7 @@ export function GroupSection({
                 ganttDurationColumnId={ganttDurationColumnId}
                 ganttEndColumnId={ganttEndColumnId}
                 predColumnId={predColumnId}
+                linkColumnId={linkColumnId}
                 lockedScheduleFields={lockedScheduleFields}
                 userRole={userRole}
                 currentUserId={currentUserId}

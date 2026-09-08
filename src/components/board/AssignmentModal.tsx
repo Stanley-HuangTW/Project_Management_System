@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Trash2 } from "lucide-react";
@@ -9,10 +9,12 @@ import type { UserRole } from "@prisma/client";
 import { listAssignments, upsertAssignment, removeAssignment } from "@/lib/actions/assignment";
 import { upsertCellValue } from "@/lib/actions/cell";
 import { previewSchedule } from "@/lib/actions/predecessorSchedule";
-import type { SchedulePreview } from "@/lib/predecessorLink";
+import { listDependentItems, type SchedulePreview } from "@/lib/predecessorLink";
+import { DependentItemsRow } from "./DependentItemsRow";
 import { Avatar } from "@/components/ui/Avatar";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import { CellEditor } from "./cell-editors/CellEditor";
+import { PredPicker } from "./cell-editors/PredPicker";
 import { getStatusOptions } from "@/types/column";
 import { computeWbsCodes } from "@/lib/wbs";
 
@@ -120,6 +122,22 @@ export function AssignmentModal({
     };
   }, [open, item]);
 
+  // Who is scheduled off this item — the other side of Pred, which on its own
+  // only says what this item points at.
+  const dependents = useMemo(
+    () =>
+      item && groupItems
+        ? listDependentItems(item.id, groupItems, {
+            predColumnId,
+            linkColumnId,
+            linkColumnOptions: columns?.find((c) => c.id === linkColumnId)?.options,
+            startColumnId: ganttStartColumnId,
+            endColumnId: ganttEndColumnId,
+          })
+        : [],
+    [item, groupItems, columns, predColumnId, linkColumnId, ganttStartColumnId, ganttEndColumnId]
+  );
+
   if (!item) return null;
 
   async function handleScheduleFieldChange(columnId: string, value: string | number | null) {
@@ -165,25 +183,16 @@ export function AssignmentModal({
   // typed by hand — codes are group-scoped (same rule as the lock check and
   // the table's own WBS badges), so this only ever offers items from the
   // same group `item` is in.
-  const predOptions = groupItems
-    ? (() => {
-        const codes = computeWbsCodes(groupItems);
-        return groupItems
+  const predCodes = groupItems ? computeWbsCodes(groupItems) : null;
+  const predOptions =
+    groupItems && predCodes
+      ? groupItems
           .filter((i) => i.id !== item.id)
-          .map((i) => ({ id: i.id, code: codes.get(i.id) ?? "", name: i.name }))
+          .map((i) => ({ id: i.id, code: predCodes.get(i.id) ?? "", name: i.name }))
           .filter((o) => o.code)
-          .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-      })()
-    : [];
-
-  /** Pred is stored as the target item's id; a board written before the
-   *  switch (or a spreadsheet import) may still hold a WBS code, so match on
-   *  that too rather than showing an unmatched blank. */
-  function predSelectValue(stored: string | number | null): string {
-    if (typeof stored !== "string" || !stored) return "";
-    const match = predOptions.find((o) => o.id === stored) ?? predOptions.find((o) => o.code === stored);
-    return match?.id ?? "";
-  }
+          .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+      : [];
+  const parentCode = item.parentId ? (predCodes?.get(item.parentId) ?? undefined) : undefined;
 
   // Gantt Assignments reference a real User row (foreign key) — Resources
   // (tools/vendors) can be a PERSON-column 負責人 but not a %-allocation here.
@@ -365,6 +374,8 @@ export function AssignmentModal({
             </div>
           )}
 
+          <DependentItemsRow dependents={dependents} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
+
           {scheduleColumns.map((col) => {
             const rawValue = item.cellValues.find((cv) => cv.columnId === col.id)?.value as
               | string
@@ -381,19 +392,13 @@ export function AssignmentModal({
                 <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{col.name}</span>
                 <div className="w-56">
                   {isPredWithOptions ? (
-                    <select
-                      value={predSelectValue(displayValue)}
+                    <PredPicker
+                      value={typeof displayValue === "string" ? displayValue : null}
+                      options={predOptions}
+                      parentCode={parentCode}
                       disabled={fieldDisabled}
-                      onChange={(e) => handleScheduleFieldChange(col.id, e.target.value || null)}
-                      className={selectClass}
-                    >
-                      <option value="">未設定</option>
-                      {predOptions.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.code} {o.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(next) => handleScheduleFieldChange(col.id, next)}
+                    />
                   ) : col.type === "STATUS" ? (
                     <select
                       value={typeof displayValue === "string" ? displayValue : ""}

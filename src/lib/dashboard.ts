@@ -377,6 +377,8 @@ export type PersonalItemEntry = {
   ganttDurationColumnId: string | null;
   ganttEndColumnId: string | null;
   predColumnId: string | null;
+  /** For the item card's 相關項目 list — see listDependentItems. */
+  linkColumnId: string | null;
   /** Every item in the same group — for the Pred dropdown, same as the
    *  board table/gantt views. */
   groupItems: ItemData[];
@@ -497,6 +499,7 @@ export function computePersonalItems(
         ganttDurationColumnId: board.ganttDurationColumnId,
         ganttEndColumnId: board.ganttEndColumnId,
         predColumnId: board.predColumnId,
+        linkColumnId: board.linkColumnId,
         groupItems: itemsByGroup.get(item.groupId) ?? [],
         scheduleLock: scheduleLocks.get(item.id) ?? null,
         nameColor,

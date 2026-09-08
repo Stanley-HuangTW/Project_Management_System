@@ -31,6 +31,7 @@ export function ItemDetailModal({
   ganttDurationColumnId,
   ganttEndColumnId,
   predColumnId,
+  linkColumnId,
   groupItems,
   lockedScheduleFields,
   manualScheduleHint,
@@ -51,6 +52,8 @@ export function ItemDetailModal({
   /** Pred's dropdown needs every other item in the same group — see
    *  CellEditor's predColumnId/groupItems. */
   predColumnId?: string | null;
+  /** For the 相關項目 list's Link labels — see listDependentItems. */
+  linkColumnId?: string | null;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
@@ -107,6 +110,7 @@ export function ItemDetailModal({
           ganttDurationColumnId={ganttDurationColumnId ?? null}
           ganttEndColumnId={ganttEndColumnId ?? null}
           predColumnId={predColumnId}
+          linkColumnId={linkColumnId}
           groupItems={groupItems}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}

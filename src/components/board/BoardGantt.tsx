@@ -1059,6 +1059,7 @@ export function BoardGantt({
         ganttDurationColumnId={durationColumnId}
         ganttEndColumnId={endColumnId}
         predColumnId={predColumnId}
+        linkColumnId={linkColumnId}
         groupItems={
           liveDetailItem ? board.items.filter((i) => i.groupId === liveDetailItem.groupId) : undefined
         }

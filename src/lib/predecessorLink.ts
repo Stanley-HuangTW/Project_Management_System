@@ -909,3 +909,61 @@ export async function normalizePredReferences(
   }
   return rewritten;
 }
+
+/** One item that names another as its Pred, for the "相關項目" list. */
+export type DependentSummary = {
+  itemId: string;
+  wbsCode: string;
+  name: string;
+  /** The relationship label (FS/FF/SS/SF), or null when Link isn't set. */
+  link: string | null;
+  start: string | null;
+  end: string | null;
+};
+
+/**
+ * Which items depend on this one, and on what terms — the other side of the
+ * Pred field, which only ever says what an item points AT. Reads the stored
+ * Start/Finish rather than recomputing: those cells are what scheduling
+ * writes, so they are the dates actually in effect.
+ *
+ * Pure, so the item card and the assignment modal can both build the list
+ * from the group they already have loaded.
+ */
+export function listDependentItems(
+  itemId: string,
+  groupItems: Pick<ItemData, "id" | "name" | "parentId" | "order" | "groupId" | "cellValues">[],
+  columns: {
+    predColumnId?: string | null;
+    linkColumnId?: string | null;
+    linkColumnOptions?: unknown;
+    startColumnId?: string | null;
+    endColumnId?: string | null;
+  }
+): DependentSummary[] {
+  const { predColumnId, linkColumnId, startColumnId, endColumnId } = columns;
+  if (!predColumnId) return [];
+  const index = buildWbsIndexFromItems(groupItems);
+  const linkOptions = linkColumnId ? getStatusOptions(columns.linkColumnOptions) : [];
+  const text = (item: (typeof groupItems)[number], columnId?: string | null) => {
+    if (!columnId) return null;
+    const value = item.cellValues.find((cv) => cv.columnId === columnId)?.value;
+    return typeof value === "string" && value ? value : null;
+  };
+
+  return groupItems
+    .filter((candidate) => {
+      if (candidate.id === itemId) return false;
+      const value = text(candidate, predColumnId);
+      return !!value && resolvePredValue(index, candidate.groupId, value) === itemId;
+    })
+    .map((candidate) => ({
+      itemId: candidate.id,
+      wbsCode: index.wbsByItemId.get(candidate.id) ?? "",
+      name: candidate.name,
+      link: linkOptions.find((o) => o.id === text(candidate, linkColumnId))?.label ?? null,
+      start: text(candidate, startColumnId),
+      end: text(candidate, endColumnId),
+    }))
+    .sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+}

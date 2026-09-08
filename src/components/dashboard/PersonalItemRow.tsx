@@ -152,6 +152,7 @@ export function PersonalItemRow({
         ganttDurationColumnId={item.ganttDurationColumnId}
         ganttEndColumnId={item.ganttEndColumnId}
         predColumnId={item.predColumnId}
+        linkColumnId={item.linkColumnId}
         groupItems={item.groupItems}
         lockedScheduleFields={
           item.scheduleLock ? new Map([[item.itemId, item.scheduleLock]]) : undefined
