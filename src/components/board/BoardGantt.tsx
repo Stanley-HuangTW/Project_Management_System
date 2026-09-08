@@ -223,9 +223,16 @@ export function BoardGantt({
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if ((e.target as HTMLElement).closest("button")) return;
     const container = scrollRef.current;
     if (!container) return;
+    // A React portal (a row's "+" menu, and anything it opens) sits outside
+    // this container in the DOM but still bubbles its events up the React
+    // tree, so its pointerdown arrives here. Capturing the pointer then sends
+    // the pointerup to this container instead of the menu — and a menu item
+    // that never sees a pointerup never registers the choice, so the menu just
+    // sat there doing nothing.
+    if (!container.contains(e.target as Node)) return;
+    if ((e.target as HTMLElement).closest("button")) return;
     dragState.current = { startX: e.clientX, startScrollLeft: container.scrollLeft };
     setIsPanning(true);
     container.setPointerCapture(e.pointerId);
