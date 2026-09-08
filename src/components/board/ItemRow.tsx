@@ -121,6 +121,13 @@ export function ItemRow({
   const [assignOpen, setAssignOpen] = useState(false);
   const [newChildItem, setNewChildItem] = useState<ItemData | null>(null);
   const [insertedItem, setInsertedItem] = useState<ItemData | null>(null);
+  // Both hold the item as it was when created. Editing a field inside the card
+  // saves and router.refresh()es, which updates allGroupItems but not this
+  // state — so read the fresh row back out, or a second edit would be computed
+  // against the original values (picking a second Pred replaced the first).
+  // Falls back to the snapshot until the refresh lands.
+  const live = (snapshot: ItemData | null) =>
+    snapshot ? (allGroupItems.find((i) => i.id === snapshot.id) ?? snapshot) : null;
   const rowRef = useRef<HTMLDivElement>(null);
   const isHighlighted = item.id === highlightItemId;
   const [flash, setFlash] = useState(false);
@@ -312,7 +319,7 @@ export function ItemRow({
         />
         <ItemDetailModal
           boardId={boardId}
-          item={newChildItem}
+          item={live(newChildItem)}
           columns={columns}
           users={users}
           progressColumnId={progressColumnId}
@@ -333,7 +340,7 @@ export function ItemRow({
         />
         <ItemDetailModal
           boardId={boardId}
-          item={insertedItem}
+          item={live(insertedItem)}
           columns={columns}
           users={users}
           progressColumnId={progressColumnId}
