@@ -280,6 +280,11 @@ model Item {
   order     Int      @default(0)
   createdAt DateTime @default(now())
 
+  /// The Type option this item had before gaining its first child forced it
+  /// to Summary, so removing the last child can put it back. "" means it had
+  /// no Type at all; null means it was never flipped.
+  typeBeforeSummary String?
+
   createdById String?
   createdBy   User?   @relation("ItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 

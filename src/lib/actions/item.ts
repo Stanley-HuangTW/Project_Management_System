@@ -53,6 +53,60 @@ async function loadTypeOptionIds(typeColumnId: string | null) {
   };
 }
 
+/**
+ * Forces a parent to Summary now that it has a child, remembering what its
+ * Type was first. A parent that was a Milestone, or had no Type at all, would
+ * otherwise lose that for good — there is nothing left to read it back from
+ * once the cell has been overwritten.
+ *
+ * Only the first flip is recorded: flipping an already-remembered parent again
+ * (a second child) must not overwrite the original value with "Summary".
+ */
+async function flipParentToSummary(parentId: string, typeColumnId: string, summaryOptionId: string) {
+  const [parent, current] = await Promise.all([
+    prisma.item.findUnique({ where: { id: parentId }, select: { typeBeforeSummary: true } }),
+    prisma.cellValue.findUnique({
+      where: { itemId_columnId: { itemId: parentId, columnId: typeColumnId } },
+    }),
+  ]);
+  const previous = typeof current?.value === "string" ? current.value : null;
+  if (parent && parent.typeBeforeSummary === null && previous !== summaryOptionId) {
+    // "" records "had no Type", which restore has to be able to tell apart
+    // from "never flipped" (null).
+    await prisma.item.update({
+      where: { id: parentId },
+      data: { typeBeforeSummary: previous ?? "" },
+    });
+  }
+  await prisma.cellValue.upsert({
+    where: { itemId_columnId: { itemId: parentId, columnId: typeColumnId } },
+    create: { itemId: parentId, columnId: typeColumnId, value: summaryOptionId },
+    update: { value: summaryOptionId },
+  });
+}
+
+/** Puts a parent's own Type back once its last child is gone. A parent we
+ *  never flipped (imported as a Summary, say) is left exactly as it is —
+ *  there is nothing recorded to restore. */
+async function restoreParentTypeIfChildless(parentId: string, typeColumnId: string) {
+  const [childCount, parent] = await Promise.all([
+    prisma.item.count({ where: { parentId } }),
+    prisma.item.findUnique({ where: { id: parentId }, select: { typeBeforeSummary: true } }),
+  ]);
+  if (childCount > 0 || !parent || parent.typeBeforeSummary === null) return;
+
+  if (parent.typeBeforeSummary === "") {
+    await prisma.cellValue.deleteMany({ where: { itemId: parentId, columnId: typeColumnId } });
+  } else {
+    await prisma.cellValue.upsert({
+      where: { itemId_columnId: { itemId: parentId, columnId: typeColumnId } },
+      create: { itemId: parentId, columnId: typeColumnId, value: parent.typeBeforeSummary },
+      update: { value: parent.typeBeforeSummary },
+    });
+  }
+  await prisma.item.update({ where: { id: parentId }, data: { typeBeforeSummary: null } });
+}
+
 // Matches boardWithDataArgs's items.include shape, so a freshly created item
 // can be dropped straight into UI state (e.g. to reopen its detail modal)
 // without waiting on the page's next full refetch.
@@ -205,11 +259,7 @@ export async function createItem(
   });
 
   if (parentId && typeColumnId && summaryOptionId) {
-    await prisma.cellValue.upsert({
-      where: { itemId_columnId: { itemId: parentId, columnId: typeColumnId } },
-      create: { itemId: parentId, columnId: typeColumnId, value: summaryOptionId },
-      update: { value: summaryOptionId },
-    });
+    await flipParentToSummary(parentId, typeColumnId, summaryOptionId);
   }
 
   if (alwaysComputedTrigger) {
@@ -333,7 +383,10 @@ export async function deleteItem(
   repointDependents = false
 ) {
   const session = await requireSession();
-  const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true, createdById: true } });
+  const item = await prisma.item.findUnique({
+    where: { id: itemId },
+    select: { boardId: true, createdById: true, parentId: true },
+  });
   if (!item) throw new Error("找不到項目");
   await requireBoardAccess(item.boardId, session);
   requireStructureAccess(session.role);
@@ -347,12 +400,19 @@ export async function deleteItem(
 
   await prisma.item.delete({ where: { id: itemId } });
 
-  // Their predecessor changed, so their dates are stale — recompute from
-  // whatever rule each one now has (an inherited Pred, or its own start(set)).
   const board = await prisma.board.findUnique({
     where: { id: item.boardId },
-    select: { predColumnId: true },
+    select: { predColumnId: true, typeColumnId: true },
   });
+
+  // This may have been the parent's last child, in which case it is not a
+  // Summary any more — put back the Type it had before it was given children.
+  if (item.parentId && board?.typeColumnId) {
+    await restoreParentTypeIfChildless(item.parentId, board.typeColumnId);
+  }
+
+  // Their predecessor changed, so their dates are stale — recompute from
+  // whatever rule each one now has (an inherited Pred, or its own start(set)).
   if (board?.predColumnId) {
     for (const dependentId of dependents) {
       await syncPredecessorSchedule(item.boardId, dependentId, board.predColumnId);
