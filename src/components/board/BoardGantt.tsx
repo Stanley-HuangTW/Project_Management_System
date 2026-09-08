@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Star, MessageSquare, UserPlus, Plus, Maximize2, Minimize2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Star,
+  MessageSquare,
+  UserPlus,
+  Plus,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  Trash2,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import type { BoardWithData, ItemData, UserOption } from "@/types/board";
 import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
 import { canManageGroupStructure, canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
@@ -27,7 +39,9 @@ import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
 import { AssignmentModal } from "./AssignmentModal";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
-import { createItem } from "@/lib/actions/item";
+import { createItem, insertItem } from "@/lib/actions/item";
+import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
+import { useDeleteItem } from "./useDeleteItem";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 34, week: 10, month: 3 };
@@ -138,6 +152,7 @@ export function BoardGantt({
   onNavigateToItem?: (itemId: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const requestDelete = useDeleteItem();
   const [assignmentItem, setAssignmentItem] = useState<ItemData | null>(null);
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<"updates" | "card">("updates");
@@ -537,6 +552,12 @@ export function BoardGantt({
     setDetailItem(created);
   }
 
+  async function handleInsert(item: ItemData, position: "before" | "after") {
+    const created = await insertItem(board.id, item.groupId, item.parentId, item.id, position);
+    setDetailInitialTab("card");
+    setDetailItem(created);
+  }
+
   // Both modals hold the item they were opened on, but a schedule edit inside
   // them recomputes Start/Finish server-side and router.refresh()es — so read
   // the refreshed row back out of board.items rather than keep showing the
@@ -656,15 +677,42 @@ export function BoardGantt({
                 {item.assignments.length > 0 && <span>{item.assignments.length}</span>}
               </button>
             )}
-            {canEditItemStructure(item) && (
-              <button
-                type="button"
-                onClick={() => handleAddSubitem(item)}
-                className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs text-neutral-300 dark:text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-400"
-                aria-label="新增子項目"
+            {(canEditItemStructure(item) || canEditItemSchedule(item)) && (
+              // Same actions as the table row's "…", hung off the "+" the row
+              // already had — a new item opens straight into its card, so the
+              // fields the parent implies are there to check before typing.
+              <RowMenu
+                label="新增或刪除項目"
+                icon={<Plus size={12} />}
+                triggerClassName="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs text-neutral-300 dark:text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-400"
               >
-                <Plus size={12} />
-              </button>
+                {canEditItemStructure(item) && (
+                  <>
+                    <RowMenuItem onSelect={() => handleAddSubitem(item)}>
+                      <span className="flex items-center gap-2">
+                        <Plus size={14} /> 新增子項目
+                      </span>
+                    </RowMenuItem>
+                    <RowMenuItem onSelect={() => handleInsert(item, "before")}>
+                      <span className="flex items-center gap-2">
+                        <ArrowUpToLine size={14} /> 上方插入項目
+                      </span>
+                    </RowMenuItem>
+                    <RowMenuItem onSelect={() => handleInsert(item, "after")}>
+                      <span className="flex items-center gap-2">
+                        <ArrowDownToLine size={14} /> 下方插入項目
+                      </span>
+                    </RowMenuItem>
+                  </>
+                )}
+                {canEditItemSchedule(item) && (
+                  <RowMenuItem danger onSelect={() => requestDelete(board.id, item.id)}>
+                    <span className="flex items-center gap-2">
+                      <Trash2 size={14} /> 刪除
+                    </span>
+                  </RowMenuItem>
+                )}
+              </RowMenu>
             )}
           </div>
           <div

@@ -9,9 +9,14 @@ type RowMenuProps = {
   /** Overrides the default bare-icon trigger — for places like the board
    *  header where the menu sits among full-sized bordered buttons. */
   triggerClassName?: string;
+  /** Overrides the default "…" glyph — the Gantt hangs the same menu off the
+   *  row's existing "+", where a second icon would just be clutter. */
+  icon?: ReactNode;
+  /** Announced on the trigger; defaults to the menu's usual purpose. */
+  label?: string;
 };
 
-export function RowMenu({ children, triggerClassName }: RowMenuProps) {
+export function RowMenu({ children, triggerClassName, icon, label }: RowMenuProps) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -21,9 +26,9 @@ export function RowMenu({ children, triggerClassName }: RowMenuProps) {
             triggerClassName ??
             "rounded p-1 text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-100"
           }
-          aria-label="更多操作"
+          aria-label={label ?? "更多操作"}
         >
-          <MoreHorizontal size={16} />
+          {icon ?? <MoreHorizontal size={16} />}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
