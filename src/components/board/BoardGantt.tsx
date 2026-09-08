@@ -143,6 +143,7 @@ export function BoardGantt({
   currentUserId,
   holidays,
   onNavigateToItem,
+  active = true,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -150,6 +151,11 @@ export function BoardGantt({
   currentUserId: string;
   holidays: Holiday[];
   onNavigateToItem?: (itemId: string) => void;
+  /** False while another view is showing. BoardView keeps this mounted so the
+   *  zoom, scale, filters and collapsed rows survive a trip to the table;
+   *  hiding it is display:none, which drops the scroll offsets, so those are
+   *  put back when it comes into view again. */
+  active?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestDelete = useDeleteItem();
@@ -207,6 +213,7 @@ export function BoardGantt({
   const scrollRef = useRef<HTMLDivElement>(null);
   const topScrollRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ startX: number; startScrollLeft: number } | null>(null);
+  const lastScroll = useRef<{ left: number; top: number } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const today = useMemo(() => new Date(new Date().toISOString().slice(0, 10)), []);
 
@@ -217,9 +224,12 @@ export function BoardGantt({
   }
 
   function syncFromMainScroll() {
-    if (scrollRef.current && topScrollRef.current) {
-      topScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
-    }
+    const el = scrollRef.current;
+    if (!el) return;
+    // Recorded on every scroll rather than read when hiding: by then the chart
+    // is already display:none and reports 0 for both offsets.
+    lastScroll.current = { left: el.scrollLeft, top: el.scrollTop };
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -405,6 +415,17 @@ export function BoardGantt({
     // Only re-scroll when the zoom level or the underlying day range changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, days.length]);
+
+  // Coming back from another view: display:none dropped the scroll offsets, so
+  // put back where the chart was rather than snapping to today again.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const saved = lastScroll.current;
+    if (!active || !el || !saved) return;
+    el.scrollLeft = saved.left;
+    el.scrollTop = saved.top;
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = saved.left;
+  }, [active]);
 
   const contentWidth = labelWidth + days.length * dayWidth;
 
@@ -769,7 +790,9 @@ export function BoardGantt({
   return (
     <div
       className={
-        isFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-white dark:bg-neutral-950 p-4" : ""
+        `${active ? "" : "hidden"} ${
+          isFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-white dark:bg-neutral-950 p-4" : ""
+        }`
       }
     >
       {/* One toolbar row: scale/zoom, the group + parent filters, and the

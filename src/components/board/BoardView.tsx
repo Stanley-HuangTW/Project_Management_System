@@ -49,6 +49,12 @@ export function BoardView({
     setPrevHighlightItemId(highlightItemId);
     if (highlightItemId) setView("table");
   }
+  // Once the Gantt has been opened it stays mounted, so switching to the table
+  // and back keeps its zoom, display scale, filters, collapsed rows, column
+  // width and scroll position instead of resetting to the default view.
+  const [ganttMounted, setGanttMounted] = useState(false);
+  if (view === "gantt" && !ganttMounted) setGanttMounted(true);
+
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [resourceMappingOpen, setResourceMappingOpen] = useState(false);
@@ -173,7 +179,7 @@ export function BoardView({
             holidays={holidays}
           />
         )}
-        {view === "gantt" && (
+        {ganttMounted && (
           <BoardGantt
             board={board}
             users={users}
@@ -181,6 +187,7 @@ export function BoardView({
             currentUserId={currentUserId}
             holidays={holidays}
             onNavigateToItem={goToItemInTable}
+            active={view === "gantt"}
           />
         )}
         {view === "report" && (
