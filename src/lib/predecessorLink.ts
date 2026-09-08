@@ -17,6 +17,9 @@ export type WbsIndex = {
   wbsByItemId: Map<string, string>;
   /** `${groupId}:${code}` -> itemId. Internal — use resolveWbsCode. */
   itemIdByGroupWbs: Map<string, string>;
+  /** itemId -> its group, so a Pred value that is already an item id can be
+   *  checked against the referencing item's own group. */
+  groupByItemId: Map<string, string>;
 };
 
 /**
@@ -35,6 +38,7 @@ export function buildWbsIndexFromItems(
 ): WbsIndex {
   const wbsByItemId = new Map<string, string>();
   const itemIdByGroupWbs = new Map<string, string>();
+  const groupByItemId = new Map<string, string>();
 
   const itemsByGroup = new Map<string, typeof items>();
   for (const item of items) {
@@ -58,13 +62,14 @@ export function buildWbsIndexFromItems(
         const code = prefix ? `${prefix}.${idx + 1}` : String(idx + 1);
         wbsByItemId.set(kid.id, code);
         itemIdByGroupWbs.set(`${groupId}:${code}`, kid.id);
+        groupByItemId.set(kid.id, groupId);
         assign(kid.id, code);
       });
     }
     assign(null, "");
   }
 
-  return { wbsByItemId, itemIdByGroupWbs };
+  return { wbsByItemId, itemIdByGroupWbs, groupByItemId };
 }
 
 /** Resolves a Pred cell's raw WBS-code string to an item id, scoped to
@@ -72,6 +77,24 @@ export function buildWbsIndexFromItems(
  *  can't cross groups, matching the codes as actually displayed per-group). */
 export function resolveWbsCode(index: WbsIndex, groupId: string, code: string): string | undefined {
   return index.itemIdByGroupWbs.get(`${groupId}:${code}`);
+}
+
+/**
+ * Resolves a Pred cell's stored value to the item it points at.
+ *
+ * The value is the target item's id. Ids are stable: inserting, deleting or
+ * re-ordering items renumbers every WBS code below the change, so a code is a
+ * reference to a POSITION, not to a task — insert one row and every Pred
+ * under it silently starts pointing at its neighbour.
+ *
+ * A WBS code is still accepted as a fallback, because that is what a
+ * spreadsheet import brings in and what was stored before the switch. Such a
+ * reference carries the positional hazard above until it is re-picked or
+ * backfilled, so it is only ever the second guess.
+ */
+export function resolvePredValue(index: WbsIndex, groupId: string, value: string): string | undefined {
+  if (index.groupByItemId.get(value) === groupId) return value;
+  return index.itemIdByGroupWbs.get(`${groupId}:${value}`);
 }
 
 export async function buildWbsIndex(boardId: string) {
@@ -237,7 +260,7 @@ export function resolveLockedScheduleFields(
     if (predColumnId && linkColumnId) {
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
       if (typeof predValue === "string" && predValue) {
-        const predItemId = resolveWbsCode(wbsIndex, item.groupId, predValue);
+        const predItemId = resolvePredValue(wbsIndex, item.groupId, predValue);
         if (predItemId && predItemId !== item.id) {
           const linkValue = item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value;
           const label = linkOptions.find((o) => o.id === linkValue)?.label;
@@ -372,21 +395,21 @@ async function buildScheduleContext(
     if (!predColumnId) return undefined;
     const item = itemsById.get(id);
     const predValue = item?.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-    return item && typeof predValue === "string" ? resolveWbsCode(wbsIndex, item.groupId, predValue) : undefined;
+    return item && typeof predValue === "string" ? resolvePredValue(wbsIndex, item.groupId, predValue) : undefined;
   }
 
   function dependentsOf(id: string): string[] {
     if (!predColumnId) return [];
     const item = itemsById.get(id);
-    const wbs = item ? wbsByItemId.get(id) : undefined;
-    if (!item || !wbs) return [];
+    if (!item) return [];
+    // Resolved rather than string-compared: a Pred cell holds an item id now,
+    // but may still hold a legacy WBS code — both have to find their target.
     return items
-      .filter(
-        (i) =>
-          i.id !== id &&
-          i.groupId === item.groupId &&
-          i.cellValues.some((cv) => cv.columnId === predColumnId && cv.value === wbs)
-      )
+      .filter((i) => {
+        if (i.id === id || i.groupId !== item.groupId) return false;
+        const value = i.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+        return typeof value === "string" && resolvePredValue(wbsIndex, i.groupId, value) === id;
+      })
       .map((i) => i.id);
   }
 
@@ -647,7 +670,7 @@ export async function previewScheduleChange(
 
   const predValue = predColumnId ? cellValues.find((cv) => cv.columnId === predColumnId)?.value : null;
   const predItemId =
-    predColumnId && typeof predValue === "string" ? resolveWbsCode(wbsIndex, item.groupId, predValue) : undefined;
+    predColumnId && typeof predValue === "string" ? resolvePredValue(wbsIndex, item.groupId, predValue) : undefined;
   const linkValue = linkColumnId ? cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
   const relationship = linkOptions.find((o) => o.id === linkValue)?.label;
   const lagValue = lagColumnId ? cellValues.find((cv) => cv.columnId === lagColumnId)?.value : null;
@@ -843,4 +866,46 @@ export async function recomputeAllSchedules(boardId: string): Promise<number> {
     }
   }
   return visited.size;
+}
+
+/**
+ * Rewrites a group's Pred cells from WBS codes to the item ids they resolve
+ * to. Codes are what a spreadsheet import brings in, and they are positional:
+ * once anything is inserted, deleted or re-ordered, every code below the
+ * change points at a different task. Resolving them once, while the numbering
+ * still matches the sheet, pins each reference to the task it meant.
+ *
+ * Idempotent — values already holding an id are left alone — and safe to run
+ * on a board whose Pred column isn't configured (it does nothing).
+ * Returns how many cells were rewritten.
+ */
+export async function normalizePredReferences(
+  boardId: string,
+  groupId?: string,
+  client: Pick<typeof prisma, "board" | "item" | "cellValue"> = prisma
+): Promise<number> {
+  const board = await client.board.findUnique({ where: { id: boardId }, select: { predColumnId: true } });
+  if (!board?.predColumnId) return 0;
+  const predColumnId = board.predColumnId;
+
+  const items = await client.item.findMany({
+    where: groupId ? { groupId } : { boardId },
+    select: { id: true, parentId: true, order: true, groupId: true, cellValues: true },
+  });
+  const index = buildWbsIndexFromItems(items);
+
+  let rewritten = 0;
+  for (const item of items) {
+    const value = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+    if (typeof value !== "string" || !value) continue;
+    if (index.groupByItemId.get(value) === item.groupId) continue; // already an id
+    const targetId = index.itemIdByGroupWbs.get(`${item.groupId}:${value}`);
+    if (!targetId) continue; // dangling code — leave it for the user to see
+    await client.cellValue.update({
+      where: { itemId_columnId: { itemId: item.id, columnId: predColumnId } },
+      data: { value: targetId },
+    });
+    rewritten++;
+  }
+  return rewritten;
 }

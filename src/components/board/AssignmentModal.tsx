@@ -170,11 +170,20 @@ export function AssignmentModal({
         const codes = computeWbsCodes(groupItems);
         return groupItems
           .filter((i) => i.id !== item.id)
-          .map((i) => ({ code: codes.get(i.id) ?? "", name: i.name }))
+          .map((i) => ({ id: i.id, code: codes.get(i.id) ?? "", name: i.name }))
           .filter((o) => o.code)
           .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
       })()
     : [];
+
+  /** Pred is stored as the target item's id; a board written before the
+   *  switch (or a spreadsheet import) may still hold a WBS code, so match on
+   *  that too rather than showing an unmatched blank. */
+  function predSelectValue(stored: string | number | null): string {
+    if (typeof stored !== "string" || !stored) return "";
+    const match = predOptions.find((o) => o.id === stored) ?? predOptions.find((o) => o.code === stored);
+    return match?.id ?? "";
+  }
 
   // Gantt Assignments reference a real User row (foreign key) — Resources
   // (tools/vendors) can be a PERSON-column 負責人 but not a %-allocation here.
@@ -373,14 +382,14 @@ export function AssignmentModal({
                 <div className="w-56">
                   {isPredWithOptions ? (
                     <select
-                      value={typeof displayValue === "string" ? displayValue : ""}
+                      value={predSelectValue(displayValue)}
                       disabled={fieldDisabled}
                       onChange={(e) => handleScheduleFieldChange(col.id, e.target.value || null)}
                       className={selectClass}
                     >
                       <option value="">未設定</option>
                       {predOptions.map((o) => (
-                        <option key={o.code} value={o.code}>
+                        <option key={o.id} value={o.id}>
                           {o.code} {o.name}
                         </option>
                       ))}

@@ -20,7 +20,8 @@ import { ItemDetailModal } from "./ItemDetailModal";
 import { AssignmentModal } from "./AssignmentModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { deleteItem, createItem, insertItem } from "@/lib/actions/item";
+import { createItem, insertItem } from "@/lib/actions/item";
+import { useDeleteItem } from "./useDeleteItem";
 import { computeItemProgress } from "@/lib/progress";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
@@ -107,6 +108,7 @@ export function ItemRow({
   const expanded = !collapsedIds.has(item.id) || isAncestorOfHighlight;
   const [detailOpen, setDetailOpen] = useState(false);
   const { notify } = useDialogs();
+  const requestDelete = useDeleteItem();
   const [detailTab, setDetailTab] = useState<"updates" | "card">("updates");
   const [assignOpen, setAssignOpen] = useState(false);
   const [newChildItem, setNewChildItem] = useState<ItemData | null>(null);
@@ -267,7 +269,7 @@ export function ItemRow({
                   </span>
                 </RowMenuItem>
                 {canDeleteItem && (
-                  <RowMenuItem danger onSelect={() => deleteItem(boardId, item.id)}>
+                  <RowMenuItem danger onSelect={() => requestDelete(boardId, item.id)}>
                     <span className="flex items-center gap-2">
                       <Trash2 size={14} /> 刪除
                     </span>

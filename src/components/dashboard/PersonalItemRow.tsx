@@ -5,7 +5,7 @@ import Link from "next/link";
 import { MessageSquare, Plus, Trash2, UserPlus } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageStructure, canModifyItemSchedule } from "@/lib/permissions";
-import { deleteItem } from "@/lib/actions/item";
+import { useDeleteItem } from "@/components/board/useDeleteItem";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { AssignmentModal } from "@/components/board/AssignmentModal";
@@ -37,6 +37,7 @@ export function PersonalItemRow({
   const canManage = canManageStructure(userRole);
   const canDelete = canModifyItemSchedule(userRole, item.createdById, currentUserId);
   const [detailOpen, setDetailOpen] = useState(false);
+  const requestDelete = useDeleteItem();
   const [assignOpen, setAssignOpen] = useState(false);
   const [addSubtaskOpen, setAddSubtaskOpen] = useState(false);
   const commentCount = item.fullItem._count.comments;
@@ -133,7 +134,7 @@ export function PersonalItemRow({
 
       {canDelete && (
         <RowMenu>
-          <RowMenuItem danger onSelect={() => deleteItem(item.boardId, item.itemId)}>
+          <RowMenuItem danger onSelect={() => requestDelete(item.boardId, item.itemId)}>
             <span className="flex items-center gap-2">
               <Trash2 size={14} /> 刪除
             </span>

@@ -15,7 +15,7 @@ import {
   type DateRange,
 } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
-import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolveWbsCode } from "@/lib/predecessorLink";
+import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolvePredValue } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
@@ -571,7 +571,7 @@ export function BoardGantt({
     if (predColumnId && linkColumnId) {
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
       if (typeof predValue === "string" && predValue.trim()) {
-        const predId = resolveWbsCode(wbsIndex, item.groupId, predValue);
+        const predId = resolvePredValue(wbsIndex, item.groupId, predValue);
         const predItem = predId ? itemById.get(predId) : undefined;
         if (predItem) {
           return `此項目的時間由前置依賴「${wbsCodes.get(predItem.id) ?? ""} ${predItem.name}」決定,要提前或延後請改該項目的時間,或改此項目的 Pred / Link / Lag`;

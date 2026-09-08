@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { canManageGroupStructure, canModifyItemSchedule, requireStructureAccess } from "@/lib/permissions";
@@ -8,7 +9,13 @@ import { requireBoardAccess, requireGroupBoardAccess, requireItemBoardAccess } f
 import { logActivity } from "@/lib/activityLog";
 import { getStatusOptions } from "@/types/column";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
-import { syncPredecessorSchedule } from "@/lib/predecessorLink";
+import {
+  syncPredecessorSchedule,
+  buildWbsIndexFromItems,
+  resolvePredValue,
+} from "@/lib/predecessorLink";
+import { getItemDateRange } from "@/lib/gantt";
+import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { SessionPayload } from "@/lib/jwt";
 
 /** Item creation/structure edits are normally ADMIN/SUPERVISOR-only, but a
@@ -318,7 +325,12 @@ export async function renameItem(
 export async function deleteItem(
   /** Not trusted — see requireItemBoardAccess below. */
   _boardId: string,
-  itemId: string
+  itemId: string,
+  /** True: items that used this one as their Pred take over its own Pred, so
+   *  the chain closes up. False (the default): their Pred is cleared and the
+   *  caller is expected to tell the user which ones now need a schedule rule
+   *  of their own. */
+  repointDependents = false
 ) {
   const session = await requireSession();
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true, createdById: true } });
@@ -329,9 +341,157 @@ export async function deleteItem(
     throw new Error("權限不足:僅建立者或管理者可以刪除此項目");
   }
 
+  const dependents = repointDependents
+    ? await repointDependentsToPredecessor(item.boardId, itemId)
+    : await clearDependentPredecessors(item.boardId, itemId);
+
   await prisma.item.delete({ where: { id: itemId } });
+
+  // Their predecessor changed, so their dates are stale — recompute from
+  // whatever rule each one now has (an inherited Pred, or its own start(set)).
+  const board = await prisma.board.findUnique({
+    where: { id: item.boardId },
+    select: { predColumnId: true },
+  });
+  if (board?.predColumnId) {
+    for (const dependentId of dependents) {
+      await syncPredecessorSchedule(item.boardId, dependentId, board.predColumnId);
+    }
+  }
+
   revalidatePath(`/boards/${item.boardId}`);
   revalidatePath("/dashboard");
+}
+
+/** Every item whose Pred resolves to `itemId`, with the Pred column id. */
+async function loadDependents(boardId: string, itemId: string) {
+  const board = await prisma.board.findUnique({ where: { id: boardId }, select: { predColumnId: true } });
+  if (!board?.predColumnId) return { predColumnId: null, dependents: [], index: null, items: [] };
+  const predColumnId = board.predColumnId;
+  const items = await prisma.item.findMany({
+    where: { boardId },
+    select: { id: true, name: true, parentId: true, order: true, groupId: true, cellValues: true },
+  });
+  const index = buildWbsIndexFromItems(items);
+  const dependents = items.filter((i) => {
+    if (i.id === itemId) return false;
+    const value = i.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+    return typeof value === "string" && resolvePredValue(index, i.groupId, value) === itemId;
+  });
+  return { predColumnId, dependents, index, items };
+}
+
+/** Reconnects the chain: each dependent takes over the deleted item's own
+ *  Pred, so a middle link can be removed without breaking what follows. */
+async function repointDependentsToPredecessor(boardId: string, itemId: string): Promise<string[]> {
+  const { predColumnId, dependents, index } = await loadDependents(boardId, itemId);
+  if (!predColumnId || dependents.length === 0) return [];
+  const deleted = await prisma.item.findUnique({
+    where: { id: itemId },
+    select: { groupId: true, cellValues: true },
+  });
+  const ownPredRaw = deleted?.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+  const inheritedId =
+    index && deleted && typeof ownPredRaw === "string"
+      ? resolvePredValue(index, deleted.groupId, ownPredRaw)
+      : undefined;
+
+  for (const dependent of dependents) {
+    await prisma.cellValue.upsert({
+      where: { itemId_columnId: { itemId: dependent.id, columnId: predColumnId } },
+      create: { itemId: dependent.id, columnId: predColumnId, value: inheritedId ?? Prisma.JsonNull },
+      update: { value: inheritedId ?? Prisma.JsonNull },
+    });
+  }
+  return dependents.map((d) => d.id);
+}
+
+/** Leaves the dependents without a predecessor — their dates stay where they
+ *  are, and the caller tells the user which ones now need a start(set) or a
+ *  new Pred/Link/Lag of their own. */
+async function clearDependentPredecessors(boardId: string, itemId: string): Promise<string[]> {
+  const { predColumnId, dependents } = await loadDependents(boardId, itemId);
+  if (!predColumnId || dependents.length === 0) return [];
+  await prisma.cellValue.updateMany({
+    where: { itemId: { in: dependents.map((d) => d.id) }, columnId: predColumnId },
+    data: { value: Prisma.JsonNull },
+  });
+  return dependents.map((d) => d.id);
+}
+
+/** One item that depends on the item about to be deleted. */
+export type DeletionDependent = {
+  itemId: string;
+  wbsCode: string;
+  name: string;
+  start: string | null;
+  end: string | null;
+};
+
+export type DeletionImpact = {
+  name: string;
+  dependents: DeletionDependent[];
+  /** The deleted item's own predecessor, which its dependents could take
+   *  over — null when it has none, so there is nothing to inherit. */
+  inherit: { name: string; wbsCode: string } | null;
+};
+
+/** What deleting this item would do to the items that use it as their Pred —
+ *  read-only, so the user can decide before anything is removed. */
+export async function previewItemDeletion(itemId: string): Promise<DeletionImpact | null> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const target = await prisma.item.findUnique({
+    where: { id: itemId },
+    select: { name: true, groupId: true, cellValues: true },
+  });
+  if (!target) return null;
+
+  const [{ predColumnId, dependents, index }, board, holidayRows] = await Promise.all([
+    loadDependents(boardId, itemId),
+    prisma.board.findUnique({
+      where: { id: boardId },
+      select: { ganttStartColumnId: true, ganttDurationColumnId: true, ganttDurationMode: true },
+    }),
+    listHolidays(),
+  ]);
+  const holidays = toHolidaySet(holidayRows);
+
+  function rangeOf(item: { cellValues: { columnId: string; value: unknown }[] }) {
+    if (!board?.ganttStartColumnId || !board.ganttDurationColumnId) return { start: null, end: null };
+    const range = getItemDateRange(
+      item as Parameters<typeof getItemDateRange>[0],
+      board.ganttStartColumnId,
+      board.ganttDurationColumnId,
+      board.ganttDurationMode,
+      holidays
+    );
+    if (!range) return { start: null, end: null };
+    return { start: range.start.toISOString().slice(0, 10), end: range.end.toISOString().slice(0, 10) };
+  }
+
+  const ownPredRaw = predColumnId
+    ? target.cellValues.find((cv) => cv.columnId === predColumnId)?.value
+    : undefined;
+  const inheritedId =
+    index && typeof ownPredRaw === "string" ? resolvePredValue(index, target.groupId, ownPredRaw) : undefined;
+  const inherited = inheritedId
+    ? await prisma.item.findUnique({ where: { id: inheritedId }, select: { name: true } })
+    : null;
+
+  return {
+    name: target.name,
+    dependents: dependents.map((d) => ({
+      itemId: d.id,
+      wbsCode: index?.wbsByItemId.get(d.id) ?? "",
+      name: d.name,
+      ...rangeOf(d),
+    })),
+    inherit:
+      inherited && inheritedId
+        ? { name: inherited.name, wbsCode: index?.wbsByItemId.get(inheritedId) ?? "" }
+        : null,
+  };
 }
 
 export async function moveItemToGroup(

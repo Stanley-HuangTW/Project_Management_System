@@ -10,9 +10,10 @@ import type { ItemData } from "@/types/board";
 
 const NONE = "__none__";
 
-/** Pred is stored as a plain WBS-code string, but typing one by hand means
- *  knowing the target item's code in advance — this lists every other item
- *  in the same group by name instead, same as AssignmentModal's Pred picker.
+/** Pred is stored as the target item's id — a WBS code is positional, so an
+ *  insert above the target would silently re-point the reference at its
+ *  neighbour. The list shows the code alongside the name, since that is how
+ *  people refer to these, same as AssignmentModal's Pred picker.
  *  A native <select> can't be scrolled to an arbitrary option without
  *  selecting it, so this uses Radix Select instead: opening the list jumps
  *  to the item's own parent (the most likely predecessor) without pre-
@@ -40,9 +41,17 @@ export function PredCell({
   const codes = wbsCodes ?? computeWbsCodes(groupItems);
   const options = groupItems
     .filter((i) => i.id !== itemId)
-    .map((i) => ({ code: codes.get(i.id) ?? "", name: i.name }))
+    .map((i) => ({ id: i.id, code: codes.get(i.id) ?? "", name: i.name }))
     .filter((o) => o.code)
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+  // Boards written before the switch (and every spreadsheet import) store a
+  // WBS code here; show those against the item they currently resolve to
+  // rather than as an unmatched blank.
+  const selectedId =
+    value === null
+      ? null
+      : (options.find((o) => o.id === value)?.id ?? options.find((o) => o.code === value)?.id ?? null);
 
   const currentItem = groupItems.find((i) => i.id === itemId);
   const parentCode = currentItem?.parentId ? codes.get(currentItem.parentId) : undefined;
@@ -69,7 +78,7 @@ export function PredCell({
 
   return (
     <Select.Root
-      value={value ?? NONE}
+      value={selectedId ?? NONE}
       onValueChange={(v) => save(() => upsertCellValue(boardId, itemId, columnId, v === NONE ? null : v))}
       onOpenChange={handleOpenChange}
     >
@@ -99,8 +108,8 @@ export function PredCell({
             </Select.Item>
             {options.map((o) => (
               <Select.Item
-                key={o.code}
-                value={o.code}
+                key={o.id}
+                value={o.id}
                 data-code={o.code}
                 className="flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-neutral-100 dark:data-[highlighted]:bg-neutral-800"
               >

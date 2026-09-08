@@ -16,6 +16,7 @@ import {
   type ParsedSheet,
 } from "@/lib/import/parseFile";
 import { GOOGLE_TOKEN_COOKIE } from "@/lib/googleAuth";
+import { normalizePredReferences } from "@/lib/predecessorLink";
 import {
   DEFAULT_STATUS_PALETTE,
   getStatusOptions,
@@ -368,6 +369,11 @@ export async function importRows(
       if (cellValuesToCreate.length > 0) {
         await tx.cellValue.createMany({ data: cellValuesToCreate });
       }
+
+      // The sheet's Pred column is WBS notation, which only means the right
+      // task while the numbering still matches the sheet — pin each reference
+      // to the item it resolves to now, before anything gets inserted.
+      await normalizePredReferences(boardId, groupId, tx);
 
       revalidatePath(`/boards/${boardId}`);
       return { itemCount, newColumnCount, ...stats };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWbsIndexFromItems,
   resolveWbsCode,
+  resolvePredValue,
   computeScheduledRange,
   resolveLockedScheduleFields,
   resolveScheduleDays,
@@ -212,5 +213,50 @@ describe("resolveScheduleDays", () => {
       { columnId: "daysCol", value: "abc" },
     ];
     expect(resolveScheduleDays(cells, "durationCol", "daysCol")).toBeNull();
+  });
+});
+
+describe("resolvePredValue", () => {
+  // 任務a at 1.1, then 任務b is inserted above it: 任務a becomes 1.2, and a
+  // Pred of "1.1" — which meant 任務a — now points at 任務b. Storing the id
+  // is what makes the reference survive the insert.
+  const before = [
+    { id: "root", parentId: null, order: 0, groupId: "g1" },
+    { id: "task-a", parentId: "root", order: 0, groupId: "g1" },
+    { id: "downstream", parentId: "root", order: 5, groupId: "g1" },
+  ];
+  const after = [
+    ...before,
+    { id: "task-b", parentId: "root", order: -1, groupId: "g1" },
+  ];
+
+  it("follows an item id through an insert that renumbers everything", () => {
+    expect(resolvePredValue(buildWbsIndexFromItems(before), "g1", "task-a")).toBe("task-a");
+    expect(resolvePredValue(buildWbsIndexFromItems(after), "g1", "task-a")).toBe("task-a");
+  });
+
+  it("shows why a WBS code cannot be trusted: the same code changes target", () => {
+    expect(resolvePredValue(buildWbsIndexFromItems(before), "g1", "1.1")).toBe("task-a");
+    expect(resolvePredValue(buildWbsIndexFromItems(after), "g1", "1.1")).toBe("task-b");
+  });
+
+  it("still resolves a legacy WBS code, so imported and pre-existing values keep working", () => {
+    const index = buildWbsIndexFromItems(before);
+    expect(resolvePredValue(index, "g1", "1.2")).toBe("downstream");
+  });
+
+  it("refuses an item id from another group, same as a code from another group", () => {
+    const items = [
+      { id: "g1-a", parentId: null, order: 0, groupId: "g1" },
+      { id: "g2-a", parentId: null, order: 0, groupId: "g2" },
+    ];
+    const index = buildWbsIndexFromItems(items);
+    expect(resolvePredValue(index, "g1", "g2-a")).toBeUndefined();
+    expect(resolvePredValue(index, "g1", "g1-a")).toBe("g1-a");
+  });
+
+  it("is undefined for a dangling reference — a deleted item's id resolves to nothing", () => {
+    const index = buildWbsIndexFromItems(before);
+    expect(resolvePredValue(index, "g1", "deleted-item")).toBeUndefined();
   });
 });

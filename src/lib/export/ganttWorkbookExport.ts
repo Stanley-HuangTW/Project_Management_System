@@ -292,6 +292,16 @@ function buildRowMeta(
     return { item, wbs, hasChildren, type };
   });
 
+  /** The sheet's Pred column is WBS notation, but the cell stores the target
+   *  item's id (a code is positional — see resolvePredValue), so translate on
+   *  the way out. A value that is already a code is passed through, which is
+   *  what an un-backfilled board or a re-export of a fresh import holds. */
+  function predCode(item: ItemData): string {
+    const raw = getRawValue(item, predColumn);
+    if (typeof raw !== "string" || !raw) return "";
+    return wbsCodes.get(raw) ?? raw;
+  }
+
   function leafPercent(item: ItemData): number | null {
     if (!board.progressColumnId) return null;
     const cv = item.cellValues.find((c) => c.columnId === board.progressColumnId);
@@ -329,7 +339,7 @@ function buildRowMeta(
       priority: getStatusLabel(item, priorityColumn),
       status: getStatusLabel(item, statusColumn),
       resource: (getRawValue(item, resourceColumn) as string | null) ?? "",
-      pred: (getRawValue(item, predColumn) as string | null) ?? "",
+      pred: predCode(item),
       link: getStatusLabel(item, linkColumn),
       lag: typeof lagRaw === "number" ? lagRaw : null,
       comment: (getRawValue(item, commentColumn) as string | null) ?? "",
