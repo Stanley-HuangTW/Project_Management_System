@@ -27,6 +27,7 @@ import { computeAncestorIds } from "@/lib/wbs";
 import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
 import { computeRolledUpDateRange, manualScheduleHint as buildManualScheduleHint } from "@/lib/gantt";
 import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
+import { resolvePredLamps } from "@/lib/predLamp";
 import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
 import { ItemDetailModal } from "./ItemDetailModal";
@@ -229,6 +230,13 @@ export function BoardTable({
   // Task-name color by status — same rule and board-configured colors as
   // the Gantt view (BoardGantt.tsx's ganttStatusColor), via the shared
   // resolveItemNameColor helper.
+  // A lamp beside each Pred cell, coloured by what the PREDECESSOR's own
+  // state means for this item — done, still running, or already late.
+  const predLamps = useMemo(
+    () => resolvePredLamps(board.items, board, new Set(holidays.map((h) => h.date))),
+    [board, holidays]
+  );
+
   const nameColors = useMemo(() => {
     const map = new Map<string, string>();
     if (!board.ganttStartColumnId || !board.ganttDurationColumnId) return map;
@@ -524,6 +532,7 @@ export function BoardTable({
                   expandIds={expandIds}
                   levelColors={board.levelColors}
                   nameColors={nameColors}
+                  predLamps={predLamps}
                   manualScheduleHint={manualScheduleHint}
                   collapsedIds={collapsedIds}
                   onToggleCollapse={toggleCollapse}
@@ -561,6 +570,7 @@ export function BoardTable({
         ganttEndColumnId={board.ganttEndColumnId}
         predColumnId={board.predColumnId}
         linkColumnId={board.linkColumnId}
+        predLamp={autoOpenItem ? predLamps.get(autoOpenItem.id) : null}
         groupItems={autoOpenItem ? board.items.filter((i) => i.groupId === autoOpenItem.groupId) : undefined}
         lockedScheduleFields={lockedScheduleFields}
         manualScheduleHint={manualScheduleHint}

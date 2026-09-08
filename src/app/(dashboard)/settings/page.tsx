@@ -62,6 +62,11 @@ export default async function SettingsPage() {
           completed: settings.ganttCompletedColor,
           inProgress: settings.ganttInProgressColor,
         }}
+        predLampColors={{
+          ready: settings.predReadyColor,
+          waiting: settings.predWaitingColor,
+          blocked: settings.predBlockedColor,
+        }}
         holidays={holidays}
         workloadThreshold={workloadThreshold}
         ganttMappingBoards={boards}

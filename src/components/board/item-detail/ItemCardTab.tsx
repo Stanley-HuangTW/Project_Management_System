@@ -10,6 +10,8 @@ import type { ScheduleLock } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
 import { listDependentItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
+import { PredLampDot } from "../PredLampDot";
+import type { PredLamp } from "@/lib/predLamp";
 import { CellEditor } from "../cell-editors/CellEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
@@ -25,6 +27,7 @@ export function ItemCardTab({
   ganttEndColumnId,
   predColumnId,
   linkColumnId,
+  predLamp,
   groupItems,
   lockedScheduleFields,
   manualScheduleHint,
@@ -42,6 +45,8 @@ export function ItemCardTab({
   predColumnId?: string | null;
   /** For the 相關項目 list's Link labels — see listDependentItems. */
   linkColumnId?: string | null;
+  /** What this item's predecessor's state means for it — see resolvePredLamp. */
+  predLamp?: PredLamp | null;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
@@ -159,7 +164,10 @@ export function ItemCardTab({
               }
               onClick={scheduleBlockedReason ? () => notify(scheduleBlockedReason) : undefined}
             >
-              <span className="text-xs text-neutral-400 dark:text-neutral-500">{col.name}</span>
+              <span className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                {col.id === predColumnId && <PredLampDot lamp={predLamp} />}
+                {col.name}
+              </span>
               <span className="w-40 text-sm text-neutral-800 dark:text-neutral-100">
                 <CellEditor
                   boardId={boardId}

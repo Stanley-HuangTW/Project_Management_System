@@ -17,6 +17,9 @@ export async function getSystemSettings() {
     ganttOverdueColor: "#e2445c",
     ganttCompletedColor: "#9ca3af",
     ganttInProgressColor: "#00c875",
+    predReadyColor: "#00c875",
+    predWaitingColor: "#fdab3d",
+    predBlockedColor: "#e2445c",
     updatedAt: new Date(),
   };
 }
@@ -92,6 +95,40 @@ export async function setGanttStatusColors(colors: {
     ganttOverdueColor: colors.overdue,
     ganttCompletedColor: colors.completed,
     ganttInProgressColor: colors.inProgress,
+  };
+
+  await prisma.$transaction([
+    prisma.systemSettings.upsert({
+      where: { id: "global" },
+      create: { id: "global", ...data },
+      update: data,
+    }),
+    prisma.board.updateMany({ data }),
+  ]);
+
+  revalidatePath("/settings");
+  revalidatePath("/boards/[boardId]", "page");
+}
+
+/**
+ * Colors for the Pred lamp, by what the predecessor's own state means for the
+ * item that depends on it: ready (predecessor done — this may start), waiting
+ * (predecessor still running), blocked (predecessor overdue). Mirrored onto
+ * every board the same way setGanttStatusColors does, so any view that
+ * already loads the board can read them without another query.
+ */
+export async function setPredLampColors(colors: {
+  ready: string;
+  waiting: string;
+  blocked: string;
+}) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+
+  const data = {
+    predReadyColor: colors.ready,
+    predWaitingColor: colors.waiting,
+    predBlockedColor: colors.blocked,
   };
 
   await prisma.$transaction([

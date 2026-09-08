@@ -8,6 +8,7 @@ import {
   setGanttDurationMode,
   setLevelColors,
   setGanttStatusColors,
+  setPredLampColors,
 } from "@/lib/actions/systemSettings";
 import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModal";
 import { WorkloadThresholdModal } from "@/components/dashboard/WorkloadThresholdModal";
@@ -258,6 +259,77 @@ function GanttStatusColorCard({
   );
 }
 
+function PredLampColorCard({
+  initial,
+}: {
+  initial: { ready: string; waiting: string; blocked: string };
+}) {
+  const [colors, setColors] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  function updateColor(key: keyof typeof colors, value: string) {
+    setSaved(false);
+    setColors((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await setPredLampColors(colors);
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const fields: { key: keyof typeof colors; label: string; hint: string }[] = [
+    { key: "ready", label: "可開始", hint: "前置已完成,此項目可以開始執行" },
+    { key: "waiting", label: "等待中", hint: "前置進行中或尚未開始,要等它完成" },
+    { key: "blocked", label: "被阻擋", hint: "前置已逾期,此項目被延後執行" },
+  ];
+
+  return (
+    <div className="max-w-xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
+      <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">Pred 燈號顏色</p>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        套用到所有看板:有設前置依賴的項目,會在 Pred 欄位旁顯示一個燈號,顏色依「前置項目自己的狀態」決定。沒設前置的項目不顯示燈號。
+      </p>
+      <div className="mb-3 space-y-2">
+        {fields.map(({ key, label, hint }) => (
+          <div key={key} className="flex items-center gap-3">
+            <span className="flex w-20 shrink-0 items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-100">
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: colors[key] }}
+              />
+              {label}
+            </span>
+            <input
+              type="color"
+              value={colors[key]}
+              onChange={(e) => updateColor(key, e.target.value)}
+              className="h-8 w-14 shrink-0 cursor-pointer rounded border border-neutral-300 dark:border-neutral-600"
+            />
+            <span className="min-w-0 flex-1 truncate text-xs text-neutral-400 dark:text-neutral-500">{hint}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? "儲存中..." : "儲存"}
+        </button>
+        {saved && !saving && <span className="text-xs text-green-600">已儲存</span>}
+      </div>
+    </div>
+  );
+}
+
 function WorkloadThresholdCard({ threshold }: { threshold: WorkloadThresholdSettings }) {
   const [open, setOpen] = useState(false);
 
@@ -289,6 +361,7 @@ export function SystemSettingsForm({
   ganttDurationMode,
   levelColors,
   ganttStatusColors,
+  predLampColors,
   holidays,
   workloadThreshold,
   ganttMappingBoards,
@@ -301,6 +374,7 @@ export function SystemSettingsForm({
   ganttDurationMode: GanttDurationMode;
   levelColors: string[];
   ganttStatusColors: { overdue: string; completed: string; inProgress: string };
+  predLampColors: { ready: string; waiting: string; blocked: string };
   holidays: Holiday[];
   workloadThreshold: WorkloadThresholdSettings;
   ganttMappingBoards: GanttMappingBoard[];
@@ -317,6 +391,7 @@ export function SystemSettingsForm({
           <HolidayCard holidays={holidays} />
           <LevelColorCard initial={levelColors} />
           <GanttStatusColorCard initial={ganttStatusColors} />
+          <PredLampColorCard initial={predLampColors} />
           <WorkloadThresholdCard threshold={workloadThreshold} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <ReportSettingsCard boards={reportSettingsBoards} />

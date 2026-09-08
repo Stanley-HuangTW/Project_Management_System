@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
 import type { ScheduleLock } from "@/lib/predecessorLink";
+import type { PredLamp } from "@/lib/predLamp";
 import type { UserRole } from "@prisma/client";
 import { UpdatesTab } from "./item-detail/UpdatesTab";
 import { FilesTab } from "./item-detail/FilesTab";
@@ -32,6 +33,7 @@ export function ItemDetailModal({
   ganttEndColumnId,
   predColumnId,
   linkColumnId,
+  predLamp,
   groupItems,
   lockedScheduleFields,
   manualScheduleHint,
@@ -54,6 +56,8 @@ export function ItemDetailModal({
   predColumnId?: string | null;
   /** For the 相關項目 list's Link labels — see listDependentItems. */
   linkColumnId?: string | null;
+  /** What this item's predecessor's state means for it — see resolvePredLamp. */
+  predLamp?: PredLamp | null;
   groupItems?: ItemData[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
@@ -111,6 +115,7 @@ export function ItemDetailModal({
           ganttEndColumnId={ganttEndColumnId ?? null}
           predColumnId={predColumnId}
           linkColumnId={linkColumnId}
+          predLamp={predLamp}
           groupItems={groupItems}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}

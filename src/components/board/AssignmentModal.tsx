@@ -15,6 +15,8 @@ import { Avatar } from "@/components/ui/Avatar";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import { CellEditor } from "./cell-editors/CellEditor";
 import { PredPicker } from "./cell-editors/PredPicker";
+import { PredLampDot } from "./PredLampDot";
+import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
 import { computeWbsCodes } from "@/lib/wbs";
 
@@ -36,6 +38,7 @@ export function AssignmentModal({
   ganttEndColumnId,
   canEditSchedule = false,
   groupItems,
+  predLamp,
   onScheduleApplied,
 }: {
   boardId: string;
@@ -74,6 +77,8 @@ export function AssignmentModal({
    *  dropdown (item name -> its WBS code, since that's what's actually
    *  stored) instead of making the user type a WBS code by hand. */
   groupItems?: ItemData[];
+  /** What this item's predecessor's state means for it — see resolvePredLamp. */
+  predLamp?: PredLamp | null;
   /** Called after a schedule field is saved, for callers whose `item` is a
    *  fetched snapshot rather than a prop that router.refresh() updates —
    *  otherwise the recomputed Start/Finish never reach the display above. */
@@ -389,7 +394,10 @@ export function AssignmentModal({
               "w-full rounded border-none bg-transparent px-2 py-1 text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50";
             return (
               <div key={col.id} className="flex items-center justify-between gap-3">
-                <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{col.name}</span>
+                <span className="flex shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                  {col.id === predColumnId && <PredLampDot lamp={predLamp} />}
+                  {col.name}
+                </span>
                 <div className="w-56">
                   {isPredWithOptions ? (
                     <PredPicker

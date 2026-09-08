@@ -159,6 +159,11 @@ model Board {
   ganttCompletedColor  String @default("#9ca3af")
   ganttInProgressColor String @default("#00c875")
 
+  /// Pred lamp: predecessor done / still running / overdue.
+  predReadyColor   String @default("#00c875")
+  predWaitingColor String @default("#fdab3d")
+  predBlockedColor String @default("#e2445c")
+
   groups  Group[]
   columns Column[] @relation("BoardColumns")
   items   Item[]
@@ -434,6 +439,9 @@ model SystemSettings {
   ganttOverdueColor         String            @default("#e2445c")
   ganttCompletedColor       String            @default("#9ca3af")
   ganttInProgressColor      String            @default("#00c875")
+  predReadyColor            String            @default("#00c875")
+  predWaitingColor          String            @default("#fdab3d")
+  predBlockedColor          String            @default("#e2445c")
   updatedAt                 DateTime          @updatedAt
 }
 

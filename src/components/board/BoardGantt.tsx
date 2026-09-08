@@ -28,6 +28,7 @@ import {
 } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
 import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolvePredValue } from "@/lib/predecessorLink";
+import { resolvePredLamps } from "@/lib/predLamp";
 import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
@@ -300,6 +301,13 @@ export function BoardGantt({
   const ruleColumns = useMemo(
     () => ({ predColumnId, manualStartColumnId: board.manualStartColumnId }),
     [predColumnId, board.manualStartColumnId]
+  );
+
+  // A lamp beside the Pred field in both modals, coloured by what the
+  // PREDECESSOR's own state means for the item that depends on it.
+  const predLamps = useMemo(
+    () => resolvePredLamps(board.items, board, new Set(holidays.map((h) => h.date))),
+    [board, holidays]
   );
 
   const dragLocks = useMemo(() => {
@@ -1041,6 +1049,7 @@ export function BoardGantt({
         manualStartColumnId={board.manualStartColumnId}
         ganttStartColumnId={startColumnId}
         ganttEndColumnId={endColumnId}
+        predLamp={liveAssignmentItem ? predLamps.get(liveAssignmentItem.id) : null}
         canEditSchedule={liveAssignmentItem ? canEditItemSchedule(liveAssignmentItem) : false}
         groupItems={
           liveAssignmentItem
@@ -1060,6 +1069,7 @@ export function BoardGantt({
         ganttEndColumnId={endColumnId}
         predColumnId={predColumnId}
         linkColumnId={linkColumnId}
+        predLamp={liveDetailItem ? predLamps.get(liveDetailItem.id) : null}
         groupItems={
           liveDetailItem ? board.items.filter((i) => i.groupId === liveDetailItem.groupId) : undefined
         }

@@ -24,6 +24,8 @@ import { createItem, insertItem } from "@/lib/actions/item";
 import { useDeleteItem } from "./useDeleteItem";
 import { computeItemProgress } from "@/lib/progress";
 import type { ScheduleLock } from "@/lib/predecessorLink";
+import type { PredLamp } from "@/lib/predLamp";
+import { PredLampDot } from "./PredLampDot";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 
 export function ItemRow({
@@ -51,6 +53,7 @@ export function ItemRow({
   expandIds,
   levelColors,
   nameColors,
+  predLamps,
   manualScheduleHint,
   collapsedIds,
   onToggleCollapse,
@@ -83,6 +86,8 @@ export function ItemRow({
   expandIds?: Set<string>;
   levelColors?: string[];
   nameColors?: Map<string, string>;
+  /** Per-item Pred lamp — see resolvePredLamps. */
+  predLamps?: Map<string, PredLamp>;
   /** What to change instead, when Start/Days/Finish are computed from the
    *  board's manual schedule columns — see BoardTable. */
   manualScheduleHint?: string;
@@ -180,6 +185,7 @@ export function ItemRow({
           expandIds={expandIds}
           levelColors={levelColors}
           nameColors={nameColors}
+          predLamps={predLamps}
           manualScheduleHint={manualScheduleHint}
           collapsedIds={collapsedIds}
           onToggleCollapse={onToggleCollapse}
@@ -294,6 +300,7 @@ export function ItemRow({
           ganttEndColumnId={ganttEndColumnId}
           predColumnId={predColumnId}
           linkColumnId={linkColumnId}
+          predLamp={predLamps?.get(item.id)}
           groupItems={allGroupItems}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
@@ -314,6 +321,7 @@ export function ItemRow({
           ganttEndColumnId={ganttEndColumnId}
           predColumnId={predColumnId}
           linkColumnId={linkColumnId}
+          predLamp={predLamps?.get(item.id)}
           groupItems={allGroupItems}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
@@ -334,6 +342,7 @@ export function ItemRow({
           ganttEndColumnId={ganttEndColumnId}
           predColumnId={predColumnId}
           linkColumnId={linkColumnId}
+          predLamp={predLamps?.get(item.id)}
           groupItems={allGroupItems}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
@@ -410,7 +419,25 @@ export function ItemRow({
               title={isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined}
               onClick={scheduleBlockedReason ? () => notify(scheduleBlockedReason) : undefined}
             >
-              {hasChildren && col.id === progressColumnId ? (
+              {col.id === predColumnId && predLamps?.get(item.id) ? (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <PredLampDot lamp={predLamps.get(item.id)} />
+                  <span className="min-w-0 flex-1">
+                    <CellEditor
+                      boardId={boardId}
+                      itemId={item.id}
+                      column={col}
+                      value={valuesByColumn.get(col.id) ?? null}
+                      users={users}
+                      canEdit={cellCanEdit}
+                      predColumnId={predColumnId}
+                      groupItems={allGroupItems}
+                      wbsCodes={wbsCodes}
+                      isProgressColumn={col.id === progressColumnId}
+                    />
+                  </span>
+                </span>
+              ) : hasChildren && col.id === progressColumnId ? (
                 <RollupProgress
                   value={computeItemProgress(item, allGroupItems, col.id)}
                   childCount={children.length}

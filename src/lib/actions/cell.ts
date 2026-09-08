@@ -13,6 +13,7 @@ import {
   checkScheduleWithinAncestorRule,
 } from "@/lib/predecessorLink";
 import { canEditCellValue, canModifyItemSchedule } from "@/lib/permissions";
+import { notifyDependentsWhenDone } from "@/lib/predReadyNotify";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
@@ -208,6 +209,17 @@ export async function upsertCellValue(
         if (column.type === "STATUS") {
           await executeAutomationRules(boardId, itemId, columnId, value, session.userId);
         }
+        // Marking something done is what unblocks whoever was waiting on it —
+        // the Pred lamp turns green at the same moment, but nobody watches a
+        // field on someone else's row.
+        await notifyDependentsWhenDone(
+          boardId,
+          itemId,
+          session.userId,
+          item.cellValues,
+          columnId,
+          value
+        );
         if (column.type === "DATE" || column.type === "NUMBER") {
           await syncGanttDates(boardId, itemId, columnId, value);
         }

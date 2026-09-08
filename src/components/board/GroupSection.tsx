@@ -15,6 +15,7 @@ import { createItem } from "@/lib/actions/item";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { computeWbsCodes } from "@/lib/wbs";
 import type { ScheduleLock } from "@/lib/predecessorLink";
+import type { PredLamp } from "@/lib/predLamp";
 
 export function GroupSection({
   boardId,
@@ -37,6 +38,7 @@ export function GroupSection({
   expandIds,
   levelColors,
   nameColors,
+  predLamps,
   manualScheduleHint,
   collapsedIds,
   onToggleCollapse,
@@ -66,6 +68,8 @@ export function GroupSection({
   expandIds?: Set<string>;
   levelColors?: string[];
   nameColors?: Map<string, string>;
+  /** Per-item Pred lamp — see resolvePredLamps. */
+  predLamps?: Map<string, PredLamp>;
   manualScheduleHint?: string;
   collapsedIds: Set<string>;
   onToggleCollapse: (itemId: string) => void;
@@ -217,6 +221,7 @@ export function GroupSection({
                 expandIds={expandIds}
                 levelColors={levelColors}
                 nameColors={nameColors}
+                predLamps={predLamps}
                 manualScheduleHint={manualScheduleHint}
                 collapsedIds={collapsedIds}
                 onToggleCollapse={onToggleCollapse}
@@ -269,6 +274,7 @@ export function GroupSection({
                 expandIds={expandIds}
                 levelColors={levelColors}
                 nameColors={nameColors}
+                predLamps={predLamps}
                 manualScheduleHint={manualScheduleHint}
                 collapsedIds={collapsedIds}
                 onToggleCollapse={onToggleCollapse}
