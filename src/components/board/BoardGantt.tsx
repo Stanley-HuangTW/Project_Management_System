@@ -29,6 +29,7 @@ import {
 import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
 import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolvePredValue } from "@/lib/predecessorLink";
 import { resolvePredLamps } from "@/lib/predLamp";
+import { resolveBaselineVariance } from "@/lib/baseline";
 import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
@@ -302,6 +303,9 @@ export function BoardGantt({
     () => ({ predColumnId, manualStartColumnId: board.manualStartColumnId }),
     [predColumnId, board.manualStartColumnId]
   );
+
+  // Nothing to draw against until a plan has actually been saved.
+  const showBaseline = board.baselineCapturedAt !== null;
 
   // A lamp beside the Pred field in both modals, coloured by what the
   // PREDECESSOR's own state means for the item that depends on it.
@@ -764,6 +768,7 @@ export function BoardGantt({
                 />
               ))}
             </div>
+            {showBaseline && <BaselineBar item={item} dayIndexByIso={dayIndexByIso} dayWidth={dayWidth} />}
             {range && (
               <GanttBar
                 boardId={board.id}
@@ -1400,5 +1405,44 @@ function GanttBar({
         title={canResizeEnd ? "拖曳調整結束日期" : (blockedReason("end") ?? undefined)}
       />
     </div>
+  );
+}
+
+/**
+ * The saved plan, drawn as a thin bar under the real one — the standard Gantt
+ * way to show drift, and the only way to see at a glance which tasks moved and
+ * which held. Hidden entirely when the board has no baseline.
+ */
+function BaselineBar({
+  item,
+  dayIndexByIso,
+  dayWidth,
+}: {
+  item: ItemData;
+  dayIndexByIso: Map<string, number>;
+  dayWidth: number;
+}) {
+  if (!item.baselineStart || !item.baselineEnd) return null;
+  const startIndex = dayIndexByIso.get(item.baselineStart);
+  const endIndex = dayIndexByIso.get(item.baselineEnd);
+  // Outside the chart's own day range — nothing to place it against.
+  if (startIndex === undefined || endIndex === undefined) return null;
+
+  const variance = resolveBaselineVariance(item, {
+    start: new Date(item.baselineStart),
+    end: new Date(item.baselineEnd),
+  });
+  return (
+    <div
+      className="pointer-events-none absolute bottom-0.5 rounded-sm bg-neutral-400/70 dark:bg-neutral-500/70"
+      style={{
+        left: startIndex * dayWidth,
+        width: Math.max((endIndex - startIndex + 1) * dayWidth, 2),
+        height: 4,
+      }}
+      title={`基準線:${item.baselineStart} ~ ${item.baselineEnd}${
+        variance ? `(${item.baselineDays ?? "-"} 天)` : ""
+      }`}
+    />
   );
 }

@@ -11,6 +11,7 @@ import { computeWbsCodes } from "@/lib/wbs";
 import { listDependentItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
 import { PredLampDot } from "../PredLampDot";
+import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import { CellEditor } from "../cell-editors/CellEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -91,6 +92,17 @@ export function ItemCardTab({
   const parent = groupItems?.find((i) => i.id === item.parentId);
   const parentWbsCode = parent ? wbsCodes?.get(parent.id) : undefined;
   const createdByName = users.find((u) => u.id === item.createdById)?.name;
+  // How far this item has drifted from the plan saved for it. Null until the
+  // board has a baseline, or for an item created after one was taken.
+  // Compared against the stored Start/Finish rather than a recomputed range:
+  // those cells are what scheduling actually wrote, and reading them needs no
+  // duration mode or holiday list here.
+  const currentStart = ganttStartColumnId ? valuesByColumn.get(ganttStartColumnId) : null;
+  const currentEnd = ganttEndColumnId ? valuesByColumn.get(ganttEndColumnId) : null;
+  const baseline =
+    typeof currentStart === "string" && typeof currentEnd === "string"
+      ? resolveBaselineVariance(item, { start: new Date(currentStart), end: new Date(currentEnd) })
+      : null;
   // Who is scheduled off this item — the other side of Pred, which on its own
   // only says what this item points at.
   const dependents = groupItems
@@ -191,6 +203,25 @@ export function ItemCardTab({
               </div>
             )}
             {col.name === "Lvl" && <DependentItemsRow dependents={dependents} />}
+            {col.name === "Lvl" && baseline && (
+              <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">基準線</span>
+                <span className="text-right text-sm text-neutral-800 dark:text-neutral-100">
+                  {item.baselineStart} ~ {item.baselineEnd}
+                  <span
+                    className={`ml-2 text-xs font-medium ${
+                      baseline.status === "late"
+                        ? "text-red-600"
+                        : baseline.status === "ahead"
+                          ? "text-green-600"
+                          : "text-neutral-500 dark:text-neutral-400"
+                    }`}
+                  >
+                    {describeBaselineDelta(baseline.endDelta)}
+                  </span>
+                </span>
+              </div>
+            )}
           </div>
         );
       })}

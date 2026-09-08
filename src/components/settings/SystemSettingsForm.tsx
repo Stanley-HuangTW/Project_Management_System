@@ -16,6 +16,7 @@ import type { WorkloadThresholdSettings } from "@/lib/workload";
 import type { UserOption } from "@/types/board";
 import { GanttColumnMappingCard, type GanttMappingBoard } from "./GanttColumnMappingCard";
 import { ReportSettingsCard, type ReportSettingsBoardWithName } from "./ReportSettingsCard";
+import { BaselineCard, type BaselineBoard } from "./BaselineCard";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 
 const MAX_LEVELS = 6;
@@ -365,6 +366,7 @@ export function SystemSettingsForm({
   holidays,
   workloadThreshold,
   ganttMappingBoards,
+  baselineBoards,
   reportSettingsBoards,
   sharingBoards,
   users,
@@ -378,6 +380,7 @@ export function SystemSettingsForm({
   holidays: Holiday[];
   workloadThreshold: WorkloadThresholdSettings;
   ganttMappingBoards: GanttMappingBoard[];
+  baselineBoards: BaselineBoard[];
   reportSettingsBoards: ReportSettingsBoardWithName[];
   sharingBoards: SharingBoard[];
   users: UserOption[];
@@ -393,6 +396,7 @@ export function SystemSettingsForm({
           <GanttStatusColorCard initial={ganttStatusColors} />
           <PredLampColorCard initial={predLampColors} />
           <WorkloadThresholdCard threshold={workloadThreshold} />
+          <BaselineCard boards={baselineBoards} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <ReportSettingsCard boards={reportSettingsBoards} />
         </>

@@ -164,6 +164,10 @@ model Board {
   predWaitingColor String @default("#fdab3d")
   predBlockedColor String @default("#e2445c")
 
+  /// When this board's baseline was last captured — null means it has none,
+  /// so nothing is compared against a plan that was never saved.
+  baselineCapturedAt DateTime?
+
   groups  Group[]
   columns Column[] @relation("BoardColumns")
   items   Item[]
@@ -284,6 +288,13 @@ model Item {
   name      String
   order     Int      @default(0)
   createdAt DateTime @default(now())
+
+  /// The saved plan this item is measured against — copied from its current
+  /// Start/Finish/Days when the board's baseline is captured, then left alone
+  /// while the real dates move. Null until a baseline exists.
+  baselineStart String?
+  baselineEnd   String?
+  baselineDays  Int?
 
   /// The Type option this item had before gaining its first child forced it
   /// to Summary, so removing the last child can put it back. "" means it had

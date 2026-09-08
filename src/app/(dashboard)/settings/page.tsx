@@ -38,6 +38,7 @@ export default async function SettingsPage() {
         reportPausedOptionIds: true,
         reportStuckOptionIds: true,
         reportDoneOptionIds: true,
+        baselineCapturedAt: true,
       },
       orderBy: { name: "asc" },
     }),
@@ -70,6 +71,7 @@ export default async function SettingsPage() {
         holidays={holidays}
         workloadThreshold={workloadThreshold}
         ganttMappingBoards={boards}
+        baselineBoards={boards}
         reportSettingsBoards={boards}
         sharingBoards={sharingBoards}
         users={users}
