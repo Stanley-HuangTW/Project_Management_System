@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -12,6 +12,7 @@ import {
   ArrowDownToLine,
   Trash2,
   Zap,
+  Share2,
   Maximize2,
   Minimize2,
 } from "lucide-react";
@@ -32,6 +33,10 @@ import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolvePredValues 
 import { resolvePredLamps } from "@/lib/predLamp";
 import { resolveBaselineVariance } from "@/lib/baseline";
 import { computeCriticalPath, type ScheduleFloat } from "@/lib/criticalPath";
+import { buildDependencyArrows, type BarBox } from "@/lib/ganttArrows";
+import type { RelationshipType } from "@/lib/predecessorLink";
+
+const RELATIONSHIP_LABELS = ["FS", "FF", "SS", "SF"];
 import { computeWbsCodes } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
@@ -312,6 +317,7 @@ export function BoardGantt({
   // Total float per item, from the CPM backward pass. Computed per group,
   // since a Pred chain never crosses one.
   const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [showArrows, setShowArrows] = useState(true);
   const scheduleFloats = useMemo(() => {
     const merged = new Map<string, ScheduleFloat>();
     const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
@@ -342,6 +348,37 @@ export function BoardGantt({
     () => [...scheduleFloats.values()].filter((f) => f.isCritical).length,
     [scheduleFloats]
   );
+
+  // Where each row's bar actually landed. Measured rather than derived: rows
+  // are interleaved with group headers, collapsed subtrees drop out, and the
+  // display-scale zoom rescales everything — the DOM already knows all of it.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [barBoxes, setBarBoxes] = useState<Map<string, BarBox>>(new Map());
+
+  const measureBars = useCallback(() => {
+    const container = contentRef.current;
+    if (!container) return;
+    const origin = container.getBoundingClientRect();
+    const next = new Map<string, BarBox>();
+    for (const cell of container.querySelectorAll<HTMLElement>("[data-gantt-row]")) {
+      const id = cell.dataset.ganttRow;
+      const bar = cell.querySelector<HTMLElement>("[data-gantt-bar]");
+      if (!id || !bar) continue;
+      const rect = bar.getBoundingClientRect();
+      next.set(id, {
+        left: rect.left - origin.left,
+        right: rect.right - origin.left,
+        centerY: rect.top + rect.height / 2 - origin.top,
+      });
+    }
+    setBarBoxes((prev) => (sameBoxes(prev, next) ? prev : next));
+  }, []);
+
+  // No dependency list: any render can move a row (a collapse, a filter, a
+  // drag that lands). Re-measuring is cheap and setBarBoxes bails when nothing
+  // moved, so this settles after one pass instead of looping.
+  useLayoutEffect(measureBars);
+
 
   // A lamp beside the Pred field in both modals, coloured by what the
   // PREDECESSOR's own state means for the item that depends on it.
@@ -581,6 +618,50 @@ export function BoardGantt({
     return map;
   }, [board.items, board.groups]);
 
+  const linkOptions = useMemo(
+    () => getStatusOptions(board.columns.find((c) => c.id === linkColumnId)?.options),
+    [board.columns, linkColumnId]
+  );
+
+  /** This item's Link, as a relationship type — null when it isn't set to one. */
+  function linkRelationship(item: ItemData): RelationshipType | null {
+    if (!linkColumnId) return null;
+    const value = item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value;
+    const label = linkOptions.find((o) => o.id === value)?.label;
+    return label && (RELATIONSHIP_LABELS as string[]).includes(label)
+      ? (label as RelationshipType)
+      : null;
+  }
+
+  // One arrow per dependency, drawn between the two bars as measured. A link
+  // whose ends are not both on screen — a collapsed subtree, a filtered row,
+  // an item with no dates — simply has nothing to draw between.
+  const dependencyArrows = useMemo(() => {
+    if (!showArrows || !predColumnId || !linkColumnId) return [];
+    const links: Parameters<typeof buildDependencyArrows>[0] = [];
+    for (const item of board.items) {
+      const relationship = linkRelationship(item);
+      if (!relationship) continue;
+      const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+      for (const predId of resolvePredValues(wbsIndex, item.groupId, predValue)) {
+        const predItem = itemById.get(predId);
+        if (!predItem) continue;
+        links.push({
+          predId,
+          succId: item.id,
+          relationship,
+          // An arrow is on the critical path only when both ends are.
+          critical:
+            (scheduleFloats.get(predId)?.isCritical ?? false) &&
+            (scheduleFloats.get(item.id)?.isCritical ?? false),
+          title: `${wbsCodes.get(predId) ?? ""} ${predItem.name} → ${wbsCodes.get(item.id) ?? ""} ${item.name}(${relationship})`,
+        });
+      }
+    }
+    return buildDependencyArrows(links, barBoxes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArrows, board.items, predColumnId, linkColumnId, linkOptions, wbsIndex, itemById, wbsCodes, scheduleFloats, barBoxes]);
+
   const itemsByParent = new Map<string | null, ItemData[]>();
   for (const item of board.items) {
     if (visibleIds !== null && !visibleIds.has(item.id)) continue;
@@ -795,6 +876,7 @@ export function BoardGantt({
           </div>
           <div
             className="relative shrink-0"
+            data-gantt-row={item.id}
             style={{ width: days.length * dayWidth, height: 34 }}
           >
             <div className="absolute inset-0 flex">
@@ -890,6 +972,18 @@ export function BoardGantt({
         >
           <Zap size={13} /> 要徑 {criticalCount > 0 && `(${criticalCount})`}
         </button>
+        <button
+          type="button"
+          onClick={() => setShowArrows((on) => !on)}
+          title="在長條之間畫出前置依賴的箭頭"
+          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+            showArrows
+              ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+              : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <Share2 size={13} /> 相依箭頭
+        </button>
         <div className="ml-2 flex items-center gap-2">
           <span className="text-neutral-500 dark:text-neutral-400">專案(分組)</span>
           <select
@@ -982,7 +1076,28 @@ export function BoardGantt({
             }`}
           >
           <div style={{ zoom: scalePct / 100 }}>
-          <div className="relative" style={{ minWidth: labelWidth + days.length * dayWidth }}>
+          <div ref={contentRef} className="relative" style={{ minWidth: labelWidth + days.length * dayWidth }}>
+            {showArrows && dependencyArrows.length > 0 && (
+              <svg
+                className="pointer-events-none absolute inset-0 z-[6] h-full w-full overflow-visible"
+                aria-hidden
+              >
+                {dependencyArrows.map((arrow) => (
+                  <g
+                    key={arrow.key}
+                    className={
+                      arrow.critical
+                        ? "stroke-red-500 fill-red-500"
+                        : "stroke-neutral-400 fill-neutral-400 dark:stroke-neutral-500 dark:fill-neutral-500"
+                    }
+                  >
+                    <title>{arrow.title}</title>
+                    <path d={arrow.path} fill="none" strokeWidth={1.25} />
+                    <path d={arrow.head} strokeWidth={0} />
+                  </g>
+                ))}
+              </svg>
+            )}
             {todayIndex >= 0 && (
               <div
                 className="pointer-events-none absolute top-0 bottom-0 z-[5] w-px bg-red-400"
@@ -1403,7 +1518,11 @@ function GanttBar({
   }
 
   return (
-    <div className="absolute top-1/2 -translate-y-1/2" style={{ left, width, height: 20 }}>
+    <div
+      data-gantt-bar=""
+      className="absolute top-1/2 -translate-y-1/2"
+      style={{ left, width, height: 20 }}
+    >
       <div
         onPointerDown={(e) => handleResizeDown("start", e)}
         onPointerMove={handleDragMove}
@@ -1524,4 +1643,21 @@ function describeFloat(scheduleFloat: ScheduleFloat): string {
     return "要徑・總浮時 0 天,延一天整個專案就延一天";
   }
   return `總浮時 ${scheduleFloat.totalFloat} 天(最晚可完成於 ${toIsoDate(scheduleFloat.lateFinish)})`;
+}
+
+/** Whether two measurement passes found every bar in the same place. */
+function sameBoxes(a: Map<string, BarBox>, b: Map<string, BarBox>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, box] of a) {
+    const other = b.get(id);
+    if (!other) return false;
+    if (
+      Math.abs(other.left - box.left) > 0.5 ||
+      Math.abs(other.right - box.right) > 0.5 ||
+      Math.abs(other.centerY - box.centerY) > 0.5
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
