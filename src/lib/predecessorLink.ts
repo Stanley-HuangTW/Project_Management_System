@@ -130,7 +130,7 @@ export function formatPredValue(itemIds: string[]): string | null {
 
 export async function buildWbsIndex(boardId: string) {
   const items = await prisma.item.findMany({
-    where: { boardId },
+    where: { boardId, deletedAt: null },
     select: { id: true, parentId: true, order: true, groupId: true },
   });
   return buildWbsIndexFromItems(items);
@@ -374,7 +374,7 @@ async function buildScheduleContext(
     // which stay inside one group — so a single-item edit only needs that
     // item's group, while a whole-board recompute passes no groupId.
     prisma.item.findMany({
-      where: groupId ? { groupId } : { boardId },
+      where: groupId ? { groupId, deletedAt: null } : { boardId, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -712,7 +712,7 @@ export async function previewScheduleChange(
       : Promise.resolve(null),
     // Group-scoped: a Pred reference resolves within the item's own group.
     prisma.item.findMany({
-      where: { groupId: self.groupId },
+      where: { groupId: self.groupId, deletedAt: null },
       select: {
         id: true,
         parentId: true,
@@ -850,7 +850,7 @@ async function resolveAncestorScheduleWindow(
   const self0 = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true, parentId: true } });
   if (!self0?.parentId) return null;
   const items = await prisma.item.findMany({
-    where: { groupId: self0.groupId },
+    where: { groupId: self0.groupId, deletedAt: null },
     select: { id: true, parentId: true, name: true, cellValues: true },
   });
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -965,7 +965,7 @@ export async function normalizePredReferences(
   const predColumnId = board.predColumnId;
 
   const items = await client.item.findMany({
-    where: groupId ? { groupId } : { boardId },
+    where: groupId ? { groupId, deletedAt: null } : { boardId, deletedAt: null },
     select: { id: true, parentId: true, order: true, groupId: true, cellValues: true },
   });
   const index = buildWbsIndexFromItems(items);

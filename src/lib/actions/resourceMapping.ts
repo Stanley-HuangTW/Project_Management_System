@@ -11,7 +11,7 @@ export async function getDistinctTextValues(boardId: string, columnId: string) {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
   const cellValues = await prisma.cellValue.findMany({
-    where: { columnId, item: { boardId } },
+    where: { columnId, item: { boardId, deletedAt: null } },
     select: { value: true },
   });
 
@@ -71,14 +71,14 @@ export async function applyResourceMapping(
 
       const [sourceCells, existingTargetCells, items] = await Promise.all([
         tx.cellValue.findMany({
-          where: { columnId: sourceColumnId, item: { boardId } },
+          where: { columnId: sourceColumnId, item: { boardId, deletedAt: null } },
           select: { itemId: true, value: true },
         }),
         tx.cellValue.findMany({
-          where: { columnId, item: { boardId } },
+          where: { columnId, item: { boardId, deletedAt: null } },
           select: { itemId: true, value: true },
         }),
-        tx.item.findMany({ where: { boardId }, select: { id: true, name: true } }),
+        tx.item.findMany({ where: { boardId, deletedAt: null }, select: { id: true, name: true } }),
       ]);
 
       const existingByItem = new Map(existingTargetCells.map((c) => [c.itemId, c.value]));
@@ -94,7 +94,7 @@ export async function applyResourceMapping(
       const [realUsers, mappedResources, existingAssignments] = await Promise.all([
         tx.user.findMany({ where: { id: { in: uniqueMappedIds } }, select: { id: true } }),
         tx.resource.findMany({ where: { id: { in: uniqueMappedIds } }, select: { id: true, managerId: true } }),
-        tx.assignment.findMany({ where: { item: { boardId } }, select: { itemId: true, userId: true } }),
+        tx.assignment.findMany({ where: { item: { boardId, deletedAt: null } }, select: { itemId: true, userId: true } }),
       ]);
       const realUserIds = new Set(realUsers.map((u) => u.id));
       const managerIdByResourceId = new Map(mappedResources.map((r) => [r.id, r.managerId]));

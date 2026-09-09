@@ -65,7 +65,7 @@ export async function loadItemScheduleContext(itemId: string): Promise<ItemSched
 
   const [groupItems, personColumns, groupRole, supervisedUsers] = await Promise.all([
     prisma.item.findMany({
-      where: { groupId: item.groupId },
+      where: { groupId: item.groupId, deletedAt: null },
       orderBy: { order: "asc" },
       include: itemInclude,
     }),

@@ -34,7 +34,7 @@ export async function captureBaseline(boardId: string): Promise<number> {
   }
 
   const [items, holidayRows] = await Promise.all([
-    prisma.item.findMany({ where: { boardId }, select: { id: true, cellValues: true } }),
+    prisma.item.findMany({ where: { boardId, deletedAt: null }, select: { id: true, cellValues: true } }),
     listHolidays(),
   ]);
   const holidays = toHolidaySet(holidayRows);

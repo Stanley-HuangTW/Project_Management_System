@@ -12,6 +12,8 @@ export const boardWithDataArgs = Prisma.validator<Prisma.BoardDefaultArgs>()({
     },
     columns: { orderBy: { order: "asc" } },
     items: {
+      // Trashed items are off the board entirely — see listTrashedItems.
+      where: { deletedAt: null },
       orderBy: { order: "asc" },
       include: {
         cellValues: true,

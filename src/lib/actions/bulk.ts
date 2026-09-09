@@ -42,7 +42,7 @@ export async function bulkSetCellValue(
   const [column, items, personColumns] = await Promise.all([
     prisma.column.findUnique({ where: { id: columnId } }),
     prisma.item.findMany({
-      where: { id: { in: itemIds }, boardId },
+      where: { id: { in: itemIds }, boardId, deletedAt: null },
       include: { cellValues: true, assignments: true },
     }),
     prisma.column.findMany({ where: { boardId, type: "PERSON" }, select: { id: true } }),
@@ -106,7 +106,7 @@ export async function bulkSetCellValue(
   // here would be overwritten by the next recompute anyway.
   if (isScheduleColumn && board) {
     const boardItems = await prisma.item.findMany({
-      where: { boardId },
+      where: { boardId, deletedAt: null },
       select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
     });
     const [linkColumn, typeColumn] = await Promise.all([
@@ -200,7 +200,7 @@ export async function bulkShiftDates(
 
   const [items, holidayRows] = await Promise.all([
     prisma.item.findMany({
-      where: { id: { in: itemIds }, boardId },
+      where: { id: { in: itemIds }, boardId, deletedAt: null },
       select: { id: true, groupId: true, createdById: true, cellValues: true },
     }),
     listHolidays(),

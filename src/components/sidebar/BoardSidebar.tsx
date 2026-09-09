@@ -39,6 +39,7 @@ const ADMIN_ACTIONS: { id: BoardAdminAction; label: string; Icon: typeof Upload 
   { id: "export", label: "匯出", Icon: Upload },
   { id: "resources", label: "Resource 對應", Icon: Users2 },
   { id: "automation", label: "自動化", Icon: Zap },
+  { id: "trash", label: "垃圾桶", Icon: Trash2 },
 ];
 
 const DEFAULT_WIDTH = 256;

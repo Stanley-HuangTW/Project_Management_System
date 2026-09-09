@@ -30,7 +30,7 @@ export function useDeleteItem() {
     if (!impact) return;
 
     if (impact.dependents.length === 0) {
-      const ok = await confirm(`確定要刪除「${impact.name}」嗎?此操作無法復原。`, {
+      const ok = await confirm(`確定要刪除「${impact.name}」嗎?刪除後可從看板「…」選單的垃圾桶還原。`, {
         title: "刪除項目",
         confirmLabel: "刪除",
         danger: true,

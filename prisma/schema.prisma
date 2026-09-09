@@ -89,6 +89,7 @@ model User {
   attachments         Attachment[]
   activityLogEntries  ActivityLogEntry[]
   createdItems        Item[]              @relation("ItemCreatedBy")
+  deletedItems        Item[]              @relation("ItemDeletedBy")
   managedResources    Resource[]          @relation("ResourceManager")
   groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
   groupMemberships     GroupMember[]         @relation("GroupMembers")
@@ -317,6 +318,18 @@ model Item {
   createdById String?
   createdBy   User?   @relation("ItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
+  /// Set when the item is put in the trash. Every read path filters on
+  /// deletedAt: null — a trashed item is gone from the board, the schedule
+  /// and every report, but its comments, files and history are still there
+  /// waiting for a restore.
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("ItemDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// What the dependents' Pred cells held before this deletion rewrote them,
+  /// as [{itemId, columnId, value}] — restoring the item has to put their
+  /// dependencies back too, or the undo is only half an undo.
+  deletedPredSnapshot Json?
+
   cellValues    CellValue[]
   comments      Comment[]
   notifications Notification[]
@@ -328,6 +341,7 @@ model Item {
   @@index([boardId])
   @@index([groupId])
   @@index([parentId])
+  @@index([boardId, deletedAt])
 }
 
 model Attachment {

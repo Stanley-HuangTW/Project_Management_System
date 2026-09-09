@@ -19,7 +19,7 @@ export async function listNotifications() {
   const groupIds = [...new Set(notifications.map((n) => n.item.groupId))];
   const groupItems = groupIds.length
     ? await prisma.item.findMany({
-        where: { groupId: { in: groupIds } },
+        where: { groupId: { in: groupIds }, deletedAt: null },
         select: { id: true, parentId: true, order: true, groupId: true },
       })
     : [];

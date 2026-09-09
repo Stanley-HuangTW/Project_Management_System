@@ -16,6 +16,7 @@ import {
   formatPredValue,
 } from "@/lib/predecessorLink";
 import { getItemDateRange } from "@/lib/gantt";
+import { collectSubtreeIds, type PredSnapshotEntry } from "@/lib/trash";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { SessionPayload } from "@/lib/jwt";
 
@@ -91,7 +92,8 @@ async function flipParentToSummary(parentId: string, typeColumnId: string, summa
  *  there is nothing recorded to restore. */
 async function restoreParentTypeIfChildless(parentId: string, typeColumnId: string) {
   const [childCount, parent] = await Promise.all([
-    prisma.item.count({ where: { parentId } }),
+    // A trashed child does not keep its parent a Summary.
+    prisma.item.count({ where: { parentId, deletedAt: null } }),
     prisma.item.findUnique({ where: { id: parentId }, select: { typeBeforeSummary: true } }),
   ]);
   if (childCount > 0 || !parent || parent.typeBeforeSummary === null) return;
@@ -395,10 +397,26 @@ export async function deleteItem(
     throw new Error("權限不足:僅建立者或管理者可以刪除此項目");
   }
 
-  const dependents = await rewriteDependentPreds(item.boardId, itemId, repointDependents);
+  const { dependentIds, snapshot } = await rewriteDependentPreds(item.boardId, itemId, repointDependents);
 
-  await prisma.item.delete({ where: { id: itemId } });
+  // Trashed, not deleted: the row stays with its comments, files and history,
+  // and every read path filters it out — see listTrashedItems / restoreItem.
+  // The children go with it, which the database used to cascade for us.
+  const boardItems = await prisma.item.findMany({
+    where: { boardId: item.boardId, deletedAt: null },
+    select: { id: true, parentId: true },
+  });
+  const deletedAt = new Date();
+  await prisma.item.updateMany({
+    where: { id: { in: collectSubtreeIds(boardItems, itemId) } },
+    data: { deletedAt, deletedById: session.userId },
+  });
+  await prisma.item.update({
+    where: { id: itemId },
+    data: { deletedPredSnapshot: snapshot.length > 0 ? snapshot : Prisma.JsonNull },
+  });
 
+  const dependents = dependentIds;
   const board = await prisma.board.findUnique({
     where: { id: item.boardId },
     select: { predColumnId: true, typeColumnId: true },
@@ -428,7 +446,7 @@ async function loadDependents(boardId: string, itemId: string) {
   if (!board?.predColumnId) return { predColumnId: null, dependents: [], index: null, items: [] };
   const predColumnId = board.predColumnId;
   const items = await prisma.item.findMany({
-    where: { boardId },
+    where: { boardId, deletedAt: null },
     select: { id: true, name: true, parentId: true, order: true, groupId: true, cellValues: true },
   });
   const index = buildWbsIndexFromItems(items);
@@ -451,9 +469,9 @@ async function rewriteDependentPreds(
   boardId: string,
   itemId: string,
   inherit: boolean
-): Promise<string[]> {
+): Promise<{ dependentIds: string[]; snapshot: PredSnapshotEntry[] }> {
   const { predColumnId, dependents, index } = await loadDependents(boardId, itemId);
-  if (!predColumnId || !index || dependents.length === 0) return [];
+  if (!predColumnId || !index || dependents.length === 0) return { dependentIds: [], snapshot: [] };
 
   let inheritedIds: string[] = [];
   if (inherit) {
@@ -465,8 +483,15 @@ async function rewriteDependentPreds(
     inheritedIds = deleted ? resolvePredValues(index, deleted.groupId, ownPredRaw) : [];
   }
 
+  const snapshot: PredSnapshotEntry[] = [];
   for (const dependent of dependents) {
     const current = dependent.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+    // Recorded before it is overwritten, so a restore can put it back.
+    snapshot.push({
+      itemId: dependent.id,
+      columnId: predColumnId,
+      value: typeof current === "string" ? current : null,
+    });
     const kept = resolvePredValues(index, dependent.groupId, current).filter((id) => id !== itemId);
     const next = formatPredValue([...kept, ...inheritedIds].filter((id) => id !== dependent.id));
     await prisma.cellValue.upsert({
@@ -475,7 +500,7 @@ async function rewriteDependentPreds(
       update: { value: next ?? Prisma.JsonNull },
     });
   }
-  return dependents.map((d) => d.id);
+  return { dependentIds: dependents.map((d) => d.id), snapshot };
 }
 
 /** One item that depends on the item about to be deleted. */

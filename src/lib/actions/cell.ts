@@ -124,7 +124,7 @@ export async function upsertCellValue(
       // parent/child nesting never cross a group, so the whole board would
       // be loaded only to throw most of it away.
       prisma.item.findMany({
-        where: { groupId: item?.groupId ?? "" },
+        where: { groupId: item?.groupId ?? "", deletedAt: null },
         select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
       }),
     ]);

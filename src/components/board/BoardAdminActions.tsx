@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type BoardAdminAction = "import" | "export" | "resources" | "automation";
+export type BoardAdminAction = "import" | "export" | "resources" | "automation" | "trash";
 
 type Registration = {
   boardId: string;

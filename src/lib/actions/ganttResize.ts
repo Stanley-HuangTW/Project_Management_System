@@ -64,7 +64,7 @@ async function loadGanttEditContext(itemId: string, session: SessionPayload) {
       ? prisma.column.findUnique({ where: { id: board.typeColumnId }, select: { options: true } })
       : null,
     prisma.item.findMany({
-      where: { boardId },
+      where: { boardId, deletedAt: null },
       select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
     }),
   ]);

@@ -99,7 +99,7 @@ export async function notifyDependentsWhenDone(
   if (!finished) return;
 
   const groupItems = await prisma.item.findMany({
-    where: { groupId: finished.groupId },
+    where: { groupId: finished.groupId, deletedAt: null },
     select: { id: true, name: true, parentId: true, order: true, groupId: true, cellValues: true },
   });
   const index = buildWbsIndexFromItems(groupItems);

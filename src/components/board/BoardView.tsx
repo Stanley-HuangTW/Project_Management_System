@@ -13,6 +13,7 @@ import { AddColumnDialog } from "./AddColumnDialog";
 import { ImportWizard } from "./ImportWizard";
 import { ResourceMappingModal } from "./ResourceMappingModal";
 import { AutomationRulesModal } from "./AutomationRulesModal";
+import { TrashModal } from "./TrashModal";
 import {
   useRegisterBoardAdminActions,
   type BoardAdminAction,
@@ -60,6 +61,7 @@ export function BoardView({
   const [resourceMappingOpen, setResourceMappingOpen] = useState(false);
   const [automationOpen, setAutomationOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
 
   const statusColumns = board.columns.filter((c) => c.type === "STATUS");
   const [kanbanColumnId, setKanbanColumnId] = useState(
@@ -76,13 +78,14 @@ export function BoardView({
   const adminActions = useMemo<BoardAdminAction[]>(() => {
     const list: BoardAdminAction[] = [];
     if (canManageBoard(userRole)) list.push("import", "export", "resources");
-    if (canManageStructure(userRole)) list.push("automation");
+    if (canManageStructure(userRole)) list.push("automation", "trash");
     return list;
   }, [userRole]);
   const openAdminAction = useCallback((action: BoardAdminAction) => {
     if (action === "import") setImportOpen(true);
     else if (action === "export") setExportOpen(true);
     else if (action === "resources") setResourceMappingOpen(true);
+    else if (action === "trash") setTrashOpen(true);
     else setAutomationOpen(true);
   }, []);
   useRegisterBoardAdminActions(board.id, adminActions, openAdminAction);
@@ -246,6 +249,10 @@ export function BoardView({
           open={automationOpen}
           onOpenChange={setAutomationOpen}
         />
+      )}
+
+      {canManageStructure(userRole) && (
+        <TrashModal boardId={board.id} open={trashOpen} onOpenChange={setTrashOpen} />
       )}
 
     </div>
