@@ -26,6 +26,15 @@ enum BoardVisibility {
   RESTRICTED
 }
 
+/// A date the schedule must respect whatever the Pred chain computes.
+/// START_NO_EARLIER_THAN and MUST_FINISH_ON move the item; FINISH_NO_LATER_THAN
+/// is a deadline — it does not make work go faster, it reports being late.
+enum ItemConstraintType {
+  START_NO_EARLIER_THAN
+  FINISH_NO_LATER_THAN
+  MUST_FINISH_ON
+}
+
 enum GanttDurationMode {
   CALENDAR
   BUSINESS
@@ -288,6 +297,10 @@ model Item {
   name      String
   order     Int      @default(0)
   createdAt DateTime @default(now())
+
+  constraintType ItemConstraintType?
+  /// "YYYY-MM-DD", meaningless without a constraintType.
+  constraintDate String?
 
   /// The saved plan this item is measured against — copied from its current
   /// Start/Finish/Days when the board's baseline is captured, then left alone

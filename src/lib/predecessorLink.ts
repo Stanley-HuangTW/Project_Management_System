@@ -4,6 +4,7 @@ import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
 import { endFromStartAndDays, shiftDate } from "@/lib/workday";
+import { applyConstraint } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -374,7 +375,16 @@ async function buildScheduleContext(
     // item's group, while a whole-board recompute passes no groupId.
     prisma.item.findMany({
       where: groupId ? { groupId } : { boardId },
-      select: { id: true, name: true, parentId: true, order: true, cellValues: true, groupId: true },
+      select: {
+        id: true,
+        name: true,
+        parentId: true,
+        order: true,
+        cellValues: true,
+        groupId: true,
+        constraintType: true,
+        constraintDate: true,
+      },
     }),
     listHolidays(),
   ]);
@@ -490,7 +500,18 @@ async function buildScheduleContext(
           return computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
         })
       );
-      const effective = scheduled ?? (alwaysComputed ? baseRange : null);
+      const computed = scheduled ?? (alwaysComputed ? baseRange : null);
+      // A date the item has to respect whatever the chain wanted — a part that
+      // does not arrive until the 15th, a demo that cannot move.
+      const effective = computed
+        ? applyConstraint(
+            computed,
+            myDays,
+            { type: item.constraintType, date: item.constraintDate },
+            mode,
+            holidays
+          ).range
+        : null;
       if (effective) await writeRange(id, effective, myDays);
     }
 
@@ -692,7 +713,15 @@ export async function previewScheduleChange(
     // Group-scoped: a Pred reference resolves within the item's own group.
     prisma.item.findMany({
       where: { groupId: self.groupId },
-      select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
+      select: {
+        id: true,
+        parentId: true,
+        order: true,
+        cellValues: true,
+        groupId: true,
+        constraintType: true,
+        constraintDate: true,
+      },
     }),
     listHolidays(),
   ]);
@@ -742,6 +771,15 @@ export async function previewScheduleChange(
     scheduled = baseRange;
   }
   if (!scheduled) return null;
+  // Same constraint the real recompute applies, so the preview shows the dates
+  // that will actually be written rather than the unconstrained ones.
+  scheduled = applyConstraint(
+    scheduled,
+    myDays,
+    { type: item.constraintType, date: item.constraintDate },
+    mode,
+    holidays
+  ).range;
 
   return {
     start: scheduled.start.toISOString().slice(0, 10),

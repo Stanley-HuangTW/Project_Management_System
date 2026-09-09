@@ -11,6 +11,7 @@ import { computeWbsCodes } from "@/lib/wbs";
 import { listDependentItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
 import { PredLampDot } from "../PredLampDot";
+import { ConstraintRow } from "./ConstraintRow";
 import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
@@ -207,6 +208,23 @@ export function ItemCardTab({
               </div>
             )}
             {col.name === "Lvl" && <DependentItemsRow dependents={dependents} />}
+            {col.name === "Lvl" && (
+              <ConstraintRow
+                itemId={item.id}
+                type={item.constraintType}
+                date={item.constraintDate}
+                canEdit={canModifySchedule}
+                currentEnd={typeof currentEnd === "string" ? currentEnd : null}
+                durationDays={
+                  ganttDurationColumnId
+                    ? (() => {
+                        const value = valuesByColumn.get(ganttDurationColumnId);
+                        return typeof value === "number" ? value : null;
+                      })()
+                    : null
+                }
+              />
+            )}
             {col.name === "Lvl" && scheduleFloat && (
               <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">總浮時</span>
