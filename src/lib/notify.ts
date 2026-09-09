@@ -35,7 +35,10 @@ export async function notifyItemAssignees(
   itemId: string,
   actorId: string,
   type: NotificationType,
-  message: string
+  message: string,
+  /** Already told about this change by a more specific notification — an
+   *  @-mention, say — so a second, vaguer one would just be noise. */
+  excludeUserIds: string[] = []
 ) {
   const item = await tx.item.findUnique({
     where: { id: itemId },
@@ -55,6 +58,7 @@ export async function notifyItemAssignees(
   for (const a of assignments) recipientIds.add(a.userId);
   recipientIds.add(item.board.ownerId);
   recipientIds.delete(actorId);
+  for (const id of excludeUserIds) recipientIds.delete(id);
 
   if (recipientIds.size === 0) return;
 
