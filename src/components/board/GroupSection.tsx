@@ -39,6 +39,8 @@ export function GroupSection({
   levelColors,
   nameColors,
   predLamps,
+  selectedIds,
+  onToggleSelected,
   manualScheduleHint,
   collapsedIds,
   onToggleCollapse,
@@ -70,6 +72,9 @@ export function GroupSection({
   nameColors?: Map<string, string>;
   /** Per-item Pred lamp — see resolvePredLamps. */
   predLamps?: Map<string, PredLamp>;
+  /** Rows ticked for a bulk edit; absent when selection is off. */
+  selectedIds?: Set<string>;
+  onToggleSelected?: (itemId: string, selected: boolean) => void;
   manualScheduleHint?: string;
   collapsedIds: Set<string>;
   onToggleCollapse: (itemId: string) => void;
@@ -222,6 +227,8 @@ export function GroupSection({
                 levelColors={levelColors}
                 nameColors={nameColors}
                 predLamps={predLamps}
+                selectedIds={selectedIds}
+                onToggleSelected={onToggleSelected}
                 manualScheduleHint={manualScheduleHint}
                 collapsedIds={collapsedIds}
                 onToggleCollapse={onToggleCollapse}
@@ -275,6 +282,8 @@ export function GroupSection({
                 levelColors={levelColors}
                 nameColors={nameColors}
                 predLamps={predLamps}
+                selectedIds={selectedIds}
+                onToggleSelected={onToggleSelected}
                 manualScheduleHint={manualScheduleHint}
                 collapsedIds={collapsedIds}
                 onToggleCollapse={onToggleCollapse}

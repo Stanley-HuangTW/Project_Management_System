@@ -54,6 +54,8 @@ export function ItemRow({
   levelColors,
   nameColors,
   predLamps,
+  selectedIds,
+  onToggleSelected,
   manualScheduleHint,
   collapsedIds,
   onToggleCollapse,
@@ -88,6 +90,9 @@ export function ItemRow({
   nameColors?: Map<string, string>;
   /** Per-item Pred lamp — see resolvePredLamps. */
   predLamps?: Map<string, PredLamp>;
+  /** Rows ticked for a bulk edit; absent when selection is off. */
+  selectedIds?: Set<string>;
+  onToggleSelected?: (itemId: string, selected: boolean) => void;
   /** What to change instead, when Start/Days/Finish are computed from the
    *  board's manual schedule columns — see BoardTable. */
   manualScheduleHint?: string;
@@ -193,6 +198,8 @@ export function ItemRow({
           levelColors={levelColors}
           nameColors={nameColors}
           predLamps={predLamps}
+          selectedIds={selectedIds}
+          onToggleSelected={onToggleSelected}
           manualScheduleHint={manualScheduleHint}
           collapsedIds={collapsedIds}
           onToggleCollapse={onToggleCollapse}
@@ -212,6 +219,17 @@ export function ItemRow({
             transition: "background-color 1.5s ease",
           }}
         >
+          {onToggleSelected && (
+            <div className="flex h-8 w-6 shrink-0 items-center justify-center">
+              <input
+                type="checkbox"
+                checked={selectedIds?.has(item.id) ?? false}
+                onChange={(e) => onToggleSelected(item.id, e.target.checked)}
+                aria-label={`選取「${item.name}」`}
+                className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+              />
+            </div>
+          )}
           <div className="flex h-8 w-8 shrink-0 items-center justify-center">
             {hasChildren && (
               <button

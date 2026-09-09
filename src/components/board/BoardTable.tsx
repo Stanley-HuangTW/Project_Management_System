@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -28,6 +28,7 @@ import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
 import { computeRolledUpDateRange, manualScheduleHint as buildManualScheduleHint } from "@/lib/gantt";
 import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
 import { resolvePredLamps } from "@/lib/predLamp";
+import { BulkEditBar } from "./BulkEditBar";
 import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
 import { ItemDetailModal } from "./ItemDetailModal";
@@ -153,6 +154,18 @@ export function BoardTable({
   const [groupFilterId, setGroupFilterId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [nameWidth, setNameWidth] = useState(DEFAULT_NAME_COLUMN_WIDTH);
+  // Rows ticked for a bulk edit. Kept here rather than per group so one
+  // selection can span groups, and so the action bar knows the whole set.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelected = useCallback((itemId: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
   // Starting fully expanded meant every render — including the very first,
   // server-rendered one — walked and rendered every item on the board, no
   // matter how deep. Collapsing anything with children by default (the
@@ -440,13 +453,22 @@ export function BoardTable({
       </div>
       <FilterBar columns={orderedColumns} users={users} filters={filters} onChange={setFilters} />
 
+      {selectedIds.size > 0 && (
+        <BulkEditBar
+          boardId={board.id}
+          columns={board.columns}
+          users={users}
+          selectedIds={selectedIds}
+          onClear={clearSelection}
+        />
+      )}
       <div className="flex flex-1 flex-col overflow-hidden rounded-lg border-2 border-neutral-800">
       <div className="flex shrink-0 items-center border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs font-medium text-neutral-500 dark:text-neutral-400">
         <div
           className="relative shrink-0 border-r border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-2"
           style={{ width: frozenPaneWidth(nameWidth) }}
         >
-          項目名稱
+          <span className="ml-6">項目名稱</span>
           <div
             onPointerDown={startNameColumnResize}
             className="absolute right-0 top-0 z-20 h-full w-1 cursor-col-resize hover:bg-blue-400"
@@ -533,6 +555,8 @@ export function BoardTable({
                   levelColors={board.levelColors}
                   nameColors={nameColors}
                   predLamps={predLamps}
+                  selectedIds={selectedIds}
+                  onToggleSelected={toggleSelected}
                   manualScheduleHint={manualScheduleHint}
                   collapsedIds={collapsedIds}
                   onToggleCollapse={toggleCollapse}
