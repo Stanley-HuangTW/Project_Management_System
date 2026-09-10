@@ -1528,6 +1528,10 @@ function GanttBar({
     }
   }
 
+  // Only while 要徑 is switched on: the ring and the bolt are the two halves
+  // of the same answer, so they appear and disappear together.
+  const isCritical = highlightCritical && !!scheduleFloat?.isCritical;
+
   return (
     <div
       data-gantt-bar=""
@@ -1554,7 +1558,7 @@ function GanttBar({
           if (onClick && (e.key === "Enter" || e.key === " ")) onClick();
         }}
         className={`absolute inset-0 flex rounded ${isMilestone ? "overflow-visible" : "overflow-hidden"} ${
-          highlightCritical && scheduleFloat?.isCritical ? "ring-2 ring-red-500" : ""
+          isCritical ? "ring-[3px] ring-red-500" : ""
         }`}
         style={{
           cursor: drag?.edge === "move" ? "grabbing" : canMove ? "grab" : onClick ? "pointer" : "not-allowed",
@@ -1569,6 +1573,13 @@ function GanttBar({
           .filter(Boolean)
           .join("\n")}
       >
+        {/* A milestone is already its own shape — a bolt on top of the star
+            would just be two symbols fighting for the same 20 pixels. */}
+        {isCritical && !isMilestone && (
+          <span className="pointer-events-none absolute left-0.5 top-1/2 z-10 -translate-y-1/2">
+            <Zap size={11} className="fill-amber-300 text-red-700" />
+          </span>
+        )}
         {isMilestone ? (
           <div className="flex h-full w-full items-center justify-center">
             <Star size={16} className="fill-amber-400 text-amber-500" />
