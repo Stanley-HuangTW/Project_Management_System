@@ -17,6 +17,8 @@ import {
   Download,
   Zap,
   Copy,
+  Menu,
+  X,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -71,6 +73,9 @@ export function BoardSidebar({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  // Below md the sidebar is a drawer over the page rather than a column
+  // beside it: on a phone there is no room for both.
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -167,42 +172,66 @@ export function BoardSidebar({
     });
   }
 
-  if (collapsed) {
+  if (collapsed && !mobileOpen) {
     return (
-      <div
-        className="flex shrink-0 flex-col items-center border-r border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 py-4"
-        style={{ width: COLLAPSED_WIDTH }}
-      >
+      <>
+        <MobileBar onOpen={() => setMobileOpen(true)} />
+        <div
+          className="hidden shrink-0 flex-col items-center border-r border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 py-4 md:flex"
+          style={{ width: COLLAPSED_WIDTH }}
+        >
         <button
           type="button"
           onClick={toggleCollapsed}
           className="rounded p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100"
-          aria-label="展開看板選單"
-          title="展開看板選單"
-        >
-          <PanelLeftOpen size={16} />
-        </button>
-      </div>
+            aria-label="展開看板選單"
+            title="展開看板選單"
+          >
+            <PanelLeftOpen size={16} />
+          </button>
+        </div>
+      </>
     );
   }
 
   return (
-    <div
-      className="relative flex shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900"
-      style={{ width }}
-    >
+    <>
+      <MobileBar onOpen={() => setMobileOpen(true)} />
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden
+        />
+      )}
+      <div
+        className={`relative shrink-0 flex-col border-r border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 ${
+          mobileOpen ? "fixed inset-y-0 left-0 z-50 flex" : "hidden md:flex"
+        }`}
+        style={{ width }}
+      >
+        {mobileOpen && (
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="absolute left-3 top-4 z-10 rounded p-1 text-neutral-500 dark:text-neutral-400 md:hidden"
+            aria-label="關閉選單"
+          >
+            <X size={16} />
+          </button>
+        )}
       <div className="flex items-center justify-between px-4 py-4">
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={toggleCollapsed}
-            className="rounded p-1 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100"
+            className="hidden rounded p-1 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-neutral-100 md:block"
             aria-label="隱藏看板選單"
             title="隱藏看板選單"
           >
             <PanelLeftClose size={15} />
           </button>
-          <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">看板</span>
+          <span className="ml-7 text-sm font-semibold text-neutral-900 dark:text-neutral-100 md:ml-0">看板</span>
         </div>
         {canManage && (
           <button
@@ -222,7 +251,7 @@ export function BoardSidebar({
         </div>
       )}
 
-      <nav className="flex-1 space-y-0.5 overflow-auto px-2">
+      <nav className="flex-1 space-y-0.5 overflow-auto px-2" onClick={() => setMobileOpen(false)}>
         <Link
           href="/dashboard"
           className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
@@ -405,6 +434,25 @@ export function BoardSidebar({
           儲存
         </button>
       </Modal>
+      </div>
+    </>
+  );
+}
+
+/** The bar that replaces the sidebar below md: a hamburger and the app's
+ *  name, fixed to the top so it survives the page's own scrolling. */
+function MobileBar({ onOpen }: { onOpen: () => void }) {
+  return (
+    <div className="fixed inset-x-0 top-0 z-30 flex h-12 items-center gap-2 border-b border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 md:hidden">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="rounded p-1.5 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+        aria-label="開啟選單"
+      >
+        <Menu size={18} />
+      </button>
+      <span className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">工作管理平台</span>
     </div>
   );
 }

@@ -31,7 +31,8 @@ export default async function DashboardLayout({
           userRole={session.role}
           avatarUrl={currentUser?.avatarUrl}
         />
-        <div className="flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800">{children}</div>
+        {/* pt-12 clears the fixed mobile bar the sidebar renders below md. */}
+        <div className="flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800 pt-12 md:pt-0">{children}</div>
       </div>
     </BoardAdminActionsProvider>
     </DialogProvider>

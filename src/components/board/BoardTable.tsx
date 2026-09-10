@@ -419,8 +419,8 @@ export function BoardTable({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-2 flex items-center gap-2 text-sm">
-        <span className="text-neutral-500 dark:text-neutral-400">專案(分組)</span>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+        <span className="shrink-0 whitespace-nowrap text-neutral-500 dark:text-neutral-400">專案(分組)</span>
         <select
           value={groupFilterId}
           onChange={(e) => setGroupFilterId(e.target.value)}
@@ -442,7 +442,7 @@ export function BoardTable({
             清除
           </button>
         )}
-        <div className="relative ml-2">
+        <div className="relative sm:ml-2">
           <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
           <input
             value={searchQuery}

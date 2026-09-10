@@ -96,7 +96,7 @@ export function BoardView({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-3 sm:px-6 sm:py-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{board.name}</h1>
@@ -123,7 +123,7 @@ export function BoardView({
                   : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               }`}
             >
-              <Table2 size={14} /> 表格
+              <Table2 size={14} /> <span className="hidden sm:inline">表格</span>
             </button>
             <button
               type="button"
@@ -134,7 +134,7 @@ export function BoardView({
                   : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               }`}
             >
-              <LayoutGrid size={14} /> 看板
+              <LayoutGrid size={14} /> <span className="hidden sm:inline">看板</span>
             </button>
             <button
               type="button"
@@ -145,7 +145,7 @@ export function BoardView({
                   : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               }`}
             >
-              <GanttChartSquare size={14} /> 甘特圖
+              <GanttChartSquare size={14} /> <span className="hidden sm:inline">甘特圖</span>
             </button>
             <button
               type="button"
@@ -156,7 +156,7 @@ export function BoardView({
                   : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               }`}
             >
-              <BarChart3 size={14} /> 報表
+              <BarChart3 size={14} /> <span className="hidden sm:inline">報表</span>
             </button>
             <button
               type="button"
@@ -167,13 +167,13 @@ export function BoardView({
                   : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               }`}
             >
-              <ShieldAlert size={14} /> 風險
+              <ShieldAlert size={14} /> <span className="hidden sm:inline">風險</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className={`flex-1 p-6 ${view === "table" ? "overflow-hidden" : "overflow-auto"}`}>
+      <div className={`flex-1 p-3 sm:p-6 ${view === "table" ? "overflow-hidden" : "overflow-auto"}`}>
         {view === "table" && (
           <BoardTable
             board={board}
