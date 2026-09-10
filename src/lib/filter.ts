@@ -15,6 +15,20 @@ export type ActiveFilter = { columnId: string; value: FilterValue };
 export const CREATED_BY_FILTER_COLUMN_ID = "__createdBy__";
 export const CREATED_AT_FILTER_COLUMN_ID = "__createdAt__";
 
+/**
+ * A date filter bound to "today" rather than to a fixed day.
+ *
+ * Without it a saved view is only right on the day it was saved: "完成日在
+ * 今天之前" — the overdue list — would freeze into "完成日在 2026-09-10 之前"
+ * and mean something different every morning.
+ */
+export const TODAY_FILTER_VALUE = "__today__";
+
+function resolveDateBound(bound: string | null): string | null {
+  if (!bound) return null;
+  return bound === TODAY_FILTER_VALUE ? new Date().toISOString().slice(0, 10) : bound;
+}
+
 function itemMatchesFilter(item: ItemData, columnId: string, value: FilterValue): boolean {
   if (columnId === CREATED_BY_FILTER_COLUMN_ID) {
     if (value.kind !== "person" || value.selected.length === 0) return true;
@@ -23,8 +37,10 @@ function itemMatchesFilter(item: ItemData, columnId: string, value: FilterValue)
   if (columnId === CREATED_AT_FILTER_COLUMN_ID) {
     if (value.kind !== "date" || (!value.from && !value.to)) return true;
     const iso = item.createdAt.toISOString().slice(0, 10);
-    if (value.from && iso < value.from) return false;
-    if (value.to && iso > value.to) return false;
+    const createdFrom = resolveDateBound(value.from);
+    const createdTo = resolveDateBound(value.to);
+    if (createdFrom && iso < createdFrom) return false;
+    if (createdTo && iso > createdTo) return false;
     return true;
   }
   const cv = item.cellValues.find((c) => c.columnId === columnId)?.value;
@@ -44,12 +60,15 @@ function itemMatchesFilter(item: ItemData, columnId: string, value: FilterValue)
       if (value.min !== null && cv < value.min) return false;
       if (value.max !== null && cv > value.max) return false;
       return true;
-    case "date":
+    case "date": {
       if (!value.from && !value.to) return true;
       if (typeof cv !== "string") return false;
-      if (value.from && cv < value.from) return false;
-      if (value.to && cv > value.to) return false;
+      const from = resolveDateBound(value.from);
+      const to = resolveDateBound(value.to);
+      if (from && cv < from) return false;
+      if (to && cv > to) return false;
       return true;
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import { getStatusOptions } from "@/types/column";
 import {
   CREATED_BY_FILTER_COLUMN_ID,
   CREATED_AT_FILTER_COLUMN_ID,
+  TODAY_FILTER_VALUE,
   type ActiveFilter,
   type FilterValue,
 } from "@/lib/filter";
@@ -232,19 +233,54 @@ function FilterValueControl({
 
   return (
     <div className="flex items-center gap-1">
-      <input
-        type="date"
-        value={value.from ?? ""}
-        onChange={(e) => onChange({ kind: "date", from: e.target.value || null, to: value.to })}
-        className="w-32 rounded border border-neutral-200 dark:border-neutral-700 dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
-      />
+      <DateBound bound={value.from} onChange={(from) => onChange({ kind: "date", from, to: value.to })} />
       <span className="text-neutral-400 dark:text-neutral-500">~</span>
+      <DateBound bound={value.to} onChange={(to) => onChange({ kind: "date", from: value.from, to })} />
+    </div>
+  );
+}
+
+/**
+ * One end of a date range: a fixed day, or "今天".
+ *
+ * "今天" is what makes a saved view like 我的逾期任務 still right tomorrow —
+ * a fixed date would freeze the day it was saved on.
+ */
+function DateBound({
+  bound,
+  onChange,
+}: {
+  bound: string | null;
+  onChange: (bound: string | null) => void;
+}) {
+  if (bound === TODAY_FILTER_VALUE) {
+    return (
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        className="flex items-center gap-1 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+        title="改回指定日期"
+      >
+        今天 <X size={10} />
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-0.5">
       <input
         type="date"
-        value={value.to ?? ""}
-        onChange={(e) => onChange({ kind: "date", from: value.from, to: e.target.value || null })}
+        value={bound ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
         className="w-32 rounded border border-neutral-200 dark:border-neutral-700 dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
       />
-    </div>
+      <button
+        type="button"
+        onClick={() => onChange(TODAY_FILTER_VALUE)}
+        className="rounded px-1 py-0.5 text-[11px] text-neutral-400 dark:text-neutral-500 hover:text-blue-600"
+        title="改用「今天」,存成檢視後每天自動跟著今天走"
+      >
+        今天
+      </button>
+    </span>
   );
 }

@@ -90,6 +90,8 @@ model User {
   activityLogEntries  ActivityLogEntry[]
   createdItems        Item[]              @relation("ItemCreatedBy")
   deletedItems        Item[]              @relation("ItemDeletedBy")
+  savedViews          SavedView[]         @relation("SavedViewOwner")
+  projectTemplates    ProjectTemplate[]   @relation("ProjectTemplateCreatedBy")
   managedResources    Resource[]          @relation("ResourceManager")
   groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
   groupMemberships     GroupMember[]         @relation("GroupMembers")
@@ -183,6 +185,7 @@ model Board {
   items   Item[]
   automationRules AutomationRule[]
   members         BoardMember[]
+  savedViews      SavedView[]
 }
 
 model BoardMember {
@@ -500,4 +503,39 @@ model CellValue {
   value    Json   @default("null")
 
   @@unique([itemId, columnId])
+}
+
+/// A named set of filters someone got tired of re-entering — "我的逾期任務",
+/// "本週要交的". Private to its owner unless shared with the board.
+model SavedView {
+  id      String  @id @default(cuid())
+  boardId String
+  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  ownerId String
+  owner   User    @relation("SavedViewOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name    String
+  /// Visible to everyone who can open the board; only the owner can change it.
+  isShared Boolean @default(false)
+  /// { filters: ActiveFilter[], groupFilterId: string, searchQuery: string }
+  /// — see parseViewConfig, which is what actually decides what is usable.
+  config    Json
+  createdAt DateTime @default(now())
+
+  @@index([boardId, ownerId])
+}
+
+/// The shape of a phase — POC → EVT → PVT — captured from a group that
+/// already ran, so the next project does not have to be typed in again.
+/// App-wide, not per board: the point is to reuse it on the next board.
+model ProjectTemplate {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  createdById String?
+  createdBy   User?   @relation("ProjectTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  /// The captured tree — see buildTemplateContent / parseTemplateContent.
+  /// Columns are held by name and dependencies by position, so a template
+  /// is not tied to the board it came from.
+  content   Json
+  createdAt DateTime @default(now())
 }

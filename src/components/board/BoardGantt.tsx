@@ -48,6 +48,7 @@ import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
 import { AssignmentModal } from "./AssignmentModal";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
+import { SavedViewBar } from "./SavedViewBar";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { useDeleteItem } from "./useDeleteItem";
@@ -1035,8 +1036,18 @@ export function BoardGantt({
           {isFullscreen ? "退出全螢幕" : "全螢幕"}
         </button>
       </div>
-      <div className="shrink-0">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-2">
         <FilterBar columns={board.columns} users={users} filters={filters} onChange={setFilters} />
+        {/* The Gantt has no name search of its own, so a view saved in the
+            table keeps its query but does not apply it here. */}
+        <SavedViewBar
+          boardId={board.id}
+          currentConfig={{ filters, groupFilterId, searchQuery: "" }}
+          onApply={(config) => {
+            setFilters(config.filters);
+            setGroupFilterId(config.groupFilterId);
+          }}
+        />
       </div>
 
       {(!startColumnId || !durationColumnId) && (

@@ -14,6 +14,7 @@ import { ImportWizard } from "./ImportWizard";
 import { ResourceMappingModal } from "./ResourceMappingModal";
 import { AutomationRulesModal } from "./AutomationRulesModal";
 import { TrashModal } from "./TrashModal";
+import { ProjectTemplateModal } from "./ProjectTemplateModal";
 import {
   useRegisterBoardAdminActions,
   type BoardAdminAction,
@@ -62,6 +63,7 @@ export function BoardView({
   const [automationOpen, setAutomationOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const statusColumns = board.columns.filter((c) => c.type === "STATUS");
   const [kanbanColumnId, setKanbanColumnId] = useState(
@@ -78,7 +80,7 @@ export function BoardView({
   const adminActions = useMemo<BoardAdminAction[]>(() => {
     const list: BoardAdminAction[] = [];
     if (canManageBoard(userRole)) list.push("import", "export", "resources");
-    if (canManageStructure(userRole)) list.push("automation", "trash");
+    if (canManageStructure(userRole)) list.push("automation", "templates", "trash");
     return list;
   }, [userRole]);
   const openAdminAction = useCallback((action: BoardAdminAction) => {
@@ -86,6 +88,7 @@ export function BoardView({
     else if (action === "export") setExportOpen(true);
     else if (action === "resources") setResourceMappingOpen(true);
     else if (action === "trash") setTrashOpen(true);
+    else if (action === "templates") setTemplatesOpen(true);
     else setAutomationOpen(true);
   }, []);
   useRegisterBoardAdminActions(board.id, adminActions, openAdminAction);
@@ -253,6 +256,10 @@ export function BoardView({
 
       {canManageStructure(userRole) && (
         <TrashModal boardId={board.id} open={trashOpen} onOpenChange={setTrashOpen} />
+      )}
+
+      {canManageStructure(userRole) && (
+        <ProjectTemplateModal groups={board.groups} open={templatesOpen} onOpenChange={setTemplatesOpen} />
       )}
 
     </div>

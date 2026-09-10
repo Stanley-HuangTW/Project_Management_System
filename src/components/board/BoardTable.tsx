@@ -31,6 +31,7 @@ import { resolvePredLamps } from "@/lib/predLamp";
 import { BulkEditBar } from "./BulkEditBar";
 import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
+import { SavedViewBar } from "./SavedViewBar";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import {
@@ -451,7 +452,18 @@ export function BoardTable({
           />
         </div>
       </div>
-      <FilterBar columns={orderedColumns} users={users} filters={filters} onChange={setFilters} />
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <FilterBar columns={orderedColumns} users={users} filters={filters} onChange={setFilters} />
+        <SavedViewBar
+          boardId={board.id}
+          currentConfig={{ filters, groupFilterId, searchQuery }}
+          onApply={(config) => {
+            setFilters(config.filters);
+            setGroupFilterId(config.groupFilterId);
+            setSearchQuery(config.searchQuery);
+          }}
+        />
+      </div>
 
       {selectedIds.size > 0 && (
         <BulkEditBar

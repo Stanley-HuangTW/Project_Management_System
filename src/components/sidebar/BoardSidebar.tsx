@@ -16,6 +16,7 @@ import {
   Upload,
   Download,
   Zap,
+  Copy,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -39,6 +40,7 @@ const ADMIN_ACTIONS: { id: BoardAdminAction; label: string; Icon: typeof Upload 
   { id: "export", label: "匯出", Icon: Upload },
   { id: "resources", label: "Resource 對應", Icon: Users2 },
   { id: "automation", label: "自動化", Icon: Zap },
+  { id: "templates", label: "專案範本", Icon: Copy },
   { id: "trash", label: "垃圾桶", Icon: Trash2 },
 ];
 
