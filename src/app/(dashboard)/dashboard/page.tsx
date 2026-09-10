@@ -16,6 +16,8 @@ import {
 import { TeamWorkloadCard } from "@/components/dashboard/TeamWorkloadCard";
 import { WorkloadDetailSection } from "@/components/dashboard/WorkloadDetailSection";
 import { PersonalItemsList } from "@/components/dashboard/PersonalItemsList";
+import { OverAllocationCard } from "@/components/dashboard/OverAllocationCard";
+import { computeCriticalPath } from "@/lib/criticalPath";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import {
   computeMemberTaskBreakdown,
@@ -136,6 +138,33 @@ export default async function DashboardPage({
     weeklyLoadByUser[id] = weeklyLoadMap.get(id) ?? [];
   }
 
+  // Float per item, so 過度配置 can say which of someone's stacked tasks
+  // could actually slip. Group-scoped, like every other Pred computation.
+  const floatByItemId: Record<string, number> = {};
+  for (const board of boards) {
+    const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
+    const byGroup = new Map<string, typeof board.items>();
+    for (const item of board.items) {
+      byGroup.set(item.groupId, [...(byGroup.get(item.groupId) ?? []), item]);
+    }
+    for (const groupItems of byGroup.values()) {
+      const floats = computeCriticalPath(
+        groupItems,
+        {
+          predColumnId: board.predColumnId,
+          linkColumnId: board.linkColumnId,
+          linkColumnOptions: linkColumn?.options,
+          lagColumnId: board.lagColumnId,
+          startColumnId: board.ganttStartColumnId,
+          durationColumnId: board.ganttDurationColumnId,
+          durationMode: board.ganttDurationMode,
+        },
+        holidays
+      );
+      for (const [id, value] of floats) floatByItemId[id] = value.totalFloat;
+    }
+  }
+
   const memberItemWorkload: Record<string, Record<WorkloadPeriod, MemberItemWorkloadEntry[]>> = {};
   for (const id of workloadScopeIds) {
     memberItemWorkload[id] = {
@@ -178,6 +207,13 @@ export default async function DashboardPage({
         week={teamWorkloadWeek}
         month={teamWorkloadMonth}
         memberItemWorkload={memberItemWorkload}
+      />
+
+      <OverAllocationCard
+        users={workloadScope.map((u) => ({ id: u.id, name: u.name }))}
+        tasksByUser={tasksByUser}
+        floatByItemId={floatByItemId}
+        thresholdPct={workloadThreshold.yellowMax}
       />
 
       <WorkloadDetailSection
