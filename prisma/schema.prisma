@@ -195,6 +195,7 @@ model Board {
   savedViews      SavedView[]
   risks           RiskEntry[]
   webhooks        Webhook[]
+  baselines       Baseline[]
 }
 
 model BoardMember {
@@ -660,4 +661,43 @@ model TimeEntry {
 
   @@index([itemId])
   @@index([userId, date])
+}
+
+/// A saved plan, kept whole.
+///
+/// The board's Item.baselineStart/End/Days stay as the *active* baseline —
+/// every existing reader (甘特圖長條、項目卡片、S 曲線、EVM 的 PV) keeps
+/// working unchanged — and this table is the archive those values are
+/// copied from and to. Re-capturing no longer destroys the previous plan:
+/// "跟三月那版比" is the question a baseline exists to answer, and until now
+/// the answer was gone the moment somebody re-planned.
+model Baseline {
+  id      String @id @default(cuid())
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// 使用者取的名字, e.g. "EVT 啟動版"; defaults to the capture date.
+  name        String
+  capturedAt  DateTime @default(now())
+  capturedById String?
+  /// How many items had resolvable dates when it was taken.
+  itemCount   Int      @default(0)
+  entries     BaselineEntry[]
+
+  @@index([boardId, capturedAt])
+}
+
+/// One item's dates within one saved baseline.
+model BaselineEntry {
+  id         String   @id @default(cuid())
+  baselineId String
+  baseline   Baseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+  /// Plain id, not a relation: a baseline outlives the items in it, and an
+  /// item that has since been deleted should not delete the plan's record
+  /// that it was once scheduled.
+  itemId String
+  start  String?
+  end    String?
+  days   Int?
+
+  @@unique([baselineId, itemId])
 }
