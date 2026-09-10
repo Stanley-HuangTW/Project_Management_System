@@ -27,6 +27,7 @@ import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
 import { PredLampDot } from "./PredLampDot";
 import { ConstraintBadge } from "./ConstraintBadge";
+import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 
 export function ItemRow({
@@ -167,6 +168,15 @@ export function ItemRow({
   const valuesByColumn = new Map(
     item.cellValues.map((cv) => [cv.columnId, cv.value as string | number | null])
   );
+
+  // This item's dependencies, each with whatever relationship and lag it
+  // carries of its own — see summarizePredEdges.
+  const predEdges = predColumnId
+    ? summarizePredEdges(
+        valuesByColumn.get(predColumnId),
+        allGroupItems.map((i) => ({ id: i.id, code: wbsCodes?.get(i.id) ?? "", name: i.name }))
+      )
+    : [];
 
   async function handleAddSubitem() {
     if (collapsedIds.has(item.id)) onToggleCollapse(item.id);
@@ -461,6 +471,15 @@ export function ItemRow({
                     "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定")
                   : null
               : null;
+          // A Link or Lag cell whose column value some dependency ignores:
+          // the per-edge setting lives in the Pred cell, so without a mark
+          // here the table shows a Lag that half the chain is not using.
+          const overrideNote =
+            col.id === linkColumnId
+              ? describeEdgeOverrides(predEdges, "relationship")
+              : col.id === lagColumnId
+                ? describeEdgeOverrides(predEdges, "lag")
+                : null;
           return (
             <div
               key={col.id}
@@ -492,6 +511,30 @@ export function ItemRow({
                   value={computeItemProgress(item, allGroupItems, col.id)}
                   childCount={children.length}
                 />
+              ) : overrideNote ? (
+                <span className="flex min-w-0 items-center gap-0.5">
+                  <span className="min-w-0 flex-1">
+                    <CellEditor
+                      boardId={boardId}
+                      itemId={item.id}
+                      column={col}
+                      value={valuesByColumn.get(col.id) ?? null}
+                      users={users}
+                      canEdit={cellCanEdit}
+                      predColumnId={predColumnId}
+                      groupItems={allGroupItems}
+                      wbsCodes={wbsCodes}
+                      isProgressColumn={col.id === progressColumnId}
+                    />
+                  </span>
+                  <span
+                    title={overrideNote}
+                    className="shrink-0 cursor-help text-xs font-bold text-amber-600 dark:text-amber-400"
+                    aria-label={overrideNote}
+                  >
+                    *
+                  </span>
+                </span>
               ) : (
                 <CellEditor
                   boardId={boardId}

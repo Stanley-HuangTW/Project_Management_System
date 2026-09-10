@@ -8,6 +8,7 @@ import {
   formatPredEntries,
   type RelationshipType,
 } from "@/lib/predecessorLink";
+import { formatEdgeSuffix } from "@/lib/predEdgeSummary";
 
 const RELATIONSHIPS: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
@@ -122,18 +123,25 @@ export function PredPicker({
     requestAnimationFrame(tryScroll);
   }
 
+  // Each edge's own relationship/lag rides along in the summary — otherwise
+  // a cell reading "1.3.2 底盤機構設計" hides the fact that this particular
+  // dependency is SS-2 and not what the Link column says.
+  const describe = (s: SelectedPred) => {
+    const suffix = formatEdgeSuffix(s);
+    return `${s.code} ${s.name}${suffix ? ` ${suffix}` : ""}`;
+  };
   const summary =
     selected.length === 0
       ? null
       : selected.length === 1
-        ? `${selected[0].code} ${selected[0].name}`
-        : `${selected[0].code} ${selected[0].name} 等 ${selected.length} 項`;
+        ? describe(selected[0])
+        : `${describe(selected[0])} 等 ${selected.length} 項`;
 
   return (
     <Popover.Root onOpenChange={handleOpenChange}>
       <Popover.Trigger
         disabled={disabled}
-        title={selected.map((s) => `${s.code} ${s.name}`).join("、") || undefined}
+        title={selected.map(describe).join("\n") || undefined}
         className={
           triggerClassName ??
           "flex w-full min-w-0 items-center justify-between gap-1 rounded border-none bg-transparent px-2 py-1 text-left text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
