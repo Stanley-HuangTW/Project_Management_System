@@ -6,36 +6,15 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import type { SessionPayload } from "@/lib/jwt";
-import type { StatusOption } from "@/types/column";
 import type { BoardVisibility } from "@prisma/client";
-
-const TYPE_OPTIONS: StatusOption[] = [
-  { id: "summary", label: "Summary", color: "#00c875" },
-  { id: "milestone", label: "Milestone", color: "#e2445c" },
-  { id: "task", label: "Task", color: "#a25ddc" },
-];
-
-const PRIORITY_OPTIONS: StatusOption[] = [
-  { id: "critical", label: "CRITICAL", color: "#00c875" },
-  { id: "high", label: "HIGH", color: "#e2445c" },
-  { id: "normal", label: "NORMAL", color: "#a25ddc" },
-];
-
-// Same labels as the project's original imported sheet, but the "done"/
-// "in_progress" ids match DEFAULT_STATUSES so isItemComplete's built-in
-// fallback (and 報表設定) recognize completion without any manual setup.
-const STATUS_OPTIONS: StatusOption[] = [
-  { id: "planned", label: "Planned", color: "#00c875" },
-  { id: "in_progress", label: "In Progress", color: "#a25ddc" },
-  { id: "done", label: "Completed", color: "#e2445c" },
-];
-
-const LINK_OPTIONS: StatusOption[] = [
-  { id: "fs", label: "FS", color: "#00c875" },
-  { id: "ff", label: "FF", color: "#e2445c" },
-  { id: "ss", label: "SS", color: "#a25ddc" },
-  { id: "sf", label: "SF", color: "#579bfc" },
-];
+// Shared with the settings page's 狀態欄位顏色 card, which shows these same
+// values and can restore them — see statusDefaults.
+import {
+  TYPE_OPTIONS,
+  PRIORITY_OPTIONS,
+  STATUS_OPTIONS,
+  LINK_OPTIONS,
+} from "@/lib/statusDefaults";
 
 async function requireBoardOwnerOrAdmin(boardId: string, session: SessionPayload) {
   if (session.role === "ADMIN") return;

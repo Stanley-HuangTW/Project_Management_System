@@ -73,6 +73,11 @@ export default async function SettingsPage() {
         ganttMappingBoards={boards}
         baselineBoards={boards}
         reportSettingsBoards={boards}
+        statusColorBoards={sharingBoards.map((b) => ({
+          id: b.id,
+          name: b.name,
+          columns: b.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options })),
+        }))}
         sharingBoards={sharingBoards}
         users={users}
       />

@@ -19,6 +19,7 @@ import { ReportSettingsCard, type ReportSettingsBoardWithName } from "./ReportSe
 import { BaselineCard, type BaselineBoard } from "./BaselineCard";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 import { IntegrationCard } from "./IntegrationCard";
+import { StatusColorCard, type StatusColorBoard } from "./StatusColorCard";
 
 const MAX_LEVELS = 6;
 
@@ -369,6 +370,7 @@ export function SystemSettingsForm({
   ganttMappingBoards,
   baselineBoards,
   reportSettingsBoards,
+  statusColorBoards,
   sharingBoards,
   users,
 }: {
@@ -383,6 +385,7 @@ export function SystemSettingsForm({
   ganttMappingBoards: GanttMappingBoard[];
   baselineBoards: BaselineBoard[];
   reportSettingsBoards: ReportSettingsBoardWithName[];
+  statusColorBoards: StatusColorBoard[];
   sharingBoards: SharingBoard[];
   users: UserOption[];
 }) {
@@ -395,6 +398,7 @@ export function SystemSettingsForm({
           <HolidayCard holidays={holidays} />
           <LevelColorCard initial={levelColors} />
           <GanttStatusColorCard initial={ganttStatusColors} />
+          <StatusColorCard boards={statusColorBoards} />
           <PredLampColorCard initial={predLampColors} />
           <WorkloadThresholdCard threshold={workloadThreshold} />
           <BaselineCard boards={baselineBoards} />
