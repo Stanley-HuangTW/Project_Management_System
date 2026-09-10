@@ -17,6 +17,7 @@ import {
 } from "@/lib/predecessorLink";
 import { getItemDateRange } from "@/lib/gantt";
 import { collectSubtreeIds, type PredSnapshotEntry } from "@/lib/trash";
+import { dispatchWebhooks } from "@/lib/webhooks";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { SessionPayload } from "@/lib/jwt";
 
@@ -270,6 +271,8 @@ export async function createItem(
     item = await prisma.item.findUniqueOrThrow({ where: { id: item.id }, include: itemDetailInclude });
   }
 
+  await dispatchWebhooks(boardId, "item.created", { itemId: item.id, name: item.name, groupId, parentId });
+
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/dashboard");
   return item;
@@ -388,7 +391,7 @@ export async function deleteItem(
   const session = await requireSession();
   const item = await prisma.item.findUnique({
     where: { id: itemId },
-    select: { boardId: true, createdById: true, parentId: true },
+    select: { boardId: true, createdById: true, parentId: true, name: true },
   });
   if (!item) throw new Error("找不到項目");
   await requireBoardAccess(item.boardId, session);
@@ -415,6 +418,8 @@ export async function deleteItem(
     where: { id: itemId },
     data: { deletedPredSnapshot: snapshot.length > 0 ? snapshot : Prisma.JsonNull },
   });
+
+  await dispatchWebhooks(item.boardId, "item.deleted", { itemId, name: item.name });
 
   const dependents = dependentIds;
   const board = await prisma.board.findUnique({

@@ -221,7 +221,14 @@ npx prisma migrate dev --name <name>   # 修改 schema 後建立新的 migration
   留言內容、附件檔名、風險與議題。權限是從「這個帳號看得到哪些看板」開始查而不是查完再過濾——
   搜到一個打不開的看板上的標題,那個標題就已經外洩了。留言命中會顯示關鍵字前後的片段,
   不是前 120 個字。
-- [ ] **API / Webhook** — 對外整合。
+- [x] **API / Webhook** — 系統設定的「API / Webhook」:
+  唯讀 REST API(`GET /api/v1/boards`、`GET /api/v1/boards/<id>/items`,以
+  `Authorization: Bearer <金鑰>` 呼叫)。金鑰只存雜湊、建立時顯示一次,而且沿用建立者的
+  看板權限——API 看不到建立者本來就看不到的看板。回傳的儲存格以欄位「名稱」為 key 而不是 id,
+  外部整合才不會因為看板重建就壞掉。
+  Webhook 則是反過來:工作項新增/欄位變更/刪除時 POST 一份 JSON 到指定網址,
+  帶 `X-Hrapp-Signature`(HMAC-SHA256)讓收端確認來源。送不出去不會讓使用者的編輯失敗,
+  最後一次的結果記在該筆 Webhook 上,整合安靜下來時就是去那裡看。
 - [ ] **行動裝置佈局** — 目前沒有響應式版面。
 
 ## 正式部署(Docker Compose)

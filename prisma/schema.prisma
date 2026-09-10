@@ -93,6 +93,7 @@ model User {
   savedViews          SavedView[]         @relation("SavedViewOwner")
   projectTemplates    ProjectTemplate[]   @relation("ProjectTemplateCreatedBy")
   ownedRisks          RiskEntry[]         @relation("RiskOwner")
+  apiKeys             ApiKey[]            @relation("ApiKeyOwner")
   managedResources    Resource[]          @relation("ResourceManager")
   groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
   groupMemberships     GroupMember[]         @relation("GroupMembers")
@@ -188,6 +189,7 @@ model Board {
   members         BoardMember[]
   savedViews      SavedView[]
   risks           RiskEntry[]
+  webhooks        Webhook[]
 }
 
 model BoardMember {
@@ -585,4 +587,43 @@ model RiskEntry {
   updatedAt   DateTime @updatedAt
 
   @@index([boardId, status])
+}
+
+/// A key for the read-only REST API. Only the hash is stored — a key that
+/// can be read back out of the database is a key that leaks with a backup.
+/// It carries its creator's board access rather than a permission model of
+/// its own: the API can never show more than the person who issued the key.
+model ApiKey {
+  id        String  @id @default(cuid())
+  name      String
+  hashedKey String  @unique
+  /// The visible head of the key ("hrapp_1a2b3c…"), so a key can be told
+  /// apart in the list without storing the rest of it.
+  prefix    String
+  ownerId   String
+  owner     User    @relation("ApiKeyOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+}
+
+/// An outgoing HTTP callback for board events. Each delivery is signed with
+/// the webhook's own secret so the receiver can tell a real one from anybody
+/// who learned the URL.
+model Webhook {
+  id      String  @id @default(cuid())
+  boardId String
+  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  url     String
+  secret  String
+  /// "item.created" | "item.updated" | "item.deleted"
+  events  String[] @default([])
+  active  Boolean  @default(true)
+  /// Enough of a delivery log to debug a silent integration, without a
+  /// second table filling up with every event ever sent.
+  lastStatus    Int?
+  lastError     String?
+  lastAttemptAt DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([boardId])
 }

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dispatchWebhooks } from "@/lib/webhooks";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
@@ -227,6 +228,8 @@ export async function upsertCellValue(
       }
     }
   }
+
+  await dispatchWebhooks(boardId, "item.updated", { itemId, columnId, value });
 
   revalidatePath(`/boards/${boardId}`);
 }

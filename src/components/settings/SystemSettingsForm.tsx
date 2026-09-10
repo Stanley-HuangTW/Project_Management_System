@@ -18,6 +18,7 @@ import { GanttColumnMappingCard, type GanttMappingBoard } from "./GanttColumnMap
 import { ReportSettingsCard, type ReportSettingsBoardWithName } from "./ReportSettingsCard";
 import { BaselineCard, type BaselineBoard } from "./BaselineCard";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
+import { IntegrationCard } from "./IntegrationCard";
 
 const MAX_LEVELS = 6;
 
@@ -399,6 +400,7 @@ export function SystemSettingsForm({
           <BaselineCard boards={baselineBoards} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <ReportSettingsCard boards={reportSettingsBoards} />
+          <IntegrationCard boards={sharingBoards.map((b) => ({ id: b.id, name: b.name }))} />
         </>
       )}
       <BoardSharingCard boards={sharingBoards} users={users} />

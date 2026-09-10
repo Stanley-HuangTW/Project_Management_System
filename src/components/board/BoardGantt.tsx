@@ -1576,8 +1576,8 @@ function GanttBar({
         {/* A milestone is already its own shape — a bolt on top of the star
             would just be two symbols fighting for the same 20 pixels. */}
         {isCritical && !isMilestone && (
-          <span className="pointer-events-none absolute left-0.5 top-1/2 z-10 -translate-y-1/2">
-            <Zap size={11} className="fill-amber-300 text-red-700" />
+          <span className="pointer-events-none absolute left-0.5 top-1/2 z-10 flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center rounded-full bg-black">
+            <Zap size={9} className="fill-amber-400 text-amber-400" />
           </span>
         )}
         {isMilestone ? (
