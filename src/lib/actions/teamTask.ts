@@ -10,6 +10,7 @@ import { getItemDateRange } from "@/lib/gantt";
 import { addBusinessDays } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { upsertAssignment } from "./assignment";
+import { loadTypeOptionIds, flipParentToSummary } from "@/lib/summaryType";
 
 type ParentWithBoard = Prisma.ItemGetPayload<{ include: { board: true; cellValues: true } }>;
 
@@ -69,6 +70,14 @@ async function createChildTask(
   await prisma.cellValue.createMany({ data: cellValues });
 
   await upsertAssignment(parent.boardId, item.id, input.assigneeUserId, input.allocationPct);
+
+  // The parent has a child now, so it is a Summary — same as createItem.
+  // Without this a task created from the workload timeline left its parent
+  // looking like a leaf, and the schedule kept treating it as one.
+  const typeIds = await loadTypeOptionIds(board.typeColumnId);
+  if (board.typeColumnId && typeIds?.summaryId) {
+    await flipParentToSummary(parent.id, board.typeColumnId, typeIds.summaryId);
+  }
 
   revalidatePath("/dashboard");
   revalidatePath(`/boards/${parent.boardId}`);

@@ -26,6 +26,7 @@ import { computeItemProgress } from "@/lib/progress";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
 import { PredLampDot } from "./PredLampDot";
+import { ConstraintBadge } from "./ConstraintBadge";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 
 export function ItemRow({
@@ -43,6 +44,9 @@ export function ItemRow({
   ganttEndColumnId,
   predColumnId,
   linkColumnId,
+  lagColumnId,
+  manualStartColumnId,
+  manualDurationColumnId,
   lockedScheduleFields,
   userRole,
   currentUserId,
@@ -78,6 +82,12 @@ export function ItemRow({
   predColumnId?: string | null;
   /** For the item card's 相關項目 list — see listDependentItems. */
   linkColumnId?: string | null;
+  /** The rest of the schedule inputs, so the 指派 modal opened from the
+   *  table shows the same 時程設定 section (and its 相關項目 list) the
+   *  Gantt's does — the table is where most of the work actually happens. */
+  lagColumnId?: string | null;
+  manualStartColumnId?: string | null;
+  manualDurationColumnId?: string | null;
   lockedScheduleFields: Map<string, ScheduleLock>;
   userRole: UserRole;
   currentUserId: string;
@@ -187,6 +197,9 @@ export function ItemRow({
           ganttEndColumnId={ganttEndColumnId}
           predColumnId={predColumnId}
           linkColumnId={linkColumnId}
+          lagColumnId={lagColumnId}
+          manualStartColumnId={manualStartColumnId}
+          manualDurationColumnId={manualDurationColumnId}
           lockedScheduleFields={lockedScheduleFields}
           userRole={userRole}
           currentUserId={currentUserId}
@@ -246,6 +259,7 @@ export function ItemRow({
             {wbsCodes?.get(item.id) && (
               <span className="shrink-0 text-xs font-bold text-black">{wbsCodes.get(item.id)}</span>
             )}
+            <ConstraintBadge item={item} />
             <button
               type="button"
               onClick={() => {
@@ -386,6 +400,17 @@ export function ItemRow({
             userRole={userRole}
             open={assignOpen}
             onOpenChange={setAssignOpen}
+            columns={columns}
+            predColumnId={predColumnId}
+            linkColumnId={linkColumnId}
+            lagColumnId={lagColumnId}
+            durationColumnId={manualDurationColumnId ?? ganttDurationColumnId}
+            manualStartColumnId={manualStartColumnId}
+            ganttStartColumnId={ganttStartColumnId}
+            ganttEndColumnId={ganttEndColumnId}
+            predLamp={predLamps?.get(item.id)}
+            canEditSchedule={canModifySchedule}
+            groupItems={allGroupItems}
           />
         )}
         {childRows}

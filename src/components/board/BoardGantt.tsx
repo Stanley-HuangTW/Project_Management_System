@@ -49,6 +49,7 @@ import { AssignmentModal } from "./AssignmentModal";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
+import { ConstraintBadge } from "./ConstraintBadge";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { useDeleteItem } from "./useDeleteItem";
@@ -812,6 +813,7 @@ export function BoardGantt({
                 {item.name}
               </span>
             )}
+            <ConstraintBadge item={item} />
             <button
               type="button"
               onClick={() => setDetailItem(item)}

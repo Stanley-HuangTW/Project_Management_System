@@ -557,6 +557,9 @@ export function BoardTable({
                   ganttEndColumnId={board.ganttEndColumnId}
                   predColumnId={board.predColumnId}
                   linkColumnId={board.linkColumnId}
+                  lagColumnId={board.lagColumnId}
+                  manualStartColumnId={board.manualStartColumnId}
+                  manualDurationColumnId={board.manualDurationColumnId}
                   lockedScheduleFields={lockedScheduleFields}
                   userRole={userRole}
                   currentUserId={currentUserId}
