@@ -13,7 +13,9 @@ import {
   syncPredecessorSchedule,
   buildWbsIndexFromItems,
   resolvePredValues,
-  formatPredValue,
+  parsePredEntries,
+  formatPredEntries,
+  type PredEntry,
 } from "@/lib/predecessorLink";
 import { getItemDateRange } from "@/lib/gantt";
 import { loadTypeOptionIds, flipParentToSummary, restoreParentTypeIfChildless } from "@/lib/summaryType";
@@ -407,14 +409,16 @@ async function rewriteDependentPreds(
   const { predColumnId, dependents, index } = await loadDependents(boardId, itemId);
   if (!predColumnId || !index || dependents.length === 0) return { dependentIds: [], snapshot: [] };
 
-  let inheritedIds: string[] = [];
+  let inherited: PredEntry[] = [];
   if (inherit) {
     const deleted = await prisma.item.findUnique({
       where: { id: itemId },
       select: { groupId: true, cellValues: true },
     });
     const ownPredRaw = deleted?.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-    inheritedIds = deleted ? resolvePredValues(index, deleted.groupId, ownPredRaw) : [];
+    // The deleted item's own edges, relationships and all — the dependents
+    // are taking over its place in the chain, not just its position.
+    inherited = deleted ? parsePredEntries(index, deleted.groupId, ownPredRaw) : [];
   }
 
   const snapshot: PredSnapshotEntry[] = [];
@@ -426,8 +430,10 @@ async function rewriteDependentPreds(
       columnId: predColumnId,
       value: typeof current === "string" ? current : null,
     });
-    const kept = resolvePredValues(index, dependent.groupId, current).filter((id) => id !== itemId);
-    const next = formatPredValue([...kept, ...inheritedIds].filter((id) => id !== dependent.id));
+    // Parsed and rewritten as entries, so the other edges keep whatever
+    // relationship and lag they were given.
+    const kept = parsePredEntries(index, dependent.groupId, current).filter((e) => e.itemId !== itemId);
+    const next = formatPredEntries([...kept, ...inherited].filter((e) => e.itemId !== dependent.id));
     await prisma.cellValue.upsert({
       where: { itemId_columnId: { itemId: dependent.id, columnId: predColumnId } },
       create: { itemId: dependent.id, columnId: predColumnId, value: next ?? Prisma.JsonNull },

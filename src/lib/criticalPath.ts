@@ -4,7 +4,7 @@ import { getItemDateRange, type DateRange } from "@/lib/gantt";
 import { countDaysInRange, shiftDate } from "@/lib/workday";
 import {
   buildWbsIndexFromItems,
-  resolvePredValues,
+  parsePredEntries,
   type RelationshipType,
 } from "@/lib/predecessorLink";
 import { getStatusOptions } from "@/types/column";
@@ -123,13 +123,19 @@ export function computeCriticalPath(
 
   // successor id -> the predecessors it waits on, and predecessor id -> its
   // successors, both restricted to tasks that are actually in the network.
-  const successorsOf = new Map<string, string[]>();
+  // Keyed by the edge, not just the successor: one successor can wait on
+  // this task as FS and on another as SS, and the backward pass has to
+  // invert the relationship that this particular edge carries.
+  const successorsOf = new Map<string, { id: string; relationship: RelationshipType | null; lag: number | null }[]>();
   for (const task of tasks) {
     if (!early.has(task.id)) continue;
     const value = task.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-    for (const predId of resolvePredValues(index, task.groupId, value)) {
-      if (!early.has(predId)) continue;
-      successorsOf.set(predId, [...(successorsOf.get(predId) ?? []), task.id]);
+    for (const entry of parsePredEntries(index, task.groupId, value)) {
+      if (!early.has(entry.itemId)) continue;
+      successorsOf.set(entry.itemId, [
+        ...(successorsOf.get(entry.itemId) ?? []),
+        { id: task.id, relationship: entry.relationship, lag: entry.lag },
+      ]);
     }
   }
 
@@ -154,15 +160,15 @@ export function computeCriticalPath(
 
     const successors = successorsOf.get(id) ?? [];
     let lateFinish = projectFinish;
-    for (const successorId of successors) {
-      const successor = byId.get(successorId);
-      const relationship = successor ? relationshipOf(successor) : null;
+    for (const edge of successors) {
+      const successor = byId.get(edge.id);
+      const relationship = edge.relationship ?? (successor ? relationshipOf(successor) : null);
       if (!successor || !relationship) continue;
       const bound = latestPredecessorRange(
-        lateRangeOf(successorId),
+        lateRangeOf(edge.id),
         daysOf(byId.get(id)!),
         relationship,
-        lagOf(successor),
+        edge.lag ?? lagOf(successor),
         durationMode,
         holidays
       );

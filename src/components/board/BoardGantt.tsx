@@ -29,7 +29,12 @@ import {
   type DateRange,
 } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
-import { resolveLockedScheduleFields, buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
+import {
+  resolveLockedScheduleFields,
+  buildWbsIndexFromItems,
+  resolvePredValues,
+  parsePredEntries,
+} from "@/lib/predecessorLink";
 import { resolvePredLamps } from "@/lib/predLamp";
 import { resolveBaselineVariance } from "@/lib/baseline";
 import { computeCriticalPath, type ScheduleFloat } from "@/lib/criticalPath";
@@ -642,10 +647,14 @@ export function BoardGantt({
     if (!showArrows || !predColumnId || !linkColumnId) return [];
     const links: Parameters<typeof buildDependencyArrows>[0] = [];
     for (const item of board.items) {
-      const relationship = linkRelationship(item);
-      if (!relationship) continue;
+      const fallback = linkRelationship(item);
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-      for (const predId of resolvePredValues(wbsIndex, item.groupId, predValue)) {
+      for (const entry of parsePredEntries(wbsIndex, item.groupId, predValue)) {
+        // Each edge draws to the ends its own relationship names, falling
+        // back to the item's Link column when it does not carry one.
+        const relationship = entry.relationship ?? fallback;
+        if (!relationship) continue;
+        const predId = entry.itemId;
         const predItem = itemById.get(predId);
         if (!predItem) continue;
         links.push({

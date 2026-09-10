@@ -110,15 +110,74 @@ export function resolvePredValue(index: WbsIndex, groupId: string, value: string
  * and the referencing item can never be its own predecessor.
  */
 export function resolvePredValues(index: WbsIndex, groupId: string, value: unknown): string[] {
+  return parsePredEntries(index, groupId, value).map((entry) => entry.itemId);
+}
+
+/** One edge into an item: which predecessor, and — when this edge says so —
+ *  its own relationship and lag rather than the item's Link/Lag columns. */
+export type PredEntry = {
+  itemId: string;
+  /** Null means "use the item's own Link cell", which is what every entry
+   *  written before per-edge relationships existed means. */
+  relationship: RelationshipType | null;
+  /** Null means "use the item's own Lag cell". */
+  lag: number | null;
+};
+
+/**
+ * A Pred entry, optionally carrying its own relationship and lag:
+ * `<ref>`, `<ref>:FS`, `<ref>:SS-2`, `<ref>+3`.
+ *
+ * The relationship is separated by a colon rather than glued on MS Project
+ * style ("12FS+3"): a reference here can be a cuid, and a cuid ending in
+ * "ss" would otherwise parse as a Start-to-Start edge on an item nobody can
+ * find. Every value written before this — a bare id, or a list of them —
+ * still parses, and means exactly what it used to.
+ */
+const PRED_ENTRY_PATTERN = /^(.*?)(?::(FS|SS|FF|SF))?([+-]\d+)?$/i;
+
+/**
+ * Every edge a Pred cell describes. A task can wait on more than one thing —
+ * integration testing needs the software ported AND the mechanical sample
+ * delivered — so the cell holds a comma-separated list, the same notation MS
+ * Project uses ("12,15").
+ *
+ * Unresolvable entries are dropped rather than reported: a reference to a
+ * deleted item is simply not a dependency any more. Duplicates are collapsed
+ * (the first one wins, so its relationship is the one kept), and the
+ * referencing item can never be its own predecessor.
+ */
+/** Splits one entry into its reference and whatever it carries, without
+ *  resolving the reference — the picker needs this before it has an index. */
+export function splitPredEntry(part: string): {
+  ref: string;
+  relationship: RelationshipType | null;
+  lag: number | null;
+} {
+  const match = PRED_ENTRY_PATTERN.exec(part.trim());
+  if (!match) return { ref: part.trim(), relationship: null, lag: null };
+  const [, ref, rel, lag] = match;
+  return {
+    ref: ref.trim(),
+    relationship: rel ? (rel.toUpperCase() as RelationshipType) : null,
+    lag: lag ? Number(lag) : null,
+  };
+}
+
+export function parsePredEntries(index: WbsIndex, groupId: string, value: unknown): PredEntry[] {
   if (typeof value !== "string" || !value.trim()) return [];
+  const entries: PredEntry[] = [];
   const seen = new Set<string>();
   for (const part of value.split(",")) {
     const trimmed = part.trim();
     if (!trimmed) continue;
-    const resolved = resolvePredValue(index, groupId, trimmed);
-    if (resolved) seen.add(resolved);
+    const { ref, relationship, lag } = splitPredEntry(trimmed);
+    const resolved = resolvePredValue(index, groupId, ref);
+    if (!resolved || seen.has(resolved)) continue;
+    seen.add(resolved);
+    entries.push({ itemId: resolved, relationship, lag });
   }
-  return [...seen];
+  return entries;
 }
 
 /** The stored form of a Pred cell — null when nothing is selected, so the cell
@@ -126,6 +185,22 @@ export function resolvePredValues(index: WbsIndex, groupId: string, value: unkno
 export function formatPredValue(itemIds: string[]): string | null {
   const unique = [...new Set(itemIds.filter(Boolean))];
   return unique.length > 0 ? unique.join(",") : null;
+}
+
+/** The stored form of a Pred cell with per-edge settings. An entry with
+ *  neither is written as a bare id, so a board that never uses them keeps
+ *  the same values it always had. */
+export function formatPredEntries(entries: PredEntry[]): string | null {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.itemId || seen.has(entry.itemId)) continue;
+    seen.add(entry.itemId);
+    const rel = entry.relationship ? `:${entry.relationship}` : "";
+    const lag = entry.lag ? `${entry.lag > 0 ? "+" : ""}${entry.lag}` : "";
+    parts.push(`${entry.itemId}${rel}${lag}`);
+  }
+  return parts.length > 0 ? parts.join(",") : null;
 }
 
 export async function buildWbsIndex(boardId: string) {
@@ -434,11 +509,17 @@ async function buildScheduleContext(
   }
 
   function predecessorsOf(id: string): string[] {
+    return predEntriesOf(id).map((entry) => entry.itemId);
+  }
+
+  /** The edges into this item, each with whatever relationship and lag it
+   *  carries of its own — see parsePredEntries. */
+  function predEntriesOf(id: string): PredEntry[] {
     if (!predColumnId) return [];
     const item = itemsById.get(id);
     if (!item) return [];
     const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-    return resolvePredValues(wbsIndex, item.groupId, predValue).filter((predId) => predId !== id);
+    return parsePredEntries(wbsIndex, item.groupId, predValue).filter((entry) => entry.itemId !== id);
   }
 
   function dependentsOf(id: string): string[] {
@@ -474,20 +555,23 @@ async function buildScheduleContext(
 
     const item = itemsById.get(id);
     if (item) {
-      const predItemIds = predecessorsOf(id);
+      const predEntries = predEntriesOf(id);
       const linkValue = linkColumnId ? item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
-      const relationship = linkOptions.find((o) => o.id === linkValue)?.label;
+      const fallbackRelationship = linkOptions.find((o) => o.id === linkValue)?.label;
       const lagValue = lagColumnId ? item.cellValues.find((cv) => cv.columnId === lagColumnId)?.value : null;
-      const lag = typeof lagValue === "number" ? lagValue : 0;
+      const fallbackLag = typeof lagValue === "number" ? lagValue : 0;
       const { myDays, baseRange } = myDaysAndBase(item);
 
       // With several predecessors the binding one is whichever pushes this
       // item latest — you cannot start until the last thing you wait on is
-      // out of the way. They share this item's own Link and Lag; per-edge
-      // relationships would have to live in the Pred cell itself, which is
-      // not what the Link/Lag columns mean here.
+      // out of the way. Each edge uses its own relationship and lag when the
+      // Pred cell gives it one, and the item's Link/Lag columns when it does
+      // not: one task can wait for the sample to ship (FS) and for the test
+      // rig to be free (SS) at the same time.
       const scheduled = pickLatest(
-        predItemIds.map((predItemId) => {
+        predEntries.map((entry) => {
+          const relationship = entry.relationship ?? fallbackRelationship;
+          const lag = entry.lag ?? fallbackLag;
           if (
             !relationship ||
             !(RELATIONSHIP_TYPES as string[]).includes(relationship) ||
@@ -495,7 +579,7 @@ async function buildScheduleContext(
           ) {
             return null;
           }
-          const predRange = readRange(predItemId);
+          const predRange = readRange(entry.itemId);
           if (!predRange) return null;
           return computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
         })
@@ -978,8 +1062,14 @@ export async function normalizePredReferences(
     // freshly imported code.
     const parts = value.split(",").map((p) => p.trim()).filter(Boolean);
     const pinned = parts.map((part) => {
-      if (index.groupByItemId.get(part) === item.groupId) return part;
-      return index.itemIdByGroupWbs.get(`${item.groupId}:${part}`) ?? part;
+      // Only the reference is rewritten; the ":FS+3" an edge may carry is
+      // its own setting and has to survive the pinning untouched.
+      const match = PRED_ENTRY_PATTERN.exec(part);
+      const ref = (match?.[1] ?? part).trim();
+      const suffix = part.slice(ref.length);
+      if (index.groupByItemId.get(ref) === item.groupId) return part;
+      const resolved = index.itemIdByGroupWbs.get(`${item.groupId}:${ref}`);
+      return resolved ? resolved + suffix : part;
     });
     const next = pinned.join(",");
     if (next === value) continue; // nothing resolvable, or all already ids
@@ -1034,16 +1124,20 @@ export function listDependentItems(
   };
 
   return groupItems
-    .filter((candidate) => {
-      if (candidate.id === itemId) return false;
+    .flatMap((candidate) => {
+      if (candidate.id === itemId) return [];
       const value = text(candidate, predColumnId);
-      return resolvePredValues(index, candidate.groupId, value).includes(itemId);
+      const edge = parsePredEntries(index, candidate.groupId, value).find((e) => e.itemId === itemId);
+      if (!edge) return [];
+      return [{ candidate, edge }];
     })
-    .map((candidate) => ({
+    .map(({ candidate, edge }) => ({
       itemId: candidate.id,
       wbsCode: index.wbsByItemId.get(candidate.id) ?? "",
       name: candidate.name,
-      link: linkOptions.find((o) => o.id === text(candidate, linkColumnId))?.label ?? null,
+      // The relationship on THIS edge, not whatever the dependent's Link
+      // column says about its other predecessors.
+      link: edge.relationship ?? linkOptions.find((o) => o.id === text(candidate, linkColumnId))?.label ?? null,
       start: text(candidate, startColumnId),
       end: text(candidate, endColumnId),
     }))

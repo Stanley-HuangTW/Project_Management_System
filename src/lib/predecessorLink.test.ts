@@ -5,6 +5,8 @@ import {
   resolvePredValue,
   resolvePredValues,
   formatPredValue,
+  parsePredEntries,
+  formatPredEntries,
   pickLatest,
   computeScheduledRange,
   resolveLockedScheduleFields,
@@ -301,6 +303,90 @@ describe("resolvePredValues", () => {
   it("is empty for a blank cell", () => {
     expect(resolvePredValues(index, "g1", "")).toEqual([]);
     expect(resolvePredValues(index, "g1", null)).toEqual([]);
+  });
+});
+
+describe("parsePredEntries", () => {
+  const items = [
+    { id: "sw", parentId: null, order: 0, groupId: "g1" },
+    { id: "me", parentId: null, order: 1, groupId: "g1" },
+    // A cuid that happens to end in "ss": the reason the relationship needs
+    // a separator instead of being glued to the reference.
+    { id: "cmtabcss", parentId: null, order: 2, groupId: "g1" },
+  ];
+  const index = buildWbsIndexFromItems(items);
+
+  it("reads a bare id as 'use the item's own Link and Lag'", () => {
+    expect(parsePredEntries(index, "g1", "sw")).toEqual([
+      { itemId: "sw", relationship: null, lag: null },
+    ]);
+  });
+
+  it("reads a relationship and a lag off one edge", () => {
+    expect(parsePredEntries(index, "g1", "sw:SS-2")).toEqual([
+      { itemId: "sw", relationship: "SS", lag: -2 },
+    ]);
+  });
+
+  it("lets one task wait on two things in different ways", () => {
+    expect(parsePredEntries(index, "g1", "sw:FS+3,me:SS")).toEqual([
+      { itemId: "sw", relationship: "FS", lag: 3 },
+      { itemId: "me", relationship: "SS", lag: null },
+    ]);
+  });
+
+  it("takes a lag without a relationship", () => {
+    expect(parsePredEntries(index, "g1", "me+5")).toEqual([
+      { itemId: "me", relationship: null, lag: 5 },
+    ]);
+  });
+
+  it("does not read the end of an id as a relationship", () => {
+    expect(parsePredEntries(index, "g1", "cmtabcss")).toEqual([
+      { itemId: "cmtabcss", relationship: null, lag: null },
+    ]);
+  });
+
+  it("accepts a lower-case relationship, storing the canonical one", () => {
+    expect(parsePredEntries(index, "g1", "sw:ff")[0].relationship).toBe("FF");
+  });
+
+  it("keeps the first of a repeated predecessor, with its relationship", () => {
+    expect(parsePredEntries(index, "g1", "sw:FF,sw:SS")).toEqual([
+      { itemId: "sw", relationship: "FF", lag: null },
+    ]);
+  });
+});
+
+describe("formatPredEntries", () => {
+  it("writes a bare id when the edge adds nothing", () => {
+    expect(formatPredEntries([{ itemId: "a", relationship: null, lag: null }])).toBe("a");
+  });
+
+  it("writes the relationship and lag it was given", () => {
+    expect(
+      formatPredEntries([
+        { itemId: "a", relationship: "SS", lag: -2 },
+        { itemId: "b", relationship: "FS", lag: 3 },
+        { itemId: "c", relationship: null, lag: 1 },
+      ])
+    ).toBe("a:SS-2,b:FS+3,c+1");
+  });
+
+  it("round-trips through parsePredEntries", () => {
+    const index = buildWbsIndexFromItems([
+      { id: "a", parentId: null, order: 0, groupId: "g1" },
+      { id: "b", parentId: null, order: 1, groupId: "g1" },
+    ]);
+    const entries = [
+      { itemId: "a", relationship: "FF" as const, lag: 4 },
+      { itemId: "b", relationship: null, lag: null },
+    ];
+    expect(parsePredEntries(index, "g1", formatPredEntries(entries))).toEqual(entries);
+  });
+
+  it("clears the cell rather than storing an empty string", () => {
+    expect(formatPredEntries([])).toBeNull();
   });
 });
 

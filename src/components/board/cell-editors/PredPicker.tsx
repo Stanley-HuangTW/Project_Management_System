@@ -3,8 +3,19 @@
 import { useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronDown, Search, X } from "lucide-react";
+import {
+  splitPredEntry,
+  formatPredEntries,
+  type RelationshipType,
+} from "@/lib/predecessorLink";
+
+const RELATIONSHIPS: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
 export type PredOption = { id: string; code: string; name: string };
+
+/** A chosen predecessor plus, when this edge overrides them, its own
+ *  relationship and lag. Null means "use the item's Link/Lag columns". */
+type SelectedPred = PredOption & { relationship: RelationshipType | null; lag: number | null };
 
 /**
  * The Pred field's item picker, shared by the table cell and the assignment
@@ -43,10 +54,13 @@ export function PredPicker({
       .split(",")
       .map((p) => p.trim())
       .filter(Boolean);
-    const resolved: PredOption[] = [];
+    const resolved: SelectedPred[] = [];
     for (const part of parts) {
-      const match = options.find((o) => o.id === part) ?? options.find((o) => o.code === part);
-      if (match && !resolved.some((r) => r.id === match.id)) resolved.push(match);
+      const { ref, relationship, lag } = splitPredEntry(part);
+      const match = options.find((o) => o.id === ref) ?? options.find((o) => o.code === ref);
+      if (match && !resolved.some((r) => r.id === match.id)) {
+        resolved.push({ ...match, relationship, lag });
+      }
     }
     return resolved;
   }, [value, options]);
@@ -63,14 +77,26 @@ export function PredPicker({
 
   const viewportRef = useRef<HTMLDivElement>(null);
 
-  function commit(ids: string[]) {
-    const unique = [...new Set(ids)];
-    onChange(unique.length > 0 ? unique.join(",") : null);
+  function commit(entries: SelectedPred[]) {
+    onChange(
+      formatPredEntries(
+        entries.map((e) => ({ itemId: e.id, relationship: e.relationship, lag: e.lag }))
+      )
+    );
   }
 
   function toggle(id: string) {
-    const ids = selected.map((s) => s.id);
-    commit(ids.includes(id) ? ids.filter((s) => s !== id) : [...ids, id]);
+    if (selected.some((s) => s.id === id)) {
+      commit(selected.filter((s) => s.id !== id));
+      return;
+    }
+    const option = options.find((o) => o.id === id);
+    if (option) commit([...selected, { ...option, relationship: null, lag: null }]);
+  }
+
+  /** Changes one edge without touching the others. */
+  function updateEdge(id: string, patch: Partial<Pick<SelectedPred, "relationship" | "lag">>) {
+    commit(selected.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
 
   function handleOpenChange(open: boolean) {
@@ -146,6 +172,54 @@ export function PredPicker({
               </button>
             )}
           </div>
+          {selected.length > 0 && (
+            <div className="max-h-40 shrink-0 overflow-y-auto border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-1">
+              {selected.map((s) => (
+                <div key={s.id} className="flex items-center gap-1 px-1 py-1 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100" title={`${s.code} ${s.name}`}>
+                    {s.code} {s.name}
+                  </span>
+                  {/* Per edge, because one task can wait for the sample to
+                      ship (FS) and for the rig to be free (SS) at once. */}
+                  <select
+                    value={s.relationship ?? ""}
+                    onChange={(e) =>
+                      updateEdge(s.id, {
+                        relationship: (e.target.value || null) as RelationshipType | null,
+                      })
+                    }
+                    title="這條依賴的關係型別;「預設」表示沿用此項目的 Link 欄位"
+                    className="shrink-0 rounded border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-1 py-0.5 outline-none focus:border-blue-500"
+                  >
+                    <option value="">預設</option>
+                    {RELATIONSHIPS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    value={s.lag ?? ""}
+                    onChange={(e) =>
+                      updateEdge(s.id, { lag: e.target.value === "" ? null : Number(e.target.value) })
+                    }
+                    placeholder="Lag"
+                    title="這條依賴的 Lag(天);空白表示沿用此項目的 Lag 欄位"
+                    className="w-12 shrink-0 rounded border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-1 py-0.5 outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggle(s.id)}
+                    className="shrink-0 rounded p-0.5 text-neutral-400 hover:text-red-600"
+                    aria-label="移除此前置"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto p-1">
             {visible.map((o) => {
               const isSelected = selected.some((s) => s.id === o.id);
@@ -172,7 +246,7 @@ export function PredPicker({
           </div>
           {selected.length > 1 && (
             <p className="shrink-0 border-t border-neutral-100 dark:border-neutral-700 px-2 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-              已選 {selected.length} 項,時程以最晚完成的那一項為準
+              已選 {selected.length} 項,時程以把這個項目推得最晚的那一條為準
             </p>
           )}
         </Popover.Content>
