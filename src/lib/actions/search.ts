@@ -2,10 +2,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import type { SessionPayload } from "@/lib/jwt";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
-import { computeVisibleItemIds } from "@/lib/itemVisibility";
-import { getPersonIds } from "@/types/column";
+import { visibleItemIdsForBoards } from "@/lib/serverVisibility";
 
 export type SearchHit = {
   kind: "item" | "comment" | "attachment" | "risk";
@@ -61,7 +59,7 @@ export async function searchEverything(rawQuery: string): Promise<SearchResults>
   // Board access is not enough here: a private group or item inside a board
   // the caller can open is still not theirs to read, and a search result is
   // exactly the leak that would announce it.
-  const visibleItemIds = await visibleItemIdsForSession(
+  const visibleItemIds = await visibleItemIdsForBoards(
     boards.map((b) => b.id),
     session
   );
@@ -152,58 +150,4 @@ export async function searchEverything(rawQuery: string): Promise<SearchResults>
     hits,
     truncated: [items, comments, attachments, risks].some((list) => list.length === PER_KIND),
   };
-}
-
-/**
- * The items this session may read across a set of boards.
- *
- * Loaded in one pass rather than per hit: a search touches four tables and
- * the answer is the same for every one of them.
- */
-async function visibleItemIdsForSession(boardIds: string[], session: SessionPayload): Promise<Set<string>> {
-  const [items, groups, personColumns] = await Promise.all([
-    prisma.item.findMany({
-      where: { boardId: { in: boardIds }, deletedAt: null },
-      select: {
-        id: true,
-        parentId: true,
-        groupId: true,
-        visibility: true,
-        createdById: true,
-        viewers: { select: { userId: true } },
-        assignments: { select: { userId: true } },
-        cellValues: { select: { columnId: true, value: true } },
-      },
-    }),
-    prisma.group.findMany({
-      where: { boardId: { in: boardIds } },
-      select: { id: true, visibility: true, createdById: true, viewers: { select: { userId: true } } },
-    }),
-    prisma.column.findMany({ where: { boardId: { in: boardIds }, type: "PERSON" }, select: { id: true } }),
-  ]);
-  const personColumnIds = new Set(personColumns.map((c) => c.id));
-
-  return computeVisibleItemIds(
-    items.map((item) => ({
-      id: item.id,
-      visibility: item.visibility,
-      viewerIds: item.viewers.map((v) => v.userId),
-      createdById: item.createdById,
-      parentId: item.parentId,
-      groupId: item.groupId,
-      assigneeIds: [
-        ...item.assignments.map((a) => a.userId),
-        ...item.cellValues
-          .filter((cv) => personColumnIds.has(cv.columnId))
-          .flatMap((cv) => getPersonIds(cv.value)),
-      ],
-    })),
-    groups.map((group) => ({
-      id: group.id,
-      visibility: group.visibility,
-      viewerIds: group.viewers.map((v) => v.userId),
-      createdById: group.createdById,
-    })),
-    { userId: session.userId, isAdmin: session.role === "ADMIN" }
-  );
 }

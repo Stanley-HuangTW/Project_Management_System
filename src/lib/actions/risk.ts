@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { clampLevel } from "@/lib/riskRegister";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 
 export type RiskInput = {
   kind: RiskKind;
@@ -41,7 +42,11 @@ export async function listRisks(boardId: string): Promise<RiskRow[]> {
     where: { id: { in: risks.map((r) => r.itemId).filter((id): id is string => !!id) } },
     select: { id: true, name: true },
   });
-  const itemNameById = new Map(items.map((i) => [i.id, i.name]));
+  const visibleIds = await visibleItemIdsForBoard(boardId, session);
+  // The link stays; only the name of a private item is withheld.
+  const itemNameById = new Map(
+    items.filter((i) => visibleIds.has(i.id)).map((i) => [i.id, i.name])
+  );
 
   return risks.map((risk) => ({
     id: risk.id,

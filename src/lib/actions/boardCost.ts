@@ -9,6 +9,7 @@ import { countDaysInRange } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { labourCost } from "@/lib/cost";
 import { computeBoardCost, type CostItemInput, type BoardCostSummary } from "@/lib/boardCost";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 
 export type BoardCostReport = BoardCostSummary & {
   hoursPerDay: number;
@@ -80,6 +81,10 @@ export async function getBoardCostReport(boardId: string): Promise<BoardCostRepo
     }),
   ]);
 
+  // 統計只算看得到的:一個私人工作項不該從它的名字、也不該從一筆對不上的
+  // 金額被推敲出來。
+  const visibleIds = await visibleItemIdsForBoard(boardId, session);
+
   const rateByUser = new Map(users.map((u) => [u.id, u.hourlyRate ? Number(u.hourlyRate) : 0]));
   const nameByUser = new Map(users.map((u) => [u.id, u.name]));
   const parentIds = new Set(items.map((i) => i.parentId).filter(Boolean));
@@ -101,6 +106,7 @@ export async function getBoardCostReport(boardId: string): Promise<BoardCostRepo
   const inputs: CostItemInput[] = [];
   const ignoredParentBudgets: string[] = [];
   for (const item of items) {
+    if (!visibleIds.has(item.id)) continue;
     const isLeaf = !parentIds.has(item.id);
     if (!isLeaf && item.budgetCost) ignoredParentBudgets.push(item.name);
 

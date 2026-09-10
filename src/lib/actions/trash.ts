@@ -10,6 +10,7 @@ import { syncPredecessorSchedule } from "@/lib/predecessorLink";
 import { logActivity } from "@/lib/activityLog";
 import { getStatusOptions } from "@/types/column";
 import { collectSubtreeIds, parsePredSnapshot } from "@/lib/trash";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 
 export type TrashedItem = {
   id: string;
@@ -44,9 +45,12 @@ export async function listTrashedItems(boardId: string): Promise<TrashedItem[]> 
     },
   });
 
+  // A private item stays private after it is deleted.
+  const visibleIds = await visibleItemIdsForBoard(boardId, session);
   const deletedIds = new Set(deleted.map((i) => i.id));
 
   return deleted
+    .filter((item) => visibleIds.has(item.id))
     .filter((item) => !item.parentId || !deletedIds.has(item.parentId))
     .map((item) => ({
       id: item.id,

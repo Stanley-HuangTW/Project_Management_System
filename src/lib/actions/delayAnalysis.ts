@@ -9,6 +9,7 @@ import { getStatusOptions } from "@/types/column";
 import { buildWbsIndexFromItems, parsePredEntries } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
 import { analyzeDelays, type DelayInput, type DelayAnalysis } from "@/lib/delayAnalysis";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 
 /**
  * 延遲追因 for one board: which task moved further than the chain moved it.
@@ -121,5 +122,10 @@ export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> 
     });
   }
 
-  return analyzeDelays(inputs);
+  // Analysed over every item, reported only for the visible ones: dropping
+  // a hidden predecessor before the maths would hand its slip to whatever it
+  // pushed, and blame the wrong task in public.
+  const analysis = analyzeDelays(inputs);
+  const visibleIds = await visibleItemIdsForBoard(boardId, session);
+  return { ...analysis, culprits: analysis.culprits.filter((c) => visibleIds.has(c.id)) };
 }

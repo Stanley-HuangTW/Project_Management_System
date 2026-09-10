@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canAccessBoard } from "@/lib/boardAccess";
 import { sessionFromApiKey, unauthorized } from "@/lib/apiAuth";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 
 /**
  * GET /api/v1/boards/:boardId/items
@@ -10,7 +11,9 @@ import { sessionFromApiKey, unauthorized } from "@/lib/apiAuth";
  * written against "Finish" keeps working when the board is rebuilt, and
  * nobody outside this app knows what cmt9tb06t0013qs2odcjnrzqa means.
  *
- * Trashed items are left out, exactly as they are everywhere else.
+ * Trashed items are left out, exactly as they are everywhere else, and so
+ * are private ones the key's owner may not read — a key carries its owner's
+ * access, and that includes what 可見範圍 withholds from them.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ boardId: string }> }) {
   const session = await sessionFromApiKey(request);
@@ -21,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
     return NextResponse.json({ error: "找不到看板" }, { status: 404 });
   }
 
-  const [columns, items] = await Promise.all([
+  const [columns, items, visibleIds] = await Promise.all([
     prisma.column.findMany({ where: { boardId }, select: { id: true, name: true } }),
     prisma.item.findMany({
       where: { boardId, deletedAt: null },
@@ -38,11 +41,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
       },
       orderBy: { order: "asc" },
     }),
+    visibleItemIdsForBoard(boardId, session),
   ]);
   const nameById = new Map(columns.map((c) => [c.id, c.name]));
 
   return NextResponse.json({
-    items: items.map((item) => ({
+    items: items
+      .filter((item) => visibleIds.has(item.id))
+      .map((item) => ({
       id: item.id,
       name: item.name,
       groupId: item.groupId,
