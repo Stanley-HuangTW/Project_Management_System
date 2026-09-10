@@ -19,6 +19,7 @@ import { computeProgressCurve, type CurveTask } from "@/lib/progressCurve";
 import { getItemDateRange } from "@/lib/gantt";
 import { ProgressCurveChart } from "./ProgressCurveChart";
 import { CostReport } from "./CostReport";
+import { DelayReport } from "./DelayReport";
 import { computeWbsCodes } from "@/lib/wbs";
 
 /** WBS code for every item on the board, computed per group (codes are
@@ -349,6 +350,11 @@ export function BoardReport({
           )}
         </section>
       </div>
+
+      <section className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">延遲追因</h3>
+        <DelayReport boardId={board.id} />
+      </section>
 
       <section className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">成本與 EVM</h3>
