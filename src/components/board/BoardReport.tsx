@@ -15,6 +15,9 @@ import {
   computeTasksByOwnerBuckets,
 } from "@/lib/boardReport";
 import { pieSlicePath } from "@/lib/pie";
+import { computeProgressCurve, type CurveTask } from "@/lib/progressCurve";
+import { getItemDateRange } from "@/lib/gantt";
+import { ProgressCurveChart } from "./ProgressCurveChart";
 import { computeWbsCodes } from "@/lib/wbs";
 
 /** WBS code for every item on the board, computed per group (codes are
@@ -120,6 +123,40 @@ function ItemListModal({
   );
 }
 
+/**
+ * The tasks the S-curve counts: leaves only.
+ *
+ * A Summary's dates are its children's dates, so counting it as well would
+ * count the same work twice and make the curve jump whenever someone adds a
+ * grouping row.
+ */
+function buildCurveTasks(board: BoardWithData, items: ItemData[], holidays: Set<string>): CurveTask[] {
+  const parentIds = new Set(board.items.map((i) => i.parentId).filter(Boolean));
+  const doneIds = new Set(board.reportDoneOptionIds);
+  return items
+    .filter((item) => !parentIds.has(item.id))
+    .map((item) => {
+      const range =
+        board.ganttStartColumnId && board.ganttDurationColumnId
+          ? getItemDateRange(
+              item,
+              board.ganttStartColumnId,
+              board.ganttDurationColumnId,
+              board.ganttDurationMode,
+              holidays
+            )
+          : null;
+      const status = board.reportStatusColumnId
+        ? item.cellValues.find((cv) => cv.columnId === board.reportStatusColumnId)?.value
+        : undefined;
+      return {
+        baselineEnd: item.baselineEnd,
+        scheduledEnd: range ? range.end.toISOString().slice(0, 10) : null,
+        isDone: typeof status === "string" && doneIds.has(status),
+      };
+    });
+}
+
 export function BoardReport({
   board,
   users,
@@ -152,6 +189,7 @@ export function BoardReport({
   const { overdue } = computeOverdueUpcoming([board], effectiveTeamIds ?? undefined);
 
   const statusTotal = buckets.total;
+  const curve = computeProgressCurve(buildCurveTasks(board, items, holidaySet), new Date().toISOString().slice(0, 10));
 
   return (
     <div className="space-y-6">
@@ -310,6 +348,11 @@ export function BoardReport({
           )}
         </section>
       </div>
+
+      <section className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">進度曲線</h3>
+        <ProgressCurveChart curve={curve} />
+      </section>
 
       <section className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
         <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">逾期任務({overdue.length})</h3>
