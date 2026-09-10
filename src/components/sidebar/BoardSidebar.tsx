@@ -23,6 +23,7 @@ import {
 import type { UserRole } from "@prisma/client";
 import { canManageBoard } from "@/lib/permissions";
 import { Modal } from "@/components/ui/Modal";
+import { SearchBox } from "@/components/search/SearchBox";
 import { Avatar } from "@/components/ui/Avatar";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -214,6 +215,12 @@ export function BoardSidebar({
           </button>
         )}
       </div>
+
+      {!collapsed && (
+        <div className="px-2 pb-2">
+          <SearchBox />
+        </div>
+      )}
 
       <nav className="flex-1 space-y-0.5 overflow-auto px-2">
         <Link
