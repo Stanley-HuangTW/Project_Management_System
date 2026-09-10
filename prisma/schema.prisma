@@ -92,6 +92,7 @@ model User {
   deletedItems        Item[]              @relation("ItemDeletedBy")
   savedViews          SavedView[]         @relation("SavedViewOwner")
   projectTemplates    ProjectTemplate[]   @relation("ProjectTemplateCreatedBy")
+  ownedRisks          RiskEntry[]         @relation("RiskOwner")
   managedResources    Resource[]          @relation("ResourceManager")
   groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
   groupMemberships     GroupMember[]         @relation("GroupMembers")
@@ -186,6 +187,7 @@ model Board {
   automationRules AutomationRule[]
   members         BoardMember[]
   savedViews      SavedView[]
+  risks           RiskEntry[]
 }
 
 model BoardMember {
@@ -538,4 +540,49 @@ model ProjectTemplate {
   /// is not tied to the board it came from.
   content   Json
   createdAt DateTime @default(now())
+}
+
+enum RiskKind {
+  /// Something that has not happened yet, and might not.
+  RISK
+  /// Something that already has.
+  ISSUE
+}
+
+enum RiskStatus {
+  OPEN
+  MITIGATING
+  CLOSED
+}
+
+/// The Risk/Issue register: what could go wrong, how bad it would be, who is
+/// dealing with it. Deliberately separate from Item — a risk is not a task on
+/// the schedule, and putting it there would put it on the critical path.
+model RiskEntry {
+  id      String  @id @default(cuid())
+  boardId String
+  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  kind    RiskKind   @default(RISK)
+  status  RiskStatus @default(OPEN)
+  title       String
+  description String?
+  /// 1-5 each; the register sorts on their product — see riskScore.
+  probability Int @default(3)
+  impact      Int @default(3)
+  /// The countermeasure, and who owes it.
+  mitigation String?
+  ownerId    String?
+  owner      User?   @relation("RiskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// "YYYY-MM-DD" — when the countermeasure is due, not when the risk hits.
+  dueDate String?
+  /// The work item this is about, when there is one. Kept as a plain id
+  /// rather than a relation: trashing the item must not take the risk with
+  /// it — the risk is often the reason the item is being reworked.
+  itemId String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([boardId, status])
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Table2, LayoutGrid, GanttChartSquare, BarChart3 } from "lucide-react";
+import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert } from "lucide-react";
 import type { BoardWithData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
@@ -15,6 +15,7 @@ import { ResourceMappingModal } from "./ResourceMappingModal";
 import { AutomationRulesModal } from "./AutomationRulesModal";
 import { TrashModal } from "./TrashModal";
 import { ProjectTemplateModal } from "./ProjectTemplateModal";
+import { BoardRisks } from "./BoardRisks";
 import {
   useRegisterBoardAdminActions,
   type BoardAdminAction,
@@ -36,7 +37,7 @@ export function BoardView({
   highlightItemId?: string | null;
   holidays: Holiday[];
 }) {
-  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report">("table");
+  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks">("table");
   const [ganttNavigateHighlight, setGanttNavigateHighlight] = useState<string | null>(null);
   function goToItemInTable(itemId: string) {
     setGanttNavigateHighlight(itemId);
@@ -157,6 +158,17 @@ export function BoardView({
             >
               <BarChart3 size={14} /> 報表
             </button>
+            <button
+              type="button"
+              onClick={() => setView("risks")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${
+                view === "risks"
+                  ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                  : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+              }`}
+            >
+              <ShieldAlert size={14} /> 風險
+            </button>
           </div>
         </div>
       </div>
@@ -195,6 +207,9 @@ export function BoardView({
             onNavigateToItem={goToItemInTable}
             active={view === "gantt"}
           />
+        )}
+        {view === "risks" && (
+          <BoardRisks board={board} users={users} currentUserId={currentUserId} />
         )}
         {view === "report" && (
           <BoardReport
