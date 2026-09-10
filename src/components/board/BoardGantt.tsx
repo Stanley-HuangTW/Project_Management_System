@@ -1558,7 +1558,7 @@ function GanttBar({
           if (onClick && (e.key === "Enter" || e.key === " ")) onClick();
         }}
         className={`absolute inset-0 flex rounded ${isMilestone ? "overflow-visible" : "overflow-hidden"} ${
-          isCritical ? "ring-[3px] ring-red-500" : ""
+          isCritical ? "ring-4 ring-amber-400" : ""
         }`}
         style={{
           cursor: drag?.edge === "move" ? "grabbing" : canMove ? "grab" : onClick ? "pointer" : "not-allowed",
