@@ -106,6 +106,7 @@ model User {
   timeEntries         TimeEntry[]
   ownedRisks          RiskEntry[]         @relation("RiskOwner")
   visibleItems        ItemViewer[]
+  leaves              Leave[]
   visibleGroups       GroupViewer[]
   apiKeys             ApiKey[]            @relation("ApiKeyOwner")
   managedResources    Resource[]          @relation("ResourceManager")
@@ -739,4 +740,24 @@ model GroupViewer {
   user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, userId])
+}
+
+/// 個人休假. Holiday is company-wide; this is one person being away.
+///
+/// It does NOT move the schedule: the scheduling engine deliberately knows
+/// nothing about who is doing the work, and making dates depend on one
+/// person's leave would mean the same task showing different dates as soon
+/// as it is reassigned. What it does is tell the workload views that this
+/// person has no capacity those days.
+model Leave {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// "YYYY-MM-DD", both inclusive.
+  startDate String
+  endDate   String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, startDate])
 }

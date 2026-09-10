@@ -28,6 +28,7 @@ import {
 import { buildSupervisorParentTree, buildFullParentTree } from "@/lib/parentTaskTree";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { applyVisibilityToBoards } from "@/lib/applyVisibility";
+import { leaveDaysByUser } from "@/lib/actions/leave";
 
 function formatDate(date: Date) {
   return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
@@ -217,6 +218,7 @@ export default async function DashboardPage({
         users={workloadScope.map((u) => ({ id: u.id, name: u.name }))}
         tasksByUser={tasksByUser}
         floatByItemId={floatByItemId}
+        leaveDays={await leaveDaysByUser()}
         thresholdPct={workloadThreshold.yellowMax}
       />
 

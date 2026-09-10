@@ -34,7 +34,7 @@ describe("findOverAllocations", () => {
     ]);
     const [overload] = findOverAllocations(byUser, users, monday, 7, 100);
     expect(overload.peakPct).toBe(310);
-    expect(overload.days).toEqual([{ date: "2026-01-08", pct: 310 }]);
+    expect(overload.days).toEqual([{ date: "2026-01-08", pct: 310, onLeave: false }]);
   });
 
   it("blames only the tasks running on the overloaded day", () => {
@@ -72,6 +72,30 @@ describe("findOverAllocations", () => {
   it("ignores a task with no dates — it is on nobody's day", () => {
     const undated: MemberTask = { ...task("x", 500, "2026-01-05", "2026-01-09"), startDate: null, endDate: null };
     expect(findOverAllocations(new Map([["u1", [undated]]]), users, monday, 7, 100)).toEqual([]);
+  });
+});
+
+describe("休假", () => {
+  it("flags any booking at all on a day someone is away", () => {
+    const byUser = new Map([["u1", [task("a", 20, "2026-01-05", "2026-01-09")]]]);
+    const leave = new Map([["u1", new Set(["2026-01-07"])]]);
+    const [overload] = findOverAllocations(byUser, users, monday, 7, 100, new Map(), leave);
+    expect(overload.days).toEqual([{ date: "2026-01-07", pct: 20, onLeave: true }]);
+    expect(overload.leaveDays).toBe(1);
+  });
+
+  it("leaves an unbooked leave day alone", () => {
+    const byUser = new Map([["u1", [task("a", 50, "2026-01-05", "2026-01-06")]]]);
+    const leave = new Map([["u1", new Set(["2026-01-08"])]]);
+    expect(findOverAllocations(byUser, users, monday, 7, 100, new Map(), leave)).toEqual([]);
+  });
+
+  it("counts an overloaded day that is also a leave day only once", () => {
+    const byUser = new Map([["u1", [task("a", 150, "2026-01-05", "2026-01-09")]]]);
+    const leave = new Map([["u1", new Set(["2026-01-06"])]]);
+    const [overload] = findOverAllocations(byUser, users, monday, 7, 100, new Map(), leave);
+    expect(overload.days.length).toBe(5);
+    expect(overload.leaveDays).toBe(1);
   });
 });
 

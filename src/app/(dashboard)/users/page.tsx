@@ -6,6 +6,8 @@ import { listUsers } from "@/lib/actions/user";
 import { listResources } from "@/lib/actions/resource";
 import { UserManagement } from "@/components/users/UserManagement";
 import { ResourceManagement } from "@/components/resources/ResourceManagement";
+import { LeaveManagement } from "@/components/users/LeaveManagement";
+import { listLeaves } from "@/lib/actions/leave";
 
 export default async function UsersPage({
   searchParams,
@@ -17,7 +19,7 @@ export default async function UsersPage({
     redirect("/boards");
   }
   const { tab } = await searchParams;
-  const activeTab = tab === "resources" ? "resources" : "users";
+  const activeTab = tab === "resources" ? "resources" : tab === "leave" ? "leave" : "users";
 
   return (
     <div className="p-6">
@@ -34,6 +36,16 @@ export default async function UsersPage({
           使用者
         </Link>
         <Link
+          href="/users?tab=leave"
+          className={`px-4 py-1.5 ${
+            activeTab === "leave"
+              ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+              : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          }`}
+        >
+          休假
+        </Link>
+        <Link
           href="/users?tab=resources"
           className={`px-4 py-1.5 ${
             activeTab === "resources"
@@ -46,6 +58,13 @@ export default async function UsersPage({
       </div>
       {activeTab === "users" ? (
         <UserManagement users={await listUsers()} currentUserId={session.userId} />
+      ) : activeTab === "leave" ? (
+        <LeaveManagement
+          initialLeaves={await listLeaves()}
+          users={await prisma.user.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })}
+          currentUserId={session.userId}
+          isAdmin={session.role === "ADMIN"}
+        />
       ) : (
         <ResourceManagement
           resources={await listResources()}

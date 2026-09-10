@@ -26,6 +26,7 @@ export function OverAllocationCard({
   users,
   tasksByUser,
   floatByItemId,
+  leaveDays,
   thresholdPct = 100,
 }: {
   users: { id: string; name: string }[];
@@ -33,6 +34,9 @@ export function OverAllocationCard({
   /** itemId -> total float in working days, where the board's critical path
    *  could be computed. */
   floatByItemId: Record<string, number>;
+  /** userId -> the days they are away. Capacity is zero on those days, so
+   *  anything booked at all counts as over. */
+  leaveDays: Record<string, string[]>;
   thresholdPct?: number;
 }) {
   const [weekOffset, setWeekOffset] = useState(0);
@@ -53,8 +57,16 @@ export function OverAllocationCard({
         })),
       ])
     );
-    return findOverAllocations(byUser, users, weekStart, 7, thresholdPct, new Map(Object.entries(floatByItemId)));
-  }, [tasksByUser, users, weekStart, thresholdPct, floatByItemId]);
+    return findOverAllocations(
+      byUser,
+      users,
+      weekStart,
+      7,
+      thresholdPct,
+      new Map(Object.entries(floatByItemId)),
+      new Map(Object.entries(leaveDays).map(([id, days]) => [id, new Set(days)]))
+    );
+  }, [tasksByUser, users, weekStart, thresholdPct, floatByItemId, leaveDays]);
 
   const weekLabel = `${weekStart.toISOString().slice(5, 10)} ~ ${new Date(weekStart.getTime() + 6 * DAY_MS)
     .toISOString()
@@ -107,8 +119,14 @@ export function OverAllocationCard({
                   </span>
                   <span className="text-sm font-semibold text-red-600">最高 {overload.peakPct}%</span>
                   <span className="text-xs text-neutral-400 dark:text-neutral-500">
-                    超載 {overload.days.length} 天({overload.days.map((d) => d.date.slice(5)).join("、")})
+                    超載 {overload.days.length} 天(
+                    {overload.days.map((d) => `${d.date.slice(5)}${d.onLeave ? "(休假)" : ""}`).join("、")})
                   </span>
+                  {overload.leaveDays > 0 && (
+                    <span className="rounded bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                      其中 {overload.leaveDays} 天在休假
+                    </span>
+                  )}
                 </div>
 
                 <ul className="mt-2 space-y-1">
@@ -139,7 +157,12 @@ export function OverAllocationCard({
 
                 <p className="mt-2 flex items-start gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                   <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-500" />
-                  {movable.length > 0 ? (
+                  {overload.leaveDays > 0 ? (
+                    <span>
+                      有工作排在這個人休假的日子上——那幾天的產能是 0,不管排了多少都做不了。
+                      先把那幾天的工作挪開,再看剩下的是不是還超載。
+                    </span>
+                  ) : movable.length > 0 ? (
                     <span>
                       可以考慮把有浮時的{movable.map((t) => `「${t.itemName}」`).join("")}往後挪
                       ——它們延後不會影響專案完成日;其餘的在要徑上,動了就會動到結案時間。

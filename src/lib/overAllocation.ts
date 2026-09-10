@@ -1,6 +1,12 @@
 import type { MemberTask } from "@/lib/workload";
 
-export type OverloadedDay = { date: string; pct: number };
+export type OverloadedDay = {
+  date: string;
+  pct: number;
+  /** True when this person is on leave that day: any allocation at all is
+   *  over capacity, because their capacity is zero. */
+  onLeave: boolean;
+};
 
 export type TaskShare = {
   itemId: string;
@@ -21,6 +27,9 @@ export type Overload = {
   /** Every day over the threshold, so a one-day spike reads differently
    *  from a fortnight of it. */
   days: OverloadedDay[];
+  /** How many of those days they are away for — work booked over someone's
+   *  leave is a different problem from work booked too densely. */
+  leaveDays: number;
   /** What is stacked on them, heaviest first. */
   tasks: TaskShare[];
 };
@@ -45,6 +54,10 @@ function coversDay(task: MemberTask, iso: string): boolean {
  *
  * Weekends are included, because a task's range covers them and this is a
  * question about commitments, not attendance.
+ *
+ * Someone's 休假 sets their capacity to zero for that day: 20% booked on a
+ * day they are away is a real conflict, and averaging it against the rest of
+ * the week is exactly how it gets missed.
  */
 export function findOverAllocations(
   tasksByUser: Map<string, MemberTask[]>,
@@ -52,7 +65,8 @@ export function findOverAllocations(
   windowStart: Date,
   windowDays: number,
   thresholdPct: number,
-  floatByItemId: Map<string, number> = new Map()
+  floatByItemId: Map<string, number> = new Map(),
+  leaveDaysByUser: Map<string, Set<string>> = new Map()
 ): Overload[] {
   const isoDays: string[] = [];
   for (let i = 0; i < windowDays; i++) {
@@ -65,11 +79,14 @@ export function findOverAllocations(
     const days: OverloadedDay[] = [];
     const guiltyItemIds = new Set<string>();
 
+    const leave = leaveDaysByUser.get(user.id) ?? new Set<string>();
     for (const iso of isoDays) {
       const active = tasks.filter((task) => coversDay(task, iso));
       const pct = active.reduce((sum, task) => sum + task.allocationPct, 0);
-      if (pct > thresholdPct) {
-        days.push({ date: iso, pct });
+      const onLeave = leave.has(iso);
+      // On leave, capacity is zero — so any booking at all is over it.
+      if (pct > (onLeave ? 0 : thresholdPct)) {
+        days.push({ date: iso, pct, onLeave });
         for (const task of active) guiltyItemIds.add(task.itemId);
       }
     }
@@ -98,6 +115,7 @@ export function findOverAllocations(
       userName: user.name,
       peakPct: Math.max(...days.map((d) => d.pct)),
       days,
+      leaveDays: days.filter((d) => d.onLeave).length,
       tasks: shares,
     });
   }
