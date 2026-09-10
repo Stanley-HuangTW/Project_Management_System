@@ -26,6 +26,13 @@ enum BoardVisibility {
   RESTRICTED
 }
 
+/// 可見範圍 for a 分組 or a 工作項. PRIVATE keeps a row off other people's
+/// screens without taking it out of the schedule — see itemVisibility.
+enum RowVisibility {
+  PUBLIC
+  PRIVATE
+}
+
 /// A date the schedule must respect whatever the Pred chain computes.
 /// START_NO_EARLIER_THAN and MUST_FINISH_ON move the item; FINISH_NO_LATER_THAN
 /// is a deadline — it does not make work go faster, it reports being late.
@@ -98,6 +105,8 @@ model User {
   projectTemplates    ProjectTemplate[]   @relation("ProjectTemplateCreatedBy")
   timeEntries         TimeEntry[]
   ownedRisks          RiskEntry[]         @relation("RiskOwner")
+  visibleItems        ItemViewer[]
+  visibleGroups       GroupViewer[]
   apiKeys             ApiKey[]            @relation("ApiKeyOwner")
   managedResources    Resource[]          @relation("ResourceManager")
   groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
@@ -218,6 +227,11 @@ model Group {
   color   String @default("#579bfc")
   order   Int    @default(0)
 
+  visibility RowVisibility  @default(PUBLIC)
+  viewers    GroupViewer[]
+  /// Who made it private, and therefore keeps sight of it.
+  createdById String?
+
   items Item[]
   automationMoveTargets AutomationRule[]
   roleAssignments GroupRoleAssignment[]
@@ -335,6 +349,9 @@ model Item {
   /// to Summary, so removing the last child can put it back. "" means it had
   /// no Type at all; null means it was never flipped.
   typeBeforeSummary String?
+
+  visibility RowVisibility @default(PUBLIC)
+  viewers    ItemViewer[]
 
   createdById String?
   createdBy   User?   @relation("ItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -700,4 +717,26 @@ model BaselineEntry {
   days   Int?
 
   @@unique([baselineId, itemId])
+}
+
+/// One person allowed to see one private 工作項.
+model ItemViewer {
+  id     String @id @default(cuid())
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, userId])
+}
+
+/// One person allowed to see one private 分組.
+model GroupViewer {
+  id      String @id @default(cuid())
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
 }

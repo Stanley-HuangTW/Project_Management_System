@@ -29,6 +29,7 @@ export type ItemScheduleContext = {
 
 const itemInclude = {
   cellValues: true,
+  viewers: { select: { userId: true } },
   _count: { select: { comments: true } },
   assignments: { include: { user: { select: { id: true, name: true } } } },
 } as const;

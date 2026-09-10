@@ -27,6 +27,7 @@ import {
 } from "@/lib/workload";
 import { buildSupervisorParentTree, buildFullParentTree } from "@/lib/parentTaskTree";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
+import { applyVisibilityToBoards } from "@/lib/applyVisibility";
 
 function formatDate(date: Date) {
   return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
@@ -58,7 +59,10 @@ export default async function DashboardPage({
   ]);
   const holidays = toHolidaySet(holidayRows);
 
-  const boards = boardFilter ? allBoards.filter((b) => b.id === boardFilter) : allBoards;
+  // Everything below counts, colours and lists items; none of it may count
+  // an item this person is not allowed to see.
+  const visibleBoards = applyVisibilityToBoards(allBoards, session);
+  const boards = boardFilter ? visibleBoards.filter((b) => b.id === boardFilter) : visibleBoards;
 
   // A resource (tool/vendor) can be an item's 負責人 like a real user, but has
   // no login of its own — its 負責窗口 is the real user who tracks its work,
@@ -126,7 +130,7 @@ export default async function DashboardPage({
   // add work under a team member's existing task.
   const parentTaskTree =
     session.role === "ADMIN"
-      ? buildFullParentTree(allBoards, holidays)
+      ? buildFullParentTree(visibleBoards, holidays)
       : buildSupervisorParentTree(boards, [session.userId, ...teamMembers.map((m) => m.id)], holidays);
   const weekColumns = computeWeekColumns(boards, holidays);
   const weeklyLoadMap = computeMemberWeeklyLoad(boards, workloadScopeIds, weekColumns, holidays);

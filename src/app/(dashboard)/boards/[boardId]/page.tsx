@@ -5,6 +5,7 @@ import { canAccessBoard } from "@/lib/boardAccess";
 import { boardWithDataArgs, type UserOption } from "@/types/board";
 import { BoardView } from "@/components/board/BoardView";
 import { listHolidays } from "@/lib/holidays";
+import { applyVisibility } from "@/lib/applyVisibility";
 
 export default async function BoardPage({
   params,
@@ -47,9 +48,12 @@ export default async function BoardPage({
     })),
   ];
 
+  // Private groups and items the caller is not on never reach the client.
+  const visibleBoard = applyVisibility(board, session);
+
   return (
     <BoardView
-      board={board}
+      board={visibleBoard}
       users={assignees}
       userRole={session.role}
       currentUserId={session.userId}

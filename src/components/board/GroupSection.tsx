@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, GripVertical, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, GripVertical, Lock, Trash2 } from "lucide-react";
 import type { GroupData, ColumnData, ItemData, UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { canManageStructure, canManageGroupStructure } from "@/lib/permissions";
@@ -12,6 +12,7 @@ import { ItemRow } from "./ItemRow";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { renameGroup, deleteGroup } from "@/lib/actions/group";
 import { createItem } from "@/lib/actions/item";
+import { VisibilityModal } from "./VisibilityModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { computeWbsCodes } from "@/lib/wbs";
 import type { ScheduleLock } from "@/lib/predecessorLink";
@@ -105,6 +106,7 @@ export function GroupSection({
   const [collapsed, setCollapsed] = useState(false);
   const [name, setName] = useState(group.name);
   const [newItemName, setNewItemName] = useState("");
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
   const scrollPaneKey = `group:${group.id}`;
 
   const style = {
@@ -194,6 +196,11 @@ export function GroupSection({
         </button>
         {canEditStructure && (
           <RowMenu>
+            <RowMenuItem onSelect={() => setVisibilityOpen(true)}>
+              <span className="flex items-center gap-2">
+                <Lock size={14} /> 可見範圍
+              </span>
+            </RowMenuItem>
             <RowMenuItem danger onSelect={() => deleteGroup(boardId, group.id)}>
               <span className="flex items-center gap-2">
                 <Trash2 size={14} /> 刪除分組
@@ -313,6 +320,13 @@ export function GroupSection({
           </div>
         </div>
       )}
+
+      <VisibilityModal
+        target={visibilityOpen ? { kind: "group", id: group.id, name: group.name } : null}
+        users={users}
+        open={visibilityOpen}
+        onOpenChange={setVisibilityOpen}
+      />
     </div>
   );
 }

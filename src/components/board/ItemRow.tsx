@@ -6,6 +6,7 @@ import {
   ArrowUpToLine,
   ChevronDown,
   ChevronRight,
+  Lock,
   MessageSquare,
   Plus,
   Trash2,
@@ -27,6 +28,7 @@ import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
 import { PredLampDot } from "./PredLampDot";
 import { ConstraintBadge } from "./ConstraintBadge";
+import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 
@@ -131,6 +133,7 @@ export function ItemRow({
   const isAncestorOfHighlight = expandIds?.has(item.id) ?? false;
   const expanded = !collapsedIds.has(item.id) || isAncestorOfHighlight;
   const [detailOpen, setDetailOpen] = useState(false);
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
   const { notify } = useDialogs();
   const requestDelete = useDeleteItem();
   const [detailTab, setDetailTab] = useState<"updates" | "card">("updates");
@@ -269,6 +272,15 @@ export function ItemRow({
             {wbsCodes?.get(item.id) && (
               <span className="shrink-0 text-xs font-bold text-black">{wbsCodes.get(item.id)}</span>
             )}
+            {item.visibility === "PRIVATE" && (
+              <span
+                title="私人:只有指定的人看得到"
+                aria-label="私人項目"
+                className="shrink-0 text-neutral-400 dark:text-neutral-500"
+              >
+                <Lock size={11} />
+              </span>
+            )}
             <ConstraintBadge item={item} />
             <button
               type="button"
@@ -327,6 +339,11 @@ export function ItemRow({
                     <ArrowDownToLine size={14} /> 下方插入項目
                   </span>
                 </RowMenuItem>
+                <RowMenuItem onSelect={() => setVisibilityOpen(true)}>
+                  <span className="flex items-center gap-2">
+                    <Lock size={14} /> 可見範圍
+                  </span>
+                </RowMenuItem>
                 {canDeleteItem && (
                   <RowMenuItem danger onSelect={() => requestDelete(boardId, item.id)}>
                     <span className="flex items-center gap-2">
@@ -338,6 +355,12 @@ export function ItemRow({
             )}
           </div>
         </div>
+        <VisibilityModal
+          target={visibilityOpen ? { kind: "item", id: item.id, name: item.name } : null}
+          users={users}
+          open={visibilityOpen}
+          onOpenChange={setVisibilityOpen}
+        />
         <ItemDetailModal
           boardId={boardId}
           item={detailOpen ? item : null}

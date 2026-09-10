@@ -47,6 +47,7 @@ async function requireGroupStructureAccess(session: SessionPayload, groupId: str
 // without waiting on the page's next full refetch.
 const itemDetailInclude = {
   cellValues: true,
+  viewers: { select: { userId: true } },
   _count: { select: { comments: true } },
   assignments: { include: { user: { select: { id: true, name: true } } } },
 } as const;

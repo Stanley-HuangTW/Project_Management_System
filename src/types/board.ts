@@ -5,6 +5,7 @@ export const boardWithDataArgs = Prisma.validator<Prisma.BoardDefaultArgs>()({
     groups: {
       orderBy: { order: "asc" },
       include: {
+        viewers: { select: { userId: true } },
         roleAssignments: { include: { user: { select: { id: true, name: true } } } },
         members: { include: { user: { select: { id: true, name: true } } } },
         resourceMembers: { include: { resource: { select: { id: true, name: true } } } },
@@ -17,6 +18,7 @@ export const boardWithDataArgs = Prisma.validator<Prisma.BoardDefaultArgs>()({
       orderBy: { order: "asc" },
       include: {
         cellValues: true,
+        viewers: { select: { userId: true } },
         _count: { select: { comments: true } },
         assignments: { include: { user: { select: { id: true, name: true } } } },
       },
