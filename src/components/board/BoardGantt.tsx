@@ -325,31 +325,24 @@ export function BoardGantt({
   // since a Pred chain never crosses one.
   const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [showArrows, setShowArrows] = useState(true);
+  // Board-wide, not per group: a Pred may cross groups now, and computing
+  // each group on its own would cut those edges and hand the tasks either
+  // side of one float they do not have.
   const scheduleFloats = useMemo(() => {
-    const merged = new Map<string, ScheduleFloat>();
     const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
-    const holidaySet = new Set(holidays.map((h) => h.date));
-    const byGroup = new Map<string, ItemData[]>();
-    for (const item of board.items) {
-      byGroup.set(item.groupId, [...(byGroup.get(item.groupId) ?? []), item]);
-    }
-    for (const groupItems of byGroup.values()) {
-      const floats = computeCriticalPath(
-        groupItems,
-        {
-          predColumnId: board.predColumnId,
-          linkColumnId: board.linkColumnId,
-          linkColumnOptions: linkColumn?.options,
-          lagColumnId: board.lagColumnId,
-          startColumnId: board.ganttStartColumnId,
-          durationColumnId: board.ganttDurationColumnId,
-          durationMode: board.ganttDurationMode,
-        },
-        holidaySet
-      );
-      for (const [id, value] of floats) merged.set(id, value);
-    }
-    return merged;
+    return computeCriticalPath(
+      board.items,
+      {
+        predColumnId: board.predColumnId,
+        linkColumnId: board.linkColumnId,
+        linkColumnOptions: linkColumn?.options,
+        lagColumnId: board.lagColumnId,
+        startColumnId: board.ganttStartColumnId,
+        durationColumnId: board.ganttDurationColumnId,
+        durationMode: board.ganttDurationMode,
+      },
+      new Set(holidays.map((h) => h.date))
+    );
   }, [board, holidays]);
   const criticalCount = useMemo(
     () => [...scheduleFloats.values()].filter((f) => f.isCritical).length,

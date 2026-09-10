@@ -64,7 +64,8 @@ export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> 
   const wbsIndex = buildWbsIndexFromItems(items);
   const parentIds = new Set(items.map((i) => i.parentId).filter(Boolean));
 
-  // WBS codes are per group, same as everywhere else they are shown.
+  // WBS codes stay per group even now that a Pred may cross one: a code is
+  // a position within its own group's tree, and that has not changed.
   const wbsByItemId = new Map<string, string>();
   const byGroup = new Map<string, typeof items>();
   for (const item of items) byGroup.set(item.groupId, [...(byGroup.get(item.groupId) ?? []), item]);

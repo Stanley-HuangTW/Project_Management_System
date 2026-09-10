@@ -31,6 +31,7 @@ export function GroupSection({
   predColumnId,
   linkColumnId,
   lagColumnId,
+  otherGroups,
   manualStartColumnId,
   manualDurationColumnId,
   lockedScheduleFields,
@@ -66,6 +67,9 @@ export function GroupSection({
   /** For the item card's 相關項目 list — see listDependentItems. */
   linkColumnId?: string | null;
   lagColumnId?: string | null;
+  /** The board's other groups, for the Pred picker — a dependency may now
+   *  cross one. */
+  otherGroups: { id: string; name: string; items: ItemData[] }[];
   manualStartColumnId?: string | null;
   manualDurationColumnId?: string | null;
   lockedScheduleFields: Map<string, ScheduleLock>;
@@ -91,6 +95,21 @@ export function GroupSection({
   onPaneScroll: (key: string) => void;
 }) {
   const wbsCodes = useMemo(() => computeWbsCodes(items), [items]);
+
+  // Items in the board's OTHER groups, offered by the Pred picker so a
+  // dependency can cross a group. Their WBS code is prefixed with the group
+  // name: a code is a position within its own group's tree, so "1.2" means a
+  // different task in each of them.
+  const crossGroupPredOptions = useMemo(
+    () =>
+      otherGroups.flatMap((other) => {
+        const codes = computeWbsCodes(other.items);
+        return other.items
+          .map((i) => ({ id: i.id, code: `${other.name} · ${codes.get(i.id) ?? ""}`, name: i.name }))
+          .filter((o) => !o.code.endsWith(" · "));
+      }),
+    [otherGroups]
+  );
   const canEditStructure = canManageStructure(userRole);
   const myGroupAccess = useMemo(
     () => resolveGroupRoleAccess(group.roleAssignments.filter((a) => a.userId === currentUserId)),
@@ -238,6 +257,7 @@ export function GroupSection({
                 visibleIds={visibleIds}
                 nameWidth={nameWidth}
                 wbsCodes={wbsCodes}
+                crossGroupPredOptions={crossGroupPredOptions}
                 highlightItemId={highlightItemId}
                 expandIds={expandIds}
                 levelColors={levelColors}
@@ -296,6 +316,7 @@ export function GroupSection({
                 visibleIds={visibleIds}
                 nameWidth={nameWidth}
                 wbsCodes={wbsCodes}
+                crossGroupPredOptions={crossGroupPredOptions}
                 highlightItemId={highlightItemId}
                 expandIds={expandIds}
                 levelColors={levelColors}

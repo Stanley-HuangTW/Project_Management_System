@@ -56,6 +56,7 @@ export function ItemRow({
   visibleIds,
   nameWidth,
   wbsCodes,
+  crossGroupPredOptions,
   highlightItemId,
   expandIds,
   levelColors,
@@ -97,6 +98,9 @@ export function ItemRow({
   visibleIds: Set<string> | null;
   nameWidth: number;
   wbsCodes?: Map<string, string>;
+  /** Items in the board's other groups, offered by the Pred picker so a
+   *  dependency can cross a group. */
+  crossGroupPredOptions?: { id: string; code: string; name: string }[];
   highlightItemId?: string | null;
   expandIds?: Set<string>;
   levelColors?: string[];
@@ -219,6 +223,7 @@ export function ItemRow({
           visibleIds={visibleIds}
           nameWidth={nameWidth}
           wbsCodes={wbsCodes}
+          crossGroupPredOptions={crossGroupPredOptions}
           highlightItemId={highlightItemId}
           expandIds={expandIds}
           levelColors={levelColors}
@@ -525,6 +530,7 @@ export function ItemRow({
                       predColumnId={predColumnId}
                       groupItems={allGroupItems}
                       wbsCodes={wbsCodes}
+                      crossGroupPredOptions={crossGroupPredOptions}
                       isProgressColumn={col.id === progressColumnId}
                     />
                   </span>
@@ -547,6 +553,7 @@ export function ItemRow({
                       predColumnId={predColumnId}
                       groupItems={allGroupItems}
                       wbsCodes={wbsCodes}
+                      crossGroupPredOptions={crossGroupPredOptions}
                       isProgressColumn={col.id === progressColumnId}
                     />
                   </span>
@@ -569,6 +576,7 @@ export function ItemRow({
                   predColumnId={predColumnId}
                   groupItems={allGroupItems}
                   wbsCodes={wbsCodes}
+                  crossGroupPredOptions={crossGroupPredOptions}
                   isProgressColumn={col.id === progressColumnId}
                 />
               )}

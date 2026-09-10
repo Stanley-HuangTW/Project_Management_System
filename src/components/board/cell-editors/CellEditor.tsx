@@ -57,6 +57,7 @@ export function CellEditor({
   isProgressColumn = false,
   predColumnId,
   groupItems,
+  crossGroupPredOptions,
   wbsCodes,
 }: {
   boardId: string;
@@ -71,6 +72,8 @@ export function CellEditor({
    *  of a free-text WBS code field. */
   predColumnId?: string | null;
   groupItems?: ItemData[];
+  /** Other groups' items, for a cross-group Pred — see PredCell. */
+  crossGroupPredOptions?: { id: string; code: string; name: string }[];
   /** Passed straight through to PredCell — see its own doc comment. */
   wbsCodes?: Map<string, string>;
 }) {
@@ -86,6 +89,7 @@ export function CellEditor({
         columnId={column.id}
         value={typeof value === "string" ? value : null}
         groupItems={groupItems}
+        crossGroupPredOptions={crossGroupPredOptions}
         wbsCodes={wbsCodes}
       />
     );

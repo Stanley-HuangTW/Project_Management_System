@@ -549,6 +549,9 @@ export function BoardTable({
                   boardId={board.id}
                   group={group}
                   items={itemsByGroup.get(group.id) ?? []}
+                  otherGroups={board.groups
+                    .filter((g) => g.id !== group.id)
+                    .map((g) => ({ id: g.id, name: g.name, items: itemsByGroup.get(g.id) ?? [] }))}
                   columns={orderedColumns}
                   users={users}
                   progressColumnId={board.progressColumnId}

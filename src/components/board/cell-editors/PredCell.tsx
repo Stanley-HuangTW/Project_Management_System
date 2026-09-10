@@ -16,6 +16,7 @@ export function PredCell({
   value,
   groupItems,
   wbsCodes,
+  crossGroupPredOptions,
 }: {
   boardId: string;
   itemId: string;
@@ -28,6 +29,10 @@ export function PredCell({
    *  Falls back to computing it locally for lower-frequency callers (the
    *  item detail modal, opened one item at a time) that don't have one. */
   wbsCodes?: Map<string, string>;
+  /** Items in the board's other groups, already labelled with their group
+   *  name — a Pred may cross a group, and a bare "1.2" from another group
+   *  would be unreadable. */
+  crossGroupPredOptions?: { id: string; code: string; name: string }[];
 }) {
   const codes = wbsCodes ?? computeWbsCodes(groupItems);
   const options = useMemo(
@@ -36,8 +41,10 @@ export function PredCell({
         .filter((i) => i.id !== itemId)
         .map((i) => ({ id: i.id, code: codes.get(i.id) ?? "", name: i.name }))
         .filter((o) => o.code)
-        .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true })),
-    [groupItems, itemId, codes]
+        .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+        // Own group first, then the rest — the usual case stays at the top.
+        .concat(crossGroupPredOptions ?? []),
+    [groupItems, itemId, codes, crossGroupPredOptions]
   );
 
   const currentItem = groupItems.find((i) => i.id === itemId);

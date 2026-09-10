@@ -250,14 +250,25 @@ describe("resolvePredValue", () => {
     expect(resolvePredValue(index, "g1", "1.2")).toBe("downstream");
   });
 
-  it("refuses an item id from another group, same as a code from another group", () => {
+  it("accepts an item id from another group — EVT really does wait on POC", () => {
     const items = [
       { id: "g1-a", parentId: null, order: 0, groupId: "g1" },
       { id: "g2-a", parentId: null, order: 0, groupId: "g2" },
     ];
     const index = buildWbsIndexFromItems(items);
-    expect(resolvePredValue(index, "g1", "g2-a")).toBeUndefined();
+    expect(resolvePredValue(index, "g1", "g2-a")).toBe("g2-a");
     expect(resolvePredValue(index, "g1", "g1-a")).toBe("g1-a");
+  });
+
+  it("still reads a WBS code against the referencing item's own group", () => {
+    // Both groups have a "1"; the code can only mean the reader's own.
+    const items = [
+      { id: "g1-a", parentId: null, order: 0, groupId: "g1" },
+      { id: "g2-a", parentId: null, order: 0, groupId: "g2" },
+    ];
+    const index = buildWbsIndexFromItems(items);
+    expect(resolvePredValue(index, "g1", "1")).toBe("g1-a");
+    expect(resolvePredValue(index, "g2", "1")).toBe("g2-a");
   });
 
   it("is undefined for a dangling reference — a deleted item's id resolves to nothing", () => {
@@ -296,8 +307,8 @@ describe("resolvePredValues", () => {
     expect(resolvePredValues(index, "g1", "me,2,me")).toEqual(["me"]);
   });
 
-  it("refuses entries from another group", () => {
-    expect(resolvePredValues(index, "g1", "sw,other-group")).toEqual(["sw"]);
+  it("takes an id from another group, which is what a cross-group dependency is", () => {
+    expect(resolvePredValues(index, "g1", "sw,other-group")).toEqual(["sw", "other-group"]);
   });
 
   it("is empty for a blank cell", () => {

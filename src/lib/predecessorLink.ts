@@ -88,13 +88,19 @@ export function resolveWbsCode(index: WbsIndex, groupId: string, code: string): 
  * reference to a POSITION, not to a task — insert one row and every Pred
  * under it silently starts pointing at its neighbour.
  *
+ * An id may name an item in ANY group of the same board: EVT waiting on a
+ * POC deliverable is a real dependency, and refusing to record it only means
+ * somebody keeps it in their head instead. The index is built from the whole
+ * board, so "any group in the index" is exactly that.
+ *
  * A WBS code is still accepted as a fallback, because that is what a
- * spreadsheet import brings in and what was stored before the switch. Such a
- * reference carries the positional hazard above until it is re-picked or
- * backfilled, so it is only ever the second guess.
+ * spreadsheet import brings in and what was stored before ids. Codes stay
+ * group-scoped: they are positions within one group's own tree, so "1.2"
+ * means a different task in every group and can only be read against the
+ * referencing item's own.
  */
 export function resolvePredValue(index: WbsIndex, groupId: string, value: string): string | undefined {
-  if (index.groupByItemId.get(value) === groupId) return value;
+  if (index.groupByItemId.has(value)) return value;
   return index.itemIdByGroupWbs.get(`${groupId}:${value}`);
 }
 
@@ -406,7 +412,6 @@ export function resolveLockedScheduleFields(
  */
 async function buildScheduleContext(
   boardId: string,
-  groupId?: string,
   /** Walk the cascade without touching the database — used to show the user
    *  which downstream items a drag would move, before it moves them. */
   dryRun = false
@@ -445,11 +450,12 @@ async function buildScheduleContext(
     linkColumnId
       ? prisma.column.findUnique({ where: { id: linkColumnId }, select: { options: true } })
       : Promise.resolve(null),
-    // A recompute cascade follows Pred/Link and parent/child links, both of
-    // which stay inside one group — so a single-item edit only needs that
-    // item's group, while a whole-board recompute passes no groupId.
+    // Board-wide, always. A Pred may now point into another group, so the
+    // cascade cannot be confined to the edited item's own — narrowing it
+    // would silently stop the recompute at the group boundary and leave the
+    // other side holding stale dates.
     prisma.item.findMany({
-      where: groupId ? { groupId, deletedAt: null } : { boardId, deletedAt: null },
+      where: { boardId, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -528,9 +534,13 @@ async function buildScheduleContext(
     if (!item) return [];
     // Resolved rather than string-compared: a Pred cell holds an item id now,
     // but may still hold a legacy WBS code — both have to find their target.
+    //
+    // Not restricted to the item's own group: a dependent may live in
+    // another one, and stopping the cascade at the group boundary would
+    // leave it holding dates its predecessor no longer has.
     return items
       .filter((i) => {
-        if (i.id === id || i.groupId !== item.groupId) return false;
+        if (i.id === id) return false;
         const value = i.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
         return resolvePredValues(wbsIndex, i.groupId, value).includes(id);
       })
@@ -649,9 +659,9 @@ export async function previewScheduleCascade(
   itemId: string,
   range: DateRange
 ): Promise<CascadedItem[]> {
-  const self = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true } });
+  const self = await prisma.item.findUnique({ where: { id: itemId }, select: { id: true } });
   if (!self) return [];
-  const ctx = await buildScheduleContext(boardId, self.groupId, true);
+  const ctx = await buildScheduleContext(boardId, true);
   if (!ctx) return [];
 
   const before = new Map<string, DateRange>();
@@ -730,8 +740,7 @@ export async function syncPredecessorSchedule(
   const triggers = await scheduleTriggerColumnIds(boardId);
   if (!triggers.has(editedColumnId)) return;
 
-  const edited = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true } });
-  const ctx = await buildScheduleContext(boardId, edited?.groupId);
+  const ctx = await buildScheduleContext(boardId);
   if (!ctx) return;
   if (!ctx.ownTriggers.includes(editedColumnId) && !ctx.cascadeTriggers.includes(editedColumnId)) return;
 
@@ -788,7 +797,7 @@ export async function previewScheduleChange(
   const alwaysComputed = !!manualStartColumnId && !!manualDurationColumnId;
   if (!startId || !durId) return null;
 
-  const self = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true } });
+  const self = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true, boardId: true } });
   if (!self) return null;
   const [linkColumn, items, holidayRows] = await Promise.all([
     linkColumnId
@@ -796,7 +805,8 @@ export async function previewScheduleChange(
       : Promise.resolve(null),
     // Group-scoped: a Pred reference resolves within the item's own group.
     prisma.item.findMany({
-      where: { groupId: self.groupId, deletedAt: null },
+      // Board-wide: a predecessor may live in another group.
+      where: { boardId: self.boardId, deletedAt: null },
       select: {
         id: true,
         parentId: true,
@@ -931,10 +941,10 @@ async function resolveAncestorScheduleWindow(
   };
   // Ancestors are always in the same group, so this stays group-scoped
   // rather than loading every item on the board.
-  const self0 = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true, parentId: true } });
+  const self0 = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true, parentId: true, boardId: true } });
   if (!self0?.parentId) return null;
   const items = await prisma.item.findMany({
-    where: { groupId: self0.groupId, deletedAt: null },
+    where: { boardId: self0.boardId, deletedAt: null },
     select: { id: true, parentId: true, name: true, cellValues: true },
   });
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -1067,7 +1077,8 @@ export async function normalizePredReferences(
       const match = PRED_ENTRY_PATTERN.exec(part);
       const ref = (match?.[1] ?? part).trim();
       const suffix = part.slice(ref.length);
-      if (index.groupByItemId.get(ref) === item.groupId) return part;
+      // Already an id — in any group. Only codes need pinning.
+      if (index.groupByItemId.has(ref)) return part;
       const resolved = index.itemIdByGroupWbs.get(`${item.groupId}:${ref}`);
       return resolved ? resolved + suffix : part;
     });
