@@ -28,6 +28,7 @@ import {
   deleteUser,
   reorderUsers,
   listUsers,
+  updateUserHourlyRate,
   adminResetUserPassword,
   unlockUser,
 } from "@/lib/actions/user";
@@ -36,10 +37,50 @@ import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
-const ROW_GRID = "grid-cols-[24px_48px_1fr_1fr_90px_140px_160px_120px]";
+const ROW_GRID = "grid-cols-[24px_48px_1fr_1fr_90px_120px_150px_110px_120px]";
 
 function roleLabel(role: UserRole) {
   return role === "ADMIN" ? "管理者" : role === "SUPERVISOR" ? "主管" : "團隊成員";
+}
+
+/**
+ * 每小時人力成本. Saved on blur rather than on every keystroke: typing "600"
+ * would otherwise write 6, then 60, then 600, and the middle two are wrong
+ * rates that a report could be read at.
+ */
+function RateInput({ user }: { user: UserRow }) {
+  const [value, setValue] = useState(user.hourlyRate === null ? "" : String(user.hourlyRate));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const next = value.trim() === "" ? null : Number(value);
+    if (next !== null && (!Number.isFinite(next) || next < 0)) {
+      setValue(user.hourlyRate === null ? "" : String(user.hourlyRate));
+      return;
+    }
+    if (next === user.hourlyRate) return;
+    setSaving(true);
+    try {
+      await updateUserHourlyRate(user.id, next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      min={0}
+      value={value}
+      disabled={saving}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      placeholder="未設定"
+      title="每小時人力成本(元)"
+      className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
+    />
+  );
 }
 
 function SortableUserRow({
@@ -107,6 +148,7 @@ function SortableUserRow({
       <span className="text-neutral-400 dark:text-neutral-500">
         {new Date(user.createdAt).toLocaleDateString("zh-TW")}
       </span>
+      <RateInput user={user} />
       {user.role === "MEMBER" ? (
         <select
           value={user.supervisorId ?? ""}
@@ -391,6 +433,7 @@ export function UserManagement({
           <span>Email</span>
           <span>角色</span>
           <span>建立時間</span>
+          <span>時薪(元)</span>
           <span>所屬主管</span>
           <span />
         </div>

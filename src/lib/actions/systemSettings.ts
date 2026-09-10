@@ -20,8 +20,26 @@ export async function getSystemSettings() {
     predReadyColor: "#00c875",
     predWaitingColor: "#fdab3d",
     predBlockedColor: "#e2445c",
+    hoursPerDay: 8,
     updatedAt: new Date(),
   };
+}
+
+/** 一天算幾小時 — the factor that turns "50% for 10 days" into hours, and
+ *  therefore into money. */
+export async function setHoursPerDay(hours: number) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  if (!Number.isFinite(hours) || hours < 1 || hours > 24) {
+    throw new Error("每日工時必須在 1 到 24 之間");
+  }
+  const value = Math.round(hours);
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", hoursPerDay: value },
+    update: { hoursPerDay: value },
+  });
+  revalidatePath("/settings");
 }
 
 export async function setEmailNotificationsEnabled(enabled: boolean) {

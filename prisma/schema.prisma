@@ -76,6 +76,10 @@ model User {
   resetToken          String?   @unique
   resetTokenExpiresAt DateTime?
 
+  /// 每小時人力成本(元)。null = 尚未設定,成本會照 0 算並在報表上點名。
+  /// 放在使用者身上而不是設定頁:它跟著人的職級變動,不是一份全域參數。
+  hourlyRate Decimal? @db.Decimal(12, 2)
+
   supervisorId String?
   supervisor   User?    @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
   teamMembers  User[]   @relation("Supervision")
@@ -92,6 +96,7 @@ model User {
   deletedItems        Item[]              @relation("ItemDeletedBy")
   savedViews          SavedView[]         @relation("SavedViewOwner")
   projectTemplates    ProjectTemplate[]   @relation("ProjectTemplateCreatedBy")
+  timeEntries         TimeEntry[]
   ownedRisks          RiskEntry[]         @relation("RiskOwner")
   apiKeys             ApiKey[]            @relation("ApiKeyOwner")
   managedResources    Resource[]          @relation("ResourceManager")
@@ -317,6 +322,14 @@ model Item {
   baselineEnd   String?
   baselineDays  Int?
 
+  /// 直接費用(NRE、BOM、外包…),與人力成本分開記:一個是買來的,一個是
+  /// 做出來的,混在一起就分不出超支的是料還是工。
+  ///
+  /// 整數元,不是 Decimal:這兩個值會跟著 board.items 一路傳到 client
+  /// component,而 Decimal 是類別實例、過不了那個邊界;報價本來也都是整數元。
+  budgetCost Int?
+  actualCost Int?
+
   /// The Type option this item had before gaining its first child forced it
   /// to Summary, so removing the last child can put it back. "" means it had
   /// no Type at all; null means it was never flipped.
@@ -344,6 +357,7 @@ model Item {
   attachments   Attachment[]
   activityLog   ActivityLogEntry[]
   todoItems     TodoItem[]
+  timeEntries   TimeEntry[]
 
   @@index([boardId])
   @@index([groupId])
@@ -487,6 +501,8 @@ model SystemSettings {
   predReadyColor            String            @default("#00c875")
   predWaitingColor          String            @default("#fdab3d")
   predBlockedColor          String            @default("#e2445c")
+  /// 一天算幾小時 — 把「配置 50%、做 10 天」換算成工時與成本的那個係數。
+  hoursPerDay               Int               @default(8)
   updatedAt                 DateTime          @updatedAt
 }
 
@@ -626,4 +642,22 @@ model Webhook {
   createdAt     DateTime @default(now())
 
   @@index([boardId])
+}
+
+/// One person's hours on one item on one day — the actual, against which
+/// the planned allocationPct is only ever an estimate.
+model TimeEntry {
+  id     String @id @default(cuid())
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// "YYYY-MM-DD" — the day worked, not the day it was typed in.
+  date  String
+  hours Decimal @db.Decimal(6, 2)
+  note  String?
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+  @@index([userId, date])
 }

@@ -57,6 +57,7 @@ export default async function SettingsPage() {
         isAdmin={isAdmin}
         emailNotificationsEnabled={settings.emailNotificationsEnabled}
         ganttDurationMode={settings.ganttDurationMode}
+        hoursPerDay={settings.hoursPerDay}
         levelColors={settings.levelColors}
         ganttStatusColors={{
           overdue: settings.ganttOverdueColor,

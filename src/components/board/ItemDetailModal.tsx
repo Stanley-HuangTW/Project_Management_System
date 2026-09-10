@@ -12,6 +12,7 @@ import { FilesTab } from "./item-detail/FilesTab";
 import { ActivityLogTab } from "./item-detail/ActivityLogTab";
 import { ItemCardTab } from "./item-detail/ItemCardTab";
 import { ChecklistTab } from "./item-detail/ChecklistTab";
+import { CostTab } from "./item-detail/CostTab";
 
 const TABS = [
   { id: "updates", label: "更新" },
@@ -19,6 +20,7 @@ const TABS = [
   { id: "activity", label: "活動紀錄" },
   { id: "card", label: "項目卡片" },
   { id: "checklist", label: "待辦事項" },
+  { id: "cost", label: "工時與費用" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -105,6 +107,17 @@ export function ItemDetailModal({
       </div>
 
       {tab === "updates" && <UpdatesTab boardId={boardId} itemId={item.id} users={users} />}
+      {tab === "cost" && (
+        <CostTab
+          itemId={item.id}
+          users={users}
+          currentUserId={currentUserId}
+          userRole={userRole}
+          budgetCost={item.budgetCost}
+          actualCost={item.actualCost}
+          canEdit={userRole !== "MEMBER"}
+        />
+      )}
       {tab === "files" && <FilesTab boardId={boardId} itemId={item.id} />}
       {tab === "activity" && <ActivityLogTab itemId={item.id} />}
       {tab === "card" && (

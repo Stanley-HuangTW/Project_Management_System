@@ -8,7 +8,7 @@ import type { UserRole } from "@prisma/client";
 
 export async function listUsers() {
   await requireSession();
-  return prisma.user.findMany({
+  const users = await prisma.user.findMany({
     select: {
       id: true,
       name: true,
@@ -19,9 +19,30 @@ export async function listUsers() {
       supervisorId: true,
       supervisor: { select: { id: true, name: true } },
       lockedUntil: true,
+      hourlyRate: true,
     },
     orderBy: { order: "asc" },
   });
+  // Decimal is a class instance; a client component can only be handed plain
+  // values, so the rate crosses that boundary as a number.
+  return users.map((user) => ({ ...user, hourlyRate: user.hourlyRate ? Number(user.hourlyRate) : null }));
+}
+
+/**
+ * 每小時人力成本。Kept as its own action rather than another parameter on
+ * updateUser: a rate changes on its own schedule (a promotion, a new year's
+ * rates) and should not need the whole edit form opened to change it.
+ */
+export async function updateUserHourlyRate(userId: string, rate: number | null) {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") {
+    throw new Error("只有管理員可以設定費率");
+  }
+  if (rate !== null && (!Number.isFinite(rate) || rate < 0)) {
+    throw new Error("費率必須是 0 或正數");
+  }
+  await prisma.user.update({ where: { id: userId }, data: { hourlyRate: rate } });
+  revalidatePath("/users");
 }
 
 export async function createUser(

@@ -6,6 +6,7 @@ import type { GanttDurationMode, Holiday } from "@prisma/client";
 import {
   setEmailNotificationsEnabled,
   setGanttDurationMode,
+  setHoursPerDay,
   setLevelColors,
   setGanttStatusColors,
   setPredLampColors,
@@ -95,6 +96,45 @@ function GanttModeCard({ initial }: { initial: GanttDurationMode }) {
         <option value="CALENDAR">日曆天</option>
         <option value="BUSINESS">工作天</option>
       </select>
+    </div>
+  );
+}
+
+/** 每日工時 — the factor that turns a plan ("50% for 10 days") into hours,
+ *  and hours into money. One number, company-wide. */
+function HoursPerDayCard({ initial }: { initial: number }) {
+  const [hours, setHours] = useState(String(initial));
+  const [isPending, startTransition] = useTransition();
+
+  function save() {
+    const value = Number(hours);
+    if (!Number.isFinite(value) || value < 1 || value > 24) {
+      setHours(String(initial));
+      return;
+    }
+    startTransition(async () => {
+      await setHoursPerDay(value);
+    });
+  }
+
+  return (
+    <div className="max-w-xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
+      <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">每日工時</p>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        一個工作天算幾小時。把「配置 50%、做 10 天」換算成工時,再乘上成員時薪就是計畫人力成本
+        ——成本報表與工時登記都以這個數字為準。
+      </p>
+      <input
+        type="number"
+        min={1}
+        max={24}
+        value={hours}
+        disabled={isPending}
+        onChange={(e) => setHours(e.target.value)}
+        onBlur={save}
+        className="w-24 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
+      />
+      <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">小時</span>
     </div>
   );
 }
@@ -362,6 +402,7 @@ export function SystemSettingsForm({
   isAdmin,
   emailNotificationsEnabled,
   ganttDurationMode,
+  hoursPerDay,
   levelColors,
   ganttStatusColors,
   predLampColors,
@@ -377,6 +418,7 @@ export function SystemSettingsForm({
   isAdmin: boolean;
   emailNotificationsEnabled: boolean;
   ganttDurationMode: GanttDurationMode;
+  hoursPerDay: number;
   levelColors: string[];
   ganttStatusColors: { overdue: string; completed: string; inProgress: string };
   predLampColors: { ready: string; waiting: string; blocked: string };
@@ -395,6 +437,7 @@ export function SystemSettingsForm({
         <>
           <EmailNotificationsCard initial={emailNotificationsEnabled} />
           <GanttModeCard initial={ganttDurationMode} />
+          <HoursPerDayCard initial={hoursPerDay} />
           <HolidayCard holidays={holidays} />
           <LevelColorCard initial={levelColors} />
           <GanttStatusColorCard initial={ganttStatusColors} />
