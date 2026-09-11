@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert } from "lucide-react";
+import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen, FileDiff } from "lucide-react";
 import type { BoardWithData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
@@ -16,6 +16,8 @@ import { AutomationRulesModal } from "./AutomationRulesModal";
 import { TrashModal } from "./TrashModal";
 import { ProjectTemplateModal } from "./ProjectTemplateModal";
 import { BoardRisks } from "./BoardRisks";
+import { BoardGates } from "./BoardGates";
+import { BoardChanges } from "./BoardChanges";
 import {
   useRegisterBoardAdminActions,
   type BoardAdminAction,
@@ -37,7 +39,7 @@ export function BoardView({
   highlightItemId?: string | null;
   holidays: Holiday[];
 }) {
-  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks">("table");
+  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes">("table");
   const [ganttNavigateHighlight, setGanttNavigateHighlight] = useState<string | null>(null);
   function goToItemInTable(itemId: string) {
     setGanttNavigateHighlight(itemId);
@@ -169,6 +171,28 @@ export function BoardView({
             >
               <ShieldAlert size={14} /> <span className="hidden sm:inline">風險</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setView("gates")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${
+                view === "gates"
+                  ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                  : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+              }`}
+            >
+              <DoorOpen size={14} /> <span className="hidden sm:inline">閘門</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("changes")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${
+                view === "changes"
+                  ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                  : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+              }`}
+            >
+              <FileDiff size={14} /> <span className="hidden sm:inline">變更</span>
+            </button>
           </div>
         </div>
       </div>
@@ -210,6 +234,15 @@ export function BoardView({
         )}
         {view === "risks" && (
           <BoardRisks board={board} users={users} currentUserId={currentUserId} />
+        )}
+        {view === "changes" && <BoardChanges board={board} userRole={userRole} />}
+        {view === "gates" && (
+          <BoardGates
+            board={board}
+            users={users}
+            userRole={userRole}
+            currentUserId={currentUserId}
+          />
         )}
         {view === "report" && (
           <BoardReport
