@@ -10,13 +10,13 @@ import { logActivity } from "@/lib/activityLog";
 import { getStatusOptions } from "@/types/column";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import {
-  syncPredecessorSchedule,
   buildWbsIndexFromItems,
   resolvePredValues,
   parsePredEntries,
   formatPredEntries,
   type PredEntry,
 } from "@/lib/predecessorLink";
+import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { getItemDateRange } from "@/lib/gantt";
 import { loadTypeOptionIds, flipParentToSummary, restoreParentTypeIfChildless } from "@/lib/summaryType";
 import { collectSubtreeIds, type PredSnapshotEntry } from "@/lib/trash";

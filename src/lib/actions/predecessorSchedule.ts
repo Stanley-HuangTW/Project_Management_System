@@ -5,12 +5,12 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { requireStructureAccess } from "@/lib/permissions";
 import {
-  recomputeAllSchedules,
   previewScheduleChange,
   previewScheduleCascade,
   type CascadedItem,
   type SchedulePreview,
 } from "@/lib/predecessorLink";
+import { recomputeAllSchedules } from "@/lib/scheduleCascade";
 
 export async function recomputeBoardSchedule(boardId: string): Promise<number> {
   const session = await requireSession();

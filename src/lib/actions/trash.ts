@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { canModifyItemSchedule, requireStructureAccess } from "@/lib/permissions";
-import { syncPredecessorSchedule } from "@/lib/predecessorLink";
+import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
 import { getStatusOptions } from "@/types/column";
 import { collectSubtreeIds, parsePredSnapshot } from "@/lib/trash";

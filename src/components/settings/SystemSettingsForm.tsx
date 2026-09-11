@@ -18,6 +18,8 @@ import type { UserOption } from "@/types/board";
 import { GanttColumnMappingCard, type GanttMappingBoard } from "./GanttColumnMappingCard";
 import { ReportSettingsCard, type ReportSettingsBoardWithName } from "./ReportSettingsCard";
 import { BaselineCard, type BaselineBoard } from "./BaselineCard";
+import { ProgramCard, type ProgramBoard } from "./ProgramCard";
+import type { ProgramRow } from "@/lib/actions/program";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 import { IntegrationCard } from "./IntegrationCard";
 import { StatusColorCard, type StatusColorBoard } from "./StatusColorCard";
@@ -410,6 +412,8 @@ export function SystemSettingsForm({
   workloadThreshold,
   ganttMappingBoards,
   baselineBoards,
+  programs,
+  programBoards,
   reportSettingsBoards,
   statusColorBoards,
   sharingBoards,
@@ -426,6 +430,8 @@ export function SystemSettingsForm({
   workloadThreshold: WorkloadThresholdSettings;
   ganttMappingBoards: GanttMappingBoard[];
   baselineBoards: BaselineBoard[];
+  programs: ProgramRow[];
+  programBoards: ProgramBoard[];
   reportSettingsBoards: ReportSettingsBoardWithName[];
   statusColorBoards: StatusColorBoard[];
   sharingBoards: SharingBoard[];
@@ -445,6 +451,7 @@ export function SystemSettingsForm({
           <PredLampColorCard initial={predLampColors} />
           <WorkloadThresholdCard threshold={workloadThreshold} />
           <BaselineCard boards={baselineBoards} />
+          <ProgramCard programs={programs} boards={programBoards} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <ReportSettingsCard boards={reportSettingsBoards} />
           <IntegrationCard boards={sharingBoards.map((b) => ({ id: b.id, name: b.name }))} />

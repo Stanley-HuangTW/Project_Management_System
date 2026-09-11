@@ -410,12 +410,29 @@ export function resolveLockedScheduleFields(
  * mode, which also works without Pred/Link configured — then only the
  * manual columns feed Start/Finish/Days, with no predecessor override).
  */
-async function buildScheduleContext(
-  boardId: string,
-  /** Walk the cascade without touching the database — used to show the user
-   *  which downstream items a drag would move, before it moves them. */
-  dryRun = false
-) {
+/**
+ * Everything one board contributes to the schedule: which columns hold the
+ * dependency, the dates and the duration, and how it counts days.
+ *
+ * Per board rather than one set of ids, because a program spans boards and
+ * each of them has its own columns — B 看板's "Pred" is a different column
+ * from A 看板's, even though they are called the same thing.
+ */
+type BoardScheduleConfig = {
+  predColumnId: string | null;
+  linkColumnId: string | null;
+  lagColumnId: string | null;
+  startId: string;
+  durId: string;
+  endId: string | null;
+  mode: GanttDurationMode;
+  alwaysComputed: boolean;
+  manualStartColumnId: string | null;
+  manualDurationColumnId: string | null;
+  linkOptions: ReturnType<typeof getStatusOptions>;
+};
+
+async function loadBoardConfig(boardId: string): Promise<BoardScheduleConfig | null> {
   const board = await prisma.board.findUnique({
     where: { id: boardId },
     select: {
@@ -430,32 +447,69 @@ async function buildScheduleContext(
       manualDurationColumnId: true,
     },
   });
-  if (!board) return null;
-  const {
-    predColumnId,
-    linkColumnId,
-    lagColumnId,
-    ganttEndColumnId: endId,
-    ganttDurationMode: mode,
-    manualStartColumnId,
-    manualDurationColumnId,
-  } = board;
-  const alwaysComputed = !!manualStartColumnId && !!manualDurationColumnId;
-  if (!board.ganttStartColumnId || !board.ganttDurationColumnId) return null;
-  if (!alwaysComputed && (!predColumnId || !linkColumnId)) return null;
-  const startId: string = board.ganttStartColumnId;
-  const durId: string = board.ganttDurationColumnId;
+  if (!board?.ganttStartColumnId || !board.ganttDurationColumnId) return null;
 
-  const [linkColumn, items, holidayRows] = await Promise.all([
-    linkColumnId
-      ? prisma.column.findUnique({ where: { id: linkColumnId }, select: { options: true } })
-      : Promise.resolve(null),
-    // Board-wide, always. A Pred may now point into another group, so the
-    // cascade cannot be confined to the edited item's own — narrowing it
-    // would silently stop the recompute at the group boundary and leave the
-    // other side holding stale dates.
+  const alwaysComputed = !!board.manualStartColumnId && !!board.manualDurationColumnId;
+  if (!alwaysComputed && (!board.predColumnId || !board.linkColumnId)) return null;
+
+  const linkColumn = board.linkColumnId
+    ? await prisma.column.findUnique({ where: { id: board.linkColumnId }, select: { options: true } })
+    : null;
+
+  return {
+    predColumnId: board.predColumnId,
+    linkColumnId: board.linkColumnId,
+    lagColumnId: board.lagColumnId,
+    startId: board.ganttStartColumnId,
+    durId: board.ganttDurationColumnId,
+    endId: board.ganttEndColumnId,
+    mode: board.ganttDurationMode,
+    alwaysComputed,
+    manualStartColumnId: board.manualStartColumnId,
+    manualDurationColumnId: board.manualDurationColumnId,
+    linkOptions: getStatusOptions(linkColumn?.options),
+  };
+}
+
+/**
+ * The schedule network the edited board belongs to.
+ *
+ * A board in a 專案群組 shares one network with its siblings: a Pred may
+ * point at an item on another board of the same program, and the cascade has
+ * to follow it. A board with no program is its own network, exactly as
+ * before. Every item is read and written through ITS OWN board's config.
+ */
+async function buildScheduleContext(
+  boardId: string,
+  /** Walk the cascade without touching the database — used to show the user
+   *  which downstream items a drag would move, before it moves them. */
+  dryRun = false
+) {
+  const own = await loadBoardConfig(boardId);
+  // The edited board itself has to be schedulable; siblings that are not are
+  // simply left out of the network rather than blocking it.
+  if (!own) return null;
+
+  const board = await prisma.board.findUnique({ where: { id: boardId }, select: { programId: true } });
+  const siblingIds = board?.programId
+    ? (
+        await prisma.board.findMany({
+          where: { programId: board.programId, id: { not: boardId } },
+          select: { id: true },
+        })
+      ).map((b) => b.id)
+    : [];
+
+  const configByBoard = new Map<string, BoardScheduleConfig>([[boardId, own]]);
+  for (const siblingId of siblingIds) {
+    const config = await loadBoardConfig(siblingId);
+    if (config) configByBoard.set(siblingId, config);
+  }
+  const boardIds = [...configByBoard.keys()];
+
+  const [items, holidayRows] = await Promise.all([
     prisma.item.findMany({
-      where: { boardId, deletedAt: null },
+      where: { boardId: { in: boardIds }, deletedAt: null },
       select: {
         id: true,
         name: true,
@@ -463,17 +517,20 @@ async function buildScheduleContext(
         order: true,
         cellValues: true,
         groupId: true,
+        boardId: true,
         constraintType: true,
         constraintDate: true,
       },
     }),
     listHolidays(),
   ]);
-  const linkOptions = getStatusOptions(linkColumn?.options);
   const holidays = toHolidaySet(holidayRows);
   const wbsIndex = buildWbsIndexFromItems(items);
   const { wbsByItemId } = wbsIndex;
   const itemsById = new Map(items.map((i) => [i.id, i]));
+
+  /** The config of the board this item lives on. */
+  const cfgOf = (item: { boardId: string }) => configByBoard.get(item.boardId)!;
 
   // Freshly-computed dates, so a dependent further down the chain reads its
   // predecessor's just-written dates without a mid-walk DB round trip.
@@ -483,32 +540,36 @@ async function buildScheduleContext(
     if (overrides.has(id)) return overrides.get(id)!;
     const item = itemsById.get(id);
     if (!item) return null;
-    return getItemDateRange(item, startId, durId, mode, holidays);
+    const cfg = cfgOf(item);
+    return getItemDateRange(item, cfg.startId, cfg.durId, cfg.mode, holidays);
   }
 
   async function writeRange(id: string, range: DateRange, days: number | null) {
     overrides.set(id, range);
     if (dryRun) return;
+    const item = itemsById.get(id);
+    if (!item) return;
+    const cfg = cfgOf(item);
     const startIso = range.start.toISOString().slice(0, 10);
     await prisma.cellValue.upsert({
-      where: { itemId_columnId: { itemId: id, columnId: startId } },
-      create: { itemId: id, columnId: startId, value: startIso },
+      where: { itemId_columnId: { itemId: id, columnId: cfg.startId } },
+      create: { itemId: id, columnId: cfg.startId, value: startIso },
       update: { value: startIso },
     });
-    if (endId) {
+    if (cfg.endId) {
       const endIso = range.end.toISOString().slice(0, 10);
       await prisma.cellValue.upsert({
-        where: { itemId_columnId: { itemId: id, columnId: endId } },
-        create: { itemId: id, columnId: endId, value: endIso },
+        where: { itemId_columnId: { itemId: id, columnId: cfg.endId } },
+        create: { itemId: id, columnId: cfg.endId, value: endIso },
         update: { value: endIso },
       });
     }
     // Days is only ever a write target in "always computed" boards — in the
     // classic mode it's still the free manual input recompute reads from.
-    if (alwaysComputed && days !== null) {
+    if (cfg.alwaysComputed && days !== null) {
       await prisma.cellValue.upsert({
-        where: { itemId_columnId: { itemId: id, columnId: durId } },
-        create: { itemId: id, columnId: durId, value: days },
+        where: { itemId_columnId: { itemId: id, columnId: cfg.durId } },
+        create: { itemId: id, columnId: cfg.durId, value: days },
         update: { value: days },
       });
     }
@@ -521,26 +582,28 @@ async function buildScheduleContext(
   /** The edges into this item, each with whatever relationship and lag it
    *  carries of its own — see parsePredEntries. */
   function predEntriesOf(id: string): PredEntry[] {
-    if (!predColumnId) return [];
     const item = itemsById.get(id);
     if (!item) return [];
+    const predColumnId = cfgOf(item).predColumnId;
+    if (!predColumnId) return [];
     const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
     return parsePredEntries(wbsIndex, item.groupId, predValue).filter((entry) => entry.itemId !== id);
   }
 
   function dependentsOf(id: string): string[] {
-    if (!predColumnId) return [];
-    const item = itemsById.get(id);
-    if (!item) return [];
+    if (!itemsById.has(id)) return [];
     // Resolved rather than string-compared: a Pred cell holds an item id now,
     // but may still hold a legacy WBS code — both have to find their target.
     //
-    // Not restricted to the item's own group: a dependent may live in
-    // another one, and stopping the cascade at the group boundary would
-    // leave it holding dates its predecessor no longer has.
+    // Scanned across the whole network, not the item's own group or board: a
+    // dependent may live in either, and stopping the cascade at that boundary
+    // would leave it holding dates its predecessor no longer has. Each
+    // candidate is read through its own board's Pred column.
     return items
       .filter((i) => {
         if (i.id === id) return false;
+        const predColumnId = cfgOf(i).predColumnId;
+        if (!predColumnId) return false;
         const value = i.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
         return resolvePredValues(wbsIndex, i.groupId, value).includes(id);
       })
@@ -550,12 +613,13 @@ async function buildScheduleContext(
   /** This item's own days-count and (in "always computed" mode only) its
    *  manual-column base range to fall back to when no predecessor applies. */
   function myDaysAndBase(item: (typeof items)[number]): { myDays: number | null; baseRange: DateRange | null } {
-    if (alwaysComputed) {
-      const myDays = resolveScheduleDays(item.cellValues, manualDurationColumnId, durId);
-      const baseRange = manualBaseRange(item.cellValues, manualStartColumnId!, myDays, mode, holidays);
+    const cfg = cfgOf(item);
+    if (cfg.alwaysComputed) {
+      const myDays = resolveScheduleDays(item.cellValues, cfg.manualDurationColumnId, cfg.durId);
+      const baseRange = manualBaseRange(item.cellValues, cfg.manualStartColumnId!, myDays, cfg.mode, holidays);
       return { myDays, baseRange };
     }
-    const daysValue = item.cellValues.find((cv) => cv.columnId === durId)?.value;
+    const daysValue = item.cellValues.find((cv) => cv.columnId === cfg.durId)?.value;
     return { myDays: typeof daysValue === "number" ? daysValue : null, baseRange: null };
   }
 
@@ -565,10 +629,15 @@ async function buildScheduleContext(
 
     const item = itemsById.get(id);
     if (item) {
+      const cfg = cfgOf(item);
       const predEntries = predEntriesOf(id);
-      const linkValue = linkColumnId ? item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
-      const fallbackRelationship = linkOptions.find((o) => o.id === linkValue)?.label;
-      const lagValue = lagColumnId ? item.cellValues.find((cv) => cv.columnId === lagColumnId)?.value : null;
+      const linkValue = cfg.linkColumnId
+        ? item.cellValues.find((cv) => cv.columnId === cfg.linkColumnId)?.value
+        : null;
+      const fallbackRelationship = cfg.linkOptions.find((o) => o.id === linkValue)?.label;
+      const lagValue = cfg.lagColumnId
+        ? item.cellValues.find((cv) => cv.columnId === cfg.lagColumnId)?.value
+        : null;
       const fallbackLag = typeof lagValue === "number" ? lagValue : 0;
       const { myDays, baseRange } = myDaysAndBase(item);
 
@@ -591,10 +660,17 @@ async function buildScheduleContext(
           }
           const predRange = readRange(entry.itemId);
           if (!predRange) return null;
-          return computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
+          return computeScheduledRange(
+            predRange,
+            myDays,
+            relationship as RelationshipType,
+            lag,
+            cfg.mode,
+            holidays
+          );
         })
       );
-      const computed = scheduled ?? (alwaysComputed ? baseRange : null);
+      const computed = scheduled ?? (cfg.alwaysComputed ? baseRange : null);
       // A date the item has to respect whatever the chain wanted — a part that
       // does not arrive until the 15th, a demo that cannot move.
       const effective = computed
@@ -602,7 +678,7 @@ async function buildScheduleContext(
             computed,
             myDays,
             { type: item.constraintType, date: item.constraintDate },
-            mode,
+            cfg.mode,
             holidays
           ).range
         : null;
@@ -614,18 +690,22 @@ async function buildScheduleContext(
     }
   }
 
+  // Triggers are matched against a column the user edited, which is always on
+  // the board the edit came from.
   const ownTriggers = (
-    alwaysComputed
-      ? [predColumnId, linkColumnId, lagColumnId, manualDurationColumnId, manualStartColumnId]
-      : [predColumnId, linkColumnId, lagColumnId, durId]
+    own.alwaysComputed
+      ? [own.predColumnId, own.linkColumnId, own.lagColumnId, own.manualDurationColumnId, own.manualStartColumnId]
+      : [own.predColumnId, own.linkColumnId, own.lagColumnId, own.durId]
   ).filter((id): id is string => !!id);
-  const cascadeTriggers = [startId, endId].filter((id): id is string => !!id);
+  const cascadeTriggers = [own.startId, own.endId].filter((id): id is string => !!id);
 
   return {
     items,
     itemsById,
     wbsByItemId,
     overrides,
+    /** Every board in this network — the caller has to refresh all of them. */
+    boardIds,
     readRange,
     predecessorsOf,
     dependentsOf,
@@ -736,13 +816,15 @@ export async function syncPredecessorSchedule(
   boardId: string,
   itemId: string,
   editedColumnId: string
-) {
+): Promise<string[]> {
   const triggers = await scheduleTriggerColumnIds(boardId);
-  if (!triggers.has(editedColumnId)) return;
+  if (!triggers.has(editedColumnId)) return [boardId];
 
   const ctx = await buildScheduleContext(boardId);
-  if (!ctx) return;
-  if (!ctx.ownTriggers.includes(editedColumnId) && !ctx.cascadeTriggers.includes(editedColumnId)) return;
+  if (!ctx) return [boardId];
+  if (!ctx.ownTriggers.includes(editedColumnId) && !ctx.cascadeTriggers.includes(editedColumnId)) {
+    return [boardId];
+  }
 
   if (ctx.ownTriggers.includes(editedColumnId)) {
     await ctx.recompute(itemId, new Set());
@@ -750,6 +832,8 @@ export async function syncPredecessorSchedule(
     const visited = new Set([itemId]);
     for (const depId of ctx.dependentsOf(itemId)) await ctx.recompute(depId, visited);
   }
+
+  return ctx.boardIds;
 }
 
 export type SchedulePreview = { start: string; end: string; days: number | null };
@@ -1025,9 +1109,11 @@ export async function assertRangeWithinAncestorRule(
  * board reflects its current Pred/Link/Lag/Days relationships. Used by the
  * Gantt view's manual "重算全部" button; never runs on its own.
  */
-export async function recomputeAllSchedules(boardId: string): Promise<number> {
+export async function recomputeAllSchedules(
+  boardId: string
+): Promise<{ count: number; boardIds: string[] }> {
   const ctx = await buildScheduleContext(boardId);
-  if (!ctx) return 0;
+  if (!ctx) return { count: 0, boardIds: [boardId] };
 
   const visited = new Set<string>();
   for (const item of ctx.items) {
@@ -1035,7 +1121,7 @@ export async function recomputeAllSchedules(boardId: string): Promise<number> {
       await ctx.recompute(item.id, visited);
     }
   }
-  return visited.size;
+  return { count: visited.size, boardIds: ctx.boardIds };
 }
 
 /**

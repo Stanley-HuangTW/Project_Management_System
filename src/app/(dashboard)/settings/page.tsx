@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/session";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { listHolidays } from "@/lib/holidays";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
+import { listPrograms, type ProgramRow } from "@/lib/actions/program";
 import { SystemSettingsForm } from "@/components/settings/SystemSettingsForm";
 
 export default async function SettingsPage() {
@@ -39,6 +40,7 @@ export default async function SettingsPage() {
         reportStuckOptionIds: true,
         reportDoneOptionIds: true,
         baselineCapturedAt: true,
+        programId: true,
       },
       orderBy: { name: "asc" },
     }),
@@ -47,6 +49,10 @@ export default async function SettingsPage() {
       orderBy: { name: "asc" },
     }),
   ]);
+
+  // listPrograms is admin-only and throws otherwise; the card is not rendered
+  // for a non-admin anyway.
+  const programs: ProgramRow[] = isAdmin ? await listPrograms() : [];
 
   const sharingBoards = isAdmin ? boards : boards.filter((b) => b.ownerId === session.userId);
 
@@ -73,6 +79,8 @@ export default async function SettingsPage() {
         workloadThreshold={workloadThreshold}
         ganttMappingBoards={boards}
         baselineBoards={boards}
+        programs={programs}
+        programBoards={boards.map((b) => ({ id: b.id, name: b.name, programId: b.programId }))}
         reportSettingsBoards={boards}
         statusColorBoards={sharingBoards.map((b) => ({
           id: b.id,

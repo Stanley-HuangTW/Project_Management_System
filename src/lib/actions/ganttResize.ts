@@ -11,10 +11,10 @@ import { getItemDateRange } from "@/lib/gantt";
 import { countDaysInRange } from "@/lib/workday";
 import {
   resolveLockedScheduleFields,
-  syncPredecessorSchedule,
   assertRangeWithinAncestorRule,
   type ScheduleLock,
 } from "@/lib/predecessorLink";
+import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { notifyItemAssignees } from "@/lib/notify";

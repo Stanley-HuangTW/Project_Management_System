@@ -9,10 +9,10 @@ import { notifyItemAssignees, notifyEmailIfNeeded } from "@/lib/notify";
 import { executeAutomationRules } from "@/lib/automation";
 import { syncGanttDates } from "@/lib/ganttSync";
 import {
-  syncPredecessorSchedule,
   resolveLockedScheduleFields,
   checkScheduleWithinAncestorRule,
 } from "@/lib/predecessorLink";
+import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { canEditCellValue, canModifyItemSchedule } from "@/lib/permissions";
 import { notifyDependentsWhenDone } from "@/lib/predReadyNotify";
 import { requireItemBoardAccess } from "@/lib/boardAccess";

@@ -7,7 +7,7 @@ import { requireSession } from "@/lib/session";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { canModifyItemSchedule } from "@/lib/permissions";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
-import { syncPredecessorSchedule } from "@/lib/predecessorLink";
+import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 
 /**
  * Sets (or clears) the date an item's schedule has to respect. Gated by the
