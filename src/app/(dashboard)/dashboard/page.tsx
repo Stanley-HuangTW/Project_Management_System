@@ -213,7 +213,6 @@ export default async function DashboardPage({
         tasksByUser={tasksByUser}
         floatByItemId={floatByItemId}
         leaveDays={await leaveDaysByUser()}
-        thresholdPct={workloadThreshold.yellowMax}
       />
 
       <WorkloadDetailSection

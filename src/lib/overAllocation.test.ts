@@ -118,3 +118,35 @@ describe("movableTasks", () => {
     expect(movableTasks(overload)).toEqual([]);
   });
 });
+
+/**
+ * The 過度配置 card lets the window and the threshold be changed — a month at
+ * a time, an arbitrary range, and any loading percentage. Both are arguments
+ * here, so these fix the behaviour those controls depend on.
+ */
+describe("window and threshold", () => {
+  it("scans a whole month, not just the first week", () => {
+    const byUser = new Map([["u1", [task("a", 150, "2026-01-28", "2026-01-30")]]]);
+
+    // A week from the 5th misses it entirely; the month does not.
+    expect(findOverAllocations(byUser, users, monday, 7, 95)).toEqual([]);
+    const [overload] = findOverAllocations(byUser, users, new Date("2026-01-01"), 31, 95);
+    expect(overload.days.map((d) => d.date)).toEqual(["2026-01-28", "2026-01-29", "2026-01-30"]);
+  });
+
+  it("cuts at the threshold it is given, exclusive", () => {
+    const byUser = new Map([["u1", [task("a", 95, "2026-01-05", "2026-01-05")]]]);
+
+    // Exactly 95 is not over 95 — the default threshold leaves it alone.
+    expect(findOverAllocations(byUser, users, monday, 7, 95)).toEqual([]);
+    // A point lower and the same day is over.
+    expect(findOverAllocations(byUser, users, monday, 7, 94)).toHaveLength(1);
+  });
+
+  it("uses the lower threshold to catch what 100% would have missed", () => {
+    const byUser = new Map([["u1", [task("a", 98, "2026-01-06", "2026-01-06")]]]);
+
+    expect(findOverAllocations(byUser, users, monday, 7, 100)).toEqual([]);
+    expect(findOverAllocations(byUser, users, monday, 7, 95)).toHaveLength(1);
+  });
+});
