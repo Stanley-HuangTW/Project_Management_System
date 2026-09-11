@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getDelayAnalysis } from "@/lib/actions/delayAnalysis";
+import { getDelayAnalysis, getProgramDelayAnalysis } from "@/lib/actions/delayAnalysis";
 import type { DelayAnalysis } from "@/lib/delayAnalysis";
 
 /**
@@ -13,7 +13,7 @@ import type { DelayAnalysis } from "@/lib/delayAnalysis";
  * them, or that took longer than they said — and shows both halves of each
  * one's slip, so an argument about it starts from the same numbers.
  */
-export function DelayReport({ boardId }: { boardId: string }) {
+export function DelayReport({ boardId, programId }: { boardId?: string; programId?: string }) {
   const [analysis, setAnalysis] = useState<DelayAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -21,7 +21,13 @@ export function DelayReport({ boardId }: { boardId: string }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const result = await getDelayAnalysis(boardId);
+      // One board, or the whole 專案群組 — where the chain crosses boards the
+      // culprit often sits on a different one.
+      const result = programId
+        ? await getProgramDelayAnalysis(programId)
+        : boardId
+          ? await getDelayAnalysis(boardId)
+          : null;
       if (!cancelled) {
         setAnalysis(result);
         setLoading(false);
@@ -30,7 +36,7 @@ export function DelayReport({ boardId }: { boardId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [boardId]);
+  }, [boardId, programId]);
 
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!analysis) return null;

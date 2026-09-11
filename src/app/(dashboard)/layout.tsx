@@ -16,10 +16,23 @@ export default async function DashboardLayout({
     prisma.board.findMany({
       where: accessibleBoardWhere(session),
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, programId: true },
     }),
     prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true } }),
   ]);
+
+  // Groups are listed from the boards this person can already open, so a
+  // group whose boards are all closed to them never appears — and the count
+  // beside it is what they would actually see inside it.
+  const programRows = await prisma.program.findMany({
+    where: { boards: { some: { id: { in: boards.map((b) => b.id) } } } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
+  });
+  const programs = programRows.map((program) => ({
+    ...program,
+    boardCount: boards.filter((b) => b.programId === program.id).length,
+  }));
 
   return (
     <DialogProvider>
@@ -27,6 +40,7 @@ export default async function DashboardLayout({
       <div className="flex h-screen w-full">
         <BoardSidebar
           boards={boards}
+          programs={programs}
           userName={session.name}
           userRole={session.role}
           avatarUrl={currentUser?.avatarUrl}

@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { formatMoney, formatIndex } from "@/lib/cost";
-import { getBoardCostReport, type BoardCostReport } from "@/lib/actions/boardCost";
+import {
+  getBoardCostReport,
+  getProgramCostReport,
+  type BoardCostReport,
+} from "@/lib/actions/boardCost";
 
 function Stat({
   label,
@@ -37,14 +41,19 @@ function Stat({
  * together and each says what it is in words — CPI 0.83 means nothing to
  * most people, "花掉的比做出來的多" means something to everyone.
  */
-export function CostReport({ boardId }: { boardId: string }) {
+export function CostReport({ boardId, programId }: { boardId?: string; programId?: string }) {
   const [report, setReport] = useState<BoardCostReport | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const result = await getBoardCostReport(boardId);
+      // One board, or every board in a 專案群組 as a single BAC/EV/AC.
+      const result = programId
+        ? await getProgramCostReport(programId)
+        : boardId
+          ? await getBoardCostReport(boardId)
+          : null;
       if (!cancelled) {
         setReport(result);
         setLoading(false);
@@ -53,7 +62,7 @@ export function CostReport({ boardId }: { boardId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [boardId]);
+  }, [boardId, programId]);
 
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!report) return null;

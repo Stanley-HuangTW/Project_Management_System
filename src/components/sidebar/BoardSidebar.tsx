@@ -21,6 +21,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  FolderKanban,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageBoard } from "@/lib/permissions";
@@ -36,6 +37,9 @@ import { createBoard, renameBoard, deleteBoard } from "@/lib/actions/board";
 import { logout } from "@/lib/actions/auth";
 
 type Board = { id: string; name: string };
+/** A 專案群組 and how many of its boards this person can open — a group whose
+ *  boards are all closed to them is not listed at all. */
+type Program = { id: string; name: string; boardCount: number };
 
 /** Board-admin tasks the open board view offers — see BoardAdminActions. */
 const ADMIN_ACTIONS: { id: BoardAdminAction; label: string; Icon: typeof Upload }[] = [
@@ -56,11 +60,13 @@ const STORAGE_KEY_WIDTH = "sidebar-width";
 
 export function BoardSidebar({
   boards,
+  programs,
   userName,
   userRole,
   avatarUrl,
 }: {
   boards: Board[];
+  programs: Program[];
   userName: string;
   userRole: UserRole;
   avatarUrl?: string | null;
@@ -299,6 +305,33 @@ export function BoardSidebar({
             <Shield size={14} className="shrink-0" />
             分組角色設定
           </Link>
+        )}
+        {programs.length > 0 && (
+          <p className="px-2 pb-0.5 pt-3 text-[10px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+            專案群組
+          </p>
+        )}
+        {programs.map((program) => (
+          <Link
+            key={program.id}
+            href={`/programs/${program.id}`}
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+              pathname === `/programs/${program.id}`
+                ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <FolderKanban size={14} className="shrink-0" />
+            <span className="truncate">{program.name}</span>
+            <span className="ml-auto shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+              {program.boardCount}
+            </span>
+          </Link>
+        ))}
+        {programs.length > 0 && (
+          <p className="px-2 pb-0.5 pt-3 text-[10px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+            看板
+          </p>
         )}
         {boards.map((board) => {
           const active = pathname === `/boards/${board.id}`;

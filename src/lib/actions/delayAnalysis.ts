@@ -2,131 +2,59 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { requireBoardAccess } from "@/lib/boardAccess";
-import { getItemDateRange } from "@/lib/gantt";
-import { listHolidays, toHolidaySet } from "@/lib/holidays";
-import { getStatusOptions } from "@/types/column";
-import { buildWbsIndexFromItems, parsePredEntries } from "@/lib/predecessorLink";
-import { computeWbsCodes } from "@/lib/wbs";
-import { analyzeDelays, type DelayInput, type DelayAnalysis } from "@/lib/delayAnalysis";
-import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
+import { requireBoardAccess, canAccessBoard } from "@/lib/boardAccess";
+import { analyzeDelays, type DelayAnalysis } from "@/lib/delayAnalysis";
+import { gatherDelayInputs } from "@/lib/delayInputs";
 
 /**
  * 延遲追因 for one board: which task moved further than the chain moved it.
  *
- * Leaf tasks only. A Summary's dates are its children's, so it is late
- * exactly when they are — listing it as a culprit would name the folder
- * instead of the work.
+ * When the board belongs to a 專案群組 the whole group is read, not just this
+ * board — a predecessor sitting on a sibling board still has to be there, or
+ * the slip it handed down is counted as this task's own and the wrong task is
+ * named. Only this board's tasks are reported.
  */
 export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
-  const [board, holidayRows] = await Promise.all([
-    prisma.board.findUnique({
-      where: { id: boardId },
-      select: {
-        ganttStartColumnId: true,
-        ganttDurationColumnId: true,
-        ganttDurationMode: true,
-        predColumnId: true,
-        linkColumnId: true,
-      },
-    }),
-    listHolidays(),
-  ]);
-  if (!board?.ganttStartColumnId || !board.ganttDurationColumnId) {
-    return { projectDelay: 0, culprits: [], noBaseline: true };
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: { programId: true },
+  });
+
+  const networkIds = board?.programId
+    ? (await prisma.board.findMany({ where: { programId: board.programId }, select: { id: true } })).map(
+        (b) => b.id
+      )
+    : [boardId];
+  // A sibling board the session cannot open still takes part in the maths —
+  // its dates move this board's tasks either way — but nothing on it can be
+  // named, which is what the visibility filter below enforces.
+  const { inputs, visibleIds } = await gatherDelayInputs(networkIds, session);
+
+  const ownIds = new Set(
+    (await prisma.item.findMany({ where: { boardId, deletedAt: null }, select: { id: true } })).map(
+      (i) => i.id
+    )
+  );
+  const scope = new Set([...ownIds].filter((id) => visibleIds.has(id)));
+  return analyzeDelays(inputs, scope);
+}
+
+/**
+ * 延遲追因 for a whole 專案群組 — the one that answers "誰把整個專案往後推"
+ * when the chain runs across boards.
+ */
+export async function getProgramDelayAnalysis(programId: string): Promise<DelayAnalysis> {
+  const session = await requireSession();
+  const boards = await prisma.board.findMany({ where: { programId }, select: { id: true } });
+  const allowed: string[] = [];
+  for (const board of boards) {
+    if (await canAccessBoard(session, board.id)) allowed.push(board.id);
   }
-  const holidays = toHolidaySet(holidayRows);
+  if (allowed.length === 0) return { projectDelay: 0, culprits: [], noBaseline: true };
 
-  const [items, linkColumn] = await Promise.all([
-    prisma.item.findMany({
-      where: { boardId, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        parentId: true,
-        order: true,
-        groupId: true,
-        baselineStart: true,
-        baselineEnd: true,
-        baselineDays: true,
-        cellValues: true,
-      },
-    }),
-    board.linkColumnId
-      ? prisma.column.findUnique({ where: { id: board.linkColumnId }, select: { options: true } })
-      : null,
-  ]);
-
-  const linkOptions = getStatusOptions(linkColumn?.options);
-  const wbsIndex = buildWbsIndexFromItems(items);
-  const parentIds = new Set(items.map((i) => i.parentId).filter(Boolean));
-
-  // WBS codes stay per group even now that a Pred may cross one: a code is
-  // a position within its own group's tree, and that has not changed.
-  const wbsByItemId = new Map<string, string>();
-  const byGroup = new Map<string, typeof items>();
-  for (const item of items) byGroup.set(item.groupId, [...(byGroup.get(item.groupId) ?? []), item]);
-  for (const groupItems of byGroup.values()) {
-    for (const [id, code] of computeWbsCodes(groupItems)) wbsByItemId.set(id, code);
-  }
-
-  const inputs: DelayInput[] = [];
-  for (const item of items) {
-    if (parentIds.has(item.id)) continue;
-
-    const range = getItemDateRange(
-      item,
-      board.ganttStartColumnId,
-      board.ganttDurationColumnId,
-      board.ganttDurationMode,
-      holidays
-    );
-    // The Days cell, not a count of the range: the baseline stored that
-    // same cell, and a milestone whose cell says 0 would otherwise look one
-    // day longer than planned simply because a range spans one day.
-    const daysValue = item.cellValues.find((cv) => cv.columnId === board.ganttDurationColumnId)?.value;
-    const currentDays = typeof daysValue === "number" ? Math.round(daysValue) : null;
-
-    // Which end of each predecessor actually drives this task — the same
-    // per-edge relationship the scheduler uses, falling back to the item's
-    // own Link column.
-    const fallback = board.linkColumnId
-      ? linkOptions.find(
-          (o) => o.id === item.cellValues.find((cv) => cv.columnId === board.linkColumnId)?.value
-        )?.label
-      : undefined;
-    const predValue = board.predColumnId
-      ? item.cellValues.find((cv) => cv.columnId === board.predColumnId)?.value
-      : undefined;
-    const preds = parsePredEntries(wbsIndex, item.groupId, predValue).map((entry) => {
-      const relationship = entry.relationship ?? fallback;
-      return {
-        predId: entry.itemId,
-        uses: (relationship === "SS" || relationship === "SF" ? "start" : "end") as "start" | "end",
-      };
-    });
-
-    inputs.push({
-      id: item.id,
-      name: item.name,
-      wbsCode: wbsByItemId.get(item.id) ?? "",
-      baselineStart: item.baselineStart ? new Date(item.baselineStart) : null,
-      baselineEnd: item.baselineEnd ? new Date(item.baselineEnd) : null,
-      baselineDays: item.baselineDays,
-      currentStart: range?.start ?? null,
-      currentEnd: range?.end ?? null,
-      currentDays,
-      preds,
-    });
-  }
-
-  // Analysed over every item, reported only for the visible ones: dropping
-  // a hidden predecessor before the maths would hand its slip to whatever it
-  // pushed, and blame the wrong task in public.
-  const analysis = analyzeDelays(inputs);
-  const visibleIds = await visibleItemIdsForBoard(boardId, session);
-  return { ...analysis, culprits: analysis.culprits.filter((c) => visibleIds.has(c.id)) };
+  const { inputs, visibleIds } = await gatherDelayInputs(allowed, session);
+  return analyzeDelays(inputs, visibleIds);
 }

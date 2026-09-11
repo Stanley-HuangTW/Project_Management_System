@@ -70,10 +70,17 @@ function dayDelta(from: Date | null, to: Date | null): number {
  * scheduler treats them. What is left over is the task's own: it started
  * later than it was pushed to, or it ran longer than planned.
  */
-export function analyzeDelays(items: DelayInput[]): DelayAnalysis {
+export function analyzeDelays(items: DelayInput[], scopeIds?: Set<string>): DelayAnalysis {
   const byId = new Map(items.map((item) => [item.id, item]));
+  // Everything takes part in the maths; only what is in scope is reported.
+  // A board inside a 專案群組 is analysed against the whole group — otherwise
+  // a predecessor on a sibling board is simply missing, and the slip it handed
+  // down gets counted as the successor's own delay, naming the wrong task.
+  // What is NAMED stays that board's own work.
+  const inScope = (id: string) => !scopeIds || scopeIds.has(id);
   const withBaseline = items.filter((item) => item.baselineStart && item.baselineEnd);
-  if (withBaseline.length === 0) {
+  const reportable = withBaseline.filter((item) => inScope(item.id));
+  if (reportable.length === 0) {
     return { projectDelay: 0, culprits: [], noBaseline: true };
   }
 
@@ -107,7 +114,7 @@ export function analyzeDelays(items: DelayInput[]): DelayAnalysis {
   }
 
   const culprits: DelayCulprit[] = [];
-  for (const item of withBaseline) {
+  for (const item of reportable) {
     const startDelta = startDeltas.get(item.id) ?? 0;
     const endDelta = endDeltas.get(item.id) ?? 0;
     const daysDelta =
@@ -141,6 +148,6 @@ export function analyzeDelays(items: DelayInput[]): DelayAnalysis {
   // of the project with it.
   culprits.sort((a, b) => b.ownDelay - a.ownDelay || b.downstreamCount - a.downstreamCount);
 
-  const projectDelay = Math.max(0, ...withBaseline.map((item) => endDeltas.get(item.id) ?? 0));
+  const projectDelay = Math.max(0, ...reportable.map((item) => endDeltas.get(item.id) ?? 0));
   return { projectDelay, culprits, noBaseline: false };
 }

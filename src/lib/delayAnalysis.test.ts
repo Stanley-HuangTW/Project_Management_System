@@ -106,3 +106,50 @@ describe("analyzeDelays", () => {
     expect(analyzeDelays(items)).toEqual({ projectDelay: 0, culprits: [], noBaseline: true });
   });
 });
+
+/**
+ * 跨看板延遲追因 — scope decides who is NAMED, never who counts.
+ *
+ * A board in a 專案群組 is analysed against the whole group, because a
+ * predecessor on a sibling board still pushed this task. What the board's own
+ * report may print is only its own tasks.
+ */
+describe("analyzeDelays with a scope", () => {
+  // A (board 1) slipped 10 days on its own; B (board 2) merely followed it.
+  const items = [
+    task("A", ["2026-01-01", "2026-01-10", 10], ["2026-01-11", "2026-01-20", 10]),
+    task("B", ["2026-01-11", "2026-01-20", 10], ["2026-01-21", "2026-01-30", 10], ["A"]),
+  ];
+
+  it("keeps an out-of-scope predecessor in the maths so the blame lands right", () => {
+    // Board 2's report: B inherited all of its slip and is nobody's culprit.
+    const analysis = analyzeDelays(items, new Set(["B"]));
+
+    expect(analysis.culprits).toEqual([]);
+    expect(analysis.projectDelay).toBe(10);
+  });
+
+  it("names the culprit when it is in scope", () => {
+    const analysis = analyzeDelays(items, new Set(["A"]));
+
+    expect(analysis.culprits.map((c) => c.id)).toEqual(["A"]);
+    expect(analysis.culprits[0].ownDelay).toBe(10);
+    // It dragged B along with it, even though B is not in this report.
+    expect(analysis.culprits[0].downstreamCount).toBe(1);
+  });
+
+  it("blames B for its own slip only once the predecessor is dropped", () => {
+    // The same board-2 report WITHOUT A in the inputs — the bug this guards
+    // against. A is gone, so the 10 days it handed down look like B's own.
+    const analysis = analyzeDelays([items[1]]);
+
+    expect(analysis.culprits.map((c) => c.id)).toEqual(["B"]);
+    expect(analysis.culprits[0].ownDelay).toBe(10);
+  });
+
+  it("reports no baseline when nothing in scope has one", () => {
+    const noPlan: DelayInput = { ...items[1], baselineStart: null, baselineEnd: null };
+
+    expect(analyzeDelays([items[0], noPlan], new Set(["B"])).noBaseline).toBe(true);
+  });
+});

@@ -55,8 +55,7 @@ function latestPredecessorRange(
   const start = shiftDate(successorLate.end, -lag, mode, holidays);
   return { start, end: shiftDate(start, span, mode, holidays) };
 }
-
-type NetworkColumns = {
+export type NetworkColumns = {
   predColumnId: string | null;
   linkColumnId: string | null;
   linkColumnOptions?: unknown;
@@ -67,7 +66,7 @@ type NetworkColumns = {
 };
 
 /**
- * Total float and the critical path for one group, by the standard CPM
+ * Total float and the critical path for one board, by the standard CPM
  * backward pass.
  *
  * The forward pass is already done — the scheduler wrote each item's
@@ -86,30 +85,84 @@ export function computeCriticalPath(
   columns: NetworkColumns,
   holidays: Set<string>
 ): Map<string, ScheduleFloat> {
-  const result = new Map<string, ScheduleFloat>();
-  const { predColumnId, linkColumnId, startColumnId, durationColumnId, durationMode } = columns;
-  if (!predColumnId || !startColumnId || !durationColumnId) return result;
+  return computeCriticalPathAcross(groupItems, () => columns, holidays);
+}
 
-  const hasChildren = new Set(groupItems.map((i) => i.parentId).filter((id): id is string => !!id));
-  const tasks = groupItems.filter((i) => !hasChildren.has(i.id));
+/**
+ * The same backward pass over a network that spans several boards — a
+ * 專案群組, where a Pred may point at an item on a sibling board.
+ *
+ * What makes it a different function is that there is no single column
+ * configuration: each board names and holds its Pred/Link/Start/Days columns
+ * separately, so every item has to be read through its own board's. An item
+ * whose board is not set up for scheduling is left out of the network rather
+ * than read through somebody else's columns.
+ *
+ * The float it produces is the float against the WHOLE group's finish, which
+ * is the point: a task with a week of slack inside its own board has none if
+ * the next board is waiting on it.
+ */
+export function computeCriticalPathAcross(
+  items: ItemData[],
+  columnsOf: (item: ItemData) => NetworkColumns | null,
+  holidays: Set<string>
+): Map<string, ScheduleFloat> {
+  const result = new Map<string, ScheduleFloat>();
+
+  const hasChildren = new Set(items.map((i) => i.parentId).filter((id): id is string => !!id));
+  const configOf = new Map<string, NetworkColumns>();
+  const tasks: ItemData[] = [];
+  for (const item of items) {
+    if (hasChildren.has(item.id)) continue;
+    const columns = columnsOf(item);
+    if (!columns?.predColumnId || !columns.startColumnId || !columns.durationColumnId) continue;
+    configOf.set(item.id, columns);
+    tasks.push(item);
+  }
+  if (tasks.length === 0) return result;
+
+  const cfg = (id: string) => configOf.get(id)!;
 
   const early = new Map<string, DateRange>();
   for (const task of tasks) {
-    const range = getItemDateRange(task, startColumnId, durationColumnId, durationMode, holidays);
+    const columns = cfg(task.id);
+    const range = getItemDateRange(
+      task,
+      columns.startColumnId!,
+      columns.durationColumnId!,
+      columns.durationMode,
+      holidays
+    );
     if (range) early.set(task.id, range);
   }
   if (early.size === 0) return result;
 
-  const index = buildWbsIndexFromItems(groupItems);
-  const linkOptions = linkColumnId ? getStatusOptions(columns.linkColumnOptions) : [];
+  // Built from every item, not just the tasks: a Pred may name a summary's
+  // WBS code, and the index is what turns that code into an id.
+  const index = buildWbsIndexFromItems(items);
   const byId = new Map(tasks.map((t) => [t.id, t]));
 
+  const optionsCache = new Map<string, ReturnType<typeof getStatusOptions>>();
+  const linkOptionsFor = (id: string) => {
+    const columns = cfg(id);
+    if (!columns.linkColumnId) return [];
+    const cached = optionsCache.get(columns.linkColumnId);
+    if (cached) return cached;
+    const options = getStatusOptions(columns.linkColumnOptions);
+    optionsCache.set(columns.linkColumnId, options);
+    return options;
+  };
+
   const relationshipOf = (task: ItemData): RelationshipType | null => {
-    const value = linkColumnId ? task.cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
-    const label = linkOptions.find((o) => o.id === value)?.label;
+    const columns = cfg(task.id);
+    const value = columns.linkColumnId
+      ? task.cellValues.find((cv) => cv.columnId === columns.linkColumnId)?.value
+      : null;
+    const label = linkOptionsFor(task.id).find((o) => o.id === value)?.label;
     return label && (RELATIONSHIPS as string[]).includes(label) ? (label as RelationshipType) : null;
   };
   const lagOf = (task: ItemData): number => {
+    const columns = cfg(task.id);
     const value = columns.lagColumnId
       ? task.cellValues.find((cv) => cv.columnId === columns.lagColumnId)?.value
       : null;
@@ -118,7 +171,7 @@ export function computeCriticalPath(
   const daysOf = (task: ItemData): number => {
     const range = early.get(task.id);
     if (!range) return 1;
-    return countDaysInRange(range.start, range.end, durationMode, holidays) ?? 1;
+    return countDaysInRange(range.start, range.end, cfg(task.id).durationMode, holidays) ?? 1;
   };
 
   // successor id -> the predecessors it waits on, and predecessor id -> its
@@ -129,7 +182,7 @@ export function computeCriticalPath(
   const successorsOf = new Map<string, { id: string; relationship: RelationshipType | null; lag: number | null }[]>();
   for (const task of tasks) {
     if (!early.has(task.id)) continue;
-    const value = task.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
+    const value = task.cellValues.find((cv) => cv.columnId === cfg(task.id).predColumnId)?.value;
     for (const entry of parsePredEntries(index, task.groupId, value)) {
       if (!early.has(entry.itemId)) continue;
       successorsOf.set(entry.itemId, [
@@ -140,7 +193,9 @@ export function computeCriticalPath(
   }
 
   // The project finishes when its last task does; anything with no successor
-  // may run until then without delaying anything.
+  // may run until then without delaying anything. Across a group that last
+  // task may be on any of its boards — which is exactly why a board's own
+  // float understates how tight it is.
   const projectFinish = [...early.values()].reduce(
     (latest, range) => (range.end.getTime() > latest.getTime() ? range.end : latest),
     [...early.values()][0].end
@@ -158,6 +213,7 @@ export function computeCriticalPath(
     if (visiting.has(id)) return range;
     visiting.add(id);
 
+    const mode = cfg(id).durationMode;
     const successors = successorsOf.get(id) ?? [];
     let lateFinish = projectFinish;
     for (const edge of successors) {
@@ -169,14 +225,14 @@ export function computeCriticalPath(
         daysOf(byId.get(id)!),
         relationship,
         edge.lag ?? lagOf(successor),
-        durationMode,
+        mode,
         holidays
       );
       if (bound.end.getTime() < lateFinish.getTime()) lateFinish = bound.end;
     }
     const span = Math.max(daysOf(byId.get(id)!) - 1, 0);
     const late: DateRange = {
-      start: shiftDate(lateFinish, -span, durationMode, holidays),
+      start: shiftDate(lateFinish, -span, mode, holidays),
       end: lateFinish,
     };
     visiting.delete(id);
@@ -186,11 +242,12 @@ export function computeCriticalPath(
 
   for (const [id, earlyRange] of early) {
     const late = lateRangeOf(id);
+    const mode = cfg(id).durationMode;
     // Inclusive day counts, so the shared day has to come back off. A late
     // finish before the early one means the item is already past its own
     // deadline — negative float, which is exactly what should be reported.
-    const forward = countDaysInRange(earlyRange.end, late.end, durationMode, holidays);
-    const backward = countDaysInRange(late.end, earlyRange.end, durationMode, holidays);
+    const forward = countDaysInRange(earlyRange.end, late.end, mode, holidays);
+    const backward = countDaysInRange(late.end, earlyRange.end, mode, holidays);
     const totalFloat =
       forward !== null ? forward - 1 : backward !== null ? -(backward - 1) : 0;
     result.set(id, {

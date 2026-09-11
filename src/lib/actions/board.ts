@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { getSystemSettings } from "@/lib/actions/systemSettings";
 import type { SessionPayload } from "@/lib/jwt";
 import type { BoardVisibility } from "@prisma/client";
 // Shared with the settings page's 狀態欄位顏色 card, which shows these same
@@ -54,10 +55,25 @@ export async function createBoard(name: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("看板名稱不可為空");
 
+  // 階層顏色/計算方式/甘特圖顏色 are app-wide settings kept as a copy on every
+  // board (see setLevelColors). The broadcast that maintains those copies only
+  // reaches boards that already exist, so a board made afterwards has to take
+  // its copy here — otherwise it silently falls back to the schema defaults
+  // and shows none of the colors the admin set.
+  const settings = await getSystemSettings();
+
   const board = await prisma.board.create({
     data: {
       name: trimmed,
       ownerId: session.userId,
+      levelColors: settings.levelColors,
+      ganttDurationMode: settings.ganttDurationMode,
+      ganttOverdueColor: settings.ganttOverdueColor,
+      ganttCompletedColor: settings.ganttCompletedColor,
+      ganttInProgressColor: settings.ganttInProgressColor,
+      predReadyColor: settings.predReadyColor,
+      predWaitingColor: settings.predWaitingColor,
+      predBlockedColor: settings.predBlockedColor,
       groups: {
         create: [{ name: "項目", order: 0 }],
       },

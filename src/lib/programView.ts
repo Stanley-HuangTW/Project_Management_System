@@ -1,0 +1,250 @@
+import { prisma } from "@/lib/prisma";
+import type { SessionPayload } from "@/lib/jwt";
+import { canAccessBoard } from "@/lib/boardAccess";
+import { boardWithDataArgs, type BoardWithData, type ItemData } from "@/types/board";
+import { applyVisibility } from "@/lib/applyVisibility";
+import { computeRolledUpDateRange } from "@/lib/gantt";
+import { listHolidays, toHolidaySet } from "@/lib/holidays";
+import { computeWbsCodes } from "@/lib/wbs";
+import { getStatusOptions } from "@/types/column";
+import {
+  buildWbsIndexFromItems,
+  parsePredEntries,
+  type RelationshipType,
+} from "@/lib/predecessorLink";
+import { computeCriticalPathAcross, type NetworkColumns } from "@/lib/criticalPath";
+
+/**
+ * One row of a 專案群組's combined schedule, flattened and serialisable.
+ *
+ * Flat rather than a tree because the tree it came from is per board, and the
+ * thing worth looking at here is the one timeline all of them share. Dates are
+ * ISO strings for the same reason every other client payload is: a Date does
+ * not survive the server/client boundary intact.
+ */
+export type ProgramTask = {
+  id: string;
+  name: string;
+  boardId: string;
+  boardName: string;
+  groupName: string;
+  /** Indent within its own board's tree, so the structure is still readable. */
+  depth: number;
+  wbsCode: string;
+  start: string | null;
+  end: string | null;
+  isSummary: boolean;
+  isMilestone: boolean;
+  assigneeNames: string[];
+  /** Edges INTO this task, already resolved to ids — including the ones that
+   *  cross to another board, which is the whole reason this view exists. */
+  preds: { predId: string; relationship: RelationshipType | null; crossBoard: boolean }[];
+  totalFloat: number | null;
+  isCritical: boolean;
+};
+
+export type ProgramView = {
+  id: string;
+  name: string;
+  boards: { id: string; name: string; taskCount: number }[];
+  tasks: ProgramTask[];
+  /** The group's single start and finish — the answer to "when is this
+   *  project done?", which no individual board can give on its own. */
+  startDate: string | null;
+  finishDate: string | null;
+  criticalCount: number;
+  /** Edges whose two ends sit on different boards. Counted because it is the
+   *  measure of whether grouping these boards was worth doing. */
+  crossBoardEdgeCount: number;
+  /** Boards in the group this session may not open. Named as a count only —
+   *  the schedule below leaves them out, and a total that silently excludes
+   *  work is worse than one that says so. */
+  hiddenBoardCount: number;
+};
+
+function iso(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function networkColumnsOf(board: BoardWithData): NetworkColumns {
+  const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
+  return {
+    predColumnId: board.predColumnId,
+    linkColumnId: board.linkColumnId,
+    linkColumnOptions: linkColumn?.options,
+    lagColumnId: board.lagColumnId,
+    startColumnId: board.ganttStartColumnId,
+    durationColumnId: board.ganttDurationColumnId,
+    durationMode: board.ganttDurationMode,
+  };
+}
+
+/**
+ * The whole 專案群組 as one schedule.
+ *
+ * Every board is read through its own columns — a Pred, a Start and a Days
+ * column all have different ids on each board — and the critical path is then
+ * computed over the combined network, so a task's float is its float against
+ * the group's finish rather than its own board's. That is the number that
+ * changes: a week of slack inside one board is no slack at all if the next
+ * board is waiting on it.
+ *
+ * Boards this session cannot open are left out entirely rather than partly:
+ * a name withheld but a date shown is still a leak.
+ */
+export async function getProgramView(
+  programId: string,
+  session: SessionPayload
+): Promise<ProgramView | null> {
+  const program = await prisma.program.findUnique({
+    where: { id: programId },
+    select: { id: true, name: true, boards: { select: { id: true }, orderBy: { name: "asc" } } },
+  });
+  if (!program) return null;
+
+  const holidays = toHolidaySet(await listHolidays());
+
+  const boards: BoardWithData[] = [];
+  let hiddenBoardCount = 0;
+  for (const { id } of program.boards) {
+    if (!(await canAccessBoard(session, id))) {
+      hiddenBoardCount += 1;
+      continue;
+    }
+    const board = await prisma.board.findUnique({ where: { id }, ...boardWithDataArgs });
+    if (board) boards.push(applyVisibility(board, session));
+  }
+
+  const allItems: ItemData[] = boards.flatMap((b) => b.items);
+  const boardOf = new Map<string, BoardWithData>();
+  for (const board of boards) {
+    for (const item of board.items) boardOf.set(item.id, board);
+  }
+
+  const floats = computeCriticalPathAcross(
+    allItems,
+    (item) => {
+      const board = boardOf.get(item.id);
+      return board ? networkColumnsOf(board) : null;
+    },
+    holidays
+  );
+
+  // WBS codes stay per group — a code is a position in its own group's tree,
+  // and a program does not renumber anything.
+  const wbsByItemId = new Map<string, string>();
+  const byGroup = new Map<string, ItemData[]>();
+  for (const item of allItems) byGroup.set(item.groupId, [...(byGroup.get(item.groupId) ?? []), item]);
+  for (const groupItems of byGroup.values()) {
+    for (const [id, code] of computeWbsCodes(groupItems)) wbsByItemId.set(id, code);
+  }
+
+  const wbsIndex = buildWbsIndexFromItems(allItems);
+  const hasChildren = new Set(allItems.map((i) => i.parentId).filter((id): id is string => !!id));
+
+  const depthOf = (item: ItemData): number => {
+    let depth = 0;
+    let parentId = item.parentId;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      depth += 1;
+      parentId = allItems.find((i) => i.id === parentId)?.parentId ?? null;
+    }
+    return depth;
+  };
+
+  const tasks: ProgramTask[] = [];
+  let crossBoardEdgeCount = 0;
+
+  for (const board of boards) {
+    const groupNameById = new Map(board.groups.map((g) => [g.id, g.name]));
+    const typeOptions = getStatusOptions(board.columns.find((c) => c.id === board.typeColumnId)?.options);
+    const linkOptions = getStatusOptions(board.columns.find((c) => c.id === board.linkColumnId)?.options);
+
+    for (const item of board.items) {
+      const range =
+        board.ganttStartColumnId && board.ganttDurationColumnId
+          ? computeRolledUpDateRange(
+              item,
+              board.items,
+              board.ganttStartColumnId,
+              board.ganttDurationColumnId,
+              board.ganttDurationMode,
+              holidays,
+              {
+                predColumnId: board.predColumnId,
+                manualStartColumnId: board.manualStartColumnId,
+              }
+            )
+          : null;
+
+      const typeValue = board.typeColumnId
+        ? item.cellValues.find((cv) => cv.columnId === board.typeColumnId)?.value
+        : undefined;
+      const isMilestone = typeOptions.find((o) => o.id === typeValue)?.label === "Milestone";
+
+      const fallbackRelationship = board.linkColumnId
+        ? linkOptions.find(
+            (o) => o.id === item.cellValues.find((cv) => cv.columnId === board.linkColumnId)?.value
+          )?.label
+        : undefined;
+      const predValue = board.predColumnId
+        ? item.cellValues.find((cv) => cv.columnId === board.predColumnId)?.value
+        : undefined;
+      const preds = parsePredEntries(wbsIndex, item.groupId, predValue)
+        .filter((entry) => entry.itemId !== item.id)
+        .map((entry) => {
+          const label = entry.relationship ?? fallbackRelationship ?? null;
+          const crossBoard = boardOf.get(entry.itemId)?.id !== board.id;
+          if (crossBoard && boardOf.has(entry.itemId)) crossBoardEdgeCount += 1;
+          return {
+            predId: entry.itemId,
+            relationship: (label as RelationshipType | null) ?? null,
+            crossBoard,
+          };
+        });
+
+      const float = floats.get(item.id);
+      tasks.push({
+        id: item.id,
+        name: item.name,
+        boardId: board.id,
+        boardName: board.name,
+        groupName: groupNameById.get(item.groupId) ?? "",
+        depth: depthOf(item),
+        wbsCode: wbsByItemId.get(item.id) ?? "",
+        start: range ? iso(range.start) : null,
+        end: range ? iso(isMilestone ? range.start : range.end) : null,
+        isSummary: hasChildren.has(item.id),
+        isMilestone,
+        assigneeNames: item.assignments.map((a) => a.user.name),
+        preds,
+        totalFloat: float?.totalFloat ?? null,
+        isCritical: float?.isCritical ?? false,
+      });
+    }
+  }
+
+  const dated = tasks.filter((t) => t.start && t.end);
+  const startDate = dated.reduce<string | null>(
+    (min, t) => (min === null || t.start! < min ? t.start! : min),
+    null
+  );
+  const finishDate = dated.reduce<string | null>(
+    (max, t) => (max === null || t.end! > max ? t.end! : max),
+    null
+  );
+
+  return {
+    id: program.id,
+    name: program.name,
+    boards: boards.map((b) => ({ id: b.id, name: b.name, taskCount: b.items.length })),
+    tasks,
+    startDate,
+    finishDate,
+    criticalCount: tasks.filter((t) => t.isCritical && !t.isSummary).length,
+    crossBoardEdgeCount,
+    hiddenBoardCount,
+  };
+}
