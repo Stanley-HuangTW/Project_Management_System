@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
 import { canAccessBoard } from "@/lib/boardAccess";
-import { summarizeBudget, alertLevel, type BudgetAlertLevel } from "@/lib/budget";
+import {
+  summarizeBudget,
+  summarizeReserves,
+  alertLevel,
+  type BudgetAlertLevel,
+} from "@/lib/budget";
 
 export type BudgetAlert = {
   /** Where to send the reader to do something about it. */
@@ -16,6 +21,8 @@ export type BudgetAlert = {
   committed: number;
   remaining: number;
   usedPct: number | null;
+  /** 成本基準之外還剩多少緩衝 — what turns 已超支 into 動用準備金. */
+  reserveRemaining: number;
 };
 
 /**
@@ -86,7 +93,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       href = `/programs/${id}`;
     }
 
-    const [expenses, commitments, entries] = await Promise.all([
+    const [expenses, commitments, entries, reserveRows] = await Promise.all([
       prisma.expense.findMany({
         where: { itemId: { in: itemIds } },
         select: { category: true, amount: true },
@@ -98,6 +105,12 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       prisma.timeEntry.findMany({
         where: { status: "APPROVED", itemId: { in: itemIds }, item: { deletedAt: null } },
         select: { userId: true, hours: true },
+      }),
+      // The same scope the budget rows came from — a reserve is approved
+      // alongside the budget, not spread across the subtree.
+      prisma.reserve.findMany({
+        where: isPhase ? { itemId: id } : { programId: id },
+        include: { draws: { select: { amount: true } } },
       }),
     ]);
 
@@ -113,7 +126,13 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       actuals: [...expenses, { category: "LABOUR" as const, amount: Math.round(labour) }],
       commitments,
     });
-    const level = alertLevel(summary);
+    const reserves = summarizeReserves(
+      reserveRows.map((r) => ({ kind: r.kind, amount: r.amount })),
+      reserveRows.flatMap((r) => r.draws.map((d) => ({ kind: r.kind, amount: d.amount })))
+    );
+    // Passed through, or this page would call a phase 已超支 while the budget
+    // page next to it says the cushion still covers it.
+    const level = alertLevel(summary, 80, reserves.totalRemaining);
     if (level === "none") continue;
 
     alerts.push({
@@ -127,13 +146,14 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       committed: summary.total.committed,
       remaining: summary.total.remaining,
       usedPct: summary.total.usedPct,
+      reserveRemaining: reserves.totalRemaining,
     });
   }
 
-  // Over budget first, then whoever is closest to the line.
+  // Worst first: past the cushion, then into the cushion, then merely close.
+  const severity: Record<BudgetAlert["level"], number> = { over: 0, reserve: 1, warning: 2 };
   return alerts.sort(
-    (a, b) =>
-      (a.level === b.level ? 0 : a.level === "over" ? -1 : 1) || (b.usedPct ?? 0) - (a.usedPct ?? 0)
+    (a, b) => severity[a.level] - severity[b.level] || (b.usedPct ?? 0) - (a.usedPct ?? 0)
   );
 }
 
