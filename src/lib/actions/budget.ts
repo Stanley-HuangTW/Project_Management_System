@@ -7,7 +7,6 @@ import type { CostCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, canAccessBoard } from "@/lib/boardAccess";
-import { requireStructureAccess, canManageStructure } from "@/lib/permissions";
 import { summarizeBudget, alertLevel, type BudgetSummary, type BudgetAlertLevel } from "@/lib/budget";
 import {
   computeBudgetForecast,
@@ -329,8 +328,8 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     ),
     items: resolved.items,
     labourActual: Math.round(labour),
-    // The same bar as every other structural change on a board.
-    canEdit: canManageStructure(session.role),
+    // Same rule the write paths enforce — see canEditBudget.
+    canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({
       id: c.id,
       itemId: c.itemId,
@@ -364,11 +363,63 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
   };
 }
 
+/**
+ * 誰可以編預算:管理員、專案建立者、以及該分組的 Team Leader。
+ *
+ * Deliberately narrower than 結構權限 — a SUPERVISOR can reshape a board
+ * without being answerable for its money, and approving spend is a different
+ * kind of authority from rearranging tasks.
+ *
+ * 專案建立者 means the board's owner for a phase budget, and the person who
+ * created the 專案群組 for a programme budget. Groups created before that
+ * field existed have no creator, so those fall back to admins only.
+ */
+async function canEditBudget(
+  scope: BudgetScope,
+  session: Awaited<ReturnType<typeof requireSession>>
+): Promise<boolean> {
+  if (session.role === "ADMIN") return true;
+
+  if (scope.kind === "item") {
+    const item = await prisma.item.findUnique({
+      where: { id: scope.id },
+      select: { groupId: true, board: { select: { ownerId: true } } },
+    });
+    if (!item) return false;
+    if (item.board.ownerId === session.userId) return true;
+    return hasTeamLeaderRole([item.groupId], session.userId);
+  }
+
+  const program = await prisma.program.findUnique({
+    where: { id: scope.id },
+    select: { createdById: true, boards: { select: { id: true, ownerId: true } } },
+  });
+  if (!program) return false;
+  if (program.createdById === session.userId) return true;
+  if (program.boards.some((b) => b.ownerId === session.userId)) return true;
+
+  const groups = await prisma.group.findMany({
+    where: { boardId: { in: program.boards.map((b) => b.id) } },
+    select: { id: true },
+  });
+  return hasTeamLeaderRole(groups.map((g) => g.id), session.userId);
+}
+
+async function hasTeamLeaderRole(groupIds: string[], userId: string): Promise<boolean> {
+  if (groupIds.length === 0) return false;
+  const count = await prisma.groupRoleAssignment.count({
+    where: { groupId: { in: groupIds }, userId, role: "TEAM_LEADER" },
+  });
+  return count > 0;
+}
+
 async function requireBudgetAdmin(scope: BudgetScope) {
   const session = await requireSession();
   const resolved = await resolveScope(scope, session);
   if (!resolved) throw new Error("找不到這個預算範圍");
-  requireStructureAccess(session.role);
+  if (!(await canEditBudget(scope, session))) {
+    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯預算");
+  }
   return { session, resolved };
 }
 

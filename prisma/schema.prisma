@@ -1114,6 +1114,9 @@ model ExchangeRate {
 model Program {
   id        String   @id @default(cuid())
   name      String
+  /// 誰建立的。預算編輯權要認「專案建立者」,群組層得有個對象可以認。
+  /// 這個欄位之前建立的群組是 null,那些就只有管理者能編。
+  createdById String?
   createdAt DateTime @default(now())
   boards    Board[]
   budgets   Budget[]

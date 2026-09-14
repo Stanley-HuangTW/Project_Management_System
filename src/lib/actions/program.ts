@@ -40,7 +40,9 @@ export async function createProgram(name: string): Promise<{ error?: string }> {
   const session = await requireAdmin();
   const trimmed = name.trim();
   if (!trimmed) return { error: "請輸入群組名稱" };
-  const program = await prisma.program.create({ data: { name: trimmed } });
+  const program = await prisma.program.create({
+    data: { name: trimmed, createdById: session.userId },
+  });
   await logAudit("SETTINGS", session.userId, `建立專案群組「${program.name}」`);
   revalidatePath("/settings");
   return {};
