@@ -18,6 +18,7 @@ import { getItemDateRange } from "@/lib/gantt";
 import { countDaysInRange } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { logAudit } from "@/lib/activityLog";
+import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
 
 /** 階段(一列工作項)或整個專案群組 — the two levels a budget is approved at. */
 export type BudgetScope = { kind: "item"; id: string } | { kind: "program"; id: string };
@@ -30,7 +31,11 @@ export type CommitmentRow = {
   itemName: string;
   attachments: AttachmentRow[];
   category: CostCategory;
+  /** 換算後的台幣,凍結在下單當下。 */
   amount: number;
+  currency: string;
+  originalAmount: number;
+  fxRate: number;
   vendor: string;
   poNumber: string;
   expectedDate: string | null;
@@ -44,7 +49,11 @@ export type ExpenseRow = {
   itemName: string;
   attachments: AttachmentRow[];
   category: CostCategory;
+  /** 換算後的台幣,凍結在記帳當下。 */
   amount: number;
+  currency: string;
+  originalAmount: number;
+  fxRate: number;
   date: string;
   vendor: string;
   note: string;
@@ -64,6 +73,10 @@ export type BudgetView = {
   labourActual: number;
   /** 照這樣下去會花多少 — see budgetForecast.ts. */
   forecast: BudgetForecast;
+  /** 目前可選的幣別與匯率,用來預填輸入框。 */
+  rates: { code: string; rate: number }[];
+  /** 未入帳的外幣訂單,若今天全部付款會多花(或少花)多少台幣。 */
+  fxExposure: ReturnType<typeof fxExposure>;
   canEdit: boolean;
 };
 
@@ -293,11 +306,27 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     boardIds
   );
 
+  // 匯率只用來預填輸入框,以及算未入帳外幣訂單的風險——每一筆帳用的仍然是
+  // 它自己存下來的那個匯率。
+  const rateRows = await prisma.exchangeRate.findMany({ select: { code: true, rate: true } });
+  const currentRates = new Map(rateRows.map((r) => [r.code, Number(r.rate)]));
+
   return {
     scopeName: resolved.name,
     summary,
     alert: alertLevel(summary),
     forecast,
+    rates: rateRows.map((r) => ({ code: r.code, rate: Number(r.rate) })),
+    fxExposure: fxExposure(
+      commitments
+        .filter((c) => !c.settled)
+        .map((c) => ({
+          currency: c.currency,
+          originalAmount: c.originalAmount,
+          fxRate: Number(c.fxRate),
+        })),
+      currentRates
+    ),
     items: resolved.items,
     labourActual: Math.round(labour),
     // The same bar as every other structural change on a board.
@@ -309,6 +338,9 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
       attachments: c.attachments,
       category: c.category,
       amount: c.amount,
+      currency: c.currency,
+      originalAmount: c.originalAmount,
+      fxRate: Number(c.fxRate),
       vendor: c.vendor ?? "",
       poNumber: c.poNumber ?? "",
       expectedDate: c.expectedDate,
@@ -322,6 +354,9 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
       attachments: e.attachments,
       category: e.category,
       amount: e.amount,
+      currency: e.currency,
+      originalAmount: e.originalAmount,
+      fxRate: Number(e.fxRate),
       date: e.date,
       vendor: e.vendor ?? "",
       note: e.note ?? "",
@@ -379,7 +414,10 @@ export async function addCommitment(
   input: {
     itemId: string;
     category: CostCategory;
+    /** 報價單上的金額,幣別由 currency 決定。 */
     amount: number;
+    currency: string;
+    fxRate: number;
     vendor: string;
     poNumber: string;
     expectedDate: string | null;
@@ -388,13 +426,21 @@ export async function addCommitment(
 ): Promise<{ error?: string; id?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
   if (!resolved.itemIds.includes(input.itemId)) return { error: "這個工作項不屬於本預算範圍" };
-  if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "金額必須大於 0" };
+  const money = toMoney({
+    currency: input.currency,
+    originalAmount: input.amount,
+    fxRate: input.fxRate,
+  });
+  if (!money) return { error: "金額與匯率都必須大於 0,幣別請用三個字母的代碼" };
 
   const created = await prisma.commitment.create({
     data: {
       itemId: input.itemId,
       category: input.category,
-      amount: Math.round(input.amount),
+      amount: money.amount,
+      currency: money.currency,
+      originalAmount: money.originalAmount,
+      fxRate: money.fxRate,
       vendor: input.vendor.trim() || null,
       poNumber: input.poNumber.trim() || null,
       expectedDate: input.expectedDate || null,
@@ -405,7 +451,9 @@ export async function addCommitment(
   await logAudit(
     "COST",
     session.userId,
-    `${resolved.name} 新增已下單:${Math.round(input.amount)} 元${input.vendor ? `(${input.vendor})` : ""}`
+    `${resolved.name} 新增已下單:${money.amount} 元${
+      isBaseCurrency(money.currency) ? "" : `(${money.currency} ${money.originalAmount} @ ${money.fxRate})`
+    }${input.vendor ? `(${input.vendor})` : ""}`
   );
   revalidateBudget(scope);
   return { id: created.id };
@@ -484,6 +532,8 @@ export async function addExpense(
     itemId: string;
     category: CostCategory;
     amount: number;
+    currency: string;
+    fxRate: number;
     date: string;
     vendor: string;
     note: string;
@@ -491,7 +541,12 @@ export async function addExpense(
 ): Promise<{ error?: string; id?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
   if (!resolved.itemIds.includes(input.itemId)) return { error: "這個工作項不屬於本預算範圍" };
-  if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "金額必須大於 0" };
+  const money = toMoney({
+    currency: input.currency,
+    originalAmount: input.amount,
+    fxRate: input.fxRate,
+  });
+  if (!money) return { error: "金額與匯率都必須大於 0,幣別請用三個字母的代碼" };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: "請選擇日期" };
   if (input.category === "LABOUR") {
     return { error: "人力成本由核准過的工時自動計算,不要在這裡重複登記。" };
@@ -501,7 +556,10 @@ export async function addExpense(
     data: {
       itemId: input.itemId,
       category: input.category,
-      amount: Math.round(input.amount),
+      amount: money.amount,
+      currency: money.currency,
+      originalAmount: money.originalAmount,
+      fxRate: money.fxRate,
       date: input.date,
       vendor: input.vendor.trim() || null,
       note: input.note.trim() || null,
@@ -511,7 +569,9 @@ export async function addExpense(
   await logAudit(
     "COST",
     session.userId,
-    `${resolved.name} 新增支出:${Math.round(input.amount)} 元${input.vendor ? `(${input.vendor})` : ""}`
+    `${resolved.name} 新增支出:${money.amount} 元${
+      isBaseCurrency(money.currency) ? "" : `(${money.currency} ${money.originalAmount} @ ${money.fxRate})`
+    }${input.vendor ? `(${input.vendor})` : ""}`
   );
   revalidateBudget(scope);
   return { id: created.id };

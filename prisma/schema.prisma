@@ -1034,8 +1034,14 @@ model Commitment {
   item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   category CostCategory
-  /// 元。
+  /// 換算後的台幣金額,凍結在下單當下。所有加總都用這一欄。
   amount   Int
+  /// 幣別。TWD 時 originalAmount 就等於 amount、fxRate 是 1。
+  currency String @default("TWD")
+  /// 外幣原始金額 — 報價單上寫的那個數字。
+  originalAmount Int @default(0)
+  /// 記帳當下的匯率,凍結。之後匯率再怎麼動,這一筆的台幣金額不變。
+  fxRate Decimal @db.Decimal(12, 4) @default(1)
   vendor   String?
   poNumber String?
   /// "YYYY-MM-DD" 預計到貨或入帳日。
@@ -1068,8 +1074,14 @@ model Expense {
   item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   category CostCategory
-  /// 元。
+  /// 換算後的台幣金額,凍結在記帳當下。所有加總都用這一欄。
   amount Int
+  /// 幣別。TWD 時 originalAmount 就等於 amount、fxRate 是 1。
+  currency String @default("TWD")
+  /// 外幣原始金額 — 報價單上寫的那個數字。
+  originalAmount Int @default(0)
+  /// 記帳當下的匯率,凍結。之後匯率再怎麼動,這一筆的台幣金額不變。
+  fxRate Decimal @db.Decimal(12, 4) @default(1)
   /// "YYYY-MM-DD" 發生日,不是輸入日。
   date   String
   vendor String?
@@ -1083,6 +1095,20 @@ model Expense {
   createdAt   DateTime @default(now())
 
   @@index([itemId, date])
+}
+
+/// 匯率表。
+///
+/// 只用來預填輸入框——實際換算用的永遠是每一筆自己存下來的 fxRate。匯率天天
+/// 在動,如果總額跟著今天的匯率浮動,上個月結的帳下個月就會變成另一個數字。
+/// 這張表同時也是「系統有哪些幣別」的清單;台幣是基準幣別,不在裡面。
+model ExchangeRate {
+  /// ISO 代碼,例如 "USD"。
+  code String @id
+  /// 1 單位外幣等於多少台幣。
+  rate        Decimal  @db.Decimal(12, 4)
+  updatedAt   DateTime @updatedAt
+  updatedById String?
 }
 
 model Program {

@@ -19,6 +19,7 @@ import { GanttColumnMappingCard, type GanttMappingBoard } from "./GanttColumnMap
 import { ReportSettingsCard, type ReportSettingsBoardWithName } from "./ReportSettingsCard";
 import { BaselineCard, type BaselineBoard } from "./BaselineCard";
 import { ProgramCard, type ProgramBoard } from "./ProgramCard";
+import { ExchangeRateCard } from "./ExchangeRateCard";
 import type { ProgramRow } from "@/lib/actions/program";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 import { IntegrationCard } from "./IntegrationCard";
@@ -444,6 +445,7 @@ export function SystemSettingsForm({
           <EmailNotificationsCard initial={emailNotificationsEnabled} />
           <GanttModeCard initial={ganttDurationMode} />
           <HoursPerDayCard initial={hoursPerDay} />
+          <ExchangeRateCard />
           <HolidayCard holidays={holidays} />
           <LevelColorCard initial={levelColors} />
           <GanttStatusColorCard initial={ganttStatusColors} />

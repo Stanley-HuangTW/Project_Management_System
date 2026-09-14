@@ -6,6 +6,7 @@ import { AlertTriangle, Plus, Trash2, Check, Paperclip, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { formatMoney } from "@/lib/cost";
 import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
+import { BASE_CURRENCY, describeForeign, isBaseCurrency } from "@/lib/currency";
 import { SpendCurveChart } from "./SpendCurveChart";
 import {
   getBudgetView,
@@ -132,6 +133,35 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
           hint="核准 − 已花費 − 已下單"
         />
       </div>
+
+      {view.fxExposure.byCurrency.length > 0 && view.fxExposure.total !== 0 && (
+        <div
+          className={`rounded-lg border p-3 text-xs ${
+            view.fxExposure.total > 0
+              ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+              : "border-green-300 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200"
+          }`}
+        >
+          <p className="font-medium">
+            匯率風險:未入帳的外幣訂單若今天全部付款,會
+            {view.fxExposure.total > 0 ? "多付" : "少付"}{" "}
+            <b>{formatMoney(Math.abs(view.fxExposure.total))} 元</b>
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {view.fxExposure.byCurrency.map((row) => (
+              <li key={row.currency} className="tabular-nums">
+                {row.currency} {row.original.toLocaleString("zh-TW")}:下單時記{" "}
+                {formatMoney(row.bookedTwd)} 元,今天的匯率是 {formatMoney(row.atTodayTwd)} 元(
+                {row.delta > 0 ? "+" : ""}
+                {formatMoney(row.delta)})
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 opacity-80">
+            這個數字不會自己進帳——每一筆仍然用它下單當下的匯率。它是提醒,不是調整。
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center gap-1">
         {(
@@ -281,6 +311,72 @@ function ForecastPanel({ view }: { view: BudgetView }) {
     </div>
   );
 }
+
+/**
+ * 幣別與匯率的輸入。
+ *
+ * The rate box only appears for a foreign currency, pre-filled from the rate
+ * table but editable — the rate that matters is the one on the day this order
+ * was placed, not today's, and the quote usually states it.
+ */
+function CurrencyFields({
+  rates,
+  currency,
+  onCurrency,
+  fxRate,
+  onFxRate,
+  amount,
+}: {
+  rates: { code: string; rate: number }[];
+  currency: string;
+  onCurrency: (code: string, suggested: number) => void;
+  fxRate: string;
+  onFxRate: (value: string) => void;
+  amount: string;
+}) {
+  const foreign = !isBaseCurrency(currency);
+  const converted = foreign ? Number(amount.replace(/[,s]/g, "")) * Number(fxRate) : null;
+
+  return (
+    <>
+      <select
+        value={currency}
+        onChange={(e) => {
+          const code = e.target.value;
+          onCurrency(code, rates.find((r) => r.code === code)?.rate ?? 1);
+        }}
+        className={fieldClass}
+      >
+        <option value={BASE_CURRENCY}>{BASE_CURRENCY}</option>
+        {rates.map((r) => (
+          <option key={r.code} value={r.code}>
+            {r.code}
+          </option>
+        ))}
+      </select>
+      {foreign && (
+        <>
+          <input
+            value={fxRate}
+            onChange={(e) => onFxRate(e.target.value)}
+            placeholder="匯率"
+            title="下單當下的匯率,會跟著這筆一起存下來"
+            className={`${fieldClass} w-20 tabular-nums`}
+          />
+          <span className="text-[11px] tabular-nums text-neutral-500 dark:text-neutral-400">
+            ={" "}
+            {Number.isFinite(converted) && converted !== null && converted > 0
+              ? `${formatMoney(converted)} 元`
+              : "—"}
+          </span>
+        </>
+      )}
+    </>
+  );
+}
+
+const fieldClass =
+  "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
 
 type Runner = (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
 
@@ -484,9 +580,6 @@ function CategoryTable({
   );
 }
 
-const fieldClass =
-  "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
-
 function CommitmentTable({
   view,
   scope,
@@ -505,6 +598,8 @@ function CommitmentTable({
   const [itemId, setItemId] = useState(view.items[0]?.id ?? "");
   const [category, setCategory] = useState<CostCategory>("MATERIAL");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState(BASE_CURRENCY);
+  const [fxRate, setFxRate] = useState("1");
   const [vendor, setVendor] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
@@ -516,6 +611,8 @@ function CommitmentTable({
           itemId,
           category,
           amount: Number(amount.replace(/[,\s]/g, "")),
+          currency,
+          fxRate: Number(fxRate),
           vendor,
           poNumber,
           expectedDate: expectedDate || null,
@@ -574,6 +671,17 @@ function CommitmentTable({
             placeholder="金額"
             className={`${fieldClass} w-24 tabular-nums`}
           />
+          <CurrencyFields
+            rates={view.rates}
+            currency={currency}
+            onCurrency={(code, suggested) => {
+              setCurrency(code);
+              setFxRate(String(suggested));
+            }}
+            fxRate={fxRate}
+            onFxRate={setFxRate}
+            amount={amount}
+          />
           <input
             value={vendor}
             onChange={(e) => setVendor(e.target.value)}
@@ -621,6 +729,14 @@ function CommitmentTable({
               <span className="w-24 shrink-0 text-right tabular-nums font-medium">
                 {formatMoney(c.amount)}
               </span>
+              {describeForeign(c) && (
+                <span
+                  className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] tabular-nums text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                  title="下單當下的匯率,已凍結"
+                >
+                  {describeForeign(c)}
+                </span>
+              )}
               <span className="w-28 shrink-0 truncate">{c.vendor || "—"}</span>
               <span className="w-24 shrink-0 truncate text-neutral-500 dark:text-neutral-400">
                 {c.poNumber}
@@ -696,6 +812,8 @@ function ExpenseTable({
   const [itemId, setItemId] = useState(view.items[0]?.id ?? "");
   const [category, setCategory] = useState<CostCategory>("MATERIAL");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState(BASE_CURRENCY);
+  const [fxRate, setFxRate] = useState("1");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [vendor, setVendor] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -713,6 +831,8 @@ function ExpenseTable({
         itemId,
         category,
         amount: Number(amount.replace(/[,\s]/g, "")),
+        currency,
+        fxRate: Number(fxRate),
         date,
         vendor,
         note: "",
@@ -761,6 +881,17 @@ function ExpenseTable({
             onChange={(e) => setAmount(e.target.value)}
             placeholder="金額"
             className={`${fieldClass} w-24 tabular-nums`}
+          />
+          <CurrencyFields
+            rates={view.rates}
+            currency={currency}
+            onCurrency={(code, suggested) => {
+              setCurrency(code);
+              setFxRate(String(suggested));
+            }}
+            fxRate={fxRate}
+            onFxRate={setFxRate}
+            amount={amount}
           />
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass} />
           <input
@@ -823,6 +954,14 @@ function ExpenseTable({
               <span className="w-24 shrink-0 text-right tabular-nums font-medium">
                 {formatMoney(e.amount)}
               </span>
+              {describeForeign(e) && (
+                <span
+                  className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] tabular-nums text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                  title="記帳當下的匯率,已凍結"
+                >
+                  {describeForeign(e)}
+                </span>
+              )}
               <span className="min-w-0 flex-1 truncate">{e.vendor || e.note}</span>
               <span className="shrink-0 truncate text-neutral-400 dark:text-neutral-500">{e.itemName}</span>
               <Attachments
