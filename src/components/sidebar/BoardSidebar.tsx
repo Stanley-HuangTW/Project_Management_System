@@ -22,6 +22,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   FolderKanban,
+  ClipboardCheck,
+  ScrollText,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageBoard } from "@/lib/permissions";
@@ -61,12 +63,16 @@ const STORAGE_KEY_WIDTH = "sidebar-width";
 export function BoardSidebar({
   boards,
   programs,
+  isApprover,
   userName,
   userRole,
   avatarUrl,
 }: {
   boards: Board[];
   programs: Program[];
+  /** Whether anybody reports to this person (or they are an ADMIN) — the
+   *  審核 link is pointless otherwise. */
+  isApprover: boolean;
   userName: string;
   userRole: UserRole;
   avatarUrl?: string | null;
@@ -293,6 +299,32 @@ export function BoardSidebar({
           <Settings size={14} className="shrink-0" />
           系統設定
         </Link>
+        {isApprover && (
+          <Link
+            href="/approvals"
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+              pathname === "/approvals"
+                ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <ClipboardCheck size={14} className="shrink-0" />
+            待我審核
+          </Link>
+        )}
+        {userRole === "ADMIN" && (
+          <Link
+            href="/audit"
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+              pathname === "/audit"
+                ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <ScrollText size={14} className="shrink-0" />
+            稽核軌跡
+          </Link>
+        )}
         {userRole === "ADMIN" && (
           <Link
             href="/group-roles"

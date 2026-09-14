@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { requireStructureAccess } from "@/lib/permissions";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
+import { logAudit } from "@/lib/activityLog";
 
 export type ChangeRequestInput = {
   title: string;
@@ -220,6 +221,10 @@ export async function decideChangeRequest(
   const trimmed = note.trim();
   if (status === "REJECTED" && !trimmed) return { error: "駁回必須寫下原因" };
 
+  const row = await prisma.changeRequest.findUnique({
+    where: { id: requestId },
+    select: { number: true, title: true },
+  });
   await prisma.changeRequest.update({
     where: { id: requestId },
     data: {
@@ -229,6 +234,12 @@ export async function decideChangeRequest(
       decisionNote: trimmed || null,
     },
   });
+  await logAudit(
+    "CHANGE",
+    session.userId,
+    `CR-${String(row?.number ?? 0).padStart(3, "0")}「${row?.title ?? ""}」${status === "APPROVED" ? "核准" : "駁回"}${trimmed ? `:${trimmed}` : ""}`,
+    request.boardId
+  );
   revalidatePath(`/boards/${request.boardId}`);
   return {};
 }

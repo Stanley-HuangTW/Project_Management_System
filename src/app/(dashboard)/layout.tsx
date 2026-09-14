@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { BoardSidebar } from "@/components/sidebar/BoardSidebar";
+import { hasApprovalRole } from "@/lib/actions/approval";
 import { BoardAdminActionsProvider } from "@/components/board/BoardAdminActions";
 import { DialogProvider } from "@/components/ui/DialogProvider";
 
@@ -29,6 +30,7 @@ export default async function DashboardLayout({
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true },
   });
+  const isApprover = await hasApprovalRole();
   const programs = programRows.map((program) => ({
     ...program,
     boardCount: boards.filter((b) => b.programId === program.id).length,
@@ -41,6 +43,7 @@ export default async function DashboardLayout({
         <BoardSidebar
           boards={boards}
           programs={programs}
+          isApprover={isApprover}
           userName={session.name}
           userRole={session.role}
           avatarUrl={currentUser?.avatarUrl}

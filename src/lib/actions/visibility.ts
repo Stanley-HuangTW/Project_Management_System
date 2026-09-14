@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { RowVisibility } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { canManageVisibility } from "@/lib/itemVisibility";
@@ -74,6 +75,12 @@ export async function setItemVisibility(
       : []),
   ]);
 
+  await logAudit(
+    "VISIBILITY",
+    session.userId,
+    `工作項可見範圍改為 ${visibility}${visibility === "PRIVATE" ? `(${viewerIds.length} 人可見)` : ""}`,
+    boardId
+  );
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/dashboard");
   return {};
@@ -121,7 +128,7 @@ export async function setGroupVisibility(
   const session = await requireSession();
   const group = await prisma.group.findUnique({
     where: { id: groupId },
-    select: { boardId: true, visibility: true, createdById: true },
+    select: { boardId: true, name: true, visibility: true, createdById: true },
   });
   if (!group) return { error: "找不到分組" };
   await requireBoardAccess(group.boardId, session);
@@ -150,6 +157,12 @@ export async function setGroupVisibility(
       : []),
   ]);
 
+  await logAudit(
+    "VISIBILITY",
+    session.userId,
+    `分組「${group.name}」可見範圍改為 ${visibility}${visibility === "PRIVATE" ? `(${viewerIds.length} 人可見)` : ""}`,
+    group.boardId
+  );
   revalidatePath(`/boards/${group.boardId}`);
   revalidatePath("/dashboard");
   return {};

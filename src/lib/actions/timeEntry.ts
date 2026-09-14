@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { ApprovalStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
@@ -16,6 +17,9 @@ export type TimeEntryRow = {
   /** False for someone else's entry: you can see the team's hours, you just
    *  cannot rewrite them. */
   canEdit: boolean;
+  /** 未核准的工時不計入成本報表 — shown so nobody assumes it counted. */
+  status: ApprovalStatus;
+  decisionNote: string | null;
 };
 
 export async function listTimeEntries(itemId: string): Promise<TimeEntryRow[]> {
@@ -36,6 +40,8 @@ export async function listTimeEntries(itemId: string): Promise<TimeEntryRow[]> {
     hours: Number(entry.hours),
     note: entry.note ?? "",
     canEdit: entry.userId === session.userId || session.role === "ADMIN",
+    status: entry.status,
+    decisionNote: entry.decisionNote,
   }));
 }
 

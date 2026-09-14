@@ -8,6 +8,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { requireStructureAccess } from "@/lib/permissions";
 import { assessGate, findGateBreaches, type GateBreach, type GatePhaseItem } from "@/lib/gateReview";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
+import { logAudit } from "@/lib/activityLog";
 
 export type GateCriterionRow = {
   id: string;
@@ -404,6 +405,12 @@ export async function decideGate(
       decisionNote: trimmedNote || null,
     },
   });
+  await logAudit(
+    "GATE",
+    session.userId,
+    `閘門「${gate.name}」${status === "PASSED" ? "放行" : status === "WAIVED" ? "有條件放行" : "不通過"}${trimmedNote ? `:${trimmedNote}` : ""}`,
+    boardId
+  );
   revalidatePath(`/boards/${boardId}`);
   return {};
 }

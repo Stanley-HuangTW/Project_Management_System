@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { ApprovalStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
@@ -13,6 +14,9 @@ export type LeaveRow = {
   reason: string;
   /** False for someone else's leave when you are not an ADMIN. */
   canEdit: boolean;
+  /** 核准前不影響產能判定 — shown so nobody assumes it已經生效. */
+  status: ApprovalStatus;
+  decisionNote: string | null;
 };
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -36,6 +40,8 @@ export async function listLeaves(): Promise<LeaveRow[]> {
     endDate: leave.endDate,
     reason: leave.reason ?? "",
     canEdit: session.role === "ADMIN" || leave.userId === session.userId,
+    status: leave.status,
+    decisionNote: leave.decisionNote,
   }));
 }
 
@@ -86,7 +92,12 @@ export async function deleteLeave(leaveId: string): Promise<{ error?: string }> 
  */
 export async function leaveDaysByUser(): Promise<Record<string, string[]>> {
   await requireSession();
-  const leaves = await prisma.leave.findMany({ select: { userId: true, startDate: true, endDate: true } });
+  // 只算核准過的:還沒批准的假不該先把那幾天的產能歸零,否則排程會依據
+  // 一個還沒發生的決定把人算成不在。
+  const leaves = await prisma.leave.findMany({
+    where: { status: "APPROVED" },
+    select: { userId: true, startDate: true, endDate: true },
+  });
 
   const byUser: Record<string, string[]> = {};
   for (const leave of leaves) {

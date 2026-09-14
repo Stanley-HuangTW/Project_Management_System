@@ -83,7 +83,9 @@ export async function gatherCostInputs(
         },
       }),
       prisma.timeEntry.findMany({
-        where: { item: { boardId: board.id, deletedAt: null } },
+        // 只算核准過的。待審的工時是一個主張,不是一筆成本——讓它進 AC,
+        // CPI 就會隨著誰還沒按核准而上下跳。
+        where: { item: { boardId: board.id, deletedAt: null }, status: "APPROVED" },
         select: { itemId: true, userId: true, hours: true },
       }),
       visibleItemIdsForBoard(board.id, session),

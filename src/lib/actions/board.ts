@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { logAudit } from "@/lib/activityLog";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import type { SessionPayload } from "@/lib/jwt";
 import type { BoardVisibility } from "@prisma/client";
@@ -115,10 +116,12 @@ export async function renameBoard(boardId: string, name: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("看板名稱不可為空");
 
+  const before = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
   await prisma.board.update({
     where: { id: boardId },
     data: { name: trimmed },
   });
+  await logAudit("BOARD", session.userId, `看板改名:「${before?.name}」→「${trimmed}」`, boardId);
 
   revalidatePath("/boards");
   revalidatePath(`/boards/${boardId}`);
@@ -127,7 +130,18 @@ export async function renameBoard(boardId: string, name: string) {
 export async function deleteBoard(boardId: string) {
   const session = await requireSession();
   requireBoardAdmin(session.role);
+  const doomed = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: { name: true, _count: { select: { items: true } } },
+  });
   await prisma.board.delete({ where: { id: boardId } });
+  // The board is gone, so the entry cannot point at it — the name and the
+  // size are all that is left to say what was destroyed.
+  await logAudit(
+    "BOARD",
+    session.userId,
+    `刪除看板「${doomed?.name ?? boardId}」(含 ${doomed?._count.items ?? 0} 個工作項)`
+  );
   revalidatePath("/boards");
 }
 
@@ -135,6 +149,7 @@ export async function setBoardVisibility(boardId: string, visibility: BoardVisib
   const session = await requireSession();
   await requireBoardOwnerOrAdmin(boardId, session);
   await prisma.board.update({ where: { id: boardId }, data: { visibility } });
+  await logAudit("VISIBILITY", session.userId, `看板可見範圍改為 ${visibility}`, boardId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -157,12 +172,16 @@ export async function addBoardMember(boardId: string, userId: string) {
     create: { boardId, userId },
     update: {},
   });
+  const added = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  await logAudit("ACCESS", session.userId, `加入看板成員:${added?.name ?? userId}`, boardId);
   revalidatePath(`/boards/${boardId}`);
 }
 
 export async function removeBoardMember(boardId: string, userId: string) {
   const session = await requireSession();
   await requireBoardOwnerOrAdmin(boardId, session);
+  const removed = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
   await prisma.boardMember.deleteMany({ where: { boardId, userId } });
+  await logAudit("ACCESS", session.userId, `移除看板成員:${removed?.name ?? userId}`, boardId);
   revalidatePath(`/boards/${boardId}`);
 }

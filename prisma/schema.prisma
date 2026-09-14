@@ -115,6 +115,8 @@ model User {
   gateApprovals        GateApprover[]
   requestedChanges     ChangeRequest[]       @relation("ChangeRequester")
   decidedChanges       ChangeRequest[]       @relation("ChangeDecider")
+  decidedTimeEntries   TimeEntry[]           @relation("TimeEntryDecider")
+  decidedLeaves        Leave[]               @relation("LeaveDecider")
   gateDecisions        Gate[]                @relation("GateDecidedBy")
 }
 
@@ -215,6 +217,7 @@ model Board {
   risks           RiskEntry[]
   gates           Gate[]
   changeRequests  ChangeRequest[]
+  activityLog     ActivityLogEntry[]
   webhooks        Webhook[]
   baselines       Baseline[]
 }
@@ -409,16 +412,43 @@ model Attachment {
   @@index([itemId])
 }
 
+/// 稽核事件的分類。工作項的改動是原本就有的那一類;其餘是這次補上的——
+/// 費率、基準線、可見範圍、看板刪除這些「管錢跟管承諾」的操作,以前反而
+/// 一筆都沒留。
+enum AuditCategory {
+  ITEM
+  BOARD
+  BASELINE
+  VISIBILITY
+  /// 費率與預算。
+  COST
+  SETTINGS
+  /// 帳號、角色、分組權限。
+  ACCESS
+  GATE
+  CHANGE
+  /// 工時與請假的審核。
+  APPROVAL
+}
+
 model ActivityLogEntry {
   id        String   @id @default(cuid())
-  itemId    String
-  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 工作項層級的事件。板級/系統級事件沒有工作項,所以可為 null。
+  itemId    String?
+  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 事件屬於哪個看板。工作項事件也填,這樣稽核頁不必為了篩選看板而回頭
+  /// 查每一筆的工作項。系統層級的事件為 null。
+  boardId   String?
+  board     Board?   @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  category  AuditCategory @default(ITEM)
   actorId   String?
   actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
   message   String
   createdAt DateTime @default(now())
 
   @@index([itemId])
+  @@index([boardId, createdAt])
+  @@index([category, createdAt])
 }
 
 model TodoItem {
@@ -676,6 +706,14 @@ model Webhook {
 
 /// One person's hours on one item on one day — the actual, against which
 /// the planned allocationPct is only ever an estimate.
+/// 送審狀態。核准前不算數:未核准的工時不會進 EVM 的實際成本,未核准的
+/// 請假也不會改變產能判定——否則「已登記」就等於「已成立」,審核只是裝飾。
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model TimeEntry {
   id     String @id @default(cuid())
   itemId String
@@ -686,10 +724,16 @@ model TimeEntry {
   date  String
   hours Decimal @db.Decimal(6, 2)
   note  String?
+  status       ApprovalStatus @default(PENDING)
+  decidedById  String?
+  decidedBy    User?     @relation("TimeEntryDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt    DateTime?
+  decisionNote String?
   createdAt DateTime @default(now())
 
   @@index([itemId])
   @@index([userId, date])
+  @@index([status])
 }
 
 /// A saved plan, kept whole.
@@ -770,9 +814,15 @@ model Leave {
   startDate String
   endDate   String
   reason    String?
+  status       ApprovalStatus @default(PENDING)
+  decidedById  String?
+  decidedBy    User?     @relation("LeaveDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt    DateTime?
+  decisionNote String?
   createdAt DateTime @default(now())
 
   @@index([userId, startDate])
+  @@index([status])
 }
 
 /// 一組一起交付的看板 —— POC 看板、EVT 看板、PVT 看板同屬一個「AMR 平台」。

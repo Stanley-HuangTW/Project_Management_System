@@ -146,6 +146,18 @@ export function LeaveManagement({
               <span className="min-w-0 flex-1 truncate text-xs text-neutral-400 dark:text-neutral-500">
                 {leave.reason}
               </span>
+              {leave.status !== "APPROVED" && (
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    leave.status === "PENDING"
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                      : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+                  }`}
+                  title={leave.decisionNote ?? "核准前不會改變產能判定"}
+                >
+                  {leave.status === "PENDING" ? "待主管核准" : "已退回"}
+                </span>
+              )}
               {leave.canEdit && (
                 <button
                   type="button"

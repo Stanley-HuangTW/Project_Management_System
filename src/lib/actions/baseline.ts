@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { requireStructureAccess } from "@/lib/permissions";
+import { logAudit } from "@/lib/activityLog";
 import { getItemDateRange } from "@/lib/gantt";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
@@ -177,6 +178,13 @@ export async function activateBaseline(baselineId: string): Promise<{ error?: st
     }),
   ]);
 
+  // 切換基準線會改變每一份報表的「計畫」是什麼:延遲天數、PV、EAC 全部跟著變。
+  await logAudit(
+    "BASELINE",
+    session.userId,
+    `切換基準線為「${baseline.name}」(${baseline.capturedAt.toISOString().slice(0, 10)} 建立)`,
+    baseline.boardId
+  );
   revalidatePath(`/boards/${baseline.boardId}`);
   revalidatePath("/settings");
   return {};

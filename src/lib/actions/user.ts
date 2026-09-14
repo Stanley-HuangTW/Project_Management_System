@@ -3,6 +3,7 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
 import type { UserRole } from "@prisma/client";
 
@@ -41,7 +42,17 @@ export async function updateUserHourlyRate(userId: string, rate: number | null) 
   if (rate !== null && (!Number.isFinite(rate) || rate < 0)) {
     throw new Error("費率必須是 0 或正數");
   }
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, hourlyRate: true },
+  });
   await prisma.user.update({ where: { id: userId }, data: { hourlyRate: rate } });
+  // 費率直接決定 EVM 的人力成本,改動必須留得住。
+  await logAudit(
+    "COST",
+    session.userId,
+    `${target?.name ?? userId} 的費率:${target?.hourlyRate ? Number(target.hourlyRate) : "(未設定)"} → ${rate ?? "(未設定)"}`
+  );
   revalidatePath("/users");
 }
 
