@@ -101,21 +101,30 @@ nano .env.production   # 或你熟悉的編輯器
 搬到 Linux 上的新 Postgres。兩邊都是 `postgres:16-alpine`，版本完全一致，用
 `pg_dump`/還原即可，不會有相容性問題。
 
+> **要搬的是兩樣東西，不是一樣。** 資料庫裡只存附件的「資料列」，檔案本體在
+> 另一個 volume（`hrapp_uploads_data`，掛在容器的 `/app/public/uploads`）。
+> 只搬資料庫的話，每個附件的紀錄都在、點下去檔案不見。
+
 ### 2.1 在 Windows 端匯出
 
-在專案資料夾（`docker compose` 指令都要在這裡跑）：
+在專案資料夾裡跑備份腳本，資料庫和附件會一起匯出到 `backups/`：
 
 ```bash
-docker compose --env-file .env.production exec -T db pg_dump -U hrapp -d hrapp_db > backup.sql
+bash scripts/backup-db.sh
 ```
 
-（如果你的 `.env.production` 裡 `POSTGRES_USER`/`POSTGRES_DB` 不是預設值
-`hrapp`/`hrapp_db`，指令裡的 `-U`/`-d` 要改成實際值。）
+跑完會看到兩個檔案，都要搬：
+
+- `backups/hrapp_db_<時間戳記>.sql.gz` — 資料庫
+- `backups/uploads_<時間戳記>.tgz` — 附件檔案
+
+（腳本會自己讀 `.env.production` 裡的 `POSTGRES_USER`/`POSTGRES_DB`，
+不必手改指令。）
 
 ### 2.2 把備份檔傳到 Linux server
 
 ```bash
-scp backup.sql deploy@<server-ip>:~/apps/ursrobot_project/backup.sql
+scp backups/hrapp_db_<時間戳記>.sql.gz backups/uploads_<時間戳記>.tgz deploy@<server-ip>:~/apps/ursrobot_project/
 ```
 
 ### 2.3 在 Linux 端還原
@@ -127,7 +136,15 @@ scp backup.sql deploy@<server-ip>:~/apps/ursrobot_project/backup.sql
 cd ~/apps/ursrobot_project
 docker compose --env-file .env.production up -d db
 docker compose --env-file .env.production exec -T db pg_isready -U hrapp -d hrapp_db   # 確認顯示 accepting connections
-docker compose --env-file .env.production exec -T db psql -U hrapp -d hrapp_db < backup.sql
+gunzip -c hrapp_db_<時間戳記>.sql.gz | docker compose -p hrapp --env-file .env.production exec -T db psql -U hrapp -d hrapp_db
+```
+
+附件要還原進 volume，透過一個用完即丟的容器寫進去（volume 不在 host 的檔案
+系統上，複製檔案進去沒有用）：
+
+```bash
+docker volume create hrapp_uploads_data
+docker run --rm -v hrapp_uploads_data:/v -v "$PWD":/in alpine tar xzf /in/uploads_<時間戳記>.tgz -C /v
 ```
 
 還原完可以隨手檢查一下筆數對不對：
@@ -230,9 +247,11 @@ secret**，依序新增：
 
 ## 5. 設定每週自動備份資料庫
 
-repo 裡有 `scripts/backup-db.sh`：對資料庫跑 `pg_dump`，壓縮成
-`backups/hrapp_db_<時間戳記>.sql.gz`，並自動刪除超過保留天數（預設 60 天）的
-舊備份。在 server 上，repo 目錄裡先手動跑一次確認正常：
+repo 裡有 `scripts/backup-db.sh`：對資料庫跑 `pg_dump` 壓成
+`backups/hrapp_db_<時間戳記>.sql.gz`，把附件 volume 打包成
+`backups/uploads_<時間戳記>.tgz`，並自動刪除超過保留天數（預設 60 天）的
+舊備份。兩個檔案都寫成 `.part` 再改名，指令失敗時不會留下一個看起來像備份的
+空檔。在 server 上，repo 目錄裡先手動跑一次確認正常：
 
 ```bash
 cd ~/apps/ursrobot_project
