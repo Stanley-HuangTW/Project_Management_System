@@ -1,5 +1,7 @@
 "use server";
 
+import { mkdir, unlink, writeFile } from "fs/promises";
+import path from "path";
 import { revalidatePath } from "next/cache";
 import type { CostCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -12,10 +14,13 @@ import { logAudit } from "@/lib/activityLog";
 /** 階段(一列工作項)或整個專案群組 — the two levels a budget is approved at. */
 export type BudgetScope = { kind: "item"; id: string } | { kind: "program"; id: string };
 
+export type AttachmentRow = { id: string; fileName: string; size: number };
+
 export type CommitmentRow = {
   id: string;
   itemId: string;
   itemName: string;
+  attachments: AttachmentRow[];
   category: CostCategory;
   amount: number;
   vendor: string;
@@ -29,6 +34,7 @@ export type ExpenseRow = {
   id: string;
   itemId: string;
   itemName: string;
+  attachments: AttachmentRow[];
   category: CostCategory;
   amount: number;
   date: string;
@@ -151,12 +157,18 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     prisma.commitment.findMany({
       where: { itemId: { in: itemIds } },
       orderBy: [{ settled: "asc" }, { expectedDate: "asc" }],
-      include: { item: { select: { name: true } } },
+      include: {
+        item: { select: { name: true } },
+        attachments: { select: { id: true, fileName: true, size: true } },
+      },
     }),
     prisma.expense.findMany({
       where: { itemId: { in: itemIds } },
       orderBy: { date: "desc" },
-      include: { item: { select: { name: true } } },
+      include: {
+        item: { select: { name: true } },
+        attachments: { select: { id: true, fileName: true, size: true } },
+      },
     }),
     labourActualFor(itemIds),
   ]);
@@ -185,6 +197,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
       id: c.id,
       itemId: c.itemId,
       itemName: c.item.name,
+      attachments: c.attachments,
       category: c.category,
       amount: c.amount,
       vendor: c.vendor ?? "",
@@ -197,6 +210,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
       id: e.id,
       itemId: e.itemId,
       itemName: e.item.name,
+      attachments: e.attachments,
       category: e.category,
       amount: e.amount,
       date: e.date,
@@ -262,12 +276,12 @@ export async function addCommitment(
     expectedDate: string | null;
     note: string;
   }
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; id?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
   if (!resolved.itemIds.includes(input.itemId)) return { error: "這個工作項不屬於本預算範圍" };
   if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "金額必須大於 0" };
 
-  await prisma.commitment.create({
+  const created = await prisma.commitment.create({
     data: {
       itemId: input.itemId,
       category: input.category,
@@ -285,7 +299,7 @@ export async function addCommitment(
     `${resolved.name} 新增已下單:${Math.round(input.amount)} 元${input.vendor ? `(${input.vendor})` : ""}`
   );
   revalidateBudget(scope);
-  return {};
+  return { id: created.id };
 }
 
 /**
@@ -365,7 +379,7 @@ export async function addExpense(
     vendor: string;
     note: string;
   }
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; id?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
   if (!resolved.itemIds.includes(input.itemId)) return { error: "這個工作項不屬於本預算範圍" };
   if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "金額必須大於 0" };
@@ -374,7 +388,7 @@ export async function addExpense(
     return { error: "人力成本由核准過的工時自動計算,不要在這裡重複登記。" };
   }
 
-  await prisma.expense.create({
+  const created = await prisma.expense.create({
     data: {
       itemId: input.itemId,
       category: input.category,
@@ -391,7 +405,7 @@ export async function addExpense(
     `${resolved.name} 新增支出:${Math.round(input.amount)} 元${input.vendor ? `(${input.vendor})` : ""}`
   );
   revalidateBudget(scope);
-  return {};
+  return { id: created.id };
 }
 
 export async function deleteExpense(
@@ -416,4 +430,84 @@ export async function deleteExpense(
 function revalidateBudget(scope: BudgetScope) {
   if (scope.kind === "program") revalidatePath(`/programs/${scope.id}`);
   revalidatePath("/dashboard");
+}
+
+/** 20MB, the same ceiling the item attachments use. */
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+/**
+ * 憑證 — a quote, an invoice, the signed PO.
+ *
+ * Stored exactly like an item attachment, under the item the cost is booked
+ * to, so the existing download route keeps checking board access the same way
+ * and the file lands in the same volume the backup script already covers.
+ */
+export async function uploadBudgetAttachment(
+  scope: BudgetScope,
+  target: { expenseId?: string; commitmentId?: string },
+  formData: FormData
+): Promise<{ error?: string }> {
+  const { session, resolved } = await requireBudgetAdmin(scope);
+
+  const itemId = target.expenseId
+    ? (await prisma.expense.findUnique({ where: { id: target.expenseId }, select: { itemId: true } }))
+        ?.itemId
+    : target.commitmentId
+      ? (
+          await prisma.commitment.findUnique({
+            where: { id: target.commitmentId },
+            select: { itemId: true },
+          })
+        )?.itemId
+      : undefined;
+  if (!itemId) return { error: "找不到這筆紀錄" };
+  if (!resolved.itemIds.includes(itemId)) return { error: "這筆不屬於本預算範圍" };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || !file.name) return { error: "請選擇檔案" };
+  if (file.size > MAX_FILE_SIZE) return { error: "檔案過大,請使用小於 20MB 的檔案" };
+
+  const safeName = file.name.replace(/[/\\]/g, "_");
+  const storedName = `${Date.now()}-${safeName}`;
+  const dir = path.join(process.cwd(), "public", "uploads", itemId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, storedName), Buffer.from(await file.arrayBuffer()));
+
+  await prisma.attachment.create({
+    data: {
+      itemId,
+      expenseId: target.expenseId ?? null,
+      commitmentId: target.commitmentId ?? null,
+      fileName: file.name,
+      url: `/uploads/${itemId}/${storedName}`,
+      size: file.size,
+      uploaderId: session.userId,
+    },
+  });
+
+  await logAudit("COST", session.userId, `${resolved.name} 上傳憑證「${file.name}」`);
+  revalidateBudget(scope);
+  return {};
+}
+
+export async function deleteBudgetAttachment(
+  scope: BudgetScope,
+  attachmentId: string
+): Promise<{ error?: string }> {
+  const { session, resolved } = await requireBudgetAdmin(scope);
+  const attachment = await prisma.attachment.findUnique({ where: { id: attachmentId } });
+  if (!attachment || !resolved.itemIds.includes(attachment.itemId)) {
+    return { error: "找不到這個檔案" };
+  }
+  if (!attachment.expenseId && !attachment.commitmentId) {
+    return { error: "這是工作項的附件,請到該工作項刪除。" };
+  }
+
+  await prisma.attachment.delete({ where: { id: attachmentId } });
+  // The row is gone either way; a file left on disk is tidier than a row
+  // pointing at a file that is not there.
+  await unlink(path.join(process.cwd(), "public", attachment.url)).catch(() => {});
+  await logAudit("COST", session.userId, `${resolved.name} 刪除憑證「${attachment.fileName}」`);
+  revalidateBudget(scope);
+  return {};
 }

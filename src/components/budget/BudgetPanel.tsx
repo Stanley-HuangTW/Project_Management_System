@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CostCategory } from "@prisma/client";
-import { AlertTriangle, Plus, Trash2, Check } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, Check, Paperclip, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { formatMoney } from "@/lib/cost";
 import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
@@ -14,8 +14,11 @@ import {
   deleteCommitment,
   addExpense,
   deleteExpense,
+  uploadBudgetAttachment,
+  deleteBudgetAttachment,
   type BudgetScope,
   type BudgetView,
+  type AttachmentRow,
 } from "@/lib/actions/budget";
 
 /**
@@ -202,6 +205,86 @@ function Tile({
 }
 
 type Runner = (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
+
+/**
+ * 憑證 attached to one expense or PO — the quote, the invoice, the signed
+ * order. Opened through the same authorised route as every other attachment.
+ */
+function Attachments({
+  scope,
+  attachments,
+  target,
+  canEdit,
+  busy,
+  run,
+}: {
+  scope: BudgetScope;
+  attachments: AttachmentRow[];
+  target: { expenseId?: string; commitmentId?: string };
+  canEdit: boolean;
+  busy: boolean;
+  run: Runner;
+}) {
+  const inputId = `att-${target.expenseId ?? target.commitmentId}`;
+
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {attachments.map((file) => (
+        <span
+          key={file.id}
+          className="flex items-center gap-0.5 rounded bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 text-[11px]"
+        >
+          <a
+            href={`/api/attachments/${file.id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-0.5 text-blue-600 hover:underline dark:text-blue-400"
+            title={`${Math.round(file.size / 1024)} KB`}
+          >
+            <Paperclip size={10} />
+            <span className="max-w-[9rem] truncate">{file.fileName}</span>
+          </a>
+          {canEdit && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => run(() => deleteBudgetAttachment(scope, file.id), "無法刪除檔案")}
+              className="text-neutral-400 hover:text-red-600 disabled:opacity-40"
+              aria-label={`刪除 ${file.fileName}`}
+            >
+              <X size={10} />
+            </button>
+          )}
+        </span>
+      ))}
+      {canEdit && (
+        <>
+          <input
+            id={inputId}
+            type="file"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const form = new FormData();
+              form.append("file", file);
+              await run(() => uploadBudgetAttachment(scope, target, form), "無法上傳檔案");
+              // Cleared so picking the same file twice still fires onChange.
+              e.target.value = "";
+            }}
+          />
+          <label
+            htmlFor={inputId}
+            className="cursor-pointer rounded border border-dashed border-neutral-300 dark:border-neutral-600 px-1.5 py-0.5 text-[11px] text-neutral-500 dark:text-neutral-400 hover:border-blue-400 hover:text-blue-600"
+            title="附上報價單、發票或簽好的 PO"
+          >
+            <Paperclip size={10} className="inline" /> 附件
+          </label>
+        </>
+      )}
+    </span>
+  );
+}
 
 function CategoryTable({
   view,
@@ -468,6 +551,15 @@ function CommitmentTable({
                 {c.expectedDate ?? ""}
               </span>
               <span className="shrink-0 truncate text-neutral-400 dark:text-neutral-500">{c.itemName}</span>
+              <span className="basis-full" />
+              <Attachments
+                scope={scope}
+                attachments={c.attachments}
+                target={{ commitmentId: c.id }}
+                canEdit={view.canEdit}
+                busy={busy}
+                run={run}
+              />
               {c.settled ? (
                 <span className="ml-auto shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] dark:bg-neutral-800">
                   已入帳
@@ -528,23 +620,34 @@ function ExpenseTable({
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [vendor, setVendor] = useState("");
+  const [file, setFile] = useState<File | null>(null);
 
+  /**
+   * The receipt goes up in the same action as the expense.
+   *
+   * An attachment needs a row to hang off, so it is two calls — but asking
+   * somebody to add the expense first and come back for the 報價單 second is
+   * exactly the step that never happens.
+   */
   async function handleAdd() {
-    const ok = await run(
-      () =>
-        addExpense(scope, {
-          itemId,
-          category,
-          amount: Number(amount.replace(/[,\s]/g, "")),
-          date,
-          vendor,
-          note: "",
-        }),
-      "無法新增支出"
-    );
+    const ok = await run(async () => {
+      const result = await addExpense(scope, {
+        itemId,
+        category,
+        amount: Number(amount.replace(/[,\s]/g, "")),
+        date,
+        vendor,
+        note: "",
+      });
+      if (result.error || !result.id || !file) return result;
+      const form = new FormData();
+      form.append("file", file);
+      return uploadBudgetAttachment(scope, { expenseId: result.id }, form);
+    }, "無法新增支出");
     if (ok) {
       setAmount("");
       setVendor("");
+      setFile(null);
     }
   }
 
@@ -588,6 +691,34 @@ function ExpenseTable({
             placeholder="廠商／說明"
             className={`${fieldClass} w-32`}
           />
+          <input
+            id="new-expense-file"
+            type="file"
+            className="hidden"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
+          <label
+            htmlFor="new-expense-file"
+            className={`flex cursor-pointer items-center gap-1 rounded border border-dashed px-2 py-1 text-xs ${
+              file
+                ? "border-blue-400 text-blue-600"
+                : "border-neutral-300 dark:border-neutral-600 text-neutral-500 dark:text-neutral-400 hover:border-blue-400 hover:text-blue-600"
+            }`}
+            title="報價單、發票等憑證"
+          >
+            <Paperclip size={12} />
+            <span className="max-w-[10rem] truncate">{file ? file.name : "附件"}</span>
+          </label>
+          {file && (
+            <button
+              type="button"
+              onClick={() => setFile(null)}
+              className="text-neutral-400 hover:text-red-600"
+              aria-label="移除選取的檔案"
+            >
+              <X size={12} />
+            </button>
+          )}
           <button
             type="button"
             disabled={busy || !amount.trim() || !itemId}
@@ -616,6 +747,14 @@ function ExpenseTable({
               </span>
               <span className="min-w-0 flex-1 truncate">{e.vendor || e.note}</span>
               <span className="shrink-0 truncate text-neutral-400 dark:text-neutral-500">{e.itemName}</span>
+              <Attachments
+                scope={scope}
+                attachments={e.attachments}
+                target={{ expenseId: e.id }}
+                canEdit={view.canEdit}
+                busy={busy}
+                run={run}
+              />
               {view.canEdit && (
                 <button
                   type="button"

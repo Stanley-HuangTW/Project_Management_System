@@ -404,8 +404,17 @@ model Item {
 
 model Attachment {
   id         String   @id @default(cuid())
+  /// Always set, even for a receipt attached to an expense: it is what the
+  /// download route checks board access through, and where the file is
+  /// stored on disk.
   itemId     String
   item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 報價單、發票、簽了的 PO。設了其中一個,這個檔案就是那筆帳的憑證,
+  /// 而不是工作項本身的附件——項目卡片的附件清單會把它們排除。
+  expenseId    String?
+  expense      Expense?    @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  commitmentId String?
+  commitment   Commitment? @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
   fileName   String
   url        String
   size       Int
@@ -414,6 +423,8 @@ model Attachment {
   createdAt  DateTime @default(now())
 
   @@index([itemId])
+  @@index([expenseId])
+  @@index([commitmentId])
 }
 
 /// 稽核事件的分類。工作項的改動是原本就有的那一類;其餘是這次補上的——
@@ -1034,6 +1045,8 @@ model Commitment {
   settledAt DateTime?
   note      String?
 
+  attachments Attachment[]
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1063,6 +1076,8 @@ model Expense {
   note   String?
   /// 這筆支出結清的是哪一張 PO,有的話。
   commitmentId String?
+
+  attachments Attachment[]
 
   createdById String?
   createdAt   DateTime @default(now())

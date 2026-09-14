@@ -15,7 +15,9 @@ export async function listAttachments(itemId: string) {
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
   if (item) await requireBoardAccess(item.boardId, session);
   return prisma.attachment.findMany({
-    where: { itemId },
+    // 帳的憑證(報價單、發票)不列在這裡:它們屬於那一筆支出/訂單,在預算
+    // 頁面顯示,混進工作項的附件清單只會讓人以為是規格文件。
+    where: { itemId, expenseId: null, commitmentId: null },
     orderBy: { createdAt: "desc" },
     include: { uploader: { select: { id: true, name: true, avatarUrl: true } } },
   });
