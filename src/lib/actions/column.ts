@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireStructureAccess } from "@/lib/permissions";
+import { logAudit } from "@/lib/activityLog";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import type { ColumnType, StatusColumnOptions } from "@/types/column";
 import { DEFAULT_STATUSES, getStatusOptions } from "@/types/column";
@@ -100,6 +101,24 @@ export async function deleteColumn(boardId: string, columnId: string) {
   revalidatePath(`/boards/${boardId}`);
 }
 
+/**
+ * 記下一次欄位對應的改動。
+ *
+ * 這些設定決定了「哪一欄在驅動排程」——換掉 Pred 或 Start 欄位,整張甘特圖
+ * 讀的就是另一組資料了,但畫面上只是一個下拉選單變了而已。
+ */
+async function logMapping(
+  boardId: string,
+  actorId: string,
+  label: string,
+  columnId: string | null
+) {
+  const column = columnId
+    ? await prisma.column.findUnique({ where: { id: columnId }, select: { name: true } })
+    : null;
+  await logAudit("SETTINGS", actorId, `${label}欄位設為「${column?.name ?? "(未設定)"}」`, boardId);
+}
+
 export async function setProgressColumn(
   boardId: string,
   columnId: string | null
@@ -111,6 +130,7 @@ export async function setProgressColumn(
     where: { id: boardId },
     data: { progressColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "進度", columnId);
   revalidatePath(`/boards/${boardId}`);
 }
 
@@ -125,6 +145,7 @@ export async function setGanttStartColumn(
     where: { id: boardId },
     data: { ganttStartColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "甘特圖開始日期", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -140,6 +161,7 @@ export async function setGanttDurationColumn(
     where: { id: boardId },
     data: { ganttDurationColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "甘特圖天數", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -155,6 +177,7 @@ export async function setGanttEndColumn(
     where: { id: boardId },
     data: { ganttEndColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "甘特圖結束日期", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -171,6 +194,7 @@ export async function setPredColumn(
     where: { id: boardId },
     data: { predColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "前置(Pred)", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -186,6 +210,7 @@ export async function setLinkColumn(
     where: { id: boardId },
     data: { linkColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "關聯(Link)", columnId);
   if (columnId) {
     const column = await prisma.column.findUnique({ where: { id: columnId }, select: { options: true } });
     const existing = getStatusOptions(column?.options);
@@ -215,6 +240,7 @@ export async function setGanttLagColumn(
     where: { id: boardId },
     data: { lagColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "延隔(Lag)", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -230,6 +256,7 @@ export async function setGanttTypeColumn(
     where: { id: boardId },
     data: { typeColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "類型(Type)", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -245,6 +272,7 @@ export async function setManualStartColumn(
     where: { id: boardId },
     data: { manualStartColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "手動開始日期", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -260,6 +288,7 @@ export async function setManualDurationColumn(
     where: { id: boardId },
     data: { manualDurationColumnId: columnId },
   });
+  await logMapping(boardId, session.userId, "手動天數", columnId);
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
 }
@@ -282,6 +311,7 @@ export async function setReportStatusColumn(
       reportDoneOptionIds: [],
     },
   });
+  await logMapping(boardId, session.userId, "報表狀態", columnId);
   revalidatePath(`/boards/${boardId}`);
 }
 

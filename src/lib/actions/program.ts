@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { recomputeAllSchedules } from "@/lib/scheduleCascade";
+import { logAudit } from "@/lib/activityLog";
 
 export type ProgramRow = {
   id: string;
@@ -36,19 +37,22 @@ export async function listPrograms(): Promise<ProgramRow[]> {
 }
 
 export async function createProgram(name: string): Promise<{ error?: string }> {
-  await requireAdmin();
+  const session = await requireAdmin();
   const trimmed = name.trim();
   if (!trimmed) return { error: "請輸入群組名稱" };
-  await prisma.program.create({ data: { name: trimmed } });
+  const program = await prisma.program.create({ data: { name: trimmed } });
+  await logAudit("SETTINGS", session.userId, `建立專案群組「${program.name}」`);
   revalidatePath("/settings");
   return {};
 }
 
 export async function renameProgram(programId: string, name: string): Promise<{ error?: string }> {
-  await requireAdmin();
+  const session = await requireAdmin();
   const trimmed = name.trim();
   if (!trimmed) return { error: "請輸入群組名稱" };
+  const before = await prisma.program.findUnique({ where: { id: programId }, select: { name: true } });
   await prisma.program.update({ where: { id: programId }, data: { name: trimmed } });
+  await logAudit("SETTINGS", session.userId, `專案群組改名:「${before?.name}」→「${trimmed}」`);
   revalidatePath("/settings");
   return {};
 }
@@ -60,8 +64,18 @@ export async function renameProgram(programId: string, name: string): Promise<{ 
  * dates it already had rather than losing them.
  */
 export async function deleteProgram(programId: string): Promise<{ error?: string }> {
-  await requireAdmin();
+  const session = await requireAdmin();
+  const doomed = await prisma.program.findUnique({
+    where: { id: programId },
+    select: { name: true, boards: { select: { name: true } } },
+  });
   await prisma.program.delete({ where: { id: programId } });
+  // 群組一解散,跨看板的前置就停止連動——日期不會變,但從此不再互相推。
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `刪除專案群組「${doomed?.name ?? programId}」(原含 ${doomed?.boards.length ?? 0} 個看板)`
+  );
   revalidatePath("/settings");
   return {};
 }
@@ -78,12 +92,24 @@ export async function setBoardProgram(
   boardId: string,
   programId: string | null
 ): Promise<{ error?: string; recomputed: number }> {
-  await requireAdmin();
+  const session = await requireAdmin();
   const previous = await prisma.board.findUnique({
     where: { id: boardId },
     select: { programId: true },
   });
+  const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
+  const target = programId
+    ? await prisma.program.findUnique({ where: { id: programId }, select: { name: true } })
+    : null;
   await prisma.board.update({ where: { id: boardId }, data: { programId } });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    target
+      ? `看板「${board?.name}」加入專案群組「${target.name}」`
+      : `看板「${board?.name}」移出專案群組`,
+    boardId
+  );
 
   // Both networks are walked: the one it joined, and the one it left — the
   // boards left behind may have been depending on the board that just went.

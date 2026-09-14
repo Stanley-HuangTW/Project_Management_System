@@ -78,10 +78,13 @@ export async function captureBaseline(boardId: string, name?: string): Promise<n
     where: { boardId, deletedAt: null, baselineStart: { not: null } },
     select: { id: true, baselineStart: true, baselineEnd: true, baselineDays: true },
   });
+  // Named once, so the row and the audit entry cannot disagree about which
+  // version this was.
+  const versionName = name?.trim() || capturedAt.toISOString().slice(0, 16).replace("T", " ");
   await prisma.baseline.create({
     data: {
       boardId,
-      name: name?.trim() || capturedAt.toISOString().slice(0, 16).replace("T", " "),
+      name: versionName,
       capturedAt,
       capturedById: session.userId,
       itemCount: captured,
@@ -96,6 +99,14 @@ export async function captureBaseline(boardId: string, name?: string): Promise<n
     },
   });
 
+  // 重新建立基準線就是一次重新規劃:從這一刻起,所有的「延遲幾天」都是
+  // 拿新的這一版在比。
+  await logAudit(
+    "BASELINE",
+    session.userId,
+    `建立基準線「${versionName}」(${captured} 個項目)`,
+    boardId
+  );
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/settings");
   return captured;
@@ -200,6 +211,7 @@ export async function renameBaseline(baselineId: string, name: string): Promise<
   if (!trimmed) return { error: "請輸入名稱" };
 
   await prisma.baseline.update({ where: { id: baselineId }, data: { name: trimmed } });
+  await logAudit("BASELINE", session.userId, `基準線改名為「${trimmed}」`, baseline.boardId);
   revalidatePath("/settings");
   return {};
 }
@@ -226,6 +238,12 @@ export async function deleteBaseline(baselineId: string): Promise<{ error?: stri
   }
 
   await prisma.baseline.delete({ where: { id: baselineId } });
+  await logAudit(
+    "BASELINE",
+    session.userId,
+    `刪除基準線版本(${baseline.capturedAt.toISOString().slice(0, 10)} 建立)`,
+    baseline.boardId
+  );
   revalidatePath("/settings");
   return {};
 }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
+import { logAudit } from "@/lib/activityLog";
 
 export async function getWorkloadThreshold() {
   const threshold = await prisma.workloadThreshold.findUnique({ where: { id: "global" } });
@@ -38,6 +39,11 @@ export async function updateWorkloadThreshold(data: {
     create: { id: "global", ...data },
     update: data,
   });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `工作量門檻:綠 ≤${data.greenMax}%、黃 ≤${data.yellowMax}%`
+  );
 
   revalidatePath("/dashboard");
 }

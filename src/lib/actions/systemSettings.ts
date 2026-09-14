@@ -5,6 +5,7 @@ import type { GanttDurationMode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
+import { logAudit } from "@/lib/activityLog";
 
 export async function getSystemSettings() {
   const settings = await prisma.systemSettings.findUnique({ where: { id: "global" } });
@@ -34,11 +35,14 @@ export async function setHoursPerDay(hours: number) {
     throw new Error("每日工時必須在 1 到 24 之間");
   }
   const value = Math.round(hours);
+  const before = await getSystemSettings();
   await prisma.systemSettings.upsert({
     where: { id: "global" },
     create: { id: "global", hoursPerDay: value },
     update: { hoursPerDay: value },
   });
+  // 這是把「50% 排 10 天」換算成小時、再換算成錢的係數。
+  await logAudit("SETTINGS", session.userId, `每日工時:${before.hoursPerDay} → ${value} 小時`);
   revalidatePath("/settings");
 }
 
@@ -51,6 +55,7 @@ export async function setEmailNotificationsEnabled(enabled: boolean) {
     create: { id: "global", emailNotificationsEnabled: enabled },
     update: { emailNotificationsEnabled: enabled },
   });
+  await logAudit("SETTINGS", session.userId, `Email 通知${enabled ? "開啟" : "關閉"}`);
 
   revalidatePath("/settings");
 }
@@ -73,6 +78,7 @@ export async function setLevelColors(colors: string[]) {
     }),
     prisma.board.updateMany({ data: { levelColors: colors } }),
   ]);
+  await logAudit("SETTINGS", session.userId, `階層顏色更新(${colors.filter(Boolean).length} 層有設定)`);
 
   revalidatePath("/settings");
   revalidatePath("/boards/[boardId]", "page");
@@ -90,6 +96,12 @@ export async function setGanttDurationMode(mode: GanttDurationMode) {
     }),
     prisma.board.updateMany({ data: { ganttDurationMode: mode } }),
   ]);
+  // 這一個開關會改變每一張甘特圖的結束日怎麼算出來。
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `甘特圖計算方式改為${mode === "BUSINESS" ? "工作天" : "日曆天"}`
+  );
 
   revalidatePath("/settings");
   revalidatePath("/boards/[boardId]", "page");
@@ -123,6 +135,11 @@ export async function setGanttStatusColors(colors: {
     }),
     prisma.board.updateMany({ data }),
   ]);
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `甘特圖項目名稱顏色更新:逾期 ${colors.overdue}、完成 ${colors.completed}、實作中 ${colors.inProgress}`
+  );
 
   revalidatePath("/settings");
   revalidatePath("/boards/[boardId]", "page");
@@ -157,6 +174,11 @@ export async function setPredLampColors(colors: {
     }),
     prisma.board.updateMany({ data }),
   ]);
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `Pred 燈號顏色更新:可開始 ${colors.ready}、等待中 ${colors.waiting}、被卡住 ${colors.blocked}`
+  );
 
   revalidatePath("/settings");
   revalidatePath("/boards/[boardId]", "page");
