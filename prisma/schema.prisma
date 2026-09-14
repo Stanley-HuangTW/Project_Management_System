@@ -664,6 +664,11 @@ model RiskEntry {
   /// 1-5 each; the register sorts on their product — see riskScore.
   probability Int @default(3)
   impact      Int @default(3)
+  /// 發生的話要多少錢(元)。沒填就算不出 EMV,那一筆只會有 1-5 的分數。
+  costImpact Int?
+  /// 機率的百分比。填了就用它算 EMV,沒填就用 probability 這一級推算——
+  /// 「中等機率」要換成一個數字才乘得下去,而那個換算值本來就該講明白。
+  probabilityPct Int?
   /// The countermeasure, and who owes it.
   mitigation String?
   ownerId    String?

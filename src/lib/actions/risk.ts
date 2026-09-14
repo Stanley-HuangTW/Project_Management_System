@@ -15,6 +15,10 @@ export type RiskInput = {
   description: string;
   probability: number;
   impact: number;
+  /** 發生的話要多少錢。null = 還沒有人估過。 */
+  costImpact: number | null;
+  /** 機率的百分比,填了就蓋過 1-5 的級距。 */
+  probabilityPct: number | null;
   mitigation: string;
   ownerId: string | null;
   dueDate: string | null;
@@ -56,6 +60,8 @@ export async function listRisks(boardId: string): Promise<RiskRow[]> {
     description: risk.description ?? "",
     probability: risk.probability,
     impact: risk.impact,
+    costImpact: risk.costImpact,
+    probabilityPct: risk.probabilityPct,
     mitigation: risk.mitigation ?? "",
     ownerId: risk.ownerId,
     ownerName: risk.owner?.name ?? null,
@@ -74,6 +80,14 @@ function normalize(input: RiskInput) {
     description: input.description.trim() || null,
     probability: clampLevel(input.probability),
     impact: clampLevel(input.impact),
+    costImpact:
+      input.costImpact !== null && Number.isFinite(input.costImpact) && input.costImpact >= 0
+        ? Math.round(input.costImpact)
+        : null,
+    probabilityPct:
+      input.probabilityPct !== null && Number.isFinite(input.probabilityPct)
+        ? Math.min(100, Math.max(0, Math.round(input.probabilityPct)))
+        : null,
     mitigation: input.mitigation.trim() || null,
     ownerId: input.ownerId || null,
     dueDate: input.dueDate || null,

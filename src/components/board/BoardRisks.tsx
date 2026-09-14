@@ -13,6 +13,8 @@ import {
   RISK_KIND_LABELS,
   RISK_STATUS_LABELS,
 } from "@/lib/riskRegister";
+import { riskEmv, summarizeEmv, resolveProbability, PROBABILITY_BY_LEVEL } from "@/lib/riskEmv";
+import { formatMoney } from "@/lib/cost";
 import {
   listRisks,
   createRisk,
@@ -30,6 +32,8 @@ const EMPTY: RiskInput = {
   description: "",
   probability: 3,
   impact: 3,
+  costImpact: null,
+  probabilityPct: null,
   mitigation: "",
   ownerId: null,
   dueDate: null,
@@ -124,6 +128,8 @@ export function BoardRisks({
     (r) => r.status !== "CLOSED" && riskBand(riskScore(r.probability, r.impact)).key === "critical"
   ).length;
 
+  const emv = summarizeEmv(risks);
+
   const fieldClass =
     "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500";
 
@@ -146,6 +152,34 @@ export function BoardRisks({
         </label>
       </div>
 
+      {(emv.priced > 0 || emv.unpriced > 0) && (
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+            <span className="font-medium text-neutral-800 dark:text-neutral-100">
+              風險金額合計(EMV) {formatMoney(emv.total)} 元
+            </span>
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+              全部發生的話 {formatMoney(emv.worstCase)} 元
+            </span>
+            <span className="text-xs text-neutral-400 dark:text-neutral-500">
+              已估金額 {emv.priced} 項
+              {emv.unpriced > 0 && `,還有 ${emv.unpriced} 項沒估`}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+            EMV = 機率 × 發生時的金額,只算未結案的。這就是
+            <b>應變準備金</b>該覆蓋的範圍——在預算頁的「準備金」分頁編列。
+            {emv.unpriced > 0 && (
+              <>
+                {" "}
+                <b>還有 {emv.unpriced} 項沒有填金額,沒有算進上面的數字</b>,
+                所以這個合計是低估的。
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>
       ) : sorted.length === 0 ? (
@@ -153,7 +187,7 @@ export function BoardRisks({
           還沒有紀錄。NUDD 會議上談到的風險與議題,記在這裡才追得下去。
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+<div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700">
           <table className="w-full min-w-[880px] text-sm">
             <thead className="bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-500 dark:text-neutral-400">
               <tr>
@@ -162,6 +196,8 @@ export function BoardRisks({
                 <th className="px-2 py-2 text-center font-medium">機率</th>
                 <th className="px-2 py-2 text-center font-medium">衝擊</th>
                 <th className="px-2 py-2 text-center font-medium">分數</th>
+                <th className="px-2 py-2 text-right font-medium">金額</th>
+                <th className="px-2 py-2 text-right font-medium">EMV</th>
                 <th className="px-3 py-2 text-left font-medium">對策</th>
                 <th className="px-3 py-2 text-left font-medium">負責人</th>
                 <th className="px-3 py-2 text-left font-medium">到期日</th>
@@ -200,6 +236,19 @@ export function BoardRisks({
                       >
                         {score}
                       </span>
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
+                      {risk.costImpact === null ? "—" : formatMoney(risk.costImpact)}
+                    </td>
+                    <td
+                      className="px-2 py-2 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100"
+                      title={
+                        risk.costImpact === null
+                          ? "沒有金額就算不出 EMV"
+                          : `${Math.round(resolveProbability(risk) * 100)}% × ${formatMoney(risk.costImpact)}`
+                      }
+                    >
+                      {riskEmv(risk) === null ? "—" : formatMoney(riskEmv(risk)!)}
                     </td>
                     <td className="max-w-[220px] truncate px-3 py-2 text-neutral-600 dark:text-neutral-300">
                       {risk.mitigation || <span className="text-neutral-300 dark:text-neutral-600">—</span>}
@@ -341,6 +390,49 @@ export function BoardRisks({
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+                  發生的話要多少錢(元)
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  value={editing.input.costImpact ?? ""}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      input: {
+                        ...editing.input,
+                        costImpact: e.target.value === "" ? null : Number(e.target.value),
+                      },
+                    })
+                  }
+                  placeholder="留空表示還沒估"
+                  className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+                  機率 %(選填)
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={editing.input.probabilityPct ?? ""}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      input: {
+                        ...editing.input,
+                        probabilityPct: e.target.value === "" ? null : Number(e.target.value),
+                      },
+                    })
+                  }
+                  placeholder={`留空則用「${editing.input.probability}」= ${PROBABILITY_BY_LEVEL[editing.input.probability] ?? 50}%`}
+                  className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
+                />
               </label>
               <div>
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">分數</span>
