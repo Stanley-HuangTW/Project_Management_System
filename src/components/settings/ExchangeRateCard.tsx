@@ -21,7 +21,7 @@ import {
  * numbers this month.
  */
 export function ExchangeRateCard() {
-  const { notify, confirm } = useDialogs();
+  const { notify, confirm, prompt } = useDialogs();
   const [rates, setRates] = useState<RateRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
@@ -82,7 +82,12 @@ export function ExchangeRateCard() {
                 type="button"
                 disabled={busy}
                 onClick={async () => {
-                  const next = window.prompt(`${row.code} 匯率`, String(row.rate));
+                  const next = await prompt(`1 ${row.code} 等於多少台幣?`, {
+                    title: `更新 ${row.code} 匯率`,
+                    defaultValue: String(row.rate),
+                    numeric: true,
+                    required: true,
+                  });
                   if (next === null) return;
                   await run(() => setExchangeRate(row.code, Number(next)), "無法更新匯率");
                 }}

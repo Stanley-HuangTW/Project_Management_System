@@ -66,7 +66,7 @@ export function BoardChanges({
   board: BoardWithData;
   userRole: UserRole;
 }) {
-  const { notify, confirm } = useDialogs();
+  const { notify, confirm, prompt } = useDialogs();
   const [rows, setRows] = useState<ChangeRequestRow[]>([]);
   const [baselines, setBaselines] = useState<BaselineVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,10 +130,15 @@ export function BoardChanges({
   }
 
   async function handleDecide(row: ChangeRequestRow, status: "APPROVED" | "REJECTED") {
-    const note =
-      window.prompt(status === "APPROVED" ? "核准說明(選填)" : "駁回原因(必填)") ?? null;
+    const note = await prompt(
+      status === "APPROVED" ? "核准說明(選填)" : "駁回的原因是什麼?",
+      {
+        title: status === "APPROVED" ? "核准變更" : "駁回變更",
+        required: status === "REJECTED",
+        confirmLabel: status === "APPROVED" ? "核准" : "駁回",
+      }
+    );
     if (note === null) return;
-    if (status === "REJECTED" && !note.trim()) return;
     await run(() => decideChangeRequest(row.id, status, note), "無法送出決定");
   }
 
@@ -141,8 +146,11 @@ export function BoardChanges({
     // The baseline captured for this change is what turns "approved" into
     // "here is what it did to the plan".
     const options = baselines.map((b, i) => `${i + 1}. ${b.name}`).join("\n");
-    const answer = window.prompt(
-      `標記為已執行。要連到哪一版基準線?(輸入編號,留空表示不連)\n\n${options || "(這個看板還沒有基準線)"}`
+    const answer = await prompt(
+      `要連到哪一版基準線?輸入編號,留空表示不連。
+
+${options || "(這個看板還沒有基準線)"}`,
+      { title: "標記為已執行", placeholder: "基準線編號", numeric: true }
     );
     if (answer === null) return;
     const index = Number(answer.trim());

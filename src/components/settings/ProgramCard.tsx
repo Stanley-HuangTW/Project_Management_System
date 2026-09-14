@@ -31,7 +31,7 @@ export function ProgramCard({
   boards: ProgramBoard[];
 }) {
   const router = useRouter();
-  const { notify, confirm } = useDialogs();
+  const { notify, confirm, prompt } = useDialogs();
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -60,7 +60,11 @@ export function ProgramCard({
   }
 
   async function handleRename(program: ProgramRow) {
-    const name = window.prompt("群組名稱", program.name);
+    const name = await prompt("這個專案群組要叫什麼名字?", {
+      title: "重新命名群組",
+      defaultValue: program.name,
+      required: true,
+    });
     if (name === null) return;
     await run(() => renameProgram(program.id, name), "無法重新命名");
   }

@@ -54,7 +54,7 @@ export function BaselineCard({ boards }: { boards: BaselineBoard[] }) {
 
 function BaselineRow({ board }: { board: BaselineBoard }) {
   const router = useRouter();
-  const { confirm, notify } = useDialogs();
+  const { confirm, notify, prompt } = useDialogs();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   /** Null until the history is first opened — a settings page with ten
@@ -130,7 +130,11 @@ function BaselineRow({ board }: { board: BaselineBoard }) {
   }
 
   async function handleRename(version: BaselineVersion) {
-    const name = window.prompt("基準線名稱", version.name);
+    const name = await prompt("這一版基準線要叫什麼名字?", {
+      title: "重新命名基準線",
+      defaultValue: version.name,
+      required: true,
+    });
     if (name === null) return;
     setBusy(true);
     try {

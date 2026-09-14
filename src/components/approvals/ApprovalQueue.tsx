@@ -19,7 +19,7 @@ import {
  * queue is not a quiet day — it is the thing that keeps the numbers honest.
  */
 export function ApprovalQueue() {
-  const { notify } = useDialogs();
+  const { notify, prompt } = useDialogs();
   const [queue, setQueue] = useState<Queue | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -56,10 +56,13 @@ export function ApprovalQueue() {
     }
   }
 
-  function rejectNote(): string | null {
-    const note = window.prompt("退回原因(必填)");
-    if (note === null || !note.trim()) return null;
-    return note;
+  async function rejectNote(): Promise<string | null> {
+    return prompt("請寫下退回原因,讓對方知道要補什麼。", {
+      title: "退回",
+      placeholder: "退回原因",
+      required: true,
+      confirmLabel: "退回",
+    });
   }
 
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
@@ -131,9 +134,9 @@ export function ApprovalQueue() {
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => {
-                      const note = rejectNote();
-                      if (note) run(() => decideTimeEntry(entry.id, "REJECTED", note), "無法退回");
+                    onClick={async () => {
+                      const note = await rejectNote();
+                      if (note) await run(() => decideTimeEntry(entry.id, "REJECTED", note), "無法退回");
                     }}
                     className={rejectClass}
                   >
@@ -179,9 +182,9 @@ export function ApprovalQueue() {
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => {
-                      const note = rejectNote();
-                      if (note) run(() => decideLeave(leave.id, "REJECTED", note), "無法退回");
+                    onClick={async () => {
+                      const note = await rejectNote();
+                      if (note) await run(() => decideLeave(leave.id, "REJECTED", note), "無法退回");
                     }}
                     className={rejectClass}
                   >

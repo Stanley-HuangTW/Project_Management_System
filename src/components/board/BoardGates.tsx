@@ -58,7 +58,7 @@ export function BoardGates({
   userRole: UserRole;
   currentUserId: string;
 }) {
-  const { notify, confirm } = useDialogs();
+  const { notify, confirm, prompt } = useDialogs();
   const [view, setView] = useState<GateBoardView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -224,6 +224,7 @@ export function BoardGates({
               busy={busy}
               run={run}
               confirm={confirm}
+              prompt={prompt}
             />
           ))}
         </ul>
@@ -240,6 +241,7 @@ function GateCard({
   busy,
   run,
   confirm,
+  prompt,
 }: {
   gate: GateRow;
   staff: UserOption[];
@@ -248,6 +250,10 @@ function GateCard({
   busy: boolean;
   run: (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
   confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
+  /** Passed down rather than taken from a hook here: a bare `prompt` inside
+   *  this component resolves to window.prompt, which the desktop app's
+   *  embedded browser silently ignores. */
+  prompt: ReturnType<typeof useDialogs>["prompt"];
 }) {
   const [open, setOpen] = useState(gate.status === "PENDING");
   const [criterionText, setCriterionText] = useState("");
@@ -262,9 +268,18 @@ function GateCard({
   async function handleDecide(status: "PASSED" | "FAILED" | "WAIVED") {
     let note = "";
     if (status !== "PASSED") {
-      const label = status === "WAIVED" ? "有條件放行的理由" : "不通過的原因";
-      note = window.prompt(`${label}(必填)`) ?? "";
-      if (!note.trim()) return;
+      const answer = await prompt(
+        status === "WAIVED"
+          ? "必要條件沒有全部達成,為什麼決定往下走?這是之後唯一查得到當初為什麼放行的紀錄。"
+          : "不通過的原因是什麼?寫清楚要補什麼,否則沒有人知道下一步。",
+        {
+          title: status === "WAIVED" ? "有條件放行" : "不通過",
+          required: true,
+          confirmLabel: status === "WAIVED" ? "放行" : "不通過",
+        }
+      );
+      if (answer === null) return;
+      note = answer;
     }
     await run(() => decideGate(gate.id, status, note), "無法送出決定");
   }

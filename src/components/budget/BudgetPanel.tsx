@@ -38,7 +38,7 @@ import {
  * figure that ignores it reads comfortable right up until the invoices land.
  */
 export function BudgetPanel({ scope }: { scope: BudgetScope }) {
-  const { notify, confirm } = useDialogs();
+  const { notify, confirm, prompt } = useDialogs();
   const [view, setView] = useState<BudgetView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -210,9 +210,11 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
       </div>
 
       {tab === "summary" && (
-        <CategoryTable view={view} scope={scope} busy={busy} run={run} />
+        <CategoryTable view={view} scope={scope} busy={busy} run={run} prompt={prompt} />
       )}
-      {tab === "reserve" && <ReservePanel view={view} scope={scope} busy={busy} run={run} />}
+      {tab === "reserve" && (
+        <ReservePanel view={view} scope={scope} busy={busy} run={run} prompt={prompt} />
+      )}
       {tab === "forecast" && <ForecastPanel view={view} />}
       {tab === "commitments" && (
         <CommitmentTable
@@ -221,6 +223,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
           busy={busy}
           run={run}
           confirm={confirm}
+          prompt={prompt}
         />
       )}
       {tab === "expenses" && (
@@ -282,36 +285,56 @@ function ReservePanel({
   scope,
   busy,
   run,
+  prompt,
 }: {
   view: BudgetView;
   scope: BudgetScope;
   busy: boolean;
   run: Runner;
+  prompt: Prompt;
 }) {
   const { reserves } = view;
 
   async function edit(kind: ReserveKind, current: number) {
-    const answer = window.prompt(`${RESERVE_LABELS[kind]}額度(元,填 0 表示取消)`, String(current));
+    const answer = await prompt(`${RESERVE_LABELS[kind]}要編列多少?填 0 表示取消。`, {
+      title: `設定${RESERVE_LABELS[kind]}`,
+      defaultValue: String(current),
+      numeric: true,
+    });
     if (answer === null) return;
-    const amount = Number(answer.replace(/[,s]/g, ""));
+    const amount = Number(answer);
     if (!Number.isFinite(amount)) return;
     await run(() => setReserve(scope, kind, amount, ""), "無法設定準備金");
   }
 
   async function draw(kind: ReserveKind) {
-    const raw = window.prompt(`從${RESERVE_LABELS[kind]}動支多少(元)?`);
+    const raw = await prompt(`從${RESERVE_LABELS[kind]}動支多少?`, {
+      title: `動支${RESERVE_LABELS[kind]}`,
+      placeholder: "金額",
+      numeric: true,
+      required: true,
+    });
     if (raw === null) return;
-    const amount = Number(raw.replace(/[,s]/g, ""));
+    const amount = Number(raw);
     if (!Number.isFinite(amount) || amount <= 0) return;
 
     const categories = COST_CATEGORIES.map((c, i) => `${i + 1}. ${CATEGORY_LABELS[c]}`).join("\n");
-    const pick = window.prompt(`撥給哪一個類別?(輸入編號)\n\n${categories}`);
+    const pick = await prompt(`撥給哪一個類別?輸入編號。\n\n${categories}`, {
+      title: "動支到哪個類別",
+      placeholder: "類別編號",
+      numeric: true,
+      required: true,
+    });
     if (pick === null) return;
     const index = Number(pick.trim());
     if (!Number.isInteger(index) || index < 1 || index > COST_CATEGORIES.length) return;
 
-    const reason = window.prompt("動支理由(必填)");
-    if (reason === null || !reason.trim()) return;
+    const reason = await prompt("為什麼要動用準備金?這是之後唯一查得到的紀錄。", {
+      title: "動支理由",
+      required: true,
+      confirmLabel: "動支",
+    });
+    if (reason === null) return;
 
     await run(
       () => drawFromReserve(scope, kind, COST_CATEGORIES[index - 1], amount, reason),
@@ -561,6 +584,10 @@ const fieldClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
 
 type Runner = (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
+/** Passed down rather than taken from the hook inside each sub-panel: a bare
+ *  `prompt` in a component resolves to window.prompt, which this app's
+ *  embedded browser ignores — the same reason DialogProvider exists at all. */
+type Prompt = ReturnType<typeof useDialogs>["prompt"];
 
 /**
  * 憑證 attached to one expense or PO — the quote, the invoice, the signed
@@ -647,19 +674,25 @@ function CategoryTable({
   scope,
   busy,
   run,
+  prompt,
 }: {
   view: BudgetView;
   scope: BudgetScope;
   busy: boolean;
   run: Runner;
+  prompt: Prompt;
 }) {
   const byCategory = new Map(view.summary.lines.map((l) => [l.category, l]));
 
   async function edit(category: CostCategory) {
     const current = byCategory.get(category)?.budget ?? 0;
-    const answer = window.prompt(`${CATEGORY_LABELS[category]} 核准預算(元,填 0 表示取消)`, String(current));
+    const answer = await prompt(`${CATEGORY_LABELS[category]}核准多少預算?填 0 表示取消。`, {
+      title: `設定${CATEGORY_LABELS[category]}預算`,
+      defaultValue: String(current),
+      numeric: true,
+    });
     if (answer === null) return;
-    const amount = Number(answer.replace(/[,\s]/g, ""));
+    const amount = Number(answer);
     if (!Number.isFinite(amount)) return;
     await run(() => setBudget(scope, category, amount, ""), "無法儲存預算");
   }
@@ -768,12 +801,14 @@ function CommitmentTable({
   busy,
   run,
   confirm,
+  prompt,
 }: {
   view: BudgetView;
   scope: BudgetScope;
   busy: boolean;
   run: Runner;
   confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
+  prompt: Prompt;
 }) {
   // Defaults to the scope's own row — a phase-level cost is the common case,
   // and picking a task is the exception rather than a required step.
@@ -811,10 +846,20 @@ function CommitmentTable({
   }
 
   async function handleSettle(id: string, committed: number) {
-    const answer = window.prompt("實際入帳金額(元)", String(committed));
+    const answer = await prompt("實際入帳金額是多少?", {
+      title: "訂單入帳",
+      defaultValue: String(committed),
+      numeric: true,
+      required: true,
+    });
     if (answer === null) return;
-    const value = Number(answer.replace(/[,\s]/g, ""));
-    const date = window.prompt("入帳日期 (YYYY-MM-DD)", new Date().toISOString().slice(0, 10));
+    const value = Number(answer);
+    const date = await prompt("入帳日期", {
+      title: "訂單入帳",
+      defaultValue: new Date().toISOString().slice(0, 10),
+      placeholder: "YYYY-MM-DD",
+      required: true,
+    });
     if (date === null) return;
     await run(() => settleCommitment(scope, id, value, date), "無法入帳");
   }
