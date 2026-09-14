@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, GanttChartSquare, Clock } from "lucide-react";
+import { BarChart3, GanttChartSquare, Clock, Wallet } from "lucide-react";
 import type { ProgramView as ProgramViewData } from "@/lib/programView";
 import { ProgramGantt } from "./ProgramGantt";
 import { CostReport } from "@/components/board/CostReport";
 import { DelayReport } from "@/components/board/DelayReport";
+import { BudgetPanel } from "@/components/budget/BudgetPanel";
 
-type Tab = "gantt" | "cost" | "delay";
+type Tab = "gantt" | "budget" | "cost" | "delay";
 
 /**
  * A 專案群組 seen as one project.
@@ -21,6 +22,7 @@ export function ProgramView({ view, holidays }: { view: ProgramViewData; holiday
 
   const tabs: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
     { id: "gantt", label: "甘特圖", Icon: GanttChartSquare },
+    { id: "budget", label: "預算", Icon: Wallet },
     { id: "cost", label: "成本報表", Icon: BarChart3 },
     { id: "delay", label: "延遲追因", Icon: Clock },
   ];
@@ -81,6 +83,7 @@ export function ProgramView({ view, holidays }: { view: ProgramViewData; holiday
       ) : (
         <>
           {tab === "gantt" && <ProgramGantt view={view} holidays={holidays} />}
+          {tab === "budget" && <BudgetPanel scope={{ kind: "program", id: view.id }} />}
           {tab === "cost" && <CostReport programId={view.id} />}
           {tab === "delay" && <DelayReport programId={view.id} />}
         </>

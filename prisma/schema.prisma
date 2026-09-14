@@ -252,6 +252,9 @@ model Group {
   roleAssignments GroupRoleAssignment[]
   members         GroupMember[]
   resourceMembers GroupResourceMember[]
+  budgets         Budget[]
+  commitments     Commitment[]
+  expenses        Expense[]
 
   @@index([boardId])
 }
@@ -968,9 +971,105 @@ model ChangeRequest {
   @@index([boardId, status])
 }
 
+/// 費用類別。預算按類別核准,花費也按類別記,才看得出是哪一類爆掉。
+enum CostCategory {
+  /// 人力。不必手動記帳——由核准過的工時 × 時薪自動算出。
+  LABOUR
+  MATERIAL
+  TOOLING
+  OUTSOURCING
+  TRAVEL
+  OTHER
+}
+
+/// 一筆核准預算:由上而下的那個數字。
+///
+/// 跟 Item.budgetCost 不同,那是由下而上、每個工作項各自估的,拿來算 CPI
+/// 「做掉的事有沒有比估的貴」。這裡的是「這個階段/這個專案總共核准多少錢」,
+/// 拿來回答「還剩多少可以花」——兩個問題不一樣,所以兩份數字並存。
+model Budget {
+  id String @id @default(cuid())
+  /// 恰好其中一個有值:預算掛在階段(分組)上,或整個專案群組上。
+  groupId   String?
+  group     Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  programId String?
+  program   Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  category CostCategory
+  /// 元。
+  amount Int
+  note   String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([groupId, category])
+  @@unique([programId, category])
+}
+
+/// 已下單未入帳。
+///
+/// PO 一簽,錢實質上已經花掉了,但發票還沒進來——實際成本看不到它。少了這一
+/// 欄,「還剩多少可用」會一路高估到發票到齊那天,而那天通常已經來不及。
+model Commitment {
+  id      String @id @default(cuid())
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  category CostCategory
+  /// 元。
+  amount   Int
+  vendor   String?
+  poNumber String?
+  /// "YYYY-MM-DD" 預計到貨或入帳日。
+  expectedDate String?
+  /// 入帳之後就不再算進「已承諾」——那筆錢已經變成實際支出了。
+  settled   Boolean   @default(false)
+  settledAt DateTime?
+  note      String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([groupId, settled])
+}
+
+/// 一筆實際支出。
+///
+/// 記在分組(階段)上,需要的話再連到某個工作項。往上一路 group → board →
+/// program,所以階段預算和群組預算讀的是同一本帳,不必記兩次。
+///
+/// 人力不走這裡:它由核准過的工時算出來,手動再記一次就會重複計算。
+model Expense {
+  id      String @id @default(cuid())
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// 這筆錢花在哪個工作項上,有的話。存純 id——工作項丟進垃圾桶不該把帳
+  /// 一起帶走。
+  itemId String?
+
+  category CostCategory
+  /// 元。
+  amount Int
+  /// "YYYY-MM-DD" 發生日,不是輸入日。
+  date   String
+  vendor String?
+  note   String?
+  /// 這筆支出結清的是哪一張 PO,有的話。
+  commitmentId String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([groupId, date])
+}
+
 model Program {
   id        String   @id @default(cuid())
   name      String
   createdAt DateTime @default(now())
   boards    Board[]
+  budgets   Budget[]
 }

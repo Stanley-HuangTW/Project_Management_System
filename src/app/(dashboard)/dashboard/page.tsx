@@ -17,6 +17,8 @@ import { TeamWorkloadCard } from "@/components/dashboard/TeamWorkloadCard";
 import { WorkloadDetailSection } from "@/components/dashboard/WorkloadDetailSection";
 import { PersonalItemsList } from "@/components/dashboard/PersonalItemsList";
 import { OverAllocationCard } from "@/components/dashboard/OverAllocationCard";
+import { BudgetAlertCard } from "@/components/dashboard/BudgetAlertCard";
+import { budgetAlerts } from "@/lib/budgetAlerts";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import {
@@ -199,6 +201,10 @@ export default async function DashboardPage({
           </button>
         </form>
       </div>
+
+      {/* Above the workload cards on purpose: money that has already been
+          committed is the one thing on this page nobody can undo later. */}
+      <BudgetAlertCard alerts={await budgetAlerts(session)} />
 
       <TeamWorkloadCard
         title={isSupervisor ? "我的團隊工作量總覽" : isAdmin ? "團隊工作量總覽" : "我的工作量總覽"}

@@ -1,0 +1,643 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { CostCategory } from "@prisma/client";
+import { AlertTriangle, Plus, Trash2, Check } from "lucide-react";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import { formatMoney } from "@/lib/cost";
+import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
+import {
+  getBudgetView,
+  setBudget,
+  addCommitment,
+  settleCommitment,
+  deleteCommitment,
+  addExpense,
+  deleteExpense,
+  type BudgetScope,
+  type BudgetView,
+} from "@/lib/actions/budget";
+
+/**
+ * 預算管控 — 核准多少、花掉多少、承諾出去多少、還剩多少。
+ *
+ * The same panel serves a phase (分組) and a whole 專案群組; only the scope
+ * differs. The ledger always sits on the phase, so the programme view is the
+ * sum of its phases and the two can never disagree.
+ *
+ * The number people come here for is 剩餘可用, and it subtracts committed
+ * money as well as spent money. A PO that has been signed is gone; a remaining
+ * figure that ignores it reads comfortable right up until the invoices land.
+ */
+export function BudgetPanel({ scope }: { scope: BudgetScope }) {
+  const { notify, confirm } = useDialogs();
+  const [view, setView] = useState<BudgetView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"summary" | "commitments" | "expenses">("summary");
+
+  const reload = useCallback(async () => setView(await getBudgetView(scope)), [scope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await getBudgetView(scope);
+      if (cancelled) return;
+      setView(result);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scope]);
+
+  async function run(work: () => Promise<{ error?: string }>, failTitle: string) {
+    setBusy(true);
+    try {
+      const result = await work();
+      if (result.error) {
+        await notify(result.error, { title: failTitle });
+        return false;
+      }
+      await reload();
+      return true;
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
+  if (!view) return null;
+
+  const { summary } = view;
+  const open = view.commitments.filter((c) => !c.settled);
+
+  return (
+    <div className="space-y-4">
+      {view.alert !== "none" && (
+        <div
+          className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+            view.alert === "over"
+              ? "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+          }`}
+        >
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <div>
+            {view.alert === "over" ? (
+              <p>
+                <b>已超支</b>——{view.scopeName} 核准 {formatMoney(summary.total.budget)} 元,已花費與已承諾
+                合計 {formatMoney(summary.total.actual + summary.total.committed)} 元,超出{" "}
+                <b>{formatMoney(Math.abs(summary.total.remaining))} 元</b>。
+              </p>
+            ) : (
+              <p>
+                預算已用掉 <b>{summary.total.usedPct?.toFixed(0)}%</b>(含已下單未入帳),剩餘{" "}
+                {formatMoney(summary.total.remaining)} 元。
+              </p>
+            )}
+            {summary.unbudgetedCategories.length > 0 && (
+              <p className="mt-1 text-xs">
+                另外有沒編預算就在花的類別:
+                {summary.unbudgetedCategories.map((c) => CATEGORY_LABELS[c]).join("、")}。
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tile label="核准預算" value={formatMoney(summary.total.budget)} />
+        <Tile
+          label="已花費"
+          value={formatMoney(summary.total.actual)}
+          hint={`其中人力 ${formatMoney(view.labourActual)}(由核准工時算出)`}
+        />
+        <Tile
+          label="已下單未入帳"
+          value={formatMoney(summary.total.committed)}
+          hint={`${open.length} 張未入帳`}
+        />
+        <Tile
+          label="剩餘可用"
+          value={formatMoney(summary.total.remaining)}
+          tone={summary.total.remaining < 0 ? "bad" : "good"}
+          hint="核准 − 已花費 − 已下單"
+        />
+      </div>
+
+      <div className="flex items-center gap-1">
+        {(
+          [
+            ["summary", "各類別"],
+            ["commitments", `已下單 (${open.length})`],
+            ["expenses", `支出明細 (${view.expenses.length})`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`rounded px-2.5 py-1 text-xs ${
+              tab === id
+                ? "bg-neutral-800 text-white dark:bg-neutral-200 dark:text-neutral-900"
+                : "text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "summary" && (
+        <CategoryTable view={view} scope={scope} busy={busy} run={run} />
+      )}
+      {tab === "commitments" && (
+        <CommitmentTable
+          view={view}
+          scope={scope}
+          busy={busy}
+          run={run}
+          confirm={confirm}
+        />
+      )}
+      {tab === "expenses" && (
+        <ExpenseTable view={view} scope={scope} busy={busy} run={run} confirm={confirm} />
+      )}
+    </div>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: "good" | "bad";
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2">
+      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{label}</p>
+      <p
+        className={`text-lg font-semibold tabular-nums ${
+          tone === "bad"
+            ? "text-red-600"
+            : tone === "good"
+              ? "text-green-600"
+              : "text-neutral-900 dark:text-neutral-100"
+        }`}
+      >
+        {value}
+      </p>
+      {hint && <p className="text-[10px] text-neutral-400 dark:text-neutral-500">{hint}</p>}
+    </div>
+  );
+}
+
+type Runner = (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
+
+function CategoryTable({
+  view,
+  scope,
+  busy,
+  run,
+}: {
+  view: BudgetView;
+  scope: BudgetScope;
+  busy: boolean;
+  run: Runner;
+}) {
+  const byCategory = new Map(view.summary.lines.map((l) => [l.category, l]));
+
+  async function edit(category: CostCategory) {
+    const current = byCategory.get(category)?.budget ?? 0;
+    const answer = window.prompt(`${CATEGORY_LABELS[category]} 核准預算(元,填 0 表示取消)`, String(current));
+    if (answer === null) return;
+    const amount = Number(answer.replace(/[,\s]/g, ""));
+    if (!Number.isFinite(amount)) return;
+    await run(() => setBudget(scope, category, amount, ""), "無法儲存預算");
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+      <table className="w-full text-xs">
+        <thead className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400">
+          <tr>
+            <th className="px-3 py-2 text-left font-medium">類別</th>
+            <th className="px-3 py-2 text-right font-medium">核准預算</th>
+            <th className="px-3 py-2 text-right font-medium">已花費</th>
+            <th className="px-3 py-2 text-right font-medium">已下單</th>
+            <th className="px-3 py-2 text-right font-medium">剩餘</th>
+            <th className="px-3 py-2 text-right font-medium">用掉</th>
+            {view.canEdit && <th className="px-3 py-2" />}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          {COST_CATEGORIES.map((category) => {
+            const row = byCategory.get(category);
+            if (!row && !view.canEdit) return null;
+            const budget = row?.budget ?? 0;
+            const actual = row?.actual ?? 0;
+            const committed = row?.committed ?? 0;
+            const remaining = budget - actual - committed;
+            const used = budget > 0 ? ((actual + committed) / budget) * 100 : null;
+            return (
+              <tr key={category} className={row?.isOver ? "bg-red-50/60 dark:bg-red-950/20" : ""}>
+                <td className="px-3 py-1.5 text-neutral-800 dark:text-neutral-100">
+                  {CATEGORY_LABELS[category]}
+                  {category === "LABOUR" && (
+                    <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">
+                      (由工時自動計算)
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
+                  {budget ? formatMoney(budget) : "—"}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
+                  {actual ? formatMoney(actual) : "—"}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
+                  {committed ? formatMoney(committed) : "—"}
+                </td>
+                <td
+                  className={`px-3 py-1.5 text-right tabular-nums font-medium ${
+                    budget === 0 && actual + committed === 0
+                      ? "text-neutral-400 dark:text-neutral-500"
+                      : remaining < 0
+                        ? "text-red-600"
+                        : "text-green-600"
+                  }`}
+                >
+                  {budget === 0 && actual + committed === 0 ? "—" : formatMoney(remaining)}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
+                  {used === null ? "—" : `${used.toFixed(0)}%`}
+                </td>
+                {view.canEdit && (
+                  <td className="px-3 py-1.5 text-right">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => edit(category)}
+                      className="rounded border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+                    >
+                      設定
+                    </button>
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot className="border-t border-neutral-200 dark:border-neutral-700 font-medium">
+          <tr>
+            <td className="px-3 py-2 text-neutral-800 dark:text-neutral-100">合計</td>
+            <td className="px-3 py-2 text-right tabular-nums">{formatMoney(view.summary.total.budget)}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{formatMoney(view.summary.total.actual)}</td>
+            <td className="px-3 py-2 text-right tabular-nums">
+              {formatMoney(view.summary.total.committed)}
+            </td>
+            <td
+              className={`px-3 py-2 text-right tabular-nums ${
+                view.summary.total.remaining < 0 ? "text-red-600" : "text-green-600"
+              }`}
+            >
+              {formatMoney(view.summary.total.remaining)}
+            </td>
+            <td className="px-3 py-2 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
+              {view.summary.total.usedPct === null ? "—" : `${view.summary.total.usedPct.toFixed(0)}%`}
+            </td>
+            {view.canEdit && <td />}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+const fieldClass =
+  "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
+
+function CommitmentTable({
+  view,
+  scope,
+  busy,
+  run,
+  confirm,
+}: {
+  view: BudgetView;
+  scope: BudgetScope;
+  busy: boolean;
+  run: Runner;
+  confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [groupId, setGroupId] = useState(view.groups[0]?.id ?? "");
+  const [category, setCategory] = useState<CostCategory>("MATERIAL");
+  const [amount, setAmount] = useState("");
+  const [vendor, setVendor] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [expectedDate, setExpectedDate] = useState("");
+
+  async function handleAdd() {
+    const ok = await run(
+      () =>
+        addCommitment(scope, {
+          groupId,
+          category,
+          amount: Number(amount.replace(/[,\s]/g, "")),
+          vendor,
+          poNumber,
+          expectedDate: expectedDate || null,
+          note: "",
+        }),
+      "無法新增訂單"
+    );
+    if (ok) {
+      setAmount("");
+      setVendor("");
+      setPoNumber("");
+      setExpectedDate("");
+    }
+  }
+
+  async function handleSettle(id: string, committed: number) {
+    const answer = window.prompt("實際入帳金額(元)", String(committed));
+    if (answer === null) return;
+    const value = Number(answer.replace(/[,\s]/g, ""));
+    const date = window.prompt("入帳日期 (YYYY-MM-DD)", new Date().toISOString().slice(0, 10));
+    if (date === null) return;
+    await run(() => settleCommitment(scope, id, value, date), "無法入帳");
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        PO 一簽,錢就等於花掉了,只是發票還沒到。這裡登記之後,「剩餘可用」會先把它扣掉——
+        等到入帳時按「入帳」,它就轉成一筆實際支出。
+      </p>
+
+      {view.canEdit && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={fieldClass}>
+            {view.groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {scope.kind === "program" ? `${g.boardName} / ${g.name}` : g.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as CostCategory)}
+            className={fieldClass}
+          >
+            {COST_CATEGORIES.filter((c) => c !== "LABOUR").map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABELS[c]}
+              </option>
+            ))}
+          </select>
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="金額"
+            className={`${fieldClass} w-24 tabular-nums`}
+          />
+          <input
+            value={vendor}
+            onChange={(e) => setVendor(e.target.value)}
+            placeholder="廠商"
+            className={`${fieldClass} w-28`}
+          />
+          <input
+            value={poNumber}
+            onChange={(e) => setPoNumber(e.target.value)}
+            placeholder="PO 號"
+            className={`${fieldClass} w-28`}
+          />
+          <input
+            type="date"
+            value={expectedDate}
+            onChange={(e) => setExpectedDate(e.target.value)}
+            title="預計到貨／入帳日"
+            className={fieldClass}
+          />
+          <button
+            type="button"
+            disabled={busy || !amount.trim() || !groupId}
+            onClick={handleAdd}
+            className="flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+          >
+            <Plus size={12} /> 新增
+          </button>
+        </div>
+      )}
+
+      {view.commitments.length === 0 ? (
+        <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-8 text-center text-xs text-neutral-400 dark:text-neutral-500">
+          還沒有已下單的紀錄。
+        </p>
+      ) : (
+        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+          {view.commitments.map((c) => (
+            <li
+              key={c.id}
+              className={`flex flex-wrap items-center gap-2 px-3 py-2 text-xs ${
+                c.settled ? "text-neutral-400 dark:text-neutral-500" : ""
+              }`}
+            >
+              <span className="w-16 shrink-0">{CATEGORY_LABELS[c.category]}</span>
+              <span className="w-24 shrink-0 text-right tabular-nums font-medium">
+                {formatMoney(c.amount)}
+              </span>
+              <span className="w-28 shrink-0 truncate">{c.vendor || "—"}</span>
+              <span className="w-24 shrink-0 truncate text-neutral-500 dark:text-neutral-400">
+                {c.poNumber}
+              </span>
+              <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
+                {c.expectedDate ?? ""}
+              </span>
+              {scope.kind === "program" && (
+                <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{c.groupName}</span>
+              )}
+              {c.settled ? (
+                <span className="ml-auto shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] dark:bg-neutral-800">
+                  已入帳
+                </span>
+              ) : (
+                view.canEdit && (
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleSettle(c.id, c.amount)}
+                      className="flex items-center gap-1 rounded border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 text-[11px] hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+                    >
+                      <Check size={11} /> 入帳
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        const ok = await confirm(`刪除這筆 ${formatMoney(c.amount)} 元的訂單?`, {
+                          title: "刪除訂單",
+                          confirmLabel: "刪除",
+                          danger: true,
+                        });
+                        if (ok) await run(() => deleteCommitment(scope, c.id), "無法刪除");
+                      }}
+                      className="rounded p-0.5 text-neutral-400 hover:text-red-600 disabled:opacity-40"
+                      aria-label="刪除"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                )
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ExpenseTable({
+  view,
+  scope,
+  busy,
+  run,
+  confirm,
+}: {
+  view: BudgetView;
+  scope: BudgetScope;
+  busy: boolean;
+  run: Runner;
+  confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [groupId, setGroupId] = useState(view.groups[0]?.id ?? "");
+  const [category, setCategory] = useState<CostCategory>("MATERIAL");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [vendor, setVendor] = useState("");
+
+  async function handleAdd() {
+    const ok = await run(
+      () =>
+        addExpense(scope, {
+          groupId,
+          category,
+          amount: Number(amount.replace(/[,\s]/g, "")),
+          date,
+          vendor,
+          note: "",
+        }),
+      "無法新增支出"
+    );
+    if (ok) {
+      setAmount("");
+      setVendor("");
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        人力成本不在這裡登記——它由核准過的工時 × 時薪自動算出,再記一次就會重複計算。
+      </p>
+
+      {view.canEdit && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={fieldClass}>
+            {view.groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {scope.kind === "program" ? `${g.boardName} / ${g.name}` : g.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as CostCategory)}
+            className={fieldClass}
+          >
+            {COST_CATEGORIES.filter((c) => c !== "LABOUR").map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABELS[c]}
+              </option>
+            ))}
+          </select>
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="金額"
+            className={`${fieldClass} w-24 tabular-nums`}
+          />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass} />
+          <input
+            value={vendor}
+            onChange={(e) => setVendor(e.target.value)}
+            placeholder="廠商／說明"
+            className={`${fieldClass} w-32`}
+          />
+          <button
+            type="button"
+            disabled={busy || !amount.trim() || !groupId}
+            onClick={handleAdd}
+            className="flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+          >
+            <Plus size={12} /> 新增
+          </button>
+        </div>
+      )}
+
+      {view.expenses.length === 0 ? (
+        <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-8 text-center text-xs text-neutral-400 dark:text-neutral-500">
+          還沒有支出紀錄。
+        </p>
+      ) : (
+        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+          {view.expenses.map((e) => (
+            <li key={e.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+              <span className="w-20 shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
+                {e.date}
+              </span>
+              <span className="w-16 shrink-0">{CATEGORY_LABELS[e.category]}</span>
+              <span className="w-24 shrink-0 text-right tabular-nums font-medium">
+                {formatMoney(e.amount)}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{e.vendor || e.note}</span>
+              {scope.kind === "program" && (
+                <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{e.groupName}</span>
+              )}
+              {view.canEdit && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    const ok = await confirm(`刪除這筆 ${formatMoney(e.amount)} 元的支出?`, {
+                      title: "刪除支出",
+                      confirmLabel: "刪除",
+                      danger: true,
+                    });
+                    if (ok) await run(() => deleteExpense(scope, e.id), "無法刪除");
+                  }}
+                  className="shrink-0 rounded p-0.5 text-neutral-400 hover:text-red-600 disabled:opacity-40"
+                  aria-label="刪除"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

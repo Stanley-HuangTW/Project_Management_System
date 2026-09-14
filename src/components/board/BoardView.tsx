@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen, FileDiff } from "lucide-react";
+import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen, FileDiff, Wallet } from "lucide-react";
 import type { BoardWithData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
@@ -18,6 +18,7 @@ import { ProjectTemplateModal } from "./ProjectTemplateModal";
 import { BoardRisks } from "./BoardRisks";
 import { BoardGates } from "./BoardGates";
 import { BoardChanges } from "./BoardChanges";
+import { BoardBudget } from "@/components/budget/BoardBudget";
 import {
   useRegisterBoardAdminActions,
   type BoardAdminAction,
@@ -39,7 +40,7 @@ export function BoardView({
   highlightItemId?: string | null;
   holidays: Holiday[];
 }) {
-  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes">("table");
+  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes" | "budget">("table");
   const [ganttNavigateHighlight, setGanttNavigateHighlight] = useState<string | null>(null);
   function goToItemInTable(itemId: string) {
     setGanttNavigateHighlight(itemId);
@@ -193,6 +194,17 @@ export function BoardView({
             >
               <FileDiff size={14} /> <span className="hidden sm:inline">變更</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setView("budget")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${
+                view === "budget"
+                  ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                  : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+              }`}
+            >
+              <Wallet size={14} /> <span className="hidden sm:inline">預算</span>
+            </button>
           </div>
         </div>
       </div>
@@ -236,6 +248,7 @@ export function BoardView({
           <BoardRisks board={board} users={users} currentUserId={currentUserId} />
         )}
         {view === "changes" && <BoardChanges board={board} userRole={userRole} />}
+        {view === "budget" && <BoardBudget board={board} />}
         {view === "gates" && (
           <BoardGates
             board={board}
