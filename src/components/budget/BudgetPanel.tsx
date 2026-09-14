@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { CostCategory } from "@prisma/client";
+import type { CostCategory, ReserveKind } from "@prisma/client";
 import { AlertTriangle, Plus, Trash2, Check, Paperclip, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { formatMoney } from "@/lib/cost";
 import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
 import { BASE_CURRENCY, describeForeign, isBaseCurrency } from "@/lib/currency";
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { SpendCurveChart } from "./SpendCurveChart";
 import {
   getBudgetView,
@@ -18,6 +19,8 @@ import {
   deleteExpense,
   uploadBudgetAttachment,
   deleteBudgetAttachment,
+  setReserve,
+  drawFromReserve,
   type BudgetScope,
   type BudgetView,
   type AttachmentRow,
@@ -39,7 +42,9 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
   const [view, setView] = useState<BudgetView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"summary" | "forecast" | "commitments" | "expenses">("summary");
+  const [tab, setTab] = useState<
+    "summary" | "reserve" | "forecast" | "commitments" | "expenses"
+  >("summary");
 
   const reload = useCallback(async () => setView(await getBudgetView(scope)), [scope]);
 
@@ -67,7 +72,11 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
       await reload();
       return true;
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      // A page left open across a deploy calls a Server Action id the server
+      // no longer has. That is not a budget error and should not read like one.
+      await notify(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗", {
+        title: isStaleBuildError(err) ? "需要重新整理" : failTitle,
+      });
       return false;
     } finally {
       setBusy(false);
@@ -87,7 +96,9 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
           className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
             view.alert === "over"
               ? "border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
-              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+              : view.alert === "reserve"
+                ? "border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200"
+                : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
           }`}
         >
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
@@ -96,7 +107,17 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
               <p>
                 <b>已超支</b>——{view.scopeName} 核准 {formatMoney(summary.total.budget)} 元,已花費與已承諾
                 合計 {formatMoney(summary.total.actual + summary.total.committed)} 元,超出{" "}
-                <b>{formatMoney(Math.abs(summary.total.remaining))} 元</b>。
+                <b>{formatMoney(Math.abs(summary.total.remaining))} 元</b>
+                {view.reserves.totalRemaining > 0 &&
+                  `,準備金只剩 ${formatMoney(view.reserves.totalRemaining)} 元,補不上這個缺口`}
+                。
+              </p>
+            ) : view.alert === "reserve" ? (
+              <p>
+                <b>已超出成本基準,但準備金還蓋得住</b>——超出{" "}
+                {formatMoney(Math.abs(summary.total.remaining))} 元,準備金餘額{" "}
+                {formatMoney(view.reserves.totalRemaining)} 元。要動用的話請到「準備金」分頁動支,
+                理由會一起記下來。
               </p>
             ) : (
               <p>
@@ -167,6 +188,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
         {(
           [
             ["summary", "各類別"],
+            ["reserve", "準備金"],
             ["forecast", "完工預估"],
             ["commitments", `已下單 (${open.length})`],
             ["expenses", `支出明細 (${view.expenses.length})`],
@@ -190,6 +212,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
       {tab === "summary" && (
         <CategoryTable view={view} scope={scope} busy={busy} run={run} />
       )}
+      {tab === "reserve" && <ReservePanel view={view} scope={scope} busy={busy} run={run} />}
       {tab === "forecast" && <ForecastPanel view={view} />}
       {tab === "commitments" && (
         <CommitmentTable
@@ -233,6 +256,165 @@ function Tile({
         {value}
       </p>
       {hint && <p className="text-[10px] text-neutral-400 dark:text-neutral-500">{hint}</p>}
+    </div>
+  );
+}
+
+const RESERVE_LABELS: Record<ReserveKind, string> = {
+  CONTINGENCY: "應變準備金",
+  MANAGEMENT: "管理準備金",
+};
+
+const RESERVE_HINTS: Record<ReserveKind, string> = {
+  CONTINGENCY: "留給已經知道有風險、只是不確定會不會發生的事",
+  MANAGEMENT: "留給想都沒想到的事,通常要更高層才動得了",
+};
+
+/**
+ * 準備金 — 成本基準之外的緩衝,以及它被動用的紀錄。
+ *
+ * 動支不是加預算:撥出去的同時,那個類別的核准預算會增加同一個金額,專案的
+ * 總額不變。所以這一頁真正的用處是「當初編了多少緩衝、為什麼用掉」——下一個
+ * 專案要抓幾 % 的準備金,唯一的依據就是這些紀錄。
+ */
+function ReservePanel({
+  view,
+  scope,
+  busy,
+  run,
+}: {
+  view: BudgetView;
+  scope: BudgetScope;
+  busy: boolean;
+  run: Runner;
+}) {
+  const { reserves } = view;
+
+  async function edit(kind: ReserveKind, current: number) {
+    const answer = window.prompt(`${RESERVE_LABELS[kind]}額度(元,填 0 表示取消)`, String(current));
+    if (answer === null) return;
+    const amount = Number(answer.replace(/[,s]/g, ""));
+    if (!Number.isFinite(amount)) return;
+    await run(() => setReserve(scope, kind, amount, ""), "無法設定準備金");
+  }
+
+  async function draw(kind: ReserveKind) {
+    const raw = window.prompt(`從${RESERVE_LABELS[kind]}動支多少(元)?`);
+    if (raw === null) return;
+    const amount = Number(raw.replace(/[,s]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+
+    const categories = COST_CATEGORIES.map((c, i) => `${i + 1}. ${CATEGORY_LABELS[c]}`).join("\n");
+    const pick = window.prompt(`撥給哪一個類別?(輸入編號)\n\n${categories}`);
+    if (pick === null) return;
+    const index = Number(pick.trim());
+    if (!Number.isInteger(index) || index < 1 || index > COST_CATEGORIES.length) return;
+
+    const reason = window.prompt("動支理由(必填)");
+    if (reason === null || !reason.trim()) return;
+
+    await run(
+      () => drawFromReserve(scope, kind, COST_CATEGORIES[index - 1], amount, reason),
+      "無法動支"
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        準備金不是可以直接花的類別——要先<b>動支</b>撥進某個費用類別才花得出去。撥款時該類別的核准
+        預算會加上同一個金額,所以<b>專案總額不變</b>,動支是搬錢不是生錢。
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {(["CONTINGENCY", "MANAGEMENT"] as ReserveKind[]).map((kind) => {
+          const line = kind === "CONTINGENCY" ? reserves.contingency : reserves.management;
+          return (
+            <div
+              key={kind}
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2"
+            >
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                {RESERVE_LABELS[kind]}
+              </p>
+              <p className="text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+                {formatMoney(line.remaining)}
+              </p>
+              <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+                核准 {formatMoney(line.approved)} · 已動支 {formatMoney(line.drawn)}
+              </p>
+              <p className="mt-1 text-[10px] text-neutral-400 dark:text-neutral-500">
+                {RESERVE_HINTS[kind]}
+              </p>
+              {view.canEdit && (
+                <div className="mt-2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => edit(kind, line.approved)}
+                    className="rounded border border-neutral-200 dark:border-neutral-700 px-2 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+                  >
+                    設定額度
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || line.remaining <= 0}
+                    onClick={() => draw(kind)}
+                    className="rounded bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+                  >
+                    動支
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2">
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">總可用</p>
+          <p className="text-lg font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+            {formatMoney(view.summary.total.remaining + reserves.totalRemaining)}
+          </p>
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            剩餘可用 {formatMoney(view.summary.total.remaining)} + 準備金餘額{" "}
+            {formatMoney(reserves.totalRemaining)}
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300">動支紀錄</p>
+        {view.draws.length === 0 ? (
+          <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
+            還沒有動支過。
+          </p>
+        ) : (
+          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+            {view.draws.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-baseline gap-2 px-3 py-2 text-xs">
+                <span className="w-20 shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">
+                  {d.createdAt.slice(0, 10)}
+                </span>
+                <span className="shrink-0 text-neutral-600 dark:text-neutral-300">
+                  {RESERVE_LABELS[d.kind]}
+                </span>
+                <span className="w-24 shrink-0 text-right tabular-nums font-medium">
+                  {formatMoney(d.amount)}
+                </span>
+                <span className="shrink-0 text-neutral-500 dark:text-neutral-400">
+                  → {CATEGORY_LABELS[d.category]}
+                </span>
+                <span className="min-w-0 flex-1 text-neutral-700 dark:text-neutral-200">
+                  {d.reason}
+                </span>
+                <span className="shrink-0 text-neutral-400 dark:text-neutral-500">
+                  {d.decidedByName}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

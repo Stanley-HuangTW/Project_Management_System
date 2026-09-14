@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeBudget, alertLevel } from "./budget";
+import { summarizeBudget, alertLevel, summarizeReserves } from "./budget";
 
 const b = (category: Parameters<typeof summarizeBudget>[0]["budgets"][number]["category"], amount: number) => ({
   category,
@@ -122,5 +122,55 @@ describe("alertLevel", () => {
 
   it("says nothing when no budget was ever approved", () => {
     expect(at(0, 0)).toBe("none");
+  });
+});
+
+describe("summarizeReserves", () => {
+  const r = (kind: "CONTINGENCY" | "MANAGEMENT", amount: number) => ({ kind, amount });
+
+  it("keeps the approved amount intact and takes the draws off the balance", () => {
+    const state = summarizeReserves(
+      [r("CONTINGENCY", 500_000), r("MANAGEMENT", 300_000)],
+      [r("CONTINGENCY", 120_000)]
+    );
+
+    // 原始額度不動 —— 下一個專案要編列緩衝時,唯一的依據就是這個對照。
+    expect(state.contingency.approved).toBe(500_000);
+    expect(state.contingency.drawn).toBe(120_000);
+    expect(state.contingency.remaining).toBe(380_000);
+    expect(state.management.remaining).toBe(300_000);
+    expect(state.totalRemaining).toBe(680_000);
+  });
+
+  it("reports zeros rather than nothing when no reserve was approved", () => {
+    const state = summarizeReserves([], []);
+    expect(state.totalRemaining).toBe(0);
+    expect(state.totalApproved).toBe(0);
+  });
+});
+
+describe("alertLevel with a reserve", () => {
+  const over = (by: number) =>
+    summarizeBudget({
+      budgets: [b("MATERIAL", 1_000_000)],
+      actuals: [b("MATERIAL", 1_000_000 + by)],
+      commitments: [],
+    });
+
+  it("says 動用準備金 rather than 超支 while the cushion covers it", () => {
+    // 超出成本基準 20 萬,但還有 50 萬應變準備金。
+    expect(alertLevel(over(200_000), 80, 500_000)).toBe("reserve");
+  });
+
+  it("escalates to 超支 once the cushion runs out too", () => {
+    expect(alertLevel(over(600_000), 80, 500_000)).toBe("over");
+  });
+
+  it("treats an exactly-covered overrun as still inside the reserve", () => {
+    expect(alertLevel(over(500_000), 80, 500_000)).toBe("reserve");
+  });
+
+  it("behaves as before when there is no reserve", () => {
+    expect(alertLevel(over(1), 80, 0)).toBe("over");
   });
 });

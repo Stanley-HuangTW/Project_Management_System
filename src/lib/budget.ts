@@ -125,12 +125,67 @@ export function summarizeBudget(input: {
   };
 }
 
-/** 預算用掉多少就該示警。80% 是提醒,100% 是已經超了。 */
-export type BudgetAlertLevel = "none" | "warning" | "over";
+/**
+ * 準備金的狀態。
+ *
+ * 核准額度不會因為動支而變小——餘額是它減掉已動支的。原始額度留著,才看得出
+ * 「當初編了多少緩衝、用掉了多少」,那是下一個專案編列時唯一的依據。
+ */
+export type ReserveLine = {
+  /** 核准的原始額度。 */
+  approved: number;
+  /** 已經撥進各類別的。 */
+  drawn: number;
+  remaining: number;
+};
 
-export function alertLevel(summary: BudgetSummary, warnAtPct = 80): BudgetAlertLevel {
-  if (summary.noBudget) return "none";
-  if (summary.isOver) return "over";
+export type ReserveState = {
+  contingency: ReserveLine;
+  management: ReserveLine;
+  /** 兩種加起來還剩多少 —— 成本基準之外還有多少緩衝。 */
+  totalRemaining: number;
+  totalApproved: number;
+};
+
+export function summarizeReserves(
+  reserves: { kind: "CONTINGENCY" | "MANAGEMENT"; amount: number }[],
+  draws: { kind: "CONTINGENCY" | "MANAGEMENT"; amount: number }[]
+): ReserveState {
+  const line = (kind: "CONTINGENCY" | "MANAGEMENT"): ReserveLine => {
+    const approved = reserves.filter((r) => r.kind === kind).reduce((t, r) => t + r.amount, 0);
+    const drawn = draws.filter((d) => d.kind === kind).reduce((t, d) => t + d.amount, 0);
+    return { approved, drawn, remaining: approved - drawn };
+  };
+  const contingency = line("CONTINGENCY");
+  const management = line("MANAGEMENT");
+  return {
+    contingency,
+    management,
+    totalRemaining: contingency.remaining + management.remaining,
+    totalApproved: contingency.approved + management.approved,
+  };
+}
+
+/**
+ * 預算用掉多少就該示警。
+ *
+ * "reserve" sits between warning and over on purpose: a phase past its cost
+ * baseline but still inside its contingency is not the same emergency as one
+ * with nothing left, and colouring them the same teaches people to ignore the
+ * colour.
+ */
+export type BudgetAlertLevel = "none" | "warning" | "reserve" | "over";
+
+export function alertLevel(
+  summary: BudgetSummary,
+  warnAtPct = 80,
+  reserveRemaining = 0
+): BudgetAlertLevel {
+  if (summary.noBudget && reserveRemaining === 0) return "none";
+  if (summary.isOver) {
+    // Over the baseline, but the cushion still covers it.
+    return Math.abs(summary.total.remaining) <= reserveRemaining ? "reserve" : "over";
+  }
   const used = summary.total.usedPct;
   return used !== null && used >= warnAtPct ? "warning" : "none";
 }

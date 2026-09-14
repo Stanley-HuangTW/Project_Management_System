@@ -3,11 +3,18 @@
 import { mkdir, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { revalidatePath } from "next/cache";
-import type { CostCategory } from "@prisma/client";
+import type { CostCategory, ReserveKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, canAccessBoard } from "@/lib/boardAccess";
-import { summarizeBudget, alertLevel, type BudgetSummary, type BudgetAlertLevel } from "@/lib/budget";
+import {
+  summarizeBudget,
+  summarizeReserves,
+  alertLevel,
+  type BudgetSummary,
+  type BudgetAlertLevel,
+  type ReserveState,
+} from "@/lib/budget";
 import {
   computeBudgetForecast,
   weightedFractionDone,
@@ -76,6 +83,18 @@ export type BudgetView = {
   rates: { code: string; rate: number }[];
   /** 未入帳的外幣訂單,若今天全部付款會多花(或少花)多少台幣。 */
   fxExposure: ReturnType<typeof fxExposure>;
+  /** 成本基準之外的緩衝 — 應變與管理準備金。 */
+  reserves: ReserveState;
+  /** 動支紀錄,最近的在前。 */
+  draws: {
+    id: string;
+    kind: ReserveKind;
+    category: CostCategory;
+    amount: number;
+    reason: string;
+    decidedByName: string | null;
+    createdAt: string;
+  }[];
   canEdit: boolean;
 };
 
@@ -305,6 +324,23 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     boardIds
   );
 
+  const reserveRows = await prisma.reserve.findMany({
+    where: scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id },
+    include: {
+      draws: {
+        orderBy: { createdAt: "desc" },
+        include: { decidedBy: { select: { name: true } } },
+      },
+    },
+  });
+  const allDraws = reserveRows.flatMap((r) =>
+    r.draws.map((d) => ({ ...d, kind: r.kind }))
+  );
+  const reserves = summarizeReserves(
+    reserveRows.map((r) => ({ kind: r.kind, amount: r.amount })),
+    allDraws.map((d) => ({ kind: d.kind, amount: d.amount }))
+  );
+
   // 匯率只用來預填輸入框,以及算未入帳外幣訂單的風險——每一筆帳用的仍然是
   // 它自己存下來的那個匯率。
   const rateRows = await prisma.exchangeRate.findMany({ select: { code: true, rate: true } });
@@ -313,7 +349,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
   return {
     scopeName: resolved.name,
     summary,
-    alert: alertLevel(summary),
+    alert: alertLevel(summary, 80, reserves.totalRemaining),
     forecast,
     rates: rateRows.map((r) => ({ code: r.code, rate: Number(r.rate) })),
     fxExposure: fxExposure(
@@ -326,6 +362,18 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
         })),
       currentRates
     ),
+    reserves,
+    draws: allDraws
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        category: d.category,
+        amount: d.amount,
+        reason: d.reason,
+        decidedByName: d.decidedBy?.name ?? null,
+        createdAt: d.createdAt.toISOString(),
+      })),
     items: resolved.items,
     labourActual: Math.round(labour),
     // Same rule the write paths enforce — see canEditBudget.
@@ -728,6 +776,119 @@ export async function deleteBudgetAttachment(
   // pointing at a file that is not there.
   await unlink(path.join(process.cwd(), "public", attachment.url)).catch(() => {});
   await logAudit("COST", session.userId, `${resolved.name} 刪除憑證「${attachment.fileName}」`);
+  revalidateBudget(scope);
+  return {};
+}
+
+/** 設定(或以 0 清除)一筆準備金額度。 */
+export async function setReserve(
+  scope: BudgetScope,
+  kind: ReserveKind,
+  amount: number,
+  note: string
+): Promise<{ error?: string }> {
+  const { session, resolved } = await requireBudgetAdmin(scope);
+  if (!Number.isFinite(amount) || amount < 0) return { error: "金額必須是 0 或正數" };
+  const value = Math.round(amount);
+
+  const where =
+    scope.kind === "item"
+      ? { itemId_kind: { itemId: scope.id, kind } }
+      : { programId_kind: { programId: scope.id, kind } };
+  const key = scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id };
+
+  const existing = await prisma.reserve.findUnique({ where, include: { draws: true } });
+  if (value === 0) {
+    // Deleting a reserve that has been drawn on would erase the record of
+    // where that money went — the draws are the only trace.
+    if (existing?.draws.length) {
+      return { error: "這筆準備金已經動支過,不能清除。要停用請把額度調到已動支的金額。" };
+    }
+    await prisma.reserve.deleteMany({ where: { ...key, kind } });
+  } else {
+    const drawn = (existing?.draws ?? []).reduce((t, d) => t + d.amount, 0);
+    if (value < drawn) {
+      return { error: `已經動支 ${drawn} 元,額度不能低於這個數字。` };
+    }
+    await prisma.reserve.upsert({
+      where,
+      create: { ...key, kind, amount: value, note: note.trim() || null, createdById: session.userId },
+      update: { amount: value, note: note.trim() || null },
+    });
+  }
+
+  await logAudit(
+    "COST",
+    session.userId,
+    `${resolved.name} 的${kind === "CONTINGENCY" ? "應變" : "管理"}準備金:${
+      existing?.amount ?? 0
+    } → ${value} 元`
+  );
+  revalidateBudget(scope);
+  return {};
+}
+
+/**
+ * 動支準備金:把額度撥進一個費用類別。
+ *
+ * The category's approved budget goes up by the same amount in the same
+ * transaction, which is what makes this a transfer rather than an invention —
+ * the project's total does not change, only where the money is allowed to be
+ * spent. The reason is required: why the cushion was used is the one thing
+ * anybody comes back to read.
+ */
+export async function drawFromReserve(
+  scope: BudgetScope,
+  kind: ReserveKind,
+  category: CostCategory,
+  amount: number,
+  reason: string
+): Promise<{ error?: string }> {
+  const { session, resolved } = await requireBudgetAdmin(scope);
+  if (!Number.isFinite(amount) || amount <= 0) return { error: "動支金額必須大於 0" };
+  const value = Math.round(amount);
+  const trimmed = reason.trim();
+  if (!trimmed) return { error: "動支準備金必須寫下理由——這是之後唯一查得到為什麼動用的紀錄。" };
+
+  const where =
+    scope.kind === "item"
+      ? { itemId_kind: { itemId: scope.id, kind } }
+      : { programId_kind: { programId: scope.id, kind } };
+  const reserve = await prisma.reserve.findUnique({ where, include: { draws: true } });
+  if (!reserve) return { error: "這個範圍還沒有這種準備金" };
+
+  const remaining = reserve.amount - reserve.draws.reduce((t, d) => t + d.amount, 0);
+  if (value > remaining) return { error: `準備金只剩 ${remaining} 元,不夠動支 ${value} 元。` };
+
+  const budgetWhere =
+    scope.kind === "item"
+      ? { itemId_category: { itemId: scope.id, category } }
+      : { programId_category: { programId: scope.id, category } };
+  const budgetKey = scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id };
+  const currentBudget = await prisma.budget.findUnique({ where: budgetWhere });
+
+  await prisma.$transaction([
+    prisma.reserveDraw.create({
+      data: {
+        reserveId: reserve.id,
+        category,
+        amount: value,
+        reason: trimmed,
+        decidedById: session.userId,
+      },
+    }),
+    prisma.budget.upsert({
+      where: budgetWhere,
+      create: { ...budgetKey, category, amount: value, createdById: session.userId },
+      update: { amount: (currentBudget?.amount ?? 0) + value },
+    }),
+  ]);
+
+  await logAudit(
+    "COST",
+    session.userId,
+    `${resolved.name} 動支${kind === "CONTINGENCY" ? "應變" : "管理"}準備金 ${value} 元至${category}:${trimmed}`
+  );
   revalidateBudget(scope);
   return {};
 }

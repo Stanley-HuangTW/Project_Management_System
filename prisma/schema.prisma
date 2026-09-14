@@ -117,6 +117,7 @@ model User {
   decidedChanges       ChangeRequest[]       @relation("ChangeDecider")
   decidedTimeEntries   TimeEntry[]           @relation("TimeEntryDecider")
   decidedLeaves        Leave[]               @relation("LeaveDecider")
+  reserveDraws         ReserveDraw[]         @relation("ReserveDrawDecider")
   gateDecisions        Gate[]                @relation("GateDecidedBy")
 }
 
@@ -395,6 +396,7 @@ model Item {
   budgets       Budget[]
   commitments   Commitment[]
   expenses      Expense[]
+  reserves      Reserve[]
 
   @@index([boardId])
   @@index([groupId])
@@ -1111,6 +1113,63 @@ model ExchangeRate {
   updatedById String?
 }
 
+/// 準備金的兩種。分開是因為動用它們的授權層級不一樣。
+enum ReserveKind {
+  /// 應變準備金:留給「已知會有風險、只是不知道會不會發生」的那些事。
+  /// 專案負責人可以動支。
+  CONTINGENCY
+  /// 管理準備金:留給想都沒想到的事。通常要更高層才動得了。
+  MANAGEMENT
+}
+
+/// 一筆準備金。跟核准預算掛在同一層:階段各自一筆,專案群組也可以有自己的。
+///
+/// 它不是一個可以直接花的類別 —— 錢要先「動支」撥進某個類別才花得出去
+/// (見 ReserveDraw)。少了這一層,「還剩 20 萬」就分不出那是可以花的錢,
+/// 還是本來就該留著的緩衝。
+model Reserve {
+  id String @id @default(cuid())
+  itemId    String?
+  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  programId String?
+  program   Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  kind   ReserveKind
+  /// 元。核准的原始額度,動支不會改這個數字——餘額是它減掉動支。
+  amount Int
+  note   String?
+
+  draws ReserveDraw[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([itemId, kind])
+  @@unique([programId, kind])
+}
+
+/// 一次動支:把準備金撥進某個費用類別。
+///
+/// 撥款會同步把該類別的核准預算加上同一個金額,所以總額不變——動支是搬錢,
+/// 不是生錢。理由必填:準備金被花掉的原因,是事後唯一有人會回來看的東西。
+model ReserveDraw {
+  id        String  @id @default(cuid())
+  reserveId String
+  reserve   Reserve @relation(fields: [reserveId], references: [id], onDelete: Cascade)
+
+  /// 撥給哪一個費用類別。
+  category CostCategory
+  amount   Int
+  reason   String
+
+  decidedById String?
+  decidedBy   User?    @relation("ReserveDrawDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([reserveId])
+}
+
 model Program {
   id        String   @id @default(cuid())
   name      String
@@ -1120,4 +1179,5 @@ model Program {
   createdAt DateTime @default(now())
   boards    Board[]
   budgets   Budget[]
+  reserves  Reserve[]
 }

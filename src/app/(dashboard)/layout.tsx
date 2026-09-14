@@ -6,6 +6,7 @@ import { BoardSidebar } from "@/components/sidebar/BoardSidebar";
 import { hasApprovalRole } from "@/lib/actions/approval";
 import { BoardAdminActionsProvider } from "@/components/board/BoardAdminActions";
 import { DialogProvider } from "@/components/ui/DialogProvider";
+import { StaleBuildWatcher } from "@/components/ui/StaleBuildWatcher";
 
 export default async function DashboardLayout({
   children,
@@ -38,6 +39,7 @@ export default async function DashboardLayout({
 
   return (
     <DialogProvider>
+    <StaleBuildWatcher />
     <BoardAdminActionsProvider>
       <div className="flex h-screen w-full">
         <BoardSidebar
