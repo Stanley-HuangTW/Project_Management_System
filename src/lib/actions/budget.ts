@@ -9,12 +9,13 @@ import { requireStructureAccess, canManageStructure } from "@/lib/permissions";
 import { summarizeBudget, alertLevel, type BudgetSummary, type BudgetAlertLevel } from "@/lib/budget";
 import { logAudit } from "@/lib/activityLog";
 
-export type BudgetScope = { kind: "group"; id: string } | { kind: "program"; id: string };
+/** 階段(一列工作項)或整個專案群組 — the two levels a budget is approved at. */
+export type BudgetScope = { kind: "item"; id: string } | { kind: "program"; id: string };
 
 export type CommitmentRow = {
   id: string;
-  groupId: string;
-  groupName: string;
+  itemId: string;
+  itemName: string;
   category: CostCategory;
   amount: number;
   vendor: string;
@@ -26,23 +27,22 @@ export type CommitmentRow = {
 
 export type ExpenseRow = {
   id: string;
-  groupId: string;
-  groupName: string;
+  itemId: string;
+  itemName: string;
   category: CostCategory;
   amount: number;
   date: string;
   vendor: string;
   note: string;
-  itemName: string | null;
 };
 
 export type BudgetView = {
   scopeName: string;
   summary: BudgetSummary;
   alert: BudgetAlertLevel;
-  /** Every group whose ledger feeds this scope — the group picker when
-   *  booking a cost against a program-level view. */
-  groups: { id: string; name: string; boardName: string }[];
+  /** Every task inside this scope, for the picker that books a cost against
+   *  one of them. Indented by depth so a 195-row list is still readable. */
+  items: { id: string; name: string; depth: number; boardName: string }[];
   commitments: CommitmentRow[];
   expenses: ExpenseRow[];
   /** 人力實際成本 is derived, not booked, so it is stated separately — it is
@@ -51,24 +51,32 @@ export type BudgetView = {
   canEdit: boolean;
 };
 
-/** Which groups' ledgers roll up into this scope, and whether the caller may
- *  see them at all. */
+/**
+ * Which tasks' ledgers roll up into this scope, and whether the caller may see
+ * them at all.
+ *
+ * A budget on a phase covers that row and everything under it — the phase row
+ * is where the money is approved, the work underneath is where it gets spent.
+ */
 async function resolveScope(
   scope: BudgetScope,
   session: Awaited<ReturnType<typeof requireSession>>
-): Promise<{ name: string; groupIds: string[]; groups: BudgetView["groups"] } | null> {
-  if (scope.kind === "group") {
-    const group = await prisma.group.findUnique({
+): Promise<{ name: string; itemIds: string[]; items: BudgetView["items"] } | null> {
+  if (scope.kind === "item") {
+    const root = await prisma.item.findUnique({
       where: { id: scope.id },
       select: { id: true, name: true, boardId: true, board: { select: { name: true } } },
     });
-    if (!group) return null;
-    await requireBoardAccess(group.boardId, session);
-    return {
-      name: group.name,
-      groupIds: [group.id],
-      groups: [{ id: group.id, name: group.name, boardName: group.board.name }],
-    };
+    if (!root) return null;
+    await requireBoardAccess(root.boardId, session);
+
+    const all = await prisma.item.findMany({
+      where: { boardId: root.boardId, deletedAt: null },
+      select: { id: true, name: true, parentId: true, order: true },
+      orderBy: { order: "asc" },
+    });
+    const subtree = collectSubtree(root.id, all, root.board.name);
+    return { name: root.name, itemIds: subtree.map((i) => i.id), items: subtree };
   }
 
   const program = await prisma.program.findUnique({
@@ -79,19 +87,36 @@ async function resolveScope(
 
   // A board the caller cannot open contributes nothing — its costs would
   // otherwise leak out as a total they were not meant to see.
-  const groups: BudgetView["groups"] = [];
+  const items: BudgetView["items"] = [];
   for (const board of program.boards) {
     if (!(await canAccessBoard(session, board.id))) continue;
-    const boardGroups = await prisma.group.findMany({
-      where: { boardId: board.id },
-      select: { id: true, name: true },
+    const all = await prisma.item.findMany({
+      where: { boardId: board.id, deletedAt: null },
+      select: { id: true, name: true, parentId: true, order: true },
       orderBy: { order: "asc" },
     });
-    for (const group of boardGroups) {
-      groups.push({ id: group.id, name: group.name, boardName: board.name });
+    for (const root of all.filter((i) => i.parentId === null)) {
+      items.push(...collectSubtree(root.id, all, board.name));
     }
   }
-  return { name: program.name, groupIds: groups.map((g) => g.id), groups };
+  return { name: program.name, itemIds: items.map((i) => i.id), items };
+}
+
+/** The row plus everything beneath it, in display order, with its indent. */
+function collectSubtree(
+  rootId: string,
+  all: { id: string; name: string; parentId: string | null }[],
+  boardName: string
+): BudgetView["items"] {
+  const out: BudgetView["items"] = [];
+  const walk = (id: string, depth: number) => {
+    const node = all.find((i) => i.id === id);
+    if (!node) return;
+    out.push({ id: node.id, name: node.name, depth, boardName });
+    for (const child of all.filter((i) => i.parentId === id)) walk(child.id, depth + 1);
+  };
+  walk(rootId, 0);
+  return out;
 }
 
 /**
@@ -100,9 +125,9 @@ async function resolveScope(
  * Never booked as an expense — the hours are already recorded, and typing
  * them in again as money would count the same work twice.
  */
-async function labourActualFor(groupIds: string[]): Promise<number> {
+async function labourActualFor(itemIds: string[]): Promise<number> {
   const entries = await prisma.timeEntry.findMany({
-    where: { status: "APPROVED", item: { deletedAt: null, groupId: { in: groupIds } } },
+    where: { status: "APPROVED", itemId: { in: itemIds }, item: { deletedAt: null } },
     select: { userId: true, hours: true },
   });
   if (entries.length === 0) return 0;
@@ -116,32 +141,25 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
   const session = await requireSession();
   const resolved = await resolveScope(scope, session);
   if (!resolved) return null;
-  const { groupIds } = resolved;
+  const { itemIds } = resolved;
 
   const [budgets, commitments, expenses, labour] = await Promise.all([
     prisma.budget.findMany({
-      where: scope.kind === "group" ? { groupId: scope.id } : { programId: scope.id },
+      where: scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id },
       select: { category: true, amount: true },
     }),
     prisma.commitment.findMany({
-      where: { groupId: { in: groupIds } },
+      where: { itemId: { in: itemIds } },
       orderBy: [{ settled: "asc" }, { expectedDate: "asc" }],
-      include: { group: { select: { name: true } } },
+      include: { item: { select: { name: true } } },
     }),
     prisma.expense.findMany({
-      where: { groupId: { in: groupIds } },
+      where: { itemId: { in: itemIds } },
       orderBy: { date: "desc" },
-      include: { group: { select: { name: true } } },
+      include: { item: { select: { name: true } } },
     }),
-    labourActualFor(groupIds),
+    labourActualFor(itemIds),
   ]);
-
-  const itemIds = [...new Set(expenses.map((e) => e.itemId).filter((id): id is string => !!id))];
-  const items = await prisma.item.findMany({
-    where: { id: { in: itemIds } },
-    select: { id: true, name: true },
-  });
-  const itemNameById = new Map(items.map((i) => [i.id, i.name]));
 
   const summary = summarizeBudget({
     budgets,
@@ -159,14 +177,14 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     scopeName: resolved.name,
     summary,
     alert: alertLevel(summary),
-    groups: resolved.groups,
+    items: resolved.items,
     labourActual: Math.round(labour),
     // The same bar as every other structural change on a board.
     canEdit: canManageStructure(session.role),
     commitments: commitments.map((c) => ({
       id: c.id,
-      groupId: c.groupId,
-      groupName: c.group.name,
+      itemId: c.itemId,
+      itemName: c.item.name,
       category: c.category,
       amount: c.amount,
       vendor: c.vendor ?? "",
@@ -177,14 +195,13 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     })),
     expenses: expenses.map((e) => ({
       id: e.id,
-      groupId: e.groupId,
-      groupName: e.group.name,
+      itemId: e.itemId,
+      itemName: e.item.name,
       category: e.category,
       amount: e.amount,
       date: e.date,
       vendor: e.vendor ?? "",
       note: e.note ?? "",
-      itemName: e.itemId ? (itemNameById.get(e.itemId) ?? null) : null,
     })),
   };
 }
@@ -209,10 +226,10 @@ export async function setBudget(
   const value = Math.round(amount);
 
   const where =
-    scope.kind === "group"
-      ? { groupId_category: { groupId: scope.id, category } }
+    scope.kind === "item"
+      ? { itemId_category: { itemId: scope.id, category } }
       : { programId_category: { programId: scope.id, category } };
-  const key = scope.kind === "group" ? { groupId: scope.id } : { programId: scope.id };
+  const key = scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id };
 
   const before = await prisma.budget.findUnique({ where });
   if (value === 0) {
@@ -237,7 +254,7 @@ export async function setBudget(
 export async function addCommitment(
   scope: BudgetScope,
   input: {
-    groupId: string;
+    itemId: string;
     category: CostCategory;
     amount: number;
     vendor: string;
@@ -247,12 +264,12 @@ export async function addCommitment(
   }
 ): Promise<{ error?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
-  if (!resolved.groupIds.includes(input.groupId)) return { error: "這個分組不屬於本預算範圍" };
+  if (!resolved.itemIds.includes(input.itemId)) return { error: "這個工作項不屬於本預算範圍" };
   if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "金額必須大於 0" };
 
   await prisma.commitment.create({
     data: {
-      groupId: input.groupId,
+      itemId: input.itemId,
       category: input.category,
       amount: Math.round(input.amount),
       vendor: input.vendor.trim() || null,
@@ -286,7 +303,7 @@ export async function settleCommitment(
   const commitment = await prisma.commitment.findUnique({ where: { id: commitmentId } });
   if (!commitment) return { error: "找不到這筆訂單" };
   if (commitment.settled) return { error: "這筆已經入帳了" };
-  if (!resolved.groupIds.includes(commitment.groupId)) return { error: "這筆不屬於本預算範圍" };
+  if (!resolved.itemIds.includes(commitment.itemId)) return { error: "這筆不屬於本預算範圍" };
   if (!Number.isFinite(actualAmount) || actualAmount <= 0) return { error: "入帳金額必須大於 0" };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "請選擇入帳日期" };
 
@@ -294,7 +311,7 @@ export async function settleCommitment(
   await prisma.$transaction([
     prisma.expense.create({
       data: {
-        groupId: commitment.groupId,
+        itemId: commitment.itemId,
         category: commitment.category,
         amount,
         date,
@@ -327,7 +344,7 @@ export async function deleteCommitment(
 ): Promise<{ error?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
   const commitment = await prisma.commitment.findUnique({ where: { id: commitmentId } });
-  if (!commitment || !resolved.groupIds.includes(commitment.groupId)) {
+  if (!commitment || !resolved.itemIds.includes(commitment.itemId)) {
     return { error: "找不到這筆訂單" };
   }
   if (commitment.settled) return { error: "已入帳的訂單不能刪除——那是一筆帳了。" };
@@ -341,7 +358,7 @@ export async function deleteCommitment(
 export async function addExpense(
   scope: BudgetScope,
   input: {
-    groupId: string;
+    itemId: string;
     category: CostCategory;
     amount: number;
     date: string;
@@ -350,7 +367,7 @@ export async function addExpense(
   }
 ): Promise<{ error?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
-  if (!resolved.groupIds.includes(input.groupId)) return { error: "這個分組不屬於本預算範圍" };
+  if (!resolved.itemIds.includes(input.itemId)) return { error: "這個工作項不屬於本預算範圍" };
   if (!Number.isFinite(input.amount) || input.amount <= 0) return { error: "金額必須大於 0" };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: "請選擇日期" };
   if (input.category === "LABOUR") {
@@ -359,7 +376,7 @@ export async function addExpense(
 
   await prisma.expense.create({
     data: {
-      groupId: input.groupId,
+      itemId: input.itemId,
       category: input.category,
       amount: Math.round(input.amount),
       date: input.date,
@@ -383,7 +400,7 @@ export async function deleteExpense(
 ): Promise<{ error?: string }> {
   const { session, resolved } = await requireBudgetAdmin(scope);
   const expense = await prisma.expense.findUnique({ where: { id: expenseId } });
-  if (!expense || !resolved.groupIds.includes(expense.groupId)) return { error: "找不到這筆支出" };
+  if (!expense || !resolved.itemIds.includes(expense.itemId)) return { error: "找不到這筆支出" };
   // Deleting the expense a PO settled into would leave the PO marked settled
   // with its money nowhere — reopen it instead.
   if (expense.commitmentId) {

@@ -252,9 +252,7 @@ model Group {
   roleAssignments GroupRoleAssignment[]
   members         GroupMember[]
   resourceMembers GroupResourceMember[]
-  budgets         Budget[]
-  commitments     Commitment[]
-  expenses        Expense[]
+
 
   @@index([boardId])
 }
@@ -394,6 +392,9 @@ model Item {
   activityLog   ActivityLogEntry[]
   todoItems     TodoItem[]
   timeEntries   TimeEntry[]
+  budgets       Budget[]
+  commitments   Commitment[]
+  expenses      Expense[]
 
   @@index([boardId])
   @@index([groupId])
@@ -989,9 +990,12 @@ enum CostCategory {
 /// 拿來回答「還剩多少可以花」——兩個問題不一樣,所以兩份數字並存。
 model Budget {
   id String @id @default(cuid())
-  /// 恰好其中一個有值:預算掛在階段(分組)上,或整個專案群組上。
-  groupId   String?
-  group     Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// 恰好其中一個有值:預算掛在某個階段上,或整個專案群組上。
+  ///
+  /// 階段在這套系統裡是一列工作項(例如「EVT Phase」),不是分組——分組通常
+  /// 是整個專案。閘門也是這樣掛的,兩者對齊。預算涵蓋該列底下的整棵子樹。
+  itemId    String?
+  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   programId String?
   program   Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
 
@@ -1004,7 +1008,7 @@ model Budget {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([groupId, category])
+  @@unique([itemId, category])
   @@unique([programId, category])
 }
 
@@ -1013,9 +1017,10 @@ model Budget {
 /// PO 一簽,錢實質上已經花掉了,但發票還沒進來——實際成本看不到它。少了這一
 /// 欄,「還剩多少可用」會一路高估到發票到齊那天,而那天通常已經來不及。
 model Commitment {
-  id      String @id @default(cuid())
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  /// 這筆訂單掛在哪一列工作項上(可以是階段那一列,也可以是底下某個任務)。
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   category CostCategory
   /// 元。
@@ -1033,7 +1038,7 @@ model Commitment {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([groupId, settled])
+  @@index([itemId, settled])
 }
 
 /// 一筆實際支出。
@@ -1043,12 +1048,11 @@ model Commitment {
 ///
 /// 人力不走這裡:它由核准過的工時算出來,手動再記一次就會重複計算。
 model Expense {
-  id      String @id @default(cuid())
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  /// 這筆錢花在哪個工作項上,有的話。存純 id——工作項丟進垃圾桶不該把帳
-  /// 一起帶走。
-  itemId String?
+  id     String @id @default(cuid())
+  /// 這筆錢花在哪一列工作項上。階段層的支出(例如整個 EVT 的差旅)就掛在
+  /// 階段那一列。
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   category CostCategory
   /// 元。
@@ -1063,7 +1067,7 @@ model Expense {
   createdById String?
   createdAt   DateTime @default(now())
 
-  @@index([groupId, date])
+  @@index([itemId, date])
 }
 
 model Program {

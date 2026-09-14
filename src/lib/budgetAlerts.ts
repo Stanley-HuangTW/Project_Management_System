@@ -29,11 +29,11 @@ export type BudgetAlert = {
 export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert[]> {
   const budgets = await prisma.budget.findMany({
     select: {
-      groupId: true,
+      itemId: true,
       programId: true,
       category: true,
       amount: true,
-      group: { select: { name: true, boardId: true, board: { select: { name: true } } } },
+      item: { select: { name: true, boardId: true, board: { select: { name: true } } } },
       program: { select: { name: true, boards: { select: { id: true } } } },
     },
   });
@@ -44,28 +44,29 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
   // an alert of its own.
   const byScope = new Map<string, typeof budgets>();
   for (const budget of budgets) {
-    const key = budget.groupId ? `g:${budget.groupId}` : `p:${budget.programId}`;
+    const key = budget.itemId ? `i:${budget.itemId}` : `p:${budget.programId}`;
     byScope.set(key, [...(byScope.get(key) ?? []), budget]);
   }
 
   const alerts: BudgetAlert[] = [];
   for (const [key, rows] of byScope) {
-    const isGroup = key.startsWith("g:");
+    const isPhase = key.startsWith("i:");
     const id = key.slice(2);
 
-    let groupIds: string[];
+    let itemIds: string[];
     let scopeName: string;
     let boardName: string | null = null;
     let href: string;
 
-    if (isGroup) {
-      const group = rows[0].group;
-      if (!group) continue;
-      if (!(await canAccessBoard(session, group.boardId))) continue;
-      groupIds = [id];
-      scopeName = group.name;
-      boardName = group.board.name;
-      href = `/boards/${group.boardId}`;
+    if (isPhase) {
+      const phase = rows[0].item;
+      if (!phase) continue;
+      if (!(await canAccessBoard(session, phase.boardId))) continue;
+      // The phase row plus everything under it — the budget covers the subtree.
+      itemIds = await subtreeIds(phase.boardId, id);
+      scopeName = phase.name;
+      boardName = phase.board.name;
+      href = `/boards/${phase.boardId}`;
     } else {
       const program = rows[0].program;
       if (!program) continue;
@@ -76,26 +77,26 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       // Not a single board of it is visible — from here the programme, and
       // therefore its budget, does not exist.
       if (boardIds.length === 0) continue;
-      const groups = await prisma.group.findMany({
-        where: { boardId: { in: boardIds } },
+      const items = await prisma.item.findMany({
+        where: { boardId: { in: boardIds }, deletedAt: null },
         select: { id: true },
       });
-      groupIds = groups.map((g) => g.id);
+      itemIds = items.map((i) => i.id);
       scopeName = program.name;
       href = `/programs/${id}`;
     }
 
     const [expenses, commitments, entries] = await Promise.all([
       prisma.expense.findMany({
-        where: { groupId: { in: groupIds } },
+        where: { itemId: { in: itemIds } },
         select: { category: true, amount: true },
       }),
       prisma.commitment.findMany({
-        where: { groupId: { in: groupIds }, settled: false },
+        where: { itemId: { in: itemIds }, settled: false },
         select: { category: true, amount: true },
       }),
       prisma.timeEntry.findMany({
-        where: { status: "APPROVED", item: { deletedAt: null, groupId: { in: groupIds } } },
+        where: { status: "APPROVED", itemId: { in: itemIds }, item: { deletedAt: null } },
         select: { userId: true, hours: true },
       }),
     ]);
@@ -118,7 +119,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     alerts.push({
       href,
       scopeName,
-      scopeKind: isGroup ? "階段" : "專案群組",
+      scopeKind: isPhase ? "階段" : "專案群組",
       boardName,
       level,
       budget: summary.total.budget,
@@ -134,4 +135,19 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     (a, b) =>
       (a.level === b.level ? 0 : a.level === "over" ? -1 : 1) || (b.usedPct ?? 0) - (a.usedPct ?? 0)
   );
+}
+
+/** A phase row and everything beneath it. */
+async function subtreeIds(boardId: string, rootId: string): Promise<string[]> {
+  const all = await prisma.item.findMany({
+    where: { boardId, deletedAt: null },
+    select: { id: true, parentId: true },
+  });
+  const out: string[] = [];
+  const walk = (id: string) => {
+    out.push(id);
+    for (const child of all.filter((i) => i.parentId === id)) walk(child.id);
+  };
+  walk(rootId);
+  return out;
 }

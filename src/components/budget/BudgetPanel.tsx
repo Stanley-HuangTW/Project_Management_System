@@ -339,7 +339,9 @@ function CommitmentTable({
   run: Runner;
   confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
 }) {
-  const [groupId, setGroupId] = useState(view.groups[0]?.id ?? "");
+  // Defaults to the scope's own row — a phase-level cost is the common case,
+  // and picking a task is the exception rather than a required step.
+  const [itemId, setItemId] = useState(view.items[0]?.id ?? "");
   const [category, setCategory] = useState<CostCategory>("MATERIAL");
   const [amount, setAmount] = useState("");
   const [vendor, setVendor] = useState("");
@@ -350,7 +352,7 @@ function CommitmentTable({
     const ok = await run(
       () =>
         addCommitment(scope, {
-          groupId,
+          itemId,
           category,
           amount: Number(amount.replace(/[,\s]/g, "")),
           vendor,
@@ -386,10 +388,11 @@ function CommitmentTable({
 
       {view.canEdit && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={fieldClass}>
-            {view.groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {scope.kind === "program" ? `${g.boardName} / ${g.name}` : g.name}
+          <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={`${fieldClass} max-w-[16rem]`}>
+            {view.items.map((i) => (
+              <option key={i.id} value={i.id}>
+                {" ".repeat(i.depth * 2)}
+                {scope.kind === "program" ? `${i.boardName} / ${i.name}` : i.name}
               </option>
             ))}
           </select>
@@ -431,7 +434,7 @@ function CommitmentTable({
           />
           <button
             type="button"
-            disabled={busy || !amount.trim() || !groupId}
+            disabled={busy || !amount.trim() || !itemId}
             onClick={handleAdd}
             className="flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
@@ -464,9 +467,7 @@ function CommitmentTable({
               <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
                 {c.expectedDate ?? ""}
               </span>
-              {scope.kind === "program" && (
-                <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{c.groupName}</span>
-              )}
+              <span className="shrink-0 truncate text-neutral-400 dark:text-neutral-500">{c.itemName}</span>
               {c.settled ? (
                 <span className="ml-auto shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] dark:bg-neutral-800">
                   已入帳
@@ -522,7 +523,7 @@ function ExpenseTable({
   run: Runner;
   confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
 }) {
-  const [groupId, setGroupId] = useState(view.groups[0]?.id ?? "");
+  const [itemId, setItemId] = useState(view.items[0]?.id ?? "");
   const [category, setCategory] = useState<CostCategory>("MATERIAL");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -532,7 +533,7 @@ function ExpenseTable({
     const ok = await run(
       () =>
         addExpense(scope, {
-          groupId,
+          itemId,
           category,
           amount: Number(amount.replace(/[,\s]/g, "")),
           date,
@@ -555,10 +556,11 @@ function ExpenseTable({
 
       {view.canEdit && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={fieldClass}>
-            {view.groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {scope.kind === "program" ? `${g.boardName} / ${g.name}` : g.name}
+          <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={`${fieldClass} max-w-[16rem]`}>
+            {view.items.map((i) => (
+              <option key={i.id} value={i.id}>
+                {" ".repeat(i.depth * 2)}
+                {scope.kind === "program" ? `${i.boardName} / ${i.name}` : i.name}
               </option>
             ))}
           </select>
@@ -588,7 +590,7 @@ function ExpenseTable({
           />
           <button
             type="button"
-            disabled={busy || !amount.trim() || !groupId}
+            disabled={busy || !amount.trim() || !itemId}
             onClick={handleAdd}
             className="flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
           >
@@ -613,9 +615,7 @@ function ExpenseTable({
                 {formatMoney(e.amount)}
               </span>
               <span className="min-w-0 flex-1 truncate">{e.vendor || e.note}</span>
-              {scope.kind === "program" && (
-                <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{e.groupName}</span>
-              )}
+              <span className="shrink-0 truncate text-neutral-400 dark:text-neutral-500">{e.itemName}</span>
               {view.canEdit && (
                 <button
                   type="button"
