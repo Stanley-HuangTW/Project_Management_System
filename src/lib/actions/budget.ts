@@ -9,6 +9,14 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess, canAccessBoard } from "@/lib/boardAccess";
 import { requireStructureAccess, canManageStructure } from "@/lib/permissions";
 import { summarizeBudget, alertLevel, type BudgetSummary, type BudgetAlertLevel } from "@/lib/budget";
+import {
+  computeBudgetForecast,
+  weightedFractionDone,
+  type BudgetForecast,
+} from "@/lib/budgetForecast";
+import { getItemDateRange } from "@/lib/gantt";
+import { countDaysInRange } from "@/lib/workday";
+import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { logAudit } from "@/lib/activityLog";
 
 /** 階段(一列工作項)或整個專案群組 — the two levels a budget is approved at. */
@@ -48,12 +56,14 @@ export type BudgetView = {
   alert: BudgetAlertLevel;
   /** Every task inside this scope, for the picker that books a cost against
    *  one of them. Indented by depth so a 195-row list is still readable. */
-  items: { id: string; name: string; depth: number; boardName: string }[];
+  items: { id: string; name: string; depth: number; boardId: string; boardName: string }[];
   commitments: CommitmentRow[];
   expenses: ExpenseRow[];
   /** 人力實際成本 is derived, not booked, so it is stated separately — it is
    *  the one line nobody can reconcile against a receipt. */
   labourActual: number;
+  /** 照這樣下去會花多少 — see budgetForecast.ts. */
+  forecast: BudgetForecast;
   canEdit: boolean;
 };
 
@@ -81,7 +91,7 @@ async function resolveScope(
       select: { id: true, name: true, parentId: true, order: true },
       orderBy: { order: "asc" },
     });
-    const subtree = collectSubtree(root.id, all, root.board.name);
+    const subtree = collectSubtree(root.id, all, root.boardId, root.board.name);
     return { name: root.name, itemIds: subtree.map((i) => i.id), items: subtree };
   }
 
@@ -102,7 +112,7 @@ async function resolveScope(
       orderBy: { order: "asc" },
     });
     for (const root of all.filter((i) => i.parentId === null)) {
-      items.push(...collectSubtree(root.id, all, board.name));
+      items.push(...collectSubtree(root.id, all, board.id, board.name));
     }
   }
   return { name: program.name, itemIds: items.map((i) => i.id), items };
@@ -112,17 +122,100 @@ async function resolveScope(
 function collectSubtree(
   rootId: string,
   all: { id: string; name: string; parentId: string | null }[],
+  boardId: string,
   boardName: string
 ): BudgetView["items"] {
   const out: BudgetView["items"] = [];
   const walk = (id: string, depth: number) => {
     const node = all.find((i) => i.id === id);
     if (!node) return;
-    out.push({ id: node.id, name: node.name, depth, boardName });
+    out.push({ id: node.id, name: node.name, depth, boardId, boardName });
     for (const child of all.filter((i) => i.parentId === id)) walk(child.id, depth + 1);
   };
   walk(rootId, 0);
   return out;
+}
+
+/**
+ * Reads the scope's tasks for how far along they are and when they run, then
+ * turns the ledgers into a forecast.
+ */
+async function forecastFor(
+  itemIds: string[],
+  budget: number,
+  expenses: { date: string; amount: number }[],
+  commitments: { date: string | null; amount: number }[],
+  labour: number,
+  boardIds: string[]
+): Promise<BudgetForecast> {
+  const today = new Date().toISOString().slice(0, 10);
+  const [boards, items, holidayRows] = await Promise.all([
+    prisma.board.findMany({
+      where: { id: { in: boardIds } },
+      select: {
+        id: true,
+        progressColumnId: true,
+        ganttStartColumnId: true,
+        ganttDurationColumnId: true,
+        ganttDurationMode: true,
+      },
+    }),
+    prisma.item.findMany({
+      where: { id: { in: itemIds }, deletedAt: null },
+      select: { id: true, boardId: true, parentId: true, cellValues: true },
+    }),
+    listHolidays(),
+  ]);
+  const holidays = toHolidaySet(holidayRows);
+  const boardById = new Map(boards.map((b) => [b.id, b]));
+  // Leaves only: a summary's progress is its children's, counted twice.
+  const parentIds = new Set(items.map((i) => i.parentId).filter(Boolean));
+
+  const tasks: { progressPct: number | null; days: number | null }[] = [];
+  let start: string | null = null;
+  let end: string | null = null;
+
+  for (const item of items) {
+    const board = boardById.get(item.boardId);
+    if (!board) continue;
+    const range =
+      board.ganttStartColumnId && board.ganttDurationColumnId
+        ? getItemDateRange(
+            item,
+            board.ganttStartColumnId,
+            board.ganttDurationColumnId,
+            board.ganttDurationMode,
+            holidays
+          )
+        : null;
+    if (range) {
+      const from = range.start.toISOString().slice(0, 10);
+      const to = range.end.toISOString().slice(0, 10);
+      if (start === null || from < start) start = from;
+      if (end === null || to > end) end = to;
+    }
+    if (parentIds.has(item.id)) continue;
+
+    const progress = board.progressColumnId
+      ? item.cellValues.find((cv) => cv.columnId === board.progressColumnId)?.value
+      : undefined;
+    tasks.push({
+      progressPct: typeof progress === "number" ? progress : null,
+      days: range
+        ? (countDaysInRange(range.start, range.end, board.ganttDurationMode, holidays) ?? 1)
+        : null,
+    });
+  }
+
+  return computeBudgetForecast({
+    budget,
+    expenses: [...expenses, ...(labour > 0 ? [{ date: today, amount: labour }] : [])],
+    commitments,
+    scheduleStart: start,
+    scheduleEnd: end,
+    fractionDone: weightedFractionDone(tasks),
+    todayIso: today,
+  });
 }
 
 /**
@@ -185,10 +278,26 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
       .map((c) => ({ category: c.category, amount: c.amount })),
   });
 
+  // Progress and dates come from the scope's own tasks, read through their
+  // board's Gantt columns — the same ones every other schedule view uses.
+  const boardIds = [...new Set(resolved.items.map((i) => i.boardId))];
+  const forecast = await forecastFor(
+    resolved.itemIds,
+    summary.total.budget,
+    expenses.map((e) => ({ date: e.date, amount: e.amount })),
+    commitments.filter((c) => !c.settled).map((c) => ({ date: c.expectedDate, amount: c.amount })),
+    // 人力 is spend too, but it has no single date — it is added at today so
+    // the totals agree with the summary above even though the curve cannot
+    // place it in time.
+    Math.round(labour),
+    boardIds
+  );
+
   return {
     scopeName: resolved.name,
     summary,
     alert: alertLevel(summary),
+    forecast,
     items: resolved.items,
     labourActual: Math.round(labour),
     // The same bar as every other structural change on a board.

@@ -6,6 +6,7 @@ import { AlertTriangle, Plus, Trash2, Check, Paperclip, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { formatMoney } from "@/lib/cost";
 import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
+import { SpendCurveChart } from "./SpendCurveChart";
 import {
   getBudgetView,
   setBudget,
@@ -37,7 +38,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
   const [view, setView] = useState<BudgetView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"summary" | "commitments" | "expenses">("summary");
+  const [tab, setTab] = useState<"summary" | "forecast" | "commitments" | "expenses">("summary");
 
   const reload = useCallback(async () => setView(await getBudgetView(scope)), [scope]);
 
@@ -136,6 +137,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
         {(
           [
             ["summary", "各類別"],
+            ["forecast", "完工預估"],
             ["commitments", `已下單 (${open.length})`],
             ["expenses", `支出明細 (${view.expenses.length})`],
           ] as const
@@ -158,6 +160,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
       {tab === "summary" && (
         <CategoryTable view={view} scope={scope} busy={busy} run={run} />
       )}
+      {tab === "forecast" && <ForecastPanel view={view} />}
       {tab === "commitments" && (
         <CommitmentTable
           view={view}
@@ -200,6 +203,81 @@ function Tile({
         {value}
       </p>
       {hint && <p className="text-[10px] text-neutral-400 dark:text-neutral-500">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * 完工預估 — 照這樣下去會花多少。
+ *
+ * 剩餘可用 is subtraction and only turns negative once the money is gone.
+ * These two numbers turn negative while there is still time: a phase 40% done
+ * that has spent 60% of its budget is already finished as a number, whatever
+ * the remaining balance says.
+ */
+function ForecastPanel({ view }: { view: BudgetView }) {
+  const { forecast } = view;
+
+  if (forecast.noForecast) {
+    return (
+      <div className="space-y-3">
+        <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 p-4 text-xs text-neutral-500 dark:text-neutral-400">
+          還無法預估。需要兩樣東西:<b>核准預算</b>,以及工作項上的 <b>% Done 進度</b>
+          ——沒有進度就沒有「做到哪裡」,也就沒有東西可以外推。
+        </p>
+        <SpendCurveChart forecast={forecast} />
+      </div>
+    );
+  }
+
+  const over = (forecast.varianceAtCompletion ?? 0) < 0;
+
+  return (
+    <div className="space-y-3">
+      {over && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <p>
+            <b>預計會超支</b>——目前完成 {((forecast.fractionDone ?? 0) * 100).toFixed(0)}%,已投入{" "}
+            {formatMoney(forecast.engaged)} 元。照這個效率跑完要{" "}
+            <b>{formatMoney(forecast.eacAtCurrentRate!)} 元</b>,比核准的多{" "}
+            {formatMoney(Math.abs(forecast.varianceAtCompletion!))} 元。
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tile
+          label="完成比例"
+          value={forecast.fractionDone === null ? "—" : `${(forecast.fractionDone * 100).toFixed(0)}%`}
+          hint="依工作天加權,只算葉節點"
+        />
+        <Tile label="已投入" value={formatMoney(forecast.engaged)} hint="已花費 + 已下單" />
+        <Tile
+          label="完工預估(照目前效率)"
+          value={forecast.eacAtCurrentRate === null ? "—" : formatMoney(forecast.eacAtCurrentRate)}
+          tone={over ? "bad" : "good"}
+          hint="剩下的照目前單位成本算"
+        />
+        <Tile
+          label="完工差異"
+          value={
+            forecast.varianceAtCompletion === null ? "—" : formatMoney(forecast.varianceAtCompletion)
+          }
+          tone={over ? "bad" : "good"}
+          hint="核准 − 完工預估,負值代表會超支"
+        />
+      </div>
+
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        另一種算法:剩下的工作若照原預算走,總共會是{" "}
+        <b>
+          {forecast.eacRemainingAtPlan === null ? "—" : formatMoney(forecast.eacRemainingAtPlan)} 元
+        </b>
+        。這是樂觀版——它假設目前為止出過的問題不會再出現。兩個數字一起看才是誠實的區間。
+      </p>
+
+      <SpendCurveChart forecast={forecast} />
     </div>
   );
 }
