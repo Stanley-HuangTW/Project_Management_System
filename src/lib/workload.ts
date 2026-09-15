@@ -1,6 +1,7 @@
 import type { BoardWithData, ItemData } from "@/types/board";
 import { getPersonIds } from "@/types/column";
 import { getItemDateRange, computeDailyLoadByUser } from "@/lib/gantt";
+import { groupByBoardAndGroup } from "@/lib/boardGrouping";
 
 export type WorkloadThresholdSettings = {
   greenMax: number;
@@ -45,40 +46,9 @@ export type MemberTask = {
  * else. A PERSON-column match has no allocation % of its own, so it's shown
  * as fully allocated (100%) unless a Gantt Assignment already covers it.
  */
-export type TaskGroup = { groupId: string; groupName: string; tasks: MemberTask[] };
-export type TaskBoard = { boardId: string; boardName: string; groups: TaskGroup[] };
-
-/**
- * 一個人的任務照「看板 → 分組」收起來。攤平成一長串的時候,看到的是十幾條
- * 名稱,看不出哪幾條是同一個專案的同一個階段 —— 而那正是要判斷「他這段時間
- * 到底在忙哪裡」需要的資訊。
- *
- * 順序沿用 tasks 本身的順序(也就是看板與項目原本的排序),不另外排,這樣
- * 展開後的順序跟看板上看到的一致。
- */
-export function groupTasksByBoardAndGroup(tasks: MemberTask[]): TaskBoard[] {
-  const boards: TaskBoard[] = [];
-  const boardIndex = new Map<string, TaskBoard>();
-  const groupIndex = new Map<string, TaskGroup>();
-
-  for (const task of tasks) {
-    let board = boardIndex.get(task.boardId);
-    if (!board) {
-      board = { boardId: task.boardId, boardName: task.boardName, groups: [] };
-      boardIndex.set(task.boardId, board);
-      boards.push(board);
-    }
-    const key = `${task.boardId}:${task.groupId}`;
-    let group = groupIndex.get(key);
-    if (!group) {
-      group = { groupId: task.groupId, groupName: task.groupName, tasks: [] };
-      groupIndex.set(key, group);
-      board.groups.push(group);
-    }
-    group.tasks.push(task);
-  }
-
-  return boards;
+/** 一個人的任務照「看板 → 分組」收起來 —— 跟儀表板的逾期清單同一套。 */
+export function groupTasksByBoardAndGroup(tasks: MemberTask[]) {
+  return groupByBoardAndGroup(tasks);
 }
 
 export function computeMemberTaskBreakdown(

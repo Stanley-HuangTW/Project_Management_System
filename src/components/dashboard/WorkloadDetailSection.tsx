@@ -445,7 +445,7 @@ export function WorkloadDetailSection({
                               >
                                 {g.groupName || "(未分組)"}
                               </div>,
-                              ...g.tasks.map((t) => {
+                              ...g.rows.map((t) => {
                             const hasRange = t.startDate && t.endDate;
                             const startIdx = hasRange ? weekIndexForDate(t.startDate!, weeks) : 0;
                             const endIdx = hasRange ? weekIndexForDate(t.endDate!, weeks) : 0;

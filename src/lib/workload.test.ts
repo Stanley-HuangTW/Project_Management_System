@@ -24,8 +24,8 @@ describe("groupTasksByBoardAndGroup", () => {
 
     expect(grouped.map((b) => b.boardName)).toEqual(["AMR", "M3"]);
     expect(grouped[0].groups.map((g) => g.groupName)).toEqual(["POC", "EVT"]);
-    expect(grouped[0].groups[0].tasks.map((t) => t.itemId)).toEqual(["i1", "i2"]);
-    expect(grouped[1].groups[0].tasks.map((t) => t.itemId)).toEqual(["i4"]);
+    expect(grouped[0].groups[0].rows.map((t) => t.itemId)).toEqual(["i1", "i2"]);
+    expect(grouped[1].groups[0].rows.map((t) => t.itemId)).toEqual(["i4"]);
   });
 
   it("同一個分組的任務即使中間夾著別的看板也會收在一起", () => {
@@ -36,7 +36,7 @@ describe("groupTasksByBoardAndGroup", () => {
     ]);
 
     expect(grouped).toHaveLength(2);
-    expect(grouped[0].groups[0].tasks.map((t) => t.itemId)).toEqual(["i1", "i3"]);
+    expect(grouped[0].groups[0].rows.map((t) => t.itemId)).toEqual(["i1", "i3"]);
   });
 
   it("沒有任務就沒有任何一層", () => {

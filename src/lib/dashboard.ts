@@ -3,6 +3,7 @@ import { getPersonIds, getStatusOptions, type StatusOption } from "@/types/colum
 import { getItemDateRange, computeDailyLoadByUser, manualScheduleHint } from "@/lib/gantt";
 import { computeItemProgress } from "@/lib/progress";
 import { resolveLockedScheduleFields, type ScheduleLock } from "@/lib/predecessorLink";
+import { computeWbsCodes } from "@/lib/wbs";
 
 export type WorkloadPeriod = "day" | "week" | "month";
 
@@ -203,8 +204,13 @@ export function computeBoardProgressOverview(boards: BoardWithData[]): BoardProg
 export type DueItemEntry = {
   boardId: string;
   boardName: string;
+  /** 哪個分組 —— 清單照看板與分組收起來,一長串名稱才看得出屬於哪一塊。 */
+  groupId: string;
+  groupName: string;
   itemId: string;
   itemName: string;
+  /** 它在分組裡的編號,例如 3.1.1。 */
+  wbsCode: string;
   end: Date;
 };
 
@@ -316,6 +322,14 @@ export function computeOverdueUpcoming(
   for (const board of boards) {
     if (!board.ganttStartColumnId || !board.ganttDurationColumnId) continue;
     const statusColumn = resolveStatusColumn(board);
+    const groupName = new Map(board.groups.map((g) => [g.id, g.name]));
+    // WBS 是項目在它自己分組樹裡的位置,所以一個分組算一次,而不是每一筆
+    // 逾期項目各算一次。
+    const wbs = new Map<string, string>();
+    for (const group of board.groups) {
+      const groupItems = board.items.filter((i) => i.groupId === group.id);
+      for (const [id, code] of computeWbsCodes(groupItems)) wbs.set(id, code);
+    }
     for (const item of board.items) {
       if (idSet) {
         const personIds = item.cellValues
@@ -336,7 +350,16 @@ export function computeOverdueUpcoming(
       if (!range) continue;
       if (range.end > weekAhead) continue;
 
-      const entry = { boardId: board.id, boardName: board.name, itemId: item.id, itemName: item.name, end: range.end };
+      const entry = {
+        boardId: board.id,
+        boardName: board.name,
+        groupId: item.groupId,
+        groupName: groupName.get(item.groupId) ?? "",
+        itemId: item.id,
+        itemName: item.name,
+        wbsCode: wbs.get(item.id) ?? "",
+        end: range.end,
+      };
       if (isItemComplete(item, board, statusColumn)) {
         completed.push(entry);
       } else if (range.end < today) {
