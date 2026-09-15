@@ -55,6 +55,7 @@ export function CellEditor({
   users,
   canEdit = true,
   isProgressColumn = false,
+  bordered = false,
   predColumnId,
   groupItems,
   crossGroupPredOptions,
@@ -67,6 +68,8 @@ export function CellEditor({
   users: UserOption[];
   canEdit?: boolean;
   isProgressColumn?: boolean;
+  /** 卡片裡要畫出輸入框,表格裡不要 —— 見 cellFieldClass。 */
+  bordered?: boolean;
   /** When column is the board's designated Pred column and groupItems is
    *  given, Pred renders as a dropdown of the item's group siblings instead
    *  of a free-text WBS code field. */
@@ -103,6 +106,7 @@ export function CellEditor({
           itemId={itemId}
           columnId={column.id}
           value={typeof value === "string" ? value : ""}
+          bordered={bordered}
         />
       );
     case "NUMBER":
@@ -113,6 +117,7 @@ export function CellEditor({
           columnId={column.id}
           value={typeof value === "number" ? value : null}
           percent={isProgressColumn}
+          bordered={bordered}
         />
       );
     case "DATE":
@@ -122,6 +127,7 @@ export function CellEditor({
           itemId={itemId}
           columnId={column.id}
           value={typeof value === "string" ? value : null}
+          bordered={bordered}
         />
       );
     case "PERSON":

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { boardWithDataArgs } from "@/types/board";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
-import { groupByBoardAndGroup } from "@/lib/boardGrouping";
+import { DueListsSection } from "@/components/dashboard/DueListsSection";
 import { subordinateIds } from "@/lib/orgChart";
 import { canManageStructure } from "@/lib/permissions";
 import {
@@ -14,7 +14,6 @@ import {
   computePersonalItems,
   type WorkloadPeriod,
   type MemberItemWorkloadEntry,
-  type DueItemEntry,
 } from "@/lib/dashboard";
 import { TeamWorkloadCard } from "@/components/dashboard/TeamWorkloadCard";
 import { WorkloadDetailSection } from "@/components/dashboard/WorkloadDetailSection";
@@ -34,10 +33,6 @@ import { buildSupervisorParentTree, buildFullParentTree } from "@/lib/parentTask
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { applyVisibilityToBoards } from "@/lib/applyVisibility";
 import { leaveDaysByUser } from "@/lib/actions/leave";
-
-function formatDate(date: Date) {
-  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
-}
 
 export default async function DashboardPage({
   searchParams,
@@ -280,32 +275,7 @@ export default async function DashboardPage({
         </div>
       </section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">逾期 / 即將到期項目</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <DueList
-            title={`逾期(${overdue.length})`}
-            titleClass="text-red-600"
-            dateClass="text-red-600"
-            empty="沒有逾期項目"
-            entries={overdue}
-          />
-          <DueList
-            title={`即將到期,7 天內(${upcoming.length})`}
-            titleClass="text-neutral-500 dark:text-neutral-400"
-            dateClass="text-neutral-500 dark:text-neutral-400"
-            empty="7 天內沒有到期項目"
-            entries={upcoming}
-          />
-          <DueList
-            title={`已完成項目(${completed.length})`}
-            titleClass="text-green-600"
-            dateClass="text-green-600"
-            empty="沒有已完成項目"
-            entries={completed}
-          />
-        </div>
-      </section>
+      <DueListsSection overdue={overdue} upcoming={upcoming} completed={completed} />
 
       {isSupervisor && (
         <section>
@@ -354,78 +324,6 @@ export default async function DashboardPage({
             emptyText="你負責窗口的資源目前沒有指派中的項目"
           />
         </section>
-      )}
-    </div>
-  );
-}
-
-/**
- * 逾期 / 即將到期 / 已完成,照「看板 → 分組」收起來。
- *
- * 六十幾條名稱平鋪的時候,看不出哪幾條是同一個專案的同一個階段 —— 而那正是
- * 決定「先處理哪一塊」需要的。日期順序不變,分組只是把同一塊的收在一起。
- */
-function DueList({
-  title,
-  titleClass,
-  dateClass,
-  empty,
-  entries,
-}: {
-  title: string;
-  titleClass: string;
-  dateClass: string;
-  empty: string;
-  entries: DueItemEntry[];
-}) {
-  const boards = groupByBoardAndGroup(entries);
-
-  return (
-    <div className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-      <p className={`mb-2 text-xs font-medium ${titleClass}`}>{title}</p>
-      {entries.length === 0 ? (
-        <p className="text-sm text-neutral-400 dark:text-neutral-500">{empty}</p>
-      ) : (
-        <div className="space-y-3">
-          {boards.map((board) => (
-            <div key={board.boardId}>
-              <p className="mb-1 flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                <span className="min-w-0 truncate">{board.boardName}</span>
-                <span className="shrink-0 font-normal text-neutral-400 dark:text-neutral-500">
-                  {board.count}
-                </span>
-              </p>
-              {board.groups.map((group) => (
-                <div key={group.groupId} className="mb-1.5">
-                  <p className="truncate pl-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
-                    {group.groupName || "(未分組)"}
-                  </p>
-                  <ul className="space-y-1">
-                    {group.rows.map((e) => (
-                      <li
-                        key={`${e.boardId}-${e.itemId}`}
-                        className="flex items-center justify-between gap-2 pl-3 text-sm"
-                      >
-                        <Link
-                          href={`/boards/${e.boardId}?highlight=${e.itemId}`}
-                          className="min-w-0 truncate text-neutral-700 dark:text-neutral-100 hover:text-blue-600"
-                        >
-                          {e.wbsCode && (
-                            <span className="mr-1.5 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
-                              {e.wbsCode}
-                            </span>
-                          )}
-                          {e.itemName}
-                        </Link>
-                        <span className={`shrink-0 text-xs ${dateClass}`}>{formatDate(e.end)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

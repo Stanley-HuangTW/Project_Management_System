@@ -196,6 +196,7 @@ export function ItemCardTab({
                   isProgressColumn={col.id === progressColumnId}
                   predColumnId={predColumnId}
                   groupItems={groupItems}
+                  bordered
                 />
               </span>
             </div>

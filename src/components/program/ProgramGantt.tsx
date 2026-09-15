@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Zap, Star, ArrowRightLeft } from "lucide-react";
 import type { ProgramTask, ProgramView } from "@/lib/programView";
@@ -155,6 +155,58 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
 
   const todayIndex = dayIndexByIso.get(new Date().toISOString().slice(0, 10));
   const timelineWidth = days.length * dayWidth;
+  const contentWidth = LABEL_WIDTH + timelineWidth;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef<{ startX: number; startScrollLeft: number } | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
+
+  function syncFromTopScroll() {
+    if (scrollRef.current && topScrollRef.current) {
+      scrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  }
+
+  function syncFromMainScroll() {
+    if (scrollRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const container = scrollRef.current;
+    if (!container) return;
+    if (!container.contains(e.target as Node)) return;
+    // 長條本身是連結,拖曳不該把它當成點擊。
+    if ((e.target as HTMLElement).closest("a,button")) return;
+    dragState.current = { startX: e.clientX, startScrollLeft: container.scrollLeft };
+    setIsPanning(true);
+    container.setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragState.current || !scrollRef.current) return;
+    scrollRef.current.scrollLeft =
+      dragState.current.startScrollLeft - (e.clientX - dragState.current.startX);
+    syncFromMainScroll();
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    dragState.current = null;
+    setIsPanning(false);
+    scrollRef.current?.releasePointerCapture?.(e.pointerId);
+  }
+
+  // 一年多的時間軸打開來停在最左邊,看到的是早就做完的那一段。跳到今天,
+  // 留兩格在左邊當前後文。
+  useEffect(() => {
+    const el = scrollRef.current;
+    // 今天不在這個專案的區間裡(整個做完了,或還沒開始)就維持在最左邊。
+    if (!el || todayIndex === undefined) return;
+    el.scrollLeft = Math.max(0, (todayIndex - 2) * dayWidth);
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
+  }, [todayIndex, dayWidth]);
+
   const totalHeight = rows.reduce((h, row) => h + (row.kind === "board" ? BOARD_ROW_H : ROW_H), 0);
 
   if (days.length === 0) {
@@ -206,8 +258,27 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
         </span>
       </div>
 
-      <div className="overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
-        <div style={{ minWidth: LABEL_WIDTH + timelineWidth }}>
+      {/* 貼在頂端的水平捲軸:主容器自己的那條在三百多列底下,實際上碰不到。 */}
+      <div
+        ref={topScrollRef}
+        onScroll={syncFromTopScroll}
+        className="sticky top-0 z-30 mb-1 overflow-x-auto overflow-y-hidden bg-white dark:bg-neutral-900"
+        style={{ height: 14 }}
+      >
+        <div style={{ width: contentWidth, height: 1 }} />
+      </div>
+      <div
+        ref={scrollRef}
+        onScroll={syncFromMainScroll}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        className={`max-h-[70vh] overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 ${
+          isPanning ? "cursor-grabbing select-none" : "cursor-grab"
+        }`}
+      >
+        <div style={{ minWidth: contentWidth }}>
           {/* Header */}
           <div className="sticky top-0 z-20 flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800">
             <div
