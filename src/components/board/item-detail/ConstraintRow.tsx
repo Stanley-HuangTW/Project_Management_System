@@ -89,7 +89,7 @@ export function ConstraintRow({
               if (!next) save(null, null);
               else if (date) save(next, date);
             }}
-            className="rounded border border-neutral-200 dark:border-neutral-700 bg-transparent px-1.5 py-0.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
+            className="rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-1.5 py-0.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
           >
             <option value={NONE}>無</option>
             {(Object.keys(CONSTRAINT_LABELS) as ItemConstraintType[]).map((key) => (
@@ -106,7 +106,7 @@ export function ConstraintRow({
               onChange={(e) =>
                 e.target.value ? save(draftType, e.target.value) : save(null, null)
               }
-              className="rounded border border-neutral-200 dark:border-neutral-700 bg-transparent px-1.5 py-0.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
+              className="rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-1.5 py-0.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
             />
           )}
         </div>

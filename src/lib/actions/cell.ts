@@ -183,7 +183,7 @@ export async function upsertCellValue(
         }
         await logActivity(itemId, session.userId, `「${column.name}」指派給 ${assignee.name}`);
         if (userId === session.userId) continue;
-        const message = `你被指派到「${item.name}」`;
+        const message = `「${column.name}」指派給你`;
         await prisma.notification.create({
           data: {
             userId,
@@ -207,7 +207,7 @@ export async function upsertCellValue(
           itemId,
           session.userId,
           "UPDATED",
-          `「${item.name}」的「${column.name}」已更新`
+          `「${column.name}」:${oldLabel} → ${newLabel}`
         );
         if (column.type === "STATUS") {
           await executeAutomationRules(boardId, itemId, columnId, value, session.userId);

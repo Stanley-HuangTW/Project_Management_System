@@ -99,7 +99,7 @@ export async function upsertAssignment(
   }
 
   if (!existing && item && userId !== session.userId) {
-    const message = `你被指派到「${item.name}」`;
+    const message = `指派給你,配置 ${pct}%`;
     await prisma.notification.create({
       data: {
         userId,

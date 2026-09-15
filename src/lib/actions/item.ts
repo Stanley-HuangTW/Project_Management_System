@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import { canManageGroupStructure, canModifyItemSchedule, requireStructureAccess } from "@/lib/permissions";
 import { requireBoardAccess, requireGroupBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
+import { notifyStructuralChange } from "@/lib/notify";
 import { getStatusOptions } from "@/types/column";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import {
@@ -203,6 +204,7 @@ export async function createItem(
     item = await prisma.item.findUniqueOrThrow({ where: { id: item.id }, include: itemDetailInclude });
   }
 
+  await notifyStructuralChange(prisma, item.id, session.userId, "CREATED", "新增了這個項目");
   await dispatchWebhooks(boardId, "item.created", { itemId: item.id, name: item.name, groupId, parentId });
 
   revalidatePath(`/boards/${boardId}`);
@@ -285,6 +287,8 @@ export async function insertItem(
     item = await prisma.item.findUniqueOrThrow({ where: { id: created.id }, include: itemDetailInclude });
   }
 
+  await notifyStructuralChange(prisma, created.id, session.userId, "CREATED", "新增了這個項目");
+
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/dashboard");
   return item;
@@ -351,6 +355,15 @@ export async function deleteItem(
     data: { deletedPredSnapshot: snapshot.length > 0 ? snapshot : Prisma.JsonNull },
   });
 
+  await notifyStructuralChange(
+    prisma,
+    itemId,
+    session.userId,
+    "DELETED",
+    dependentIds.length > 0
+      ? `刪除了這個項目(移到垃圾桶),另有 ${dependentIds.length} 個項目的前置被改寫`
+      : "刪除了這個項目(移到垃圾桶)"
+  );
   await dispatchWebhooks(item.boardId, "item.deleted", { itemId, name: item.name });
 
   const dependents = dependentIds;

@@ -260,7 +260,7 @@ export function BoardRisks({
                         value={risk.status}
                         disabled={busy}
                         onChange={(e) => handleStatus(risk, e.target.value as RiskStatus)}
-                        className="rounded border border-neutral-200 dark:border-neutral-700 bg-transparent px-1 py-0.5 text-xs outline-none focus:border-blue-500"
+                        className="rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
                       >
                         {(Object.keys(RISK_STATUS_LABELS) as RiskStatus[]).map((key) => (
                           <option key={key} value={key}>

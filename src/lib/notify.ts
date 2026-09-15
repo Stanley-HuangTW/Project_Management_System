@@ -25,6 +25,59 @@ export async function notifyEmailIfNeeded(
 }
 
 /**
+ * 結構變動(新增、刪除一列)的收件人比指派廣一圈:除了被指派的人與看板
+ * 擁有者,同一個分組的成員與有分組角色的人也都收得到。一列被加進來或
+ * 拿掉,動到的是整張排程網路,不只那一列上掛著名字的人。
+ */
+export async function notifyStructuralChange(
+  tx: Prisma.TransactionClient,
+  itemId: string,
+  actorId: string,
+  type: NotificationType,
+  message: string
+) {
+  const item = await tx.item.findUnique({
+    where: { id: itemId },
+    select: {
+      board: { select: { ownerId: true } },
+      group: {
+        select: {
+          members: { select: { userId: true } },
+          roleAssignments: { select: { userId: true } },
+        },
+      },
+    },
+  });
+  if (!item) return;
+
+  const recipientIds = new Set<string>([item.board.ownerId]);
+  for (const m of item.group.members) recipientIds.add(m.userId);
+  for (const r of item.group.roleAssignments) recipientIds.add(r.userId);
+
+  const [personCellValues, assignments] = await Promise.all([
+    tx.cellValue.findMany({ where: { itemId, column: { type: "PERSON" } } }),
+    tx.assignment.findMany({ where: { itemId }, select: { userId: true } }),
+  ]);
+  for (const cv of personCellValues) {
+    for (const userId of getPersonIds(cv.value)) recipientIds.add(userId);
+  }
+  for (const a of assignments) recipientIds.add(a.userId);
+  recipientIds.delete(actorId);
+  if (recipientIds.size === 0) return;
+
+  // PERSON 欄位裡也可能是 Resource(治具/廠商),那些沒有帳號可以通知。
+  const realUsers = await tx.user.findMany({
+    where: { id: { in: Array.from(recipientIds) } },
+    select: { id: true },
+  });
+  if (realUsers.length === 0) return;
+
+  await tx.notification.createMany({
+    data: realUsers.map((u) => ({ userId: u.id, actorId, type, itemId, message })),
+  });
+}
+
+/**
  * Notifies everyone assigned to an item — via any PERSON column or a Gantt
  * Assignment (the two mechanisms isItemAssignedToUser treats as equivalent
  * everywhere else) — plus the board owner, excluding whoever triggered the

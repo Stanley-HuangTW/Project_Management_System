@@ -524,6 +524,10 @@ enum NotificationType {
   UPDATED
   COMMENTED
   AUTOMATION
+  /// 新增與刪除一列。收件人比其他幾種廣:同一個分組的人都會收到,因為
+  /// 結構變動影響的是整張排程網路,不只被指派的那個人。
+  CREATED
+  DELETED
 }
 
 model AutomationRule {

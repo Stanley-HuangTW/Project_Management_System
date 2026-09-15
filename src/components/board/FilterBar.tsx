@@ -77,7 +77,7 @@ export function FilterBar({
                 const col = allColumns.find((c) => c.id === e.target.value);
                 if (col) updateFilter(index, { columnId: col.id, value: defaultValueFor(col.type) });
               }}
-              className="rounded border-none bg-transparent text-xs font-medium text-neutral-700 dark:text-neutral-100 outline-none"
+              className="rounded border-none bg-white dark:bg-neutral-900 text-xs font-medium text-neutral-700 dark:text-neutral-100 outline-none"
             >
               {allColumns.map((c) => (
                 <option key={c.id} value={c.id}>
