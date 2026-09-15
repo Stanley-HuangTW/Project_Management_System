@@ -12,6 +12,7 @@ export default async function GroupRolesSettingsPage() {
 
   const [boards, users, resources] = await Promise.all([
     prisma.board.findMany({
+      where: { deletedAt: null },
       select: {
         id: true,
         name: true,

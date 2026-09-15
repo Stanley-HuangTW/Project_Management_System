@@ -128,7 +128,7 @@ async function resolveScope(
 
   const program = await prisma.program.findUnique({
     where: { id: scope.id },
-    select: { name: true, boards: { select: { id: true, name: true } } },
+    select: { name: true, boards: { where: { deletedAt: null }, select: { id: true, name: true } } },
   });
   if (!program) return null;
 
@@ -440,7 +440,10 @@ async function canEditBudget(
 
   const program = await prisma.program.findUnique({
     where: { id: scope.id },
-    select: { createdById: true, boards: { select: { id: true, ownerId: true } } },
+    select: {
+      createdById: true,
+      boards: { where: { deletedAt: null }, select: { id: true, ownerId: true } },
+    },
   });
   if (!program) return false;
   if (program.createdById === session.userId) return true;

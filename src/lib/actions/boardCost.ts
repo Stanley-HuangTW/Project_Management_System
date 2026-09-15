@@ -58,7 +58,7 @@ export async function getBoardCostReport(boardId: string): Promise<BoardCostRepo
  */
 export async function getProgramCostReport(programId: string): Promise<BoardCostReport> {
   const session = await requireSession();
-  const boards = await prisma.board.findMany({ where: { programId }, select: { id: true } });
+  const boards = await prisma.board.findMany({ where: { programId, deletedAt: null }, select: { id: true } });
   const allowed: string[] = [];
   for (const board of boards) {
     if (await canAccessBoard(session, board.id)) allowed.push(board.id);

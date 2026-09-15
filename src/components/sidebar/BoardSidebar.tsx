@@ -35,6 +35,7 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useBoardAdminActions, type BoardAdminAction } from "@/components/board/BoardAdminActions";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { ProfileModal } from "./ProfileModal";
+import { BoardTrashModal } from "./BoardTrashModal";
 import { createBoard, renameBoard, deleteBoard } from "@/lib/actions/board";
 import { logout } from "@/lib/actions/auth";
 
@@ -91,6 +92,7 @@ export function BoardSidebar({
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
 
+  const [boardTrashOpen, setBoardTrashOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Board | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -170,11 +172,10 @@ export function BoardSidebar({
   }
 
   async function handleDelete(board: Board) {
-    const ok = await confirm(`確定要刪除看板「${board.name}」嗎?此操作無法復原。`, {
-      title: "刪除看板",
-      confirmLabel: "刪除",
-      danger: true,
-    });
+    const ok = await confirm(
+      `把看板「${board.name}」移到垃圾桶?資料都會留著,之後可以從「看板垃圾桶」還原。`,
+      { title: "刪除看板", confirmLabel: "移到垃圾桶", danger: true }
+    );
     if (!ok) return;
     startTransition(async () => {
       await deleteBoard(board.id);
@@ -325,6 +326,16 @@ export function BoardSidebar({
             稽核軌跡
           </Link>
         )}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => setBoardTrashOpen(true)}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          >
+            <Trash2 size={14} className="shrink-0" />
+            看板垃圾桶
+          </button>
+        )}
         {userRole === "ADMIN" && (
           <Link
             href="/group-roles"
@@ -452,6 +463,7 @@ export function BoardSidebar({
         open={profileOpen}
         onOpenChange={setProfileOpen}
       />
+      <BoardTrashModal open={boardTrashOpen} onOpenChange={setBoardTrashOpen} />
 
       <div
         onPointerDown={startResize}

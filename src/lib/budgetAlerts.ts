@@ -41,7 +41,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       category: true,
       amount: true,
       item: { select: { name: true, boardId: true, board: { select: { name: true } } } },
-      program: { select: { name: true, boards: { select: { id: true } } } },
+      program: { select: { name: true, boards: { where: { deletedAt: null }, select: { id: true } } } },
     },
   });
   if (budgets.length === 0) return [];

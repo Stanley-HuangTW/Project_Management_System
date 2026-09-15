@@ -88,28 +88,29 @@ model User {
   hourlyRate Decimal? @db.Decimal(12, 2)
 
   supervisorId String?
-  supervisor   User?    @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
-  teamMembers  User[]   @relation("Supervision")
+  supervisor   User?   @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
+  teamMembers  User[]  @relation("Supervision")
 
-  ownedBoards   Board[]
-  comments      Comment[]
-  notifications Notification[]
-  assignments   Assignment[]
-  automationNotifyFor AutomationRule[] @relation("RuleNotifyUser")
-  boardMemberships    BoardMember[]
-  attachments         Attachment[]
-  activityLogEntries  ActivityLogEntry[]
-  createdItems        Item[]              @relation("ItemCreatedBy")
-  deletedItems        Item[]              @relation("ItemDeletedBy")
-  savedViews          SavedView[]         @relation("SavedViewOwner")
-  projectTemplates    ProjectTemplate[]   @relation("ProjectTemplateCreatedBy")
-  timeEntries         TimeEntry[]
-  ownedRisks          RiskEntry[]         @relation("RiskOwner")
-  visibleItems        ItemViewer[]
-  leaves              Leave[]
-  visibleGroups       GroupViewer[]
-  apiKeys             ApiKey[]            @relation("ApiKeyOwner")
-  managedResources    Resource[]          @relation("ResourceManager")
+  ownedBoards          Board[]
+  comments             Comment[]
+  notifications        Notification[]
+  assignments          Assignment[]
+  automationNotifyFor  AutomationRule[]      @relation("RuleNotifyUser")
+  boardMemberships     BoardMember[]
+  attachments          Attachment[]
+  activityLogEntries   ActivityLogEntry[]
+  createdItems         Item[]                @relation("ItemCreatedBy")
+  deletedItems         Item[]                @relation("ItemDeletedBy")
+  deletedBoards        Board[]               @relation("BoardDeletedBy")
+  savedViews           SavedView[]           @relation("SavedViewOwner")
+  projectTemplates     ProjectTemplate[]     @relation("ProjectTemplateCreatedBy")
+  timeEntries          TimeEntry[]
+  ownedRisks           RiskEntry[]           @relation("RiskOwner")
+  visibleItems         ItemViewer[]
+  leaves               Leave[]
+  visibleGroups        GroupViewer[]
+  apiKeys              ApiKey[]              @relation("ApiKeyOwner")
+  managedResources     Resource[]            @relation("ResourceManager")
   groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
   groupMemberships     GroupMember[]         @relation("GroupMembers")
   gateApprovals        GateApprover[]
@@ -142,22 +143,22 @@ model Resource {
 }
 
 model Board {
-  id        String          @id @default(cuid())
-  name      String
-  ownerId   String
-  owner     User            @relation(fields: [ownerId], references: [id])
-  createdAt DateTime        @default(now())
+  id         String          @id @default(cuid())
+  name       String
+  ownerId    String
+  owner      User            @relation(fields: [ownerId], references: [id])
+  createdAt  DateTime        @default(now())
   visibility BoardVisibility @default(PUBLIC)
 
   progressColumnId String?
   progressColumn   Column? @relation("BoardProgressColumn", fields: [progressColumnId], references: [id], onDelete: SetNull)
 
   ganttStartColumnId    String?
-  ganttStartColumn      Column? @relation("BoardGanttStartColumn", fields: [ganttStartColumnId], references: [id], onDelete: SetNull)
+  ganttStartColumn      Column?           @relation("BoardGanttStartColumn", fields: [ganttStartColumnId], references: [id], onDelete: SetNull)
   ganttDurationColumnId String?
-  ganttDurationColumn   Column? @relation("BoardGanttDurationColumn", fields: [ganttDurationColumnId], references: [id], onDelete: SetNull)
+  ganttDurationColumn   Column?           @relation("BoardGanttDurationColumn", fields: [ganttDurationColumnId], references: [id], onDelete: SetNull)
   ganttEndColumnId      String?
-  ganttEndColumn        Column? @relation("BoardGanttEndColumn", fields: [ganttEndColumnId], references: [id], onDelete: SetNull)
+  ganttEndColumn        Column?           @relation("BoardGanttEndColumn", fields: [ganttEndColumnId], references: [id], onDelete: SetNull)
   ganttDurationMode     GanttDurationMode @default(CALENDAR)
 
   predColumnId String?
@@ -204,23 +205,32 @@ model Board {
   /// so nothing is compared against a plan that was never saved.
   baselineCapturedAt DateTime?
 
-  groups  Group[]
-  columns Column[] @relation("BoardColumns")
-  items   Item[]
+  /// 垃圾桶。刪除看板不再是真的刪掉:有 deletedAt 的看板從每一份清單、搜尋、
+  /// 排程網路與專案群組的計算裡消失,但整份資料都還在,可以還原。只有管理者
+  /// 能永久刪除。
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("BoardDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  groups          Group[]
+  columns         Column[]         @relation("BoardColumns")
+  items           Item[]
   automationRules AutomationRule[]
   members         BoardMember[]
   /// 專案群組:同一個群組裡的看板共用一張排程網路,前置可以跨看板,
   /// 要徑與完工日也是整個群組一起算。null = 這個看板自成一個專案。
-  programId String?
-  program   Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  programId       String?
+  program         Program?         @relation(fields: [programId], references: [id], onDelete: SetNull)
 
-  savedViews      SavedView[]
-  risks           RiskEntry[]
-  gates           Gate[]
-  changeRequests  ChangeRequest[]
-  activityLog     ActivityLogEntry[]
-  webhooks        Webhook[]
-  baselines       Baseline[]
+  savedViews     SavedView[]
+  risks          RiskEntry[]
+  gates          Gate[]
+  changeRequests ChangeRequest[]
+  activityLog    ActivityLogEntry[]
+  webhooks       Webhook[]
+  baselines      Baseline[]
+
+  @@index([deletedAt])
 }
 
 model BoardMember {
@@ -243,17 +253,16 @@ model Group {
   color   String @default("#579bfc")
   order   Int    @default(0)
 
-  visibility RowVisibility  @default(PUBLIC)
-  viewers    GroupViewer[]
+  visibility  RowVisibility @default(PUBLIC)
+  viewers     GroupViewer[]
   /// Who made it private, and therefore keeps sight of it.
   createdById String?
 
-  items Item[]
+  items                 Item[]
   automationMoveTargets AutomationRule[]
-  roleAssignments GroupRoleAssignment[]
-  members         GroupMember[]
-  resourceMembers GroupResourceMember[]
-
+  roleAssignments       GroupRoleAssignment[]
+  members               GroupMember[]
+  resourceMembers       GroupResourceMember[]
 
   @@index([boardId])
 }
@@ -312,20 +321,20 @@ model Column {
   options Json       @default("{}")
   order   Int        @default(0)
 
-  cellValues            CellValue[]
-  progressForBoards     Board[]     @relation("BoardProgressColumn")
-  ganttStartForBoards    Board[]     @relation("BoardGanttStartColumn")
-  ganttDurationForBoards Board[]     @relation("BoardGanttDurationColumn")
-  ganttEndForBoards      Board[]     @relation("BoardGanttEndColumn")
-  predForBoards          Board[]     @relation("BoardPredColumn")
-  linkForBoards          Board[]     @relation("BoardLinkColumn")
-  lagForBoards           Board[]     @relation("BoardLagColumn")
-  typeForBoards          Board[]     @relation("BoardTypeColumn")
-  reportStatusForBoards  Board[]     @relation("BoardReportStatusColumn")
-  manualStartForBoards    Board[]     @relation("BoardManualStartColumn")
-  manualDurationForBoards Board[]     @relation("BoardManualDurationColumn")
-  ruleTriggersFor AutomationRule[] @relation("RuleTriggerColumn")
-  ruleSetsFor     AutomationRule[] @relation("RuleSetColumn")
+  cellValues              CellValue[]
+  progressForBoards       Board[]          @relation("BoardProgressColumn")
+  ganttStartForBoards     Board[]          @relation("BoardGanttStartColumn")
+  ganttDurationForBoards  Board[]          @relation("BoardGanttDurationColumn")
+  ganttEndForBoards       Board[]          @relation("BoardGanttEndColumn")
+  predForBoards           Board[]          @relation("BoardPredColumn")
+  linkForBoards           Board[]          @relation("BoardLinkColumn")
+  lagForBoards            Board[]          @relation("BoardLagColumn")
+  typeForBoards           Board[]          @relation("BoardTypeColumn")
+  reportStatusForBoards   Board[]          @relation("BoardReportStatusColumn")
+  manualStartForBoards    Board[]          @relation("BoardManualStartColumn")
+  manualDurationForBoards Board[]          @relation("BoardManualDurationColumn")
+  ruleTriggersFor         AutomationRule[] @relation("RuleTriggerColumn")
+  ruleSetsFor             AutomationRule[] @relation("RuleSetColumn")
 
   @@index([boardId])
 }
@@ -377,9 +386,9 @@ model Item {
   /// deletedAt: null — a trashed item is gone from the board, the schedule
   /// and every report, but its comments, files and history are still there
   /// waiting for a restore.
-  deletedAt   DateTime?
-  deletedById String?
-  deletedBy   User?     @relation("ItemDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedAt           DateTime?
+  deletedById         String?
+  deletedBy           User?     @relation("ItemDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   /// What the dependents' Pred cells held before this deletion rewrote them,
   /// as [{itemId, columnId, value}] — restoring the item has to put their
   /// dependencies back too, or the undo is only half an undo.
@@ -405,24 +414,24 @@ model Item {
 }
 
 model Attachment {
-  id         String   @id @default(cuid())
+  id           String      @id @default(cuid())
   /// Always set, even for a receipt attached to an expense: it is what the
   /// download route checks board access through, and where the file is
   /// stored on disk.
-  itemId     String
-  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
   /// 報價單、發票、簽了的 PO。設了其中一個,這個檔案就是那筆帳的憑證,
   /// 而不是工作項本身的附件——項目卡片的附件清單會把它們排除。
   expenseId    String?
   expense      Expense?    @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   commitmentId String?
   commitment   Commitment? @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
-  fileName   String
-  url        String
-  size       Int
-  uploaderId String
-  uploader   User     @relation(fields: [uploaderId], references: [id])
-  createdAt  DateTime @default(now())
+  fileName     String
+  url          String
+  size         Int
+  uploaderId   String
+  uploader     User        @relation(fields: [uploaderId], references: [id])
+  createdAt    DateTime    @default(now())
 
   @@index([itemId])
   @@index([expenseId])
@@ -449,19 +458,19 @@ enum AuditCategory {
 }
 
 model ActivityLogEntry {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   /// 工作項層級的事件。板級/系統級事件沒有工作項,所以可為 null。
   itemId    String?
-  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item      Item?         @relation(fields: [itemId], references: [id], onDelete: Cascade)
   /// 事件屬於哪個看板。工作項事件也填,這樣稽核頁不必為了篩選看板而回頭
   /// 查每一筆的工作項。系統層級的事件為 null。
   boardId   String?
-  board     Board?   @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  board     Board?        @relation(fields: [boardId], references: [id], onDelete: SetNull)
   category  AuditCategory @default(ITEM)
   actorId   String?
-  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
   message   String
-  createdAt DateTime @default(now())
+  createdAt DateTime      @default(now())
 
   @@index([itemId])
   @@index([boardId, createdAt])
@@ -609,14 +618,14 @@ model CellValue {
 /// A named set of filters someone got tired of re-entering — "我的逾期任務",
 /// "本週要交的". Private to its owner unless shared with the board.
 model SavedView {
-  id      String  @id @default(cuid())
-  boardId String
-  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  ownerId String
-  owner   User    @relation("SavedViewOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  name    String
+  id        String   @id @default(cuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  ownerId   String
+  owner     User     @relation("SavedViewOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name      String
   /// Visible to everyone who can open the board; only the owner can change it.
-  isShared Boolean @default(false)
+  isShared  Boolean  @default(false)
   /// { filters: ActiveFilter[], groupFilterId: string, searchQuery: string }
   /// — see parseViewConfig, which is what actually decides what is usable.
   config    Json
@@ -629,16 +638,16 @@ model SavedView {
 /// already ran, so the next project does not have to be typed in again.
 /// App-wide, not per board: the point is to reuse it on the next board.
 model ProjectTemplate {
-  id          String  @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
   description String?
   createdById String?
-  createdBy   User?   @relation("ProjectTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?    @relation("ProjectTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   /// The captured tree — see buildTemplateContent / parseTemplateContent.
   /// Columns are held by name and dependencies by position, so a template
   /// is not tied to the board it came from.
-  content   Json
-  createdAt DateTime @default(now())
+  content     Json
+  createdAt   DateTime @default(now())
 }
 
 enum RiskKind {
@@ -658,31 +667,31 @@ enum RiskStatus {
 /// dealing with it. Deliberately separate from Item — a risk is not a task on
 /// the schedule, and putting it there would put it on the critical path.
 model RiskEntry {
-  id      String  @id @default(cuid())
-  boardId String
-  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  kind    RiskKind   @default(RISK)
-  status  RiskStatus @default(OPEN)
-  title       String
-  description String?
+  id             String     @id @default(cuid())
+  boardId        String
+  board          Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  kind           RiskKind   @default(RISK)
+  status         RiskStatus @default(OPEN)
+  title          String
+  description    String?
   /// 1-5 each; the register sorts on their product — see riskScore.
-  probability Int @default(3)
-  impact      Int @default(3)
+  probability    Int        @default(3)
+  impact         Int        @default(3)
   /// 發生的話要多少錢(元)。沒填就算不出 EMV,那一筆只會有 1-5 的分數。
-  costImpact Int?
+  costImpact     Int?
   /// 機率的百分比。填了就用它算 EMV,沒填就用 probability 這一級推算——
   /// 「中等機率」要換成一個數字才乘得下去,而那個換算值本來就該講明白。
   probabilityPct Int?
   /// The countermeasure, and who owes it.
-  mitigation String?
-  ownerId    String?
-  owner      User?   @relation("RiskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  mitigation     String?
+  ownerId        String?
+  owner          User?      @relation("RiskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   /// "YYYY-MM-DD" — when the countermeasure is due, not when the risk hits.
-  dueDate String?
+  dueDate        String?
   /// The work item this is about, when there is one. Kept as a plain id
   /// rather than a relation: trashing the item must not take the risk with
   /// it — the risk is often the reason the item is being reworked.
-  itemId String?
+  itemId         String?
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -696,14 +705,14 @@ model RiskEntry {
 /// It carries its creator's board access rather than a permission model of
 /// its own: the API can never show more than the person who issued the key.
 model ApiKey {
-  id        String  @id @default(cuid())
-  name      String
-  hashedKey String  @unique
+  id         String    @id @default(cuid())
+  name       String
+  hashedKey  String    @unique
   /// The visible head of the key ("hrapp_1a2b3c…"), so a key can be told
   /// apart in the list without storing the rest of it.
-  prefix    String
-  ownerId   String
-  owner     User    @relation("ApiKeyOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  prefix     String
+  ownerId    String
+  owner      User      @relation("ApiKeyOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
 }
@@ -712,20 +721,20 @@ model ApiKey {
 /// the webhook's own secret so the receiver can tell a real one from anybody
 /// who learned the URL.
 model Webhook {
-  id      String  @id @default(cuid())
-  boardId String
-  board   Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  url     String
-  secret  String
+  id            String    @id @default(cuid())
+  boardId       String
+  board         Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  url           String
+  secret        String
   /// "item.created" | "item.updated" | "item.deleted"
-  events  String[] @default([])
-  active  Boolean  @default(true)
+  events        String[]  @default([])
+  active        Boolean   @default(true)
   /// Enough of a delivery log to debug a silent integration, without a
   /// second table filling up with every event ever sent.
   lastStatus    Int?
   lastError     String?
   lastAttemptAt DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   @@index([boardId])
 }
@@ -741,21 +750,21 @@ enum ApprovalStatus {
 }
 
 model TimeEntry {
-  id     String @id @default(cuid())
-  itemId String
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String         @id @default(cuid())
+  itemId       String
+  item         Item           @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// "YYYY-MM-DD" — the day worked, not the day it was typed in.
-  date  String
-  hours Decimal @db.Decimal(6, 2)
-  note  String?
+  date         String
+  hours        Decimal        @db.Decimal(6, 2)
+  note         String?
   status       ApprovalStatus @default(PENDING)
   decidedById  String?
-  decidedBy    User?     @relation("TimeEntryDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedBy    User?          @relation("TimeEntryDecider", fields: [decidedById], references: [id], onDelete: SetNull)
   decidedAt    DateTime?
   decisionNote String?
-  createdAt DateTime @default(now())
+  createdAt    DateTime       @default(now())
 
   @@index([itemId])
   @@index([userId, date])
@@ -771,16 +780,16 @@ model TimeEntry {
 /// "跟三月那版比" is the question a baseline exists to answer, and until now
 /// the answer was gone the moment somebody re-planned.
 model Baseline {
-  id      String @id @default(cuid())
-  boardId String
-  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  id             String          @id @default(cuid())
+  boardId        String
+  board          Board           @relation(fields: [boardId], references: [id], onDelete: Cascade)
   /// 使用者取的名字, e.g. "EVT 啟動版"; defaults to the capture date.
-  name        String
-  capturedAt  DateTime @default(now())
-  capturedById String?
+  name           String
+  capturedAt     DateTime        @default(now())
+  capturedById   String?
   /// How many items had resolvable dates when it was taken.
-  itemCount   Int      @default(0)
-  entries     BaselineEntry[]
+  itemCount      Int             @default(0)
+  entries        BaselineEntry[]
   /// 哪些變更單是靠這一版基準線落地的 — 「為什麼日期變了」的答案。
   changeRequests ChangeRequest[]
 
@@ -795,10 +804,10 @@ model BaselineEntry {
   /// Plain id, not a relation: a baseline outlives the items in it, and an
   /// item that has since been deleted should not delete the plan's record
   /// that it was once scheduled.
-  itemId String
-  start  String?
-  end    String?
-  days   Int?
+  itemId     String
+  start      String?
+  end        String?
+  days       Int?
 
   @@unique([baselineId, itemId])
 }
@@ -833,19 +842,19 @@ model GroupViewer {
 /// as it is reassigned. What it does is tell the workload views that this
 /// person has no capacity those days.
 model Leave {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// "YYYY-MM-DD", both inclusive.
-  startDate String
-  endDate   String
-  reason    String?
+  startDate    String
+  endDate      String
+  reason       String?
   status       ApprovalStatus @default(PENDING)
   decidedById  String?
-  decidedBy    User?     @relation("LeaveDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedBy    User?          @relation("LeaveDecider", fields: [decidedById], references: [id], onDelete: SetNull)
   decidedAt    DateTime?
   decisionNote String?
-  createdAt DateTime @default(now())
+  createdAt    DateTime       @default(now())
 
   @@index([userId, startDate])
   @@index([status])
@@ -879,20 +888,20 @@ enum GateDecision {
 /// 一個階段的出口閘門。掛在階段那一列工作項上(例如「EVT Phase」),
 /// 因為放行與否講的是那個階段,不是某一張表。
 model Gate {
-  id      String @id @default(cuid())
-  boardId String
-  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  boardId      String
+  board        Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
   /// 這個閘門收尾的階段。可為 null:有些閘門(例如 MRD 凍結)不屬於任何
   /// 一個階段列。刪掉那一列不該連帶刪掉簽核紀錄,所以存純 id。
-  itemId String?
-  name   String
-  status GateStatus @default(DRAFT)
+  itemId       String?
+  name         String
+  status       GateStatus @default(DRAFT)
   /// "YYYY-MM-DD" 預計審查日。
-  plannedDate String?
+  plannedDate  String?
   /// 誰、什麼時候、為什麼下了最後那個決定。
   decidedAt    DateTime?
   decidedById  String?
-  decidedBy    User?     @relation("GateDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedBy    User?      @relation("GateDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
   decisionNote String?
 
   criteria  GateCriterion[]
@@ -907,26 +916,26 @@ model Gate {
 
 /// 一條進出條件。required 的沒有全部達成就不能 PASSED,只能 WAIVED。
 model GateCriterion {
-  id     String @id @default(cuid())
-  gateId String
-  gate   Gate   @relation(fields: [gateId], references: [id], onDelete: Cascade)
+  id       String  @id @default(cuid())
+  gateId   String
+  gate     Gate    @relation(fields: [gateId], references: [id], onDelete: Cascade)
   text     String
   required Boolean @default(true)
   met      Boolean @default(false)
   /// 佐證的工作項,有的話。同樣存純 id。
-  itemId String?
-  order  Int    @default(0)
+  itemId   String?
+  order    Int     @default(0)
 
   @@index([gateId])
 }
 
 /// 一位簽核人。每個人各自表態,缺一個就還沒過。
 model GateApprover {
-  id     String @id @default(cuid())
-  gateId String
-  gate   Gate   @relation(fields: [gateId], references: [id], onDelete: Cascade)
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String        @id @default(cuid())
+  gateId    String
+  gate      Gate          @relation(fields: [gateId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// null = 還沒表態。
   decision  GateDecision?
   decidedAt DateTime?
@@ -955,31 +964,31 @@ enum ChangeStatus {
 /// 基準線已經留得住「日期變成什麼樣」,留不住「為什麼變、誰批准、預期影響
 /// 多少」。三個月後爭的都是後面那三件事,所以這裡才是要寫下來的地方。
 model ChangeRequest {
-  id      String @id @default(cuid())
-  boardId String
-  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  id          String       @id @default(cuid())
+  boardId     String
+  board       Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
   /// 看板內的流水號,顯示成 CR-001。
-  number Int
+  number      Int
   title       String
   /// 改什麼。
   description String?
   /// 為什麼要改。整張單子三個月後只有這一欄有人會回來看。
-  reason String?
-  status ChangeStatus @default(DRAFT)
+  reason      String?
+  status      ChangeStatus @default(DRAFT)
 
   /// 影響評估:提出時的預估,不是事後的實際值。
   scheduleImpactDays Int?
   /// 元,與 Item.budgetCost 同單位。
-  costImpact Int?
-  impactNote String?
+  costImpact         Int?
+  impactNote         String?
 
   /// 受影響的工作項。存純 id:工作項被丟進垃圾桶不該把變更紀錄一起帶走。
   itemIds String[] @default([])
 
   requestedById String?
-  requestedBy   User?   @relation("ChangeRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedBy   User?     @relation("ChangeRequester", fields: [requestedById], references: [id], onDelete: SetNull)
   decidedById   String?
-  decidedBy     User?   @relation("ChangeDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedBy     User?     @relation("ChangeDecider", fields: [decidedById], references: [id], onDelete: SetNull)
   decidedAt     DateTime?
   decisionNote  String?
 
@@ -1011,7 +1020,7 @@ enum CostCategory {
 /// 「做掉的事有沒有比估的貴」。這裡的是「這個階段/這個專案總共核准多少錢」,
 /// 拿來回答「還剩多少可以花」——兩個問題不一樣,所以兩份數字並存。
 model Budget {
-  id String @id @default(cuid())
+  id        String   @id @default(cuid())
   /// 恰好其中一個有值:預算掛在某個階段上,或整個專案群組上。
   ///
   /// 階段在這套系統裡是一列工作項(例如「EVT Phase」),不是分組——分組通常
@@ -1023,8 +1032,8 @@ model Budget {
 
   category CostCategory
   /// 元。
-  amount Int
-  note   String?
+  amount   Int
+  note     String?
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -1044,23 +1053,23 @@ model Commitment {
   itemId String
   item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  category CostCategory
+  category       CostCategory
   /// 換算後的台幣金額,凍結在下單當下。所有加總都用這一欄。
-  amount   Int
+  amount         Int
   /// 幣別。TWD 時 originalAmount 就等於 amount、fxRate 是 1。
-  currency String @default("TWD")
+  currency       String       @default("TWD")
   /// 外幣原始金額 — 報價單上寫的那個數字。
-  originalAmount Int @default(0)
+  originalAmount Int          @default(0)
   /// 記帳當下的匯率,凍結。之後匯率再怎麼動,這一筆的台幣金額不變。
-  fxRate Decimal @db.Decimal(12, 4) @default(1)
-  vendor   String?
-  poNumber String?
+  fxRate         Decimal      @default(1) @db.Decimal(12, 4)
+  vendor         String?
+  poNumber       String?
   /// "YYYY-MM-DD" 預計到貨或入帳日。
-  expectedDate String?
+  expectedDate   String?
   /// 入帳之後就不再算進「已承諾」——那筆錢已經變成實際支出了。
-  settled   Boolean   @default(false)
-  settledAt DateTime?
-  note      String?
+  settled        Boolean      @default(false)
+  settledAt      DateTime?
+  note           String?
 
   attachments Attachment[]
 
@@ -1084,21 +1093,21 @@ model Expense {
   itemId String
   item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  category CostCategory
+  category       CostCategory
   /// 換算後的台幣金額,凍結在記帳當下。所有加總都用這一欄。
-  amount Int
+  amount         Int
   /// 幣別。TWD 時 originalAmount 就等於 amount、fxRate 是 1。
-  currency String @default("TWD")
+  currency       String       @default("TWD")
   /// 外幣原始金額 — 報價單上寫的那個數字。
-  originalAmount Int @default(0)
+  originalAmount Int          @default(0)
   /// 記帳當下的匯率,凍結。之後匯率再怎麼動,這一筆的台幣金額不變。
-  fxRate Decimal @db.Decimal(12, 4) @default(1)
+  fxRate         Decimal      @default(1) @db.Decimal(12, 4)
   /// "YYYY-MM-DD" 發生日,不是輸入日。
-  date   String
-  vendor String?
-  note   String?
+  date           String
+  vendor         String?
+  note           String?
   /// 這筆支出結清的是哪一張 PO,有的話。
-  commitmentId String?
+  commitmentId   String?
 
   attachments Attachment[]
 
@@ -1115,7 +1124,7 @@ model Expense {
 /// 這張表同時也是「系統有哪些幣別」的清單;台幣是基準幣別,不在裡面。
 model ExchangeRate {
   /// ISO 代碼,例如 "USD"。
-  code String @id
+  code        String   @id
   /// 1 單位外幣等於多少台幣。
   rate        Decimal  @db.Decimal(12, 4)
   updatedAt   DateTime @updatedAt
@@ -1137,7 +1146,7 @@ enum ReserveKind {
 /// (見 ReserveDraw)。少了這一層,「還剩 20 萬」就分不出那是可以花的錢,
 /// 還是本來就該留著的緩衝。
 model Reserve {
-  id String @id @default(cuid())
+  id        String   @id @default(cuid())
   itemId    String?
   item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   programId String?
@@ -1180,13 +1189,13 @@ model ReserveDraw {
 }
 
 model Program {
-  id        String   @id @default(cuid())
-  name      String
+  id          String    @id @default(cuid())
+  name        String
   /// 誰建立的。預算編輯權要認「專案建立者」,群組層得有個對象可以認。
   /// 這個欄位之前建立的群組是 null,那些就只有管理者能編。
   createdById String?
-  createdAt DateTime @default(now())
-  boards    Board[]
-  budgets   Budget[]
-  reserves  Reserve[]
+  createdAt   DateTime  @default(now())
+  boards      Board[]
+  budgets     Budget[]
+  reserves    Reserve[]
 }

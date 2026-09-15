@@ -30,7 +30,7 @@ export async function listPrograms(): Promise<ProgramRow[]> {
     select: {
       id: true,
       name: true,
-      boards: { select: { id: true, name: true }, orderBy: { name: "asc" } },
+      boards: { where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } },
     },
   });
   return programs;
@@ -69,7 +69,7 @@ export async function deleteProgram(programId: string): Promise<{ error?: string
   const session = await requireAdmin();
   const doomed = await prisma.program.findUnique({
     where: { id: programId },
-    select: { name: true, boards: { select: { name: true } } },
+    select: { name: true, boards: { where: { deletedAt: null }, select: { name: true } } },
   });
   await prisma.program.delete({ where: { id: programId } });
   // 群組一解散,跨看板的前置就停止連動——日期不會變,但從此不再互相推。
@@ -118,7 +118,7 @@ export async function setBoardProgram(
   let recomputed = await recomputeAllSchedules(boardId);
   if (previous?.programId && previous.programId !== programId) {
     const sibling = await prisma.board.findFirst({
-      where: { programId: previous.programId },
+      where: { programId: previous.programId, deletedAt: null },
       select: { id: true },
     });
     if (sibling) recomputed += await recomputeAllSchedules(sibling.id);

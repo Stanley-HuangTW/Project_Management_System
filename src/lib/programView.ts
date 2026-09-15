@@ -98,7 +98,11 @@ export async function getProgramView(
 ): Promise<ProgramView | null> {
   const program = await prisma.program.findUnique({
     where: { id: programId },
-    select: { id: true, name: true, boards: { select: { id: true }, orderBy: { name: "asc" } } },
+    select: {
+      id: true,
+      name: true,
+      boards: { where: { deletedAt: null }, select: { id: true }, orderBy: { name: "asc" } },
+    },
   });
   if (!program) return null;
 

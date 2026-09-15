@@ -119,22 +119,116 @@ export async function renameBoard(boardId: string, name: string) {
   revalidatePath(`/boards/${boardId}`);
 }
 
+/**
+ * Puts a board in the trash. It leaves every list, search result, schedule
+ * network and programme rollup, but the row and everything under it stays —
+ * groups, columns, items, budgets, baselines, history — so restoreBoard can
+ * bring the whole thing back. Its programId is kept too: a restored board
+ * rejoins the 專案群組 it was in.
+ */
 export async function deleteBoard(boardId: string) {
   const session = await requireSession();
   requireBoardAdmin(session.role);
   const doomed = await prisma.board.findUnique({
     where: { id: boardId },
-    select: { name: true, _count: { select: { items: true } } },
+    select: { name: true, deletedAt: true, _count: { select: { items: true } } },
   });
+  if (!doomed) throw new Error("看板不存在");
+  if (doomed.deletedAt) throw new Error("這個看板已經在垃圾桶裡");
+
+  await prisma.board.update({
+    where: { id: boardId },
+    data: { deletedAt: new Date(), deletedById: session.userId },
+  });
+  await logAudit(
+    "BOARD",
+    session.userId,
+    `刪除看板「${doomed.name}」(含 ${doomed._count.items} 個工作項),已移到垃圾桶`,
+    boardId
+  );
+  revalidatePath("/boards");
+  revalidatePath("/dashboard");
+}
+
+export type TrashedBoard = {
+  id: string;
+  name: string;
+  itemCount: number;
+  programName: string | null;
+  deletedAt: string;
+  deletedBy: string | null;
+};
+
+/** 看板垃圾桶。管理者才看得到,因為只有管理者刪得掉看板。 */
+export async function listTrashedBoards(): Promise<TrashedBoard[]> {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  const boards = await prisma.board.findMany({
+    where: { deletedAt: { not: null } },
+    orderBy: { deletedAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      deletedAt: true,
+      deletedBy: { select: { name: true } },
+      program: { select: { name: true } },
+      _count: { select: { items: true } },
+    },
+  });
+  return boards.map((board) => ({
+    id: board.id,
+    name: board.name,
+    itemCount: board._count.items,
+    programName: board.program?.name ?? null,
+    deletedAt: board.deletedAt!.toISOString(),
+    deletedBy: board.deletedBy?.name ?? null,
+  }));
+}
+
+export async function restoreBoard(boardId: string): Promise<{ error?: string }> {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: { name: true, deletedAt: true },
+  });
+  if (!board || !board.deletedAt) return { error: "找不到這個已刪除的看板" };
+
+  await prisma.board.update({
+    where: { id: boardId },
+    data: { deletedAt: null, deletedById: null },
+  });
+  await logAudit("BOARD", session.userId, `從垃圾桶還原看板「${board.name}」`, boardId);
+  revalidatePath("/boards");
+  revalidatePath(`/boards/${boardId}`);
+  revalidatePath("/dashboard");
+  return {};
+}
+
+/**
+ * The one that cannot be undone: the board row and everything the database
+ * cascades from it. Only reachable from the trash, so a board can never be
+ * destroyed without having sat in there first.
+ */
+export async function purgeBoard(boardId: string): Promise<{ error?: string }> {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: { name: true, deletedAt: true, _count: { select: { items: true } } },
+  });
+  if (!board || !board.deletedAt) return { error: "找不到這個已刪除的看板" };
+
   await prisma.board.delete({ where: { id: boardId } });
   // The board is gone, so the entry cannot point at it — the name and the
   // size are all that is left to say what was destroyed.
   await logAudit(
     "BOARD",
     session.userId,
-    `刪除看板「${doomed?.name ?? boardId}」(含 ${doomed?._count.items ?? 0} 個工作項)`
+    `永久刪除看板「${board.name}」(含 ${board._count.items} 個工作項),無法復原`
   );
   revalidatePath("/boards");
+  return {};
 }
 
 export async function setBoardVisibility(boardId: string, visibility: BoardVisibility) {

@@ -24,7 +24,10 @@ export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> 
   });
 
   const networkIds = board?.programId
-    ? (await prisma.board.findMany({ where: { programId: board.programId }, select: { id: true } })).map(
+    ? (await prisma.board.findMany({
+        where: { programId: board.programId, deletedAt: null },
+        select: { id: true },
+      })).map(
         (b) => b.id
       )
     : [boardId];
@@ -48,7 +51,10 @@ export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> 
  */
 export async function getProgramDelayAnalysis(programId: string): Promise<DelayAnalysis> {
   const session = await requireSession();
-  const boards = await prisma.board.findMany({ where: { programId }, select: { id: true } });
+  const boards = await prisma.board.findMany({
+    where: { programId, deletedAt: null },
+    select: { id: true },
+  });
   const allowed: string[] = [];
   for (const board of boards) {
     if (await canAccessBoard(session, board.id)) allowed.push(board.id);

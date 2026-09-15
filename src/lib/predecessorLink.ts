@@ -494,7 +494,7 @@ async function buildScheduleContext(
   const siblingIds = board?.programId
     ? (
         await prisma.board.findMany({
-          where: { programId: board.programId, id: { not: boardId } },
+          where: { programId: board.programId, id: { not: boardId }, deletedAt: null },
           select: { id: true },
         })
       ).map((b) => b.id)
