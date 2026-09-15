@@ -11,6 +11,8 @@ function task(
   return {
     boardId: "b1",
     boardName: "板",
+    groupId: "g1",
+    groupName: "分組",
     itemId,
     itemName: itemId,
     allocationPct,

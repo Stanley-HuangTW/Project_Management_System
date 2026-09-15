@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import {
   colorForPct,
+  groupTasksByBoardAndGroup,
   weekIndexForDate,
   type WorkloadThresholdSettings,
   type MemberTask,
@@ -426,7 +427,25 @@ export function WorkloadDetailSection({
                         {tasks.length === 0 ? (
                           <p className="px-2 py-2 text-xs text-neutral-400 dark:text-neutral-500">目前沒有指派中的任務</p>
                         ) : (
-                          tasks.map((t) => {
+                          groupTasksByBoardAndGroup(tasks).flatMap((b) => [
+                            <div
+                              key={`board-${b.boardId}`}
+                              style={{ width: labelWidth }}
+                              className="truncate px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400"
+                              title={b.boardName}
+                            >
+                              {b.boardName}
+                            </div>,
+                            ...b.groups.flatMap((g) => [
+                              <div
+                                key={`group-${b.boardId}-${g.groupId}`}
+                                style={{ width: labelWidth }}
+                                className="truncate px-2 pl-4 py-0.5 text-[10px] text-neutral-400 dark:text-neutral-500"
+                                title={g.groupName}
+                              >
+                                {g.groupName || "(未分組)"}
+                              </div>,
+                              ...g.tasks.map((t) => {
                             const hasRange = t.startDate && t.endDate;
                             const startIdx = hasRange ? weekIndexForDate(t.startDate!, weeks) : 0;
                             const endIdx = hasRange ? weekIndexForDate(t.endDate!, weeks) : 0;
@@ -434,7 +453,7 @@ export function WorkloadDetailSection({
                               <div key={`${t.boardId}-${t.itemId}`} className="flex items-center">
                                 <div
                                   style={{ width: labelWidth }}
-                                  className="shrink-0 truncate border-r border-neutral-100 dark:border-neutral-700 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-400"
+                                  className="shrink-0 truncate border-r border-neutral-100 dark:border-neutral-700 py-1 pl-6 pr-2 text-xs text-neutral-600 dark:text-neutral-400"
                                   title={t.itemName}
                                 >
                                   <Link
@@ -479,8 +498,10 @@ export function WorkloadDetailSection({
                                   )}
                                 </div>
                               </div>
-                            );
-                          })
+                                );
+                              }),
+                            ]),
+                          ])
                         )}
 
                         {canCreateSubtask && parentTaskTree.length > 0 && (
