@@ -16,7 +16,8 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
-import type { BoardWithData, ItemData, UserOption } from "@/types/board";
+import NextLink from "next/link";
+import type { BoardWithData, ItemData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
 import { canManageGroupStructure, canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAccess } from "@/lib/groupRoles";
@@ -161,6 +162,7 @@ export function BoardGantt({
   holidays,
   onNavigateToItem,
   active = true,
+  externalPreds,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -173,6 +175,9 @@ export function BoardGantt({
    *  hiding it is display:none, which drops the scroll offsets, so those are
    *  put back when it comes into view again. */
   active?: boolean;
+  /** 位在同群組其他看板上的前置。它們各佔一列唯讀的長條,跨看板那條
+   *  藍色虛線才畫得出來 —— 箭頭要有兩端。 */
+  externalPreds: ExternalPredecessor[];
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestDelete = useDeleteItem();
@@ -314,6 +319,21 @@ export function BoardGantt({
   // drag is still meaningful and ganttResize writes those instead. Only a
   // Pred, a child rollup, or a Milestone genuinely rules a drag out.
   const wbsIndex = useMemo(() => buildWbsIndexFromItems(board.items), [board.items]);
+  /**
+   * 畫箭頭用的索引,額外認得外部前置的 id。
+   *
+   * resolvePredValue 只認這個看板的 id、或這個分組裡的 WBS 代號,所以跨看板
+   * 那一筆在「解析 Pred 格子」這一步就被丟掉了 —— 連它存在過都看不出來。
+   * 那些項目不屬於這裡的任何分組,所以只補進 id 那張表,WBS 的兩張不動。
+   */
+  const arrowWbsIndex = useMemo(() => {
+    if (externalPreds.length === 0) return wbsIndex;
+    const groupByItemId = new Map(wbsIndex.groupByItemId);
+    for (const pred of externalPreds) {
+      groupByItemId.set(pred.id, "external:" + pred.boardId);
+    }
+    return { ...wbsIndex, groupByItemId };
+  }, [wbsIndex, externalPreds]);
   const ruleColumns = useMemo(
     () => ({ predColumnId, manualStartColumnId: board.manualStartColumnId }),
     [predColumnId, board.manualStartColumnId]
@@ -459,6 +479,13 @@ export function BoardGantt({
     // item currently spans it.
     min = Math.min(min, today.getTime());
     max = Math.max(max, today.getTime());
+    // 外部前置可能排在本看板的區間之外 —— 對面六月做完、這邊九月才接。
+    // 軸不延伸過去,它的長條就落在軸外,箭頭也就沒有起點。
+    for (const pred of externalPreds) {
+      if (!pred.start || !pred.end) continue;
+      min = Math.min(min, Date.parse(pred.start));
+      max = Math.max(max, Date.parse(pred.end));
+    }
     const minD = new Date(min);
     const totalDays = Math.round((max - min) / 86400000) + 1;
     const list: Date[] = [];
@@ -471,9 +498,13 @@ export function BoardGantt({
       list.push(d);
     }
     return list;
-  }, [ranges, today, isBusinessMode, holidaySet]);
+  }, [ranges, today, isBusinessMode, holidaySet, externalPreds]);
 
   const dayIndexByIso = useMemo(() => new Map(days.map((d, i) => [toIsoDate(d), i])), [days]);
+  const externalById = useMemo(
+    () => new Map(externalPreds.map((pred) => [pred.id, pred])),
+    [externalPreds]
+  );
   /** Column index for a date that may itself have been filtered out of
    *  `days` (e.g. today falling on a hidden holiday) — falls back to the
    *  count of visible days strictly before it. */
@@ -640,17 +671,20 @@ export function BoardGantt({
   const dependencyArrows = useMemo(() => {
     if (!showArrows || !predColumnId || !linkColumnId) return [];
     const links: Parameters<typeof buildDependencyArrows>[0] = [];
+    const crossBoardKeys = new Set<string>();
     for (const item of board.items) {
       const fallback = linkRelationship(item);
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-      for (const entry of parsePredEntries(wbsIndex, item.groupId, predValue)) {
+      for (const entry of parsePredEntries(arrowWbsIndex, item.groupId, predValue)) {
         // Each edge draws to the ends its own relationship names, falling
         // back to the item's Link column when it does not carry one.
         const relationship = entry.relationship ?? fallback;
         if (!relationship) continue;
         const predId = entry.itemId;
         const predItem = itemById.get(predId);
-        if (!predItem) continue;
+        // 前置不在這個看板上的話,它是上面那幾列外部前置之一 —— 一樣要畫。
+        const external = predItem ? null : externalById.get(predId);
+        if (!predItem && !external) continue;
         links.push({
           predId,
           succId: item.id,
@@ -659,13 +693,20 @@ export function BoardGantt({
           critical:
             (scheduleFloats.get(predId)?.isCritical ?? false) &&
             (scheduleFloats.get(item.id)?.isCritical ?? false),
-          title: `${wbsCodes.get(predId) ?? ""} ${predItem.name} → ${wbsCodes.get(item.id) ?? ""} ${item.name}(${relationship})`,
+          title: external
+            ? `${external.boardName} · ${external.wbsCode} ${external.name} → ${wbsCodes.get(item.id) ?? ""} ${item.name}(${relationship},跨看板)`
+            : `${wbsCodes.get(predId) ?? ""} ${predItem!.name} → ${wbsCodes.get(item.id) ?? ""} ${item.name}(${relationship})`,
         });
+        if (external) crossBoardKeys.add(`${predId}->${item.id}`);
       }
     }
-    return buildDependencyArrows(links, barBoxes);
+    // 跟群組甘特圖同樣的做法:先建好箭頭,再把「這條是跨看板的」標回去。
+    return buildDependencyArrows(links, barBoxes).map((arrow) => ({
+      ...arrow,
+      crossBoard: crossBoardKeys.has(arrow.key),
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArrows, board.items, predColumnId, linkColumnId, linkOptions, wbsIndex, itemById, wbsCodes, scheduleFloats, barBoxes]);
+  }, [showArrows, board.items, predColumnId, linkColumnId, linkOptions, arrowWbsIndex, itemById, externalById, wbsCodes, scheduleFloats, barBoxes]);
 
   const itemsByParent = new Map<string | null, ItemData[]>();
   for (const item of board.items) {
@@ -1102,13 +1143,20 @@ export function BoardGantt({
                   <g
                     key={arrow.key}
                     className={
-                      arrow.critical
-                        ? "stroke-red-500 fill-red-500"
-                        : "stroke-neutral-400 fill-neutral-400 dark:stroke-neutral-500 dark:fill-neutral-500"
+                      arrow.crossBoard
+                        ? "stroke-blue-500 fill-blue-500"
+                        : arrow.critical
+                          ? "stroke-red-500 fill-red-500"
+                          : "stroke-neutral-400 fill-neutral-400 dark:stroke-neutral-500 dark:fill-neutral-500"
                     }
                   >
                     <title>{arrow.title}</title>
-                    <path d={arrow.path} fill="none" strokeWidth={1.25} />
+                    <path
+                      d={arrow.path}
+                      fill="none"
+                      strokeWidth={arrow.crossBoard ? 2 : 1.25}
+                      strokeDasharray={arrow.crossBoard ? "4 3" : undefined}
+                    />
                     <path d={arrow.head} strokeWidth={0} />
                   </g>
                 ))}
@@ -1173,6 +1221,63 @@ export function BoardGantt({
               </div>,
               ...renderRows(renderRootParentId, 0, roots),
             ])}
+
+          {externalPreds.length > 0 && (
+            <div>
+              <div className="flex border-t-2 border-blue-200 bg-blue-50/60 px-2 py-1.5 text-xs font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+                跨看板前置 {externalPreds.length} 項
+                <span className="ml-2 font-normal text-blue-500/80 dark:text-blue-400/80">
+                  同群組其他看板上的項目,唯讀
+                </span>
+              </div>
+              {externalPreds.map((pred) => {
+                const from = pred.start ? indexForDate(new Date(pred.start)) : -1;
+                const to = pred.end ? indexForDate(new Date(pred.end)) : -1;
+                return (
+                  <div
+                    key={pred.id}
+                    data-gantt-row={pred.id}
+                    className="flex items-stretch border-b border-neutral-100 dark:border-neutral-800"
+                  >
+                    <div
+                      className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 bg-white px-2 py-1.5 text-sm dark:bg-neutral-900"
+                      style={{ width: labelWidth }}
+                    >
+                      <span className="shrink-0 text-[10px] text-blue-500 dark:text-blue-400">
+                        {pred.boardName}
+                      </span>
+                      <NextLink
+                        href={`/boards/${pred.boardId}?highlight=${pred.id}`}
+                        title={`${pred.boardName} · ${pred.groupName} · ${pred.wbsCode} ${pred.name}`}
+                        className="min-w-0 truncate text-neutral-600 hover:text-blue-600 dark:text-neutral-300"
+                      >
+                        {pred.wbsCode && (
+                          <span className="mr-1 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+                            {pred.wbsCode}
+                          </span>
+                        )}
+                        {pred.name}
+                      </NextLink>
+                    </div>
+                    <div className="relative shrink-0" style={{ width: days.length * dayWidth }}>
+                      {from >= 0 && to >= 0 ? (
+                        <div
+                          data-gantt-bar
+                          title={`${pred.start} ~ ${pred.end}`}
+                          className="absolute top-1.5 h-4 rounded border-2 border-dashed border-blue-400 bg-blue-100/60 dark:bg-blue-950/50"
+                          style={{ left: from * dayWidth, width: (to - from + 1) * dayWidth }}
+                        />
+                      ) : (
+                        <span className="absolute left-1 top-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">
+                          對面尚未排定日期
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {usersWithLoad.length > 0 && (
             <div>
