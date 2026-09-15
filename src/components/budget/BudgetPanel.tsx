@@ -296,14 +296,15 @@ function ReservePanel({
   const { reserves } = view;
 
   async function edit(kind: ReserveKind, current: number) {
-    const answer = await prompt(`${RESERVE_LABELS[kind]}要編列多少?填 0 表示取消。`, {
+    const answer = await prompt(`${RESERVE_LABELS[kind]}要編列多少?輸入 0 可以取消。`, {
       title: `設定${RESERVE_LABELS[kind]}`,
-      defaultValue: String(current),
+      defaultValue: current > 0 ? String(current) : "",
       numeric: true,
     });
     if (answer === null) return;
+    if (answer.trim() === "") return;
     const amount = Number(answer);
-    if (!Number.isFinite(amount)) return;
+    if (!Number.isFinite(amount) || amount < 0) return;
     await run(() => setReserve(scope, kind, amount, ""), "無法設定準備金");
   }
 
@@ -686,14 +687,20 @@ function CategoryTable({
 
   async function edit(category: CostCategory) {
     const current = byCategory.get(category)?.budget ?? 0;
-    const answer = await prompt(`${CATEGORY_LABELS[category]}核准多少預算?填 0 表示取消。`, {
+    const answer = await prompt(`${CATEGORY_LABELS[category]}核准多少預算?輸入 0 可以取消這個類別。`, {
       title: `設定${CATEGORY_LABELS[category]}預算`,
-      defaultValue: String(current),
+      // Empty rather than "0" when nothing is set yet, so the box does not
+      // have to be cleared before typing.
+      defaultValue: current > 0 ? String(current) : "",
       numeric: true,
     });
     if (answer === null) return;
+    // An empty box means "changed my mind", not "delete it". Clearing a field
+    // should never be the gesture that removes an approved figure — 0 is, and
+    // it has to be typed.
+    if (answer.trim() === "") return;
     const amount = Number(answer);
-    if (!Number.isFinite(amount)) return;
+    if (!Number.isFinite(amount) || amount < 0) return;
     await run(() => setBudget(scope, category, amount, ""), "無法儲存預算");
   }
 
