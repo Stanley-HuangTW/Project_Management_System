@@ -1,9 +1,12 @@
 /**
- * Verbatim copy of the reference project's bound Apps Script
- * (自動更新甘特圖與階層_0813.gs), bundled here so a freshly exported
- * workbook can be paired with the exact same script the source sheet
- * already relies on. Bundling an unmodified copy for a NEW file is not
- * the same as editing the original — that file is never touched.
+ * The reference project's bound Apps Script (自動更新甘特圖與階層_0813.gs),
+ * bundled here so a freshly exported workbook can be paired with the same
+ * script the source sheet already relies on. Bundling a copy for a NEW file is
+ * not the same as editing the original — that file is never touched.
+ *
+ * One addition on top of the original: BuildBurndownChart, because .xlsx has
+ * no way to express a chart and Google Sheets does. The burn-down sheet the
+ * export writes is the data; this draws it.
  */
 export const GANTT_APPS_SCRIPT = `/**************************************************************************
  * AMR Platform Schedule - Google Apps Script (Fully Fixed)
@@ -26,6 +29,7 @@ function onOpen() {
     .addItem('篩選逾期未完成 (開/關) - Toggle overdue', 'ToggleOverdueFilter')
     .addItem('Enable Filters - 啟用篩選', 'enableAutoFilter')
     .addItem('Clear Filters - 清除篩選', 'clearAllFilters')
+    .addItem('產生燃盡圖 - Burn-down chart', 'BuildBurndownChart')
     .addToUi();
 
   RollupSummaries();         // 依子項動態彙總 summary 完成%
@@ -417,6 +421,45 @@ function enableAutoFilter() {
   } catch (e) {
     SpreadsheetApp.getUi().alert('啟用篩選失敗: ' + e.message);
   }
+}
+
+/**************************************************************************
+ * 燃盡圖:把「燃盡圖 (Burn-down)」分頁裡的每一段資料畫成折線圖。
+ * 一個核准範圍一張圖,重跑會先清掉舊的,不會越疊越多。
+ **************************************************************************/
+function BuildBurndownChart() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('燃盡圖 (Burn-down)');
+  if (!sh) { SpreadsheetApp.getUi().alert('找不到「燃盡圖 (Burn-down)」分頁。'); return; }
+
+  var charts = sh.getCharts();
+  for (var i = 0; i < charts.length; i++) sh.removeChart(charts[i]);
+
+  var lastRow = sh.getLastRow();
+  var col1 = sh.getRange(1, 1, lastRow, 1).getValues();
+  var made = 0;
+  // 每一段的表頭都是「週結束日」,資料從下一列開始,到下一個空白列為止。
+  for (var r = 0; r < lastRow; r++) {
+    if (String(col1[r][0]).trim() !== '週結束日') continue;
+    var first = r + 2;              // 1-based,表頭的下一列
+    var last = first;
+    while (last <= lastRow && col1[last - 1][0] !== '' && col1[last - 1][0] != null) last++;
+    last--;
+    if (last < first) continue;
+
+    var chart = sh.newChart()
+      .setChartType(Charts.ChartType.LINE)
+      .addRange(sh.getRange(r + 1, 1, last - r, 4))   // 表頭 + 計畫/實際/含已下單
+      .setNumHeaders(1)
+      .setOption('title', String(sh.getRange(r, 1).getValue()))
+      .setOption('legend', { position: 'bottom' })
+      .setOption('height', 320)
+      .setOption('width', 620)
+      .setPosition(first, 8, 0, 0)
+      .build();
+    sh.insertChart(chart);
+    made++;
+  }
+  SpreadsheetApp.getUi().alert(made > 0 ? '已產生 ' + made + ' 張燃盡圖。' : '燃盡圖分頁裡沒有資料。');
 }
 
 function clearAllFilters() {

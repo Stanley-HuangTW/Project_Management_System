@@ -3,11 +3,15 @@ import type { BoardWithData, ColumnData, GroupData, ItemData, UserOption } from 
 import { computeWbsCodes } from "@/lib/wbs";
 import { getStatusOptions, getPersonIds } from "@/types/column";
 import { computeRolledUpDateRange } from "@/lib/gantt";
+import { computeCriticalPath } from "@/lib/criticalPath";
 import { toHolidaySet } from "@/lib/holidays";
 import { BASE_DETAIL_HEADERS } from "@/lib/export/exportFields";
+import { CONSTRAINT_LABELS } from "@/lib/constraints";
+import { splitPredEntry } from "@/lib/predecessorLink";
+import type { BudgetScopeExport, DelayExport } from "@/lib/export/exportData";
 
-const BASE_DETAIL_COL_COUNT = BASE_DETAIL_HEADERS.length; // 17 — the fixed template columns
-const COLUMN_WIDTHS = [6, 12, 40, 12, 10, 12, 24, 10, 8, 8, 30, 12, 12, 8, 8, 12, 10];
+const BASE_DETAIL_COL_COUNT = BASE_DETAIL_HEADERS.length; // 21 — the fixed template columns
+const COLUMN_WIDTHS = [6, 12, 40, 12, 10, 12, 24, 10, 8, 8, 30, 12, 12, 8, 8, 12, 10, 16, 14, 8, 8];
 const DEFAULT_EXTRA_COLUMN_WIDTH = 16;
 
 // Hidden helper columns, placed exactly where the reference template puts
@@ -17,7 +21,10 @@ const DEFAULT_EXTRA_COLUMN_WIDTH = 16;
 // needs to look past 4 levels deep in the rare case a board nests that far,
 // so keeping them out of the main block avoids widening every row's
 // "visible" columns for a rare case.
-const HELPER_PREFIX_COUNT = 5; // type-code, level1, level2, level3, level4
+// type-code, level1-4, and the un-constrained start the Start column then
+// applies the row's date constraint to (kept in its own cell so both formulas
+// stay short enough to read).
+const HELPER_PREFIX_COUNT = 6;
 function timelineStartCol(detailColCount: number): number {
   return detailColCount + HELPER_PREFIX_COUNT + 1;
 }
@@ -27,6 +34,10 @@ function timelineStartCol(detailColCount: number): number {
 // blank cells within the range are simply ignored by both functions.
 const HOLIDAYS_RANGE = "Holidays!$A$6:$A$1005";
 
+// Same idea for the Resource dropdown: a range with room to grow, so names
+// added to the Lists sheet appear in the dropdown without re-exporting.
+const LISTS_MEMBER_RANGE = "Lists!$A$2:$A$501";
+
 // Colours reverse-engineered from the reference sheet's conditional-format
 // rules (Excel's Interior.Color is BGR-packed, not RGB — converted here).
 const BAR_COLORS = {
@@ -34,8 +45,14 @@ const BAR_COLORS = {
   completed: "FF27AE60",
   summary: "FF2E5395",
   task: "FF4C86C6",
+  /** 要徑 — deliberately the loudest colour on the sheet. */
+  critical: "FFE74C3C",
 };
 const TODAY_COLOR = "FFFDEBD8";
+// The dependency connector: light enough that it reads as a link between two
+// bars rather than as a bar of its own.
+const LINK_COLOR = "FFD6DBDF";
+const LINK_EDGE_COLOR = "FF7F8C8D";
 const DEFAULT_LEVEL_COLORS = ["#4F81BD", "#9BBB59", "#EAF1DD", "#E5DFEC", "#E6D3B3", "#CFE2F3"];
 
 const DEFAULT_TYPE_OPTIONS = ["Task", "Summary", "Milestone"];
@@ -192,23 +209,75 @@ function wbsFormula(row: number, levelCols: string[]): string {
   );
 }
 
-/** Start: a Summary rolls up to the earliest of its descendants (matched by
- *  WBS-text prefix); a Task/Milestone with a resolvable Pred+Link derives
- *  from its predecessor's own Start/Finish + Lag (WORKDAY-based, matching
- *  FS/SS/FF/SF exactly as the app's own scheduling engine does, and skipping
- *  the dates listed on the Holidays sheet in addition to weekends);
- *  otherwise it falls back to the manual Start (set) column, or today. */
-function startFormula(row: number, lastDataRow: number): string {
-  const b = `$B$7:$B${lastDataRow}`;
+/** The date one predecessor pushes this row to, per the FS/SS/FF/SF rules the
+ *  app's own scheduler uses. `ref` is the expression naming the predecessor —
+ *  `$H{row}` when the row has exactly one, so editing the Pred cell in the
+ *  sheet still re-derives the date; a quoted WBS code for one entry of a
+ *  multi-predecessor list, which no single cell reference can express.
+ *  A blank Link means FS, matching the app, rather than falling to today. */
+function predStartExpr(row: number, ref: string, lastDataRow: number): string {
+  const match = `MATCH(${ref}&"",$B$7:$B${lastDataRow},0)`;
+  const predFinish = `INDEX($P$7:$P${lastDataRow},${match})`;
+  const predStart = `INDEX($M$7:$M${lastDataRow},${match})`;
+  const lag = `IF($J${row}="",0,$J${row})`;
+  // FF/SF anchor the row's FINISH, so its start is one duration earlier.
+  const back = `-(MAX(N($N${row}),1)-1)`;
   return (
-    `IF($A${row}="","",IF($D${row}="Summary",` +
-    `IF(COUNTIF(${b},$B${row}&".*")>0,MIN(OFFSET($M${row},1,0,COUNTIF(${b},$B${row}&".*"),1)),TODAY()),` +
-    `IF(AND($H${row}<>"",$I${row}<>"",ISNUMBER(MATCH($H${row}&"",${b},0))),` +
-    `IF($I${row}="FS",WORKDAY(INDEX($P$7:$P${lastDataRow},MATCH($H${row}&"",${b},0)),1+IF($J${row}="",0,$J${row}),${HOLIDAYS_RANGE}),` +
-    `IF($I${row}="SS",WORKDAY(INDEX($M$7:$M${lastDataRow},MATCH($H${row}&"",${b},0)),IF($J${row}="",0,$J${row}),${HOLIDAYS_RANGE}),` +
-    `IF($I${row}="FF",WORKDAY(INDEX($P$7:$P${lastDataRow},MATCH($H${row}&"",${b},0)),IF($J${row}="",0,$J${row})-(MAX(N($N${row}),1)-1),${HOLIDAYS_RANGE}),` +
-    `IF($I${row}="SF",WORKDAY(INDEX($M$7:$M${lastDataRow},MATCH($H${row}&"",${b},0)),IF($J${row}="",0,$J${row})-(MAX(N($N${row}),1)-1),${HOLIDAYS_RANGE}),` +
-    `TODAY())))),IF($L${row}<>"",$L${row},TODAY()))))`
+    `IF($I${row}="SS",WORKDAY(${predStart},${lag},${HOLIDAYS_RANGE}),` +
+    `IF($I${row}="FF",WORKDAY(${predFinish},${lag}${back},${HOLIDAYS_RANGE}),` +
+    `IF($I${row}="SF",WORKDAY(${predStart},${lag}${back},${HOLIDAYS_RANGE}),` +
+    `WORKDAY(${predFinish},1+${lag},${HOLIDAYS_RANGE}))))`
+  );
+}
+
+/** Start before this row's own date constraint is applied — see startFormula,
+ *  which reads this. A Summary rolls up to the earliest of its descendants
+ *  (matched by WBS-text prefix); a Task/Milestone with resolvable predecessors
+ *  takes the latest date any of them pushes it to (the binding one, exactly as
+ *  the scheduler treats them); otherwise it falls back to the manual
+ *  Start (set) column, or today.
+ *
+ *  `predCodes` is the row's predecessor list as it stands at export time. It is
+ *  only consulted when there is more than one — a single predecessor is read
+ *  live out of the Pred cell instead, so that column stays editable in the
+ *  sheet. */
+function baseStartFormula(row: number, lastDataRow: number, predCodes: string[]): string {
+  const b = `$B$7:$B${lastDataRow}`;
+  const descendants = `COUNTIF(${b},$B${row}&".*")`;
+  const summary = `IF(${descendants}>0,MIN(OFFSET($M${row},1,0,${descendants},1)),TODAY())`;
+  const fallback = `IF($L${row}<>"",$L${row},TODAY())`;
+
+  let chain: string;
+  if (predCodes.length > 1) {
+    // N() around each turns an unresolvable predecessor into 0 rather than an
+    // error that would take the whole MAX with it.
+    const latest = `MAX(${predCodes
+      .map((code) => `IFERROR(${predStartExpr(row, `"${code}"`, lastDataRow)},0)`)
+      .join(",")})`;
+    chain = `IF(${latest}=0,${fallback},${latest})`;
+  } else {
+    chain =
+      `IF(AND($H${row}<>"",ISNUMBER(MATCH($H${row}&"",${b},0))),` +
+      `${predStartExpr(row, `$H${row}`, lastDataRow)},${fallback})`;
+  }
+
+  return `IF($A${row}="","",IF($D${row}="Summary",${summary},${chain}))`;
+}
+
+/** Start: the scheduled date above, with the row's date constraint applied —
+ *  the same three rules as the app's own applyConstraint. 必須完成於 pins the
+ *  finish and derives the start backwards; 不得早於(開始) only ever pushes the
+ *  row later; 不得晚於(完成) moves nothing at all — a deadline does not make
+ *  work go faster, so it is reported (the Constraint Date cell turns red) and
+ *  never silently rewrites the schedule. */
+function startFormula(row: number, baseCol: string): string {
+  const back = `-(MAX(N($N${row}),1)-1)`;
+  return (
+    `IF($A${row}="","",` +
+    `IF(AND($R${row}="${CONSTRAINT_LABELS.MUST_FINISH_ON}",$S${row}<>""),` +
+    `WORKDAY($S${row},${back},${HOLIDAYS_RANGE}),` +
+    `IF(AND($R${row}="${CONSTRAINT_LABELS.START_NO_EARLIER_THAN}",$S${row}<>""),` +
+    `MAX(${baseCol}${row},$S${row}),${baseCol}${row})))`
   );
 }
 
@@ -241,6 +310,9 @@ type RowMeta = {
   status: string;
   resource: string;
   pred: string;
+  /** The same predecessors as `pred`, split out — the Start formula needs them
+   *  individually once there is more than one. */
+  predCodes: string[];
   link: string;
   lag: number | null;
   comment: string;
@@ -249,6 +321,13 @@ type RowMeta = {
   dur: number | null;
   finish: Date | null;
   pctDone: number | null;
+  /** 日期約束 — the label the sheet's dropdown offers, and its date. */
+  constraint: string;
+  constraintDate: Date | null;
+  /** 總浮時 (working days) and whether that float is zero — 要徑. Null on a
+   *  row the CPM pass left out (a Summary, or a board with no Pred column). */
+  totalFloat: number | null;
+  isCritical: boolean;
   extra: Record<string, string | number | Date | null>;
   /** Set only for a Summary row kept by a Lvl-depth export filter whose own
    *  children were cut — the live spreadsheet rollup formula would find no
@@ -276,6 +355,23 @@ function buildRowMeta(
   const wbsCodes = computeWbsCodes(items);
   const { ordered, childrenOf } = orderedItems(items);
 
+  // 要徑 — the same backward pass the board's own Gantt shades red, so the
+  // exported workbook marks exactly the tasks the app does.
+  const linkColumnOptions = board.columns.find((c) => c.id === board.linkColumnId)?.options;
+  const floats = computeCriticalPath(
+    items,
+    {
+      predColumnId: board.predColumnId,
+      linkColumnId: board.linkColumnId,
+      linkColumnOptions,
+      lagColumnId: board.lagColumnId,
+      startColumnId: board.ganttStartColumnId,
+      durationColumnId: board.ganttDurationColumnId,
+      durationMode: board.ganttDurationMode,
+    },
+    holidaySet
+  );
+
   const typeColumn = findColumn(board.columns, "Type");
   const priorityColumn = findColumn(board.columns, "Priority");
   const statusColumn = findColumn(board.columns, "Status");
@@ -295,17 +391,32 @@ function buildRowMeta(
   /** The sheet's Pred column is WBS notation, but the cell stores the target
    *  item's id (a code is positional — see resolvePredValue), so translate on
    *  the way out. A value that is already a code is passed through, which is
-   *  what an un-backfilled board or a re-export of a fresh import holds. */
-  function predCode(item: ItemData): string {
+   *  what an un-backfilled board or a re-export of a fresh import holds.
+   *
+   *  An entry may carry its own relationship and lag ("<id>:SS+2"). That part
+   *  has to come off before the lookup, or the id never matches and lands in
+   *  the sheet raw; where the row has a single predecessor the relationship
+   *  and lag are moved into the Link/Lag columns, which is exactly what they
+   *  mean and the only place the sheet can act on them. */
+  function predEdges(item: ItemData): {
+    codes: string[];
+    relationship: string | null;
+    lag: number | null;
+  } {
     const raw = getRawValue(item, predColumn);
-    if (typeof raw !== "string" || !raw) return "";
-    // A list stays a list: "12,15" is the notation the sheet expects too.
-    return raw
+    if (typeof raw !== "string" || !raw) return { codes: [], relationship: null, lag: null };
+    const parts = raw
       .split(",")
       .map((part) => part.trim())
       .filter(Boolean)
-      .map((part) => wbsCodes.get(part) ?? part)
-      .join(",");
+      .map((part) => splitPredEntry(part));
+    return {
+      codes: parts.map((p) => wbsCodes.get(p.ref) ?? p.ref),
+      // Only meaningful for a single edge — with several, the sheet has one
+      // Link/Lag cell and they may disagree, so the item's own columns stand.
+      relationship: parts.length === 1 ? parts[0].relationship : null,
+      lag: parts.length === 1 ? parts[0].lag : null,
+    };
   }
 
   function leafPercent(item: ItemData): number | null {
@@ -335,6 +446,8 @@ function buildRowMeta(
     const durRaw = getRawValueByColumnId(item, board.ganttDurationColumnId);
     const startSetRaw = getRawValueByColumnId(item, board.manualStartColumnId);
     const lagRaw = getRawValue(item, lagColumn);
+    const edges = predEdges(item);
+    const float = floats.get(item.id);
 
     return {
       item,
@@ -345,15 +458,20 @@ function buildRowMeta(
       priority: getStatusLabel(item, priorityColumn),
       status: getStatusLabel(item, statusColumn),
       resource: (getRawValue(item, resourceColumn) as string | null) ?? "",
-      pred: predCode(item),
-      link: getStatusLabel(item, linkColumn),
-      lag: typeof lagRaw === "number" ? lagRaw : null,
+      pred: edges.codes.join(","),
+      predCodes: edges.codes,
+      link: edges.relationship ?? getStatusLabel(item, linkColumn),
+      lag: edges.lag ?? (typeof lagRaw === "number" ? lagRaw : null),
       comment: (getRawValue(item, commentColumn) as string | null) ?? "",
       startSet: parseDate(startSetRaw),
       start: parseDate(startRaw),
       dur: typeof durRaw === "number" ? durRaw : null,
       finish: parseDate(finishRaw),
       pctDone: hasChildren ? rollupPercent(wbs) : leafPercent(item),
+      constraint: item.constraintType ? CONSTRAINT_LABELS[item.constraintType] : "",
+      constraintDate: parseDate(item.constraintDate),
+      totalFloat: float?.totalFloat ?? null,
+      isCritical: float?.isCritical ?? false,
       extra: Object.fromEntries(extraColumns.map((c) => [c.id, resolveExtraValue(item, c, users)])),
       startOverride: null,
       finishOverride: null,
@@ -469,6 +587,7 @@ function applyDetailValidation(sheet: ExcelJS.Worksheet, lastRow: number, board:
     [4, typeOptions],
     [5, priorityOptions],
     [6, statusOptions],
+    [18, Object.values(CONSTRAINT_LABELS)],
   ];
   for (const [col, options] of lists) {
     for (let row = 7; row <= lastRow; row++) {
@@ -478,6 +597,19 @@ function applyDetailValidation(sheet: ExcelJS.Worksheet, lastRow: number, board:
         formulae: [`"${options.join(",")}"`],
       };
     }
+  }
+
+  // Resource reads the Lists sheet rather than a frozen inline list, so adding
+  // a person there makes them pickable everywhere without re-exporting.
+  // Like the lists above it does not reject a typed value — which matters more
+  // here, because the bundled Apps Script builds multi-person values
+  // ("Amy, Ben") by design and a strict list would reject every one of them.
+  for (let row = 7; row <= lastRow; row++) {
+    sheet.getCell(row, 7).dataValidation = {
+      type: "list",
+      allowBlank: true,
+      formulae: [LISTS_MEMBER_RANGE],
+    };
   }
 }
 
@@ -515,7 +647,8 @@ function writeDetailRow(
     row.getCell(12).value = m.startSet;
     row.getCell(12).numFmt = "yyyy-mm-dd";
   }
-  row.getCell(13).value = m.startOverride ?? { formula: startFormula(rowIndex, lastDataRow) };
+  const baseCol = colLetter(detailColCount + 6);
+  row.getCell(13).value = m.startOverride ?? { formula: startFormula(rowIndex, `$${baseCol}`) };
   row.getCell(13).numFmt = "yyyy-mm-dd";
   if (m.dur !== null) {
     row.getCell(14).value = m.dur;
@@ -527,6 +660,15 @@ function writeDetailRow(
     row.getCell(17).value = m.pctDone;
     row.getCell(17).numFmt = "0%";
   }
+  row.getCell(18).value = m.constraint;
+  if (m.constraintDate) {
+    row.getCell(19).value = m.constraintDate;
+    row.getCell(19).numFmt = "yyyy-mm-dd";
+  }
+  if (m.totalFloat !== null) row.getCell(20).value = m.totalFloat;
+  // A mark rather than TRUE/FALSE: the column is read at a glance, and the
+  // bar-colour rule keys on it.
+  if (m.isCritical) row.getCell(21).value = "★";
 
   extraColumns.forEach((col, i) => {
     const value = m.extra[col.id];
@@ -541,6 +683,10 @@ function writeDetailRow(
   row.getCell(detailColCount + 3).value = { formula: levelCounterFormula(rowIndex, 2) };
   row.getCell(detailColCount + 4).value = { formula: levelCounterFormula(rowIndex, 3) };
   row.getCell(detailColCount + 5).value = { formula: levelCounterFormula(rowIndex, 4) };
+  row.getCell(detailColCount + 6).value = {
+    formula: baseStartFormula(rowIndex, lastDataRow, m.predCodes),
+  };
+  row.getCell(detailColCount + 6).numFmt = "yyyy-mm-dd";
 }
 
 function writeMirrorRow(
@@ -559,6 +705,7 @@ function writeMirrorRow(
   row.getCell(13).numFmt = "yyyy-mm-dd";
   row.getCell(16).numFmt = "yyyy-mm-dd";
   row.getCell(17).numFmt = "0%";
+  row.getCell(19).numFmt = "yyyy-mm-dd";
   extraColumns.forEach((col, i) => {
     if (col.type === "DATE") row.getCell(BASE_DETAIL_COL_COUNT + 1 + i).numFmt = "yyyy-mm-dd";
   });
@@ -628,17 +775,57 @@ function applyConditionalFormatting(
         ],
         style: { fill: { type: "pattern", pattern: "solid", fgColor: { argb: BAR_COLORS.completed } } },
       },
+      // 要徑 outranks the ordinary Task/Summary colours but not "completed":
+      // a critical task that is already done is not the thing to look at.
       {
         type: "expression",
         priority: 3,
+        formulae: [`AND($M7<=${startLetter}$4,$P7>=${startLetter}$6,$U7="★")`],
+        style: { fill: { type: "pattern", pattern: "solid", fgColor: { argb: BAR_COLORS.critical } } },
+      },
+      {
+        type: "expression",
+        priority: 4,
         formulae: [`AND($M7<=${startLetter}$4,$P7>=${startLetter}$6,$D7="Summary")`],
         style: { fill: { type: "pattern", pattern: "solid", fgColor: { argb: BAR_COLORS.summary } } },
       },
       {
         type: "expression",
-        priority: 4,
+        priority: 5,
         formulae: [`AND($M7<=${startLetter}$4,$P7>=${startLetter}$6,$D7="Task")`],
         style: { fill: { type: "pattern", pattern: "solid", fgColor: { argb: BAR_COLORS.task } } },
+      },
+      // The dependency link: the run of cells between the predecessor's finish
+      // and this row's own start, tinted so the gap reads as a connector
+      // rather than as empty space. A spreadsheet cannot draw a real arrow —
+      // .xlsx has no way to express one — so the lag itself is what gets
+      // drawn, which is the part worth seeing anyway.
+      {
+        type: "expression",
+        priority: 6,
+        formulae: [
+          `AND($H7<>"",ISNUMBER(MATCH($H7&"",$B$7:$B$${lastDataRow},0)),` +
+            `${startLetter}$6>INDEX($P$7:$P$${lastDataRow},MATCH($H7&"",$B$7:$B$${lastDataRow},0)),` +
+            `${startLetter}$6<$M7)`,
+        ],
+        style: { fill: { type: "pattern", pattern: "solid", fgColor: { argb: LINK_COLOR } } },
+      },
+    ],
+  });
+
+  // …and a hard left edge on the driven bar's first cell, so an FS link with
+  // no lag — where there are no gap cells to tint — still shows that this bar
+  // is held in place by something upstream.
+  sheet.addConditionalFormatting({
+    ref: barRef,
+    rules: [
+      {
+        type: "expression",
+        priority: 7,
+        formulae: [
+          `AND($H7<>"",ISNUMBER(MATCH($H7&"",$B$7:$B$${lastDataRow},0)),${startLetter}$6=$M7)`,
+        ],
+        style: { border: { left: { style: "medium", color: { argb: LINK_EDGE_COLOR } } } },
       },
     ],
   });
@@ -653,9 +840,28 @@ function applyConditionalFormatting(
     rules: [
       {
         type: "expression",
-        priority: 5,
+        priority: 8,
         formulae: [todayFormula],
         style: { fill: { type: "pattern", pattern: "solid", fgColor: { argb: TODAY_COLOR } } },
+      },
+    ],
+  });
+
+  // 不得晚於(完成) never moves the schedule — it reports. This is the report:
+  // the deadline turns red the moment the work runs past it.
+  sheet.addConditionalFormatting({
+    ref: `R7:S${lastDataRow}`,
+    rules: [
+      {
+        type: "expression",
+        priority: 9,
+        formulae: [
+          `AND($R7="${CONSTRAINT_LABELS.FINISH_NO_LATER_THAN}",$S7<>"",$P7>$S7)`,
+        ],
+        style: {
+          font: { bold: true, color: { argb: "FFFFFFFF" } },
+          fill: { type: "pattern", pattern: "solid", fgColor: { argb: BAR_COLORS.critical } },
+        },
       },
     ],
   });
@@ -830,13 +1036,19 @@ function buildSettingsSheet(workbook: ExcelJS.Workbook, levelColors: string[]) {
   sheet.getCell("A11").font = { italic: true, color: { argb: "FF999999" } };
 }
 
-function buildListsSheet(workbook: ExcelJS.Workbook, rows: RowMeta[]) {
+/** The roster the Resource dropdown on every Gantt sheet reads (see
+ *  LISTS_MEMBER_RANGE). Everyone the app knows about goes in, not just the
+ *  names already used on this group's rows — the whole point of the dropdown
+ *  is to assign somebody who is not on the board yet. */
+function buildListsSheet(workbook: ExcelJS.Workbook, rows: RowMeta[], users: UserOption[]) {
   const sheet = workbook.addWorksheet("Lists");
   sheet.getColumn(1).width = 28;
   sheet.getCell("A1").value = "Members (add rows below; appear in Resource dropdown)";
   sheet.getCell("A1").font = { bold: true };
 
-  const names = new Set<string>();
+  const names = new Set<string>(users.map((u) => u.name).filter(Boolean));
+  // Anything already written on a row stays selectable even if that person has
+  // since left — otherwise the existing value reads as invalid.
   for (const r of rows) {
     for (const part of r.resource.split(",")) {
       const trimmed = part.trim();
@@ -877,6 +1089,246 @@ function buildHolidaysSheet(workbook: ExcelJS.Workbook, holidays: { date: string
   });
 }
 
+const MONEY_FMT = "#,##0";
+
+function sectionTitle(sheet: ExcelJS.Worksheet, row: number, text: string) {
+  const cell = sheet.getCell(row, 1);
+  cell.value = text;
+  cell.font = { bold: true, size: 12 };
+}
+
+function headerRow(sheet: ExcelJS.Worksheet, row: number, labels: string[]) {
+  labels.forEach((label, i) => {
+    const cell = sheet.getCell(row, i + 1);
+    cell.value = label;
+    cell.font = { bold: true };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDEBF7" } };
+  });
+}
+
+/**
+ * 專案預算 — 核准了多少、花掉多少、已下單多少、還剩多少,每個核准範圍一塊。
+ *
+ * Static figures, not formulas: unlike the schedule, a budget is not something
+ * anyone should re-derive by editing a cell here. The ledger lives in the app;
+ * this is the statement of it.
+ */
+function buildBudgetSheet(workbook: ExcelJS.Workbook, scopes: BudgetScopeExport[]) {
+  const sheet = workbook.addWorksheet("預算 (Budget)");
+  [28, 16, 16, 16, 16, 12].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+
+  sheet.getCell("A1").value = "專案預算";
+  sheet.getCell("A1").font = { bold: true, size: 14 };
+  sheet.getCell("A2").value =
+    "數字來自 App 的預算管控頁,與該頁一致。人力實際成本來自已核准的工時,不是手動記帳。";
+  sheet.getCell("A2").font = { italic: true, color: { argb: "FF666666" } };
+
+  if (scopes.length === 0) {
+    sheet.getCell("A4").value = "這個看板底下還沒有核准任何預算。";
+    return;
+  }
+
+  let row = 4;
+  for (const scope of scopes) {
+    sectionTitle(sheet, row, `${scope.kind}:${scope.name}　—　${scope.alert}`);
+    row += 1;
+
+    headerRow(sheet, row, ["類別", "核准預算", "實際支出", "已下單未入帳", "剩餘", "已用 %"]);
+    row += 1;
+
+    const writeLine = (line: BudgetLine, bold: boolean) => {
+      sheet.getCell(row, 1).value = line.label;
+      ([line.budget, line.actual, line.committed, line.remaining] as number[]).forEach((n, i) => {
+        const cell = sheet.getCell(row, i + 2);
+        cell.value = n;
+        cell.numFmt = MONEY_FMT;
+      });
+      const pct = sheet.getCell(row, 6);
+      pct.value = line.usedPct === null ? "—" : line.usedPct / 100;
+      if (line.usedPct !== null) pct.numFmt = "0%";
+      if (bold) sheet.getRow(row).font = { bold: true };
+      // 剩餘 is the cell people look for; red when the money is already spent.
+      if (line.remaining < 0) {
+        sheet.getCell(row, 5).font = { bold: true, color: { argb: "FFC0392B" } };
+      }
+      row += 1;
+    };
+
+    for (const line of scope.lines) writeLine(line, false);
+    writeLine(scope.total, true);
+    row += 1;
+
+    if (scope.reserves.length > 0) {
+      headerRow(sheet, row, ["準備金", "核准額度", "已動支", "可動支餘額"]);
+      row += 1;
+      for (const reserve of scope.reserves) {
+        sheet.getCell(row, 1).value = reserve.label;
+        [reserve.approved, reserve.drawn, reserve.remaining].forEach((n, i) => {
+          const cell = sheet.getCell(row, i + 2);
+          cell.value = n;
+          cell.numFmt = MONEY_FMT;
+        });
+        row += 1;
+      }
+      row += 1;
+    }
+
+    headerRow(sheet, row, ["預估完工成本 (EAC)", "金額"]);
+    row += 1;
+    const forecastRows: [string, number | null][] = [
+      ["已投入(已花費 + 已承諾)", scope.engaged],
+      ["人力實際成本(已核准工時)", scope.labourActual],
+      ["照目前效率的完工成本", scope.eacAtCurrentRate],
+      ["剩餘照原預算的完工成本", scope.eacRemainingAtPlan],
+      ["對核准預算的差異(負值 = 預計超支)", scope.varianceAtCompletion],
+    ];
+    for (const [label, value] of forecastRows) {
+      sheet.getCell(row, 1).value = label;
+      const cell = sheet.getCell(row, 2);
+      cell.value = value === null ? "—" : Math.round(value);
+      if (value !== null) cell.numFmt = MONEY_FMT;
+      if (value !== null && value < 0) cell.font = { bold: true, color: { argb: "FFC0392B" } };
+      row += 1;
+    }
+    sheet.getCell(row, 1).value = "完成比例(依工期加權)";
+    const done = sheet.getCell(row, 2);
+    done.value = scope.fractionDone === null ? "—" : scope.fractionDone;
+    if (scope.fractionDone !== null) done.numFmt = "0%";
+    row += 3;
+  }
+}
+
+type BudgetLine = BudgetScopeExport["total"];
+
+/**
+ * 燃盡圖 — 計畫 vs 實際 vs 含已下單,逐週累積。
+ *
+ * The committed line is the one that matters: it crosses the budget before the
+ * money is actually spent, which is the only point at which anything can still
+ * be done about it. The 剩餘預算 column is what "burn-down" literally means —
+ * how much is left, week by week, until it hits zero.
+ */
+function buildBurndownSheet(workbook: ExcelJS.Workbook, scopes: BudgetScopeExport[]) {
+  const sheet = workbook.addWorksheet("燃盡圖 (Burn-down)");
+  [14, 16, 16, 16, 16, 30].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+
+  sheet.getCell("A1").value = "預算燃盡";
+  sheet.getCell("A1").font = { bold: true, size: 14 };
+  sheet.getCell("A2").value =
+    "在 Google 試算表可用「Gantt → 產生燃盡圖」直接畫成折線圖;在 Excel 選取表格後「插入 → 折線圖」即可。";
+  sheet.getCell("A2").font = { italic: true, color: { argb: "FF666666" } };
+
+  const withPoints = scopes.filter((s) => s.points.length > 0);
+  if (withPoints.length === 0) {
+    sheet.getCell("A4").value = "還沒有支出或訂單,畫不出燃盡曲線。";
+    return;
+  }
+
+  let row = 4;
+  for (const scope of withPoints) {
+    sectionTitle(sheet, row, `${scope.kind}:${scope.name}(核准 ${scope.total.budget.toLocaleString()})`);
+    row += 1;
+    headerRow(sheet, row, [
+      "週結束日",
+      "計畫累積",
+      "實際累積",
+      "實際 + 已下單",
+      "剩餘預算",
+      "已用比例",
+    ]);
+    row += 1;
+
+    const budget = scope.total.budget;
+    for (const point of scope.points) {
+      sheet.getCell(row, 1).value = new Date(point.iso);
+      sheet.getCell(row, 1).numFmt = "yyyy-mm-dd";
+      const values: (number | null)[] = [
+        point.planned === null ? null : Math.round(point.planned),
+        point.actual === null ? null : Math.round(point.actual),
+        Math.round(point.committed),
+        budget > 0 ? Math.round(budget - point.committed) : null,
+      ];
+      values.forEach((value, i) => {
+        const cell = sheet.getCell(row, i + 2);
+        // Left genuinely empty, not zero: a chart should break the line where
+        // there is no data, not draw it along the floor.
+        if (value === null) return;
+        cell.value = value;
+        cell.numFmt = MONEY_FMT;
+        if (i === 3 && value < 0) cell.font = { bold: true, color: { argb: "FFC0392B" } };
+      });
+      // A bar that needs no chart — 20 blocks is the full approved budget.
+      if (budget > 0) {
+        sheet.getCell(row, 6).value = {
+          formula: `IF($D${row}="","",REPT("█",MIN(20,ROUND($D${row}/${budget}*20,0)))&" "&TEXT($D${row}/${budget},"0%"))`,
+        };
+      }
+      row += 1;
+    }
+    row += 2;
+  }
+}
+
+/**
+ * 延遲追因 — 誰把時程拖掉的。
+ *
+ * Only the tasks that slipped further than the chain pushed them. Everything
+ * else on a late project is late too, and none of it is to blame: listing all
+ * of it is how a delay report becomes something nobody reads.
+ */
+function buildDelaySheet(workbook: ExcelJS.Workbook, delay: DelayExport) {
+  const sheet = workbook.addWorksheet("延遲追因 (Delay)");
+  [12, 40, 12, 12, 12, 12, 12, 14].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+
+  sheet.getCell("A1").value = "延遲追因";
+  sheet.getCell("A1").font = { bold: true, size: 14 };
+  sheet.getCell("A2").value =
+    "與基準線比對。「自己的延遲」才是戰犯——其餘工作項只是被前置推的。";
+  sheet.getCell("A2").font = { italic: true, color: { argb: "FF666666" } };
+
+  if (delay.noBaseline) {
+    sheet.getCell("A4").value = "還沒有建立基準線,沒有可以比對的計畫。";
+    return;
+  }
+
+  sheet.getCell("A4").value = "專案最大延遲(日曆天)";
+  sheet.getCell("B4").value = delay.projectDelay;
+  sheet.getCell("B4").font = {
+    bold: true,
+    color: { argb: delay.projectDelay > 0 ? "FFC0392B" : "FF27AE60" },
+  };
+
+  if (delay.culprits.length === 0) {
+    sheet.getCell("A6").value = "沒有工作項自己造成延遲。";
+    return;
+  }
+
+  headerRow(sheet, 6, [
+    "WBS",
+    "工作項",
+    "開始延遲",
+    "完成延遲",
+    "工期增加",
+    "繼承的延遲",
+    "自己的延遲",
+    "往下拖累幾項",
+  ]);
+  delay.culprits.forEach((culprit, i) => {
+    const row = 7 + i;
+    sheet.getCell(row, 1).value = culprit.wbsCode;
+    sheet.getCell(row, 2).value = culprit.name;
+    sheet.getCell(row, 3).value = culprit.startDelta;
+    sheet.getCell(row, 4).value = culprit.endDelta;
+    sheet.getCell(row, 5).value = culprit.daysDelta;
+    sheet.getCell(row, 6).value = culprit.inheritedDelay;
+    const own = sheet.getCell(row, 7);
+    own.value = culprit.ownDelay;
+    own.font = { bold: true, color: { argb: "FFC0392B" } };
+    sheet.getCell(row, 8).value = culprit.downstreamCount;
+  });
+  sheet.autoFilter = `A6:H${6 + delay.culprits.length}`;
+}
+
 export type GanttExportOptions = {
   /** Board column ids beyond the fixed template to include, e.g. custom
    *  PERSON columns like 負責人/測試工具. */
@@ -889,6 +1341,11 @@ export type GanttExportOptions = {
   /** Company-wide holiday list, seeded into the workbook's own Holidays
    *  sheet and referenced by the Start/Days/Finish formulas. */
   holidays?: { date: string; name: string }[];
+  /** 每個核准範圍的預算與燃盡曲線 — one 預算 sheet section and one 燃盡圖
+   *  section each. Empty when nothing has a budget. */
+  budgets?: BudgetScopeExport[];
+  /** 延遲追因. Omitted when the caller has no baseline to compare against. */
+  delay?: DelayExport;
 };
 
 /**
@@ -918,7 +1375,7 @@ export async function buildGanttWorkbook(
 
   const workbook = new ExcelJS.Workbook();
   buildSettingsSheet(workbook, levelColors);
-  buildListsSheet(workbook, rows);
+  buildListsSheet(workbook, rows, users);
   buildHolidaysSheet(workbook, holidays);
   buildDaySheet(workbook, board, group, rows, range, levelColors, headers, detailColCount, extraColumns);
   buildMirrorSheet(
@@ -947,6 +1404,9 @@ export async function buildGanttWorkbook(
     detailColCount,
     extraColumns
   );
+  buildBudgetSheet(workbook, options.budgets ?? []);
+  buildBurndownSheet(workbook, options.budgets ?? []);
+  buildDelaySheet(workbook, options.delay ?? { projectDelay: 0, noBaseline: true, culprits: [] });
 
   const arrayBuffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(arrayBuffer);

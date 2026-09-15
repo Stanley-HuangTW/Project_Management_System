@@ -21,6 +21,10 @@ export const BASE_DETAIL_HEADERS = [
   "Days",
   "Finish",
   "% Done",
+  "Constraint",
+  "Constraint Date",
+  "Float",
+  "Critical",
 ];
 
 /** Column names already claimed by the fixed Gantt export template —

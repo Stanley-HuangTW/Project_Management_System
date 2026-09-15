@@ -96,12 +96,13 @@ export function ExportGanttModal({
         <div className="space-y-3">
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             會下載兩個檔案:一個完整的 .xlsx(Settings/Lists/Holidays/Gantt Day·
-            Week·Month 六個分頁,含甘特條、階層顏色、下拉選單,Start/Days/
-            Finish 公式會自動避開 Holidays 分頁列出的國定假日),以及一份
-            Apps Script(.gs)範本。上傳 .xlsx 到 Google 雲端硬碟並以「Google
+            Week·Month/預算/燃盡圖/延遲追因 九個分頁,含甘特條、要徑標記、
+            相依連線、階層顏色、日期約束與下拉選單,Start/Days/Finish 公式會
+            自動避開 Holidays 分頁列出的國定假日),以及一份 Apps
+            Script(.gs)範本。上傳 .xlsx 到 Google 雲端硬碟並以「Google
             試算表」開啟,即可直接使用;第一次使用需在該試算表的「擴充功能 →
             Apps Script」貼上下載的 .gs 內容並儲存,之後重新整理頁面即可看到
-            「Gantt」選單(甘特條/階層顏色/彙總%等會自動套用)。
+            「Gantt」選單(甘特條/階層顏色/彙總%/產生燃盡圖等)。
           </p>
           <div>
             <label className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
