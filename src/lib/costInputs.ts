@@ -6,6 +6,7 @@ import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { labourCost } from "@/lib/cost";
 import type { CostItemInput } from "@/lib/boardCost";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
+import { effectiveRateMap } from "@/lib/labourRate";
 
 export type GatheredCosts = {
   inputs: CostItemInput[];
@@ -56,10 +57,10 @@ export async function gatherCostInputs(
         reportDoneOptionIds: true,
       },
     }),
-    prisma.user.findMany({ select: { id: true, name: true, hourlyRate: true } }),
+    prisma.user.findMany({ select: { id: true, name: true } }),
   ]);
 
-  const rateByUser = new Map(users.map((u) => [u.id, u.hourlyRate ? Number(u.hourlyRate) : 0]));
+  const rateByUser = await effectiveRateMap();
   const nameByUser = new Map(users.map((u) => [u.id, u.name]));
 
   const inputs: CostItemInput[] = [];

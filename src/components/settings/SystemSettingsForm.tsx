@@ -12,6 +12,7 @@ import {
   setPredLampColors,
 } from "@/lib/actions/systemSettings";
 import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModal";
+import { DisciplineRateCard } from "./DisciplineRateCard";
 import { WorkloadThresholdModal } from "@/components/dashboard/WorkloadThresholdModal";
 import type { WorkloadThresholdSettings } from "@/lib/workload";
 import type { UserOption } from "@/types/board";
@@ -408,6 +409,7 @@ export function SystemSettingsForm({
   emailNotificationsEnabled,
   ganttDurationMode,
   hoursPerDay,
+  workingDaysPerMonth,
   levelColors,
   ganttStatusColors,
   predLampColors,
@@ -429,6 +431,7 @@ export function SystemSettingsForm({
   emailNotificationsEnabled: boolean;
   ganttDurationMode: GanttDurationMode;
   hoursPerDay: number;
+  workingDaysPerMonth: number;
   levelColors: string[];
   ganttStatusColors: { overdue: string; completed: string; inProgress: string };
   predLampColors: { ready: string; waiting: string; blocked: string };
@@ -453,6 +456,7 @@ export function SystemSettingsForm({
           <EmailNotificationsCard initial={emailNotificationsEnabled} />
           <GanttModeCard initial={ganttDurationMode} />
           <HoursPerDayCard initial={hoursPerDay} />
+          <DisciplineRateCard workingDaysPerMonth={workingDaysPerMonth} hoursPerDay={hoursPerDay} />
           <ExchangeRateCard />
           <HolidayCard holidays={holidays} />
           <LevelColorCard initial={levelColors} />

@@ -27,6 +27,7 @@ export async function getSystemSettings() {
     predWaitingColor: "#fdab3d",
     predBlockedColor: "#e2445c",
     hoursPerDay: 8,
+    workingDaysPerMonth: 21,
     defaultColumns: null as Prisma.JsonValue,
     updatedAt: new Date(),
   };
@@ -120,6 +121,28 @@ export async function setHoursPerDay(hours: number) {
   });
   // 這是把「50% 排 10 天」換算成小時、再換算成錢的係數。
   await logAudit("SETTINGS", session.userId, `每日工時:${before.hoursPerDay} → ${value} 小時`);
+  revalidatePath("/settings");
+}
+
+/** 一個人月算幾個工作天 — 把月薪換算成時薪、把人月換算成工時的係數。 */
+export async function setWorkingDaysPerMonth(days: number) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  if (!Number.isFinite(days) || days < 1 || days > 31) {
+    throw new Error("每月工作天數必須在 1 到 31 之間");
+  }
+  const value = Math.round(days);
+  const before = await getSystemSettings();
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", workingDaysPerMonth: value },
+    update: { workingDaysPerMonth: value },
+  });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `每月工作天數:${before.workingDaysPerMonth} → ${value} 天`
+  );
   revalidatePath("/settings");
 }
 

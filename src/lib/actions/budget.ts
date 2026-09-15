@@ -25,6 +25,7 @@ import { countDaysInRange } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { logAudit } from "@/lib/activityLog";
 import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
+import { effectiveRateMap } from "@/lib/labourRate";
 
 /** 階段(一列工作項)或整個專案群組 — the two levels a budget is approved at. */
 export type BudgetScope = { kind: "item"; id: string } | { kind: "program"; id: string };
@@ -77,6 +78,8 @@ export type BudgetView = {
   /** 人力實際成本 is derived, not booked, so it is stated separately — it is
    *  the one line nobody can reconcile against a receipt. */
   labourActual: number;
+  /** 人力核准金額是不是人力規劃表算出來的 —— 是的話就不該再手填。 */
+  labourFromPlan: boolean;
   /** 照這樣下去會花多少 — see budgetForecast.ts. */
   forecast: BudgetForecast;
   /** 目前可選的幣別與匯率,用來預填輸入框。 */
@@ -262,8 +265,7 @@ async function labourActualFor(itemIds: string[]): Promise<number> {
   });
   if (entries.length === 0) return 0;
 
-  const users = await prisma.user.findMany({ select: { id: true, hourlyRate: true } });
-  const rate = new Map(users.map((u) => [u.id, u.hourlyRate ? Number(u.hourlyRate) : 0]));
+  const rate = await effectiveRateMap();
   return entries.reduce((total, e) => total + Number(e.hours) * (rate.get(e.userId) ?? 0), 0);
 }
 
@@ -376,6 +378,10 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
       })),
     items: resolved.items,
     labourActual: Math.round(labour),
+    // 只有階段有人力規劃表;專案群組的人力是各階段加總,沒有自己的表。
+    labourFromPlan:
+      scope.kind === "item" &&
+      (await prisma.labourPlan.count({ where: { itemId: scope.id } })) > 0,
     // Same rule the write paths enforce — see canEditBudget.
     canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({
@@ -422,7 +428,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
  * created the 專案群組 for a programme budget. Groups created before that
  * field existed have no creator, so those fall back to admins only.
  */
-async function canEditBudget(
+export async function canEditBudget(
   scope: BudgetScope,
   session: Awaited<ReturnType<typeof requireSession>>
 ): Promise<boolean> {
@@ -464,7 +470,7 @@ async function hasTeamLeaderRole(groupIds: string[], userId: string): Promise<bo
   return count > 0;
 }
 
-async function requireBudgetAdmin(scope: BudgetScope) {
+export async function requireBudgetAdmin(scope: BudgetScope) {
   const session = await requireSession();
   const resolved = await resolveScope(scope, session);
   if (!resolved) throw new Error("找不到這個預算範圍");

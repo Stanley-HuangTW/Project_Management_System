@@ -30,15 +30,19 @@ import {
   reorderUsers,
   listUsers,
   updateUserHourlyRate,
+  updateUserDiscipline,
+  updateUserMonthlySalary,
   adminResetUserPassword,
   unlockUser,
 } from "@/lib/actions/user";
-import type { UserRole } from "@prisma/client";
+import type { UserRole, Discipline } from "@prisma/client";
+import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
-const ROW_GRID = "grid-cols-[24px_48px_1fr_1fr_90px_120px_150px_110px_120px]";
+const ROW_GRID =
+  "grid-cols-[24px_48px_1fr_1fr_90px_110px_100px_110px_110px_150px_110px]";
 
 function roleLabel(role: UserRole) {
   return role === "ADMIN" ? "管理者" : role === "SUPERVISOR" ? "主管" : "團隊成員";
@@ -79,6 +83,40 @@ function RateInput({ user }: { user: UserRow }) {
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       placeholder="未設定"
       title="每小時人力成本(元)"
+      className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
+    />
+  );
+}
+
+/** 月薪。跟 RateInput 一樣離開欄位才存,理由相同。 */
+function SalaryInput({ user }: { user: UserRow }) {
+  const [value, setValue] = useState(user.monthlySalary === null ? "" : String(user.monthlySalary));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const next = value.trim() === "" ? null : Number(value);
+    if (next !== null && (!Number.isFinite(next) || next < 0)) {
+      setValue(user.monthlySalary === null ? "" : String(user.monthlySalary));
+      return;
+    }
+    if (next === user.monthlySalary) return;
+    setSaving(true);
+    try {
+      await updateUserMonthlySalary(user.id, next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <input
+      value={value}
+      disabled={saving}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={save}
+      inputMode="numeric"
+      placeholder="未設定"
+      title="月薪(元)。時薪有填的話仍然以時薪為準。"
       className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
     />
   );
@@ -160,6 +198,19 @@ function SortableUserRow({
       <span className="text-neutral-400 dark:text-neutral-500">
         {new Date(user.createdAt).toLocaleDateString("zh-TW")}
       </span>
+      <select
+        value={user.discipline ?? ""}
+        onChange={(e) => updateUserDiscipline(user.id, (e.target.value || null) as Discipline | null)}
+        className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
+      >
+        <option value="">未設定</option>
+        {DISCIPLINES.map((d) => (
+          <option key={d} value={d}>
+            {DISCIPLINE_LABELS[d]}
+          </option>
+        ))}
+      </select>
+      <SalaryInput user={user} />
       <RateInput user={user} />
       <select
         value={user.supervisorId ?? ""}
@@ -450,6 +501,8 @@ export function UserManagement({
           <span>Email</span>
           <span>角色</span>
           <span>建立時間</span>
+          <span>單位</span>
+          <span>月薪(元)</span>
           <span>時薪(元)</span>
           <span>所屬主管</span>
           <span />

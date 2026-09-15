@@ -733,7 +733,7 @@ function CategoryTable({
                   {CATEGORY_LABELS[category]}
                   {category === "LABOUR" && (
                     <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">
-                      (由工時自動計算)
+                      {view.labourFromPlan ? "(由人力規劃表計算)" : "(由工時自動計算)"}
                     </span>
                   )}
                 </td>
@@ -762,14 +762,23 @@ function CategoryTable({
                 </td>
                 {view.canEdit && (
                   <td className="px-3 py-1.5 text-right">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => edit(category)}
-                      className="rounded border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
-                    >
-                      設定
-                    </button>
+                    {category === "LABOUR" && view.labourFromPlan ? (
+                      <span
+                        className="text-[11px] text-neutral-400 dark:text-neutral-500"
+                        title="到「人力規劃」那張表改人月,或到系統設定改單位標準月薪"
+                      >
+                        見人力規劃
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => edit(category)}
+                        className="rounded border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+                      >
+                        設定
+                      </button>
+                    )}
                   </td>
                 )}
               </tr>

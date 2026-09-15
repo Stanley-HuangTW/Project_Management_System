@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { BoardWithData } from "@/types/board";
 import { BudgetPanel } from "./BudgetPanel";
+import { LabourPlanTable } from "./LabourPlanTable";
 
 /**
  * 預算 on a board: one phase at a time.
@@ -17,6 +18,8 @@ import { BudgetPanel } from "./BudgetPanel";
 export function BoardBudget({ board }: { board: BoardWithData }) {
   const phases = board.items.filter((item) => item.parentId === null);
   const [itemId, setItemId] = useState(phases[0]?.id ?? "");
+  // 人力規劃橫跨所有階段,所以它不在階段面板裡面,而是跟它並排的另一個視圖。
+  const [view, setView] = useState<"phase" | "labour">("phase");
 
   if (phases.length === 0) {
     return (
@@ -28,6 +31,32 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-1">
+        {(
+          [
+            ["phase", "階段預算"],
+            ["labour", "人力規劃"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setView(id)}
+            className={`rounded-md px-2.5 py-1 text-sm ${
+              view === id
+                ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "labour" ? (
+        <LabourPlanTable boardId={board.id} />
+      ) : (
+        <>
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">預算管控</h2>
         <select
@@ -55,6 +84,8 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
       </div>
 
       {itemId && <BudgetPanel key={itemId} scope={{ kind: "item", id: itemId }} />}
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
 import { canAccessBoard } from "@/lib/boardAccess";
+import { effectiveRateMap } from "@/lib/labourRate";
 import {
   summarizeBudget,
   summarizeReserves,
@@ -116,8 +117,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
 
     let labour = 0;
     if (entries.length > 0) {
-      const users = await prisma.user.findMany({ select: { id: true, hourlyRate: true } });
-      const rate = new Map(users.map((u) => [u.id, u.hourlyRate ? Number(u.hourlyRate) : 0]));
+      const rate = await effectiveRateMap();
       labour = entries.reduce((t, e) => t + Number(e.hours) * (rate.get(e.userId) ?? 0), 0);
     }
 

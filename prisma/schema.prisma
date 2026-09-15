@@ -85,7 +85,12 @@ model User {
 
   /// 每小時人力成本(元)。null = 尚未設定,成本會照 0 算並在報表上點名。
   /// 放在使用者身上而不是設定頁:它跟著人的職級變動,不是一份全域參數。
-  hourlyRate Decimal? @db.Decimal(12, 2)
+  hourlyRate    Decimal?    @db.Decimal(12, 2)
+  /// 所屬單位 —— 人力成本與人力規劃都照這個歸戶。
+  discipline    Discipline?
+  /// 個人月薪。有填就蓋過所屬單位的標準月薪;時薪有填的話仍然優先,
+  /// 換算順序見 labourRate.ts。
+  monthlySalary Decimal?    @db.Decimal(12, 2)
 
   supervisorId String?
   supervisor   User?   @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
@@ -406,6 +411,7 @@ model Item {
   commitments   Commitment[]
   expenses      Expense[]
   reserves      Reserve[]
+  labourPlans   LabourPlan[]
 
   @@index([boardId])
   @@index([groupId])
@@ -576,6 +582,35 @@ model WorkloadThreshold {
 // ganttDurationMode used to be per-Board fields; they're app-wide now, so a
 // write here also broadcasts to every Board's own copy of the field (kept
 // only so the many existing per-board reads don't need to change).
+/// 各單位的標準月薪。編預算的時候還不知道會是誰做,所以人力規劃一律用
+/// 單位的標準價;實際成本才用到人身上的費率。
+model DisciplineRate {
+  discipline    Discipline @id
+  /// 元/月。
+  monthlySalary Int
+  updatedAt     DateTime   @updatedAt
+}
+
+/// 一個階段要用掉某個單位幾個人月。階段 × 單位交叉起來就是人力規劃表,
+/// 它加總起來就是這個階段的人力預算 —— 所以人力那一列不是手填的金額,
+/// 而是這張表算出來的。
+///
+/// 掛在階段那一列工作項上,跟 Budget 一樣的錨點。
+model LabourPlan {
+  id           String     @id @default(cuid())
+  itemId       String
+  item         Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  discipline   Discipline
+  /// 人月,允許到小數點兩位(0.5 個人月是常見的寫法)。
+  personMonths Decimal    @db.Decimal(8, 2)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([itemId, discipline])
+}
+
 model SystemSettings {
   id                        String            @id @default("global")
   emailNotificationsEnabled Boolean           @default(false)
@@ -589,6 +624,8 @@ model SystemSettings {
   predBlockedColor          String            @default("#e2445c")
   /// 一天算幾小時 — 把「配置 50%、做 10 天」換算成工時與成本的那個係數。
   hoursPerDay               Int               @default(8)
+  /// 一個人月算幾個工作天 — 把月薪換算成時薪、把人月換算成工時的係數。
+  workingDaysPerMonth       Int               @default(21)
   /// 新看板要帶哪些欄位:[{ name, type, options }],順序就是欄位順序。
   /// Null means nobody has set one, and a new board falls back to the built-in
   /// list — the same one this used to be, hardcoded.
@@ -1004,6 +1041,17 @@ model ChangeRequest {
 }
 
 /// 費用類別。預算按類別核准,花費也按類別記,才看得出是哪一類爆掉。
+/// 工程單位。人力成本與人力預算都按這個分,因為「這個階段要花多少錢」在
+/// NPI 裡實際上是「EE 幾個人月、ME 幾個人月」談出來的。
+enum Discipline {
+  EE
+  SW
+  QA
+  ME
+  PM
+  OTHER
+}
+
 enum CostCategory {
   /// 人力。不必手動記帳——由核准過的工時 × 時薪自動算出。
   LABOUR

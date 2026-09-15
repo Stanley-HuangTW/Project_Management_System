@@ -3,6 +3,7 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { wouldCreateCycle } from "@/lib/orgChart";
+import type { Discipline } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
@@ -22,12 +23,65 @@ export async function listUsers() {
       supervisor: { select: { id: true, name: true } },
       lockedUntil: true,
       hourlyRate: true,
+      discipline: true,
+      monthlySalary: true,
     },
     orderBy: { order: "asc" },
   });
   // Decimal is a class instance; a client component can only be handed plain
-  // values, so the rate crosses that boundary as a number.
-  return users.map((user) => ({ ...user, hourlyRate: user.hourlyRate ? Number(user.hourlyRate) : null }));
+  // values, so the rates cross that boundary as numbers.
+  return users.map((user) => ({
+    ...user,
+    hourlyRate: user.hourlyRate ? Number(user.hourlyRate) : null,
+    monthlySalary: user.monthlySalary ? Number(user.monthlySalary) : null,
+  }));
+}
+
+/**
+ * 所屬單位。人力成本與人力規劃都照這個歸戶,所以它跟費率一樣是自己一支,
+ * 不必為了改它把整個編輯表單打開。
+ */
+export async function updateUserDiscipline(userId: string, discipline: Discipline | null) {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") {
+    throw new Error("只有管理員可以設定所屬單位");
+  }
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, discipline: true },
+  });
+  await prisma.user.update({ where: { id: userId }, data: { discipline } });
+  await logAudit(
+    "COST",
+    session.userId,
+    `${target?.name ?? userId} 的所屬單位:${target?.discipline ?? "(未設定)"} → ${discipline ?? "(未設定)"}`
+  );
+  revalidatePath("/users");
+}
+
+/**
+ * 月薪。時薪有填的時候仍然優先,所以填月薪不會動到現有的成本數字 ——
+ * 換算順序見 labourPlan.ts 的 effectiveHourlyRate。
+ */
+export async function updateUserMonthlySalary(userId: string, salary: number | null) {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") {
+    throw new Error("只有管理員可以設定月薪");
+  }
+  if (salary !== null && (!Number.isFinite(salary) || salary < 0)) {
+    throw new Error("月薪必須是 0 或正數");
+  }
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true, monthlySalary: true },
+  });
+  await prisma.user.update({ where: { id: userId }, data: { monthlySalary: salary } });
+  await logAudit(
+    "COST",
+    session.userId,
+    `${target?.name ?? userId} 的月薪:${target?.monthlySalary ? Number(target.monthlySalary) : "(未設定)"} → ${salary ?? "(未設定)"}`
+  );
+  revalidatePath("/users");
 }
 
 /**
