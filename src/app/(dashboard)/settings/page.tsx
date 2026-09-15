@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { getSystemSettings } from "@/lib/actions/systemSettings";
+import { getSystemSettings, listDefaultBoardColumns } from "@/lib/actions/systemSettings";
 import { listHolidays } from "@/lib/holidays";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import { listPrograms, type ProgramRow } from "@/lib/actions/program";
@@ -53,6 +53,7 @@ export default async function SettingsPage() {
   // listPrograms is admin-only and throws otherwise; the card is not rendered
   // for a non-admin anyway.
   const programs: ProgramRow[] = isAdmin ? await listPrograms() : [];
+  const defaults = await listDefaultBoardColumns();
 
   const sharingBoards = isAdmin ? boards : boards.filter((b) => b.ownerId === session.userId);
 
@@ -82,6 +83,13 @@ export default async function SettingsPage() {
         programs={programs}
         programBoards={boards.map((b) => ({ id: b.id, name: b.name, programId: b.programId }))}
         reportSettingsBoards={boards}
+        defaultColumnsBoards={boards.map((b) => ({
+          id: b.id,
+          name: b.name,
+          columnCount: b.columns.length,
+        }))}
+        defaultColumns={defaults.columns}
+        defaultColumnsConfigured={defaults.configured}
         statusColorBoards={sharingBoards.map((b) => ({
           id: b.id,
           name: b.name,

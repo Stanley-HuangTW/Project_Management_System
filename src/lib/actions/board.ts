@@ -8,15 +8,10 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import type { SessionPayload } from "@/lib/jwt";
-import type { BoardVisibility } from "@prisma/client";
-// Shared with the settings page's 狀態欄位顏色 card, which shows these same
-// values and can restore them — see statusDefaults.
-import {
-  TYPE_OPTIONS,
-  PRIORITY_OPTIONS,
-  STATUS_OPTIONS,
-  LINK_OPTIONS,
-} from "@/lib/statusDefaults";
+import type { BoardVisibility, Prisma } from "@prisma/client";
+import { STATUS_OPTIONS } from "@/lib/statusDefaults";
+import { parseDefaultColumns } from "@/lib/defaultColumns";
+import { getStatusOptions } from "@/types/column";
 
 async function requireBoardOwnerOrAdmin(boardId: string, session: SessionPayload) {
   if (session.role === "ADMIN") return;
@@ -25,30 +20,6 @@ async function requireBoardOwnerOrAdmin(boardId: string, session: SessionPayload
     throw new Error("權限不足:僅看板擁有者或管理者可以管理分享設定");
   }
 }
-
-/**
- * Every new board starts with this fixed set of columns — matching the
- * project's original imported sheet, plus whatever the dashboard/Gantt/
- * report pages need to work without any manual column-mapping. Board
- * settings (progress/Gantt/Pred/Link/Lag columns, 報表設定) are wired to
- * them automatically right after creation; the settings dropdowns stay
- * editable, they're just pre-selected.
- */
-const DEFAULT_COLUMNS = [
-  { name: "Lvl", type: "NUMBER" as const, options: {} },
-  { name: "Type", type: "STATUS" as const, options: { statuses: TYPE_OPTIONS } },
-  { name: "Priority", type: "STATUS" as const, options: { statuses: PRIORITY_OPTIONS } },
-  { name: "Status", type: "STATUS" as const, options: { statuses: STATUS_OPTIONS } },
-  { name: "Resource", type: "TEXT" as const, options: {} },
-  { name: "Pred", type: "TEXT" as const, options: {} },
-  { name: "Link", type: "STATUS" as const, options: { statuses: LINK_OPTIONS } },
-  { name: "Lag", type: "NUMBER" as const, options: {} },
-  { name: "Comment", type: "TEXT" as const, options: {} },
-  { name: "Start", type: "DATE" as const, options: {} },
-  { name: "Days", type: "NUMBER" as const, options: {} },
-  { name: "Finish", type: "DATE" as const, options: {} },
-  { name: "% Done", type: "NUMBER" as const, options: {} },
-];
 
 export async function createBoard(name: string) {
   const session = await requireSession();
@@ -62,6 +33,10 @@ export async function createBoard(name: string) {
   // its copy here — otherwise it silently falls back to the schema defaults
   // and shows none of the colors the admin set.
   const settings = await getSystemSettings();
+  // 新看板預設欄位, set from 系統設定 (usually by copying a board that is
+  // already laid out the way this company's projects actually look), falling
+  // back to the built-in list when nobody has set one.
+  const defaultColumns = parseDefaultColumns(settings.defaultColumns);
 
   const board = await prisma.board.create({
     data: {
@@ -79,15 +54,32 @@ export async function createBoard(name: string) {
         create: [{ name: "項目", order: 0 }],
       },
       columns: {
-        create: DEFAULT_COLUMNS.map((c, order) => ({ ...c, order })),
+        create: defaultColumns.map((c, order) => ({
+          name: c.name,
+          type: c.type,
+          options: c.options as Prisma.InputJsonValue,
+          order,
+        })),
       },
     },
     include: { columns: true },
   });
 
+  // Wiring by name, so a column the configured default does not include simply
+  // leaves that setting unset (undefined is skipped by Prisma) rather than
+  // pointing at nothing.
   const byName = new Map(board.columns.map((c) => [c.name, c.id]));
-  const doneOptionId = STATUS_OPTIONS.find((o) => o.label === "Completed")!.id;
-  const plannedOptionId = STATUS_OPTIONS.find((o) => o.label === "Planned")!.id;
+
+  // Read off the Status column that actually got created — a default copied
+  // from an existing board carries that board's own option ids, and the
+  // built-in ones would name options this board does not have.
+  const statusColumn = board.columns.find((c) => c.name === "Status");
+  const statusOptions = getStatusOptions(statusColumn?.options);
+  const optionId = (label: string) =>
+    statusOptions.find((o) => o.label === label)?.id ??
+    STATUS_OPTIONS.find((o) => o.label === label)?.id;
+  const doneOptionId = optionId("Completed");
+  const plannedOptionId = optionId("Planned");
 
   await prisma.board.update({
     where: { id: board.id },
@@ -101,8 +93,8 @@ export async function createBoard(name: string) {
       lagColumnId: byName.get("Lag"),
       typeColumnId: byName.get("Type"),
       reportStatusColumnId: byName.get("Status"),
-      reportDoneOptionIds: [doneOptionId],
-      reportPlannedOptionIds: [plannedOptionId],
+      reportDoneOptionIds: doneOptionId ? [doneOptionId] : [],
+      reportPlannedOptionIds: plannedOptionId ? [plannedOptionId] : [],
     },
   });
 

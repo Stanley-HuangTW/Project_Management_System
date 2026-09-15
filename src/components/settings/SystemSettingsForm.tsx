@@ -24,6 +24,8 @@ import type { ProgramRow } from "@/lib/actions/program";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 import { IntegrationCard } from "./IntegrationCard";
 import { StatusColorCard, type StatusColorBoard } from "./StatusColorCard";
+import { DefaultColumnsCard, type DefaultColumnsBoard } from "./DefaultColumnsCard";
+import type { DefaultColumn } from "@/lib/defaultColumns";
 
 const MAX_LEVELS = 6;
 
@@ -417,6 +419,9 @@ export function SystemSettingsForm({
   programBoards,
   reportSettingsBoards,
   statusColorBoards,
+  defaultColumnsBoards,
+  defaultColumns,
+  defaultColumnsConfigured,
   sharingBoards,
   users,
 }: {
@@ -435,6 +440,9 @@ export function SystemSettingsForm({
   programBoards: ProgramBoard[];
   reportSettingsBoards: ReportSettingsBoardWithName[];
   statusColorBoards: StatusColorBoard[];
+  defaultColumnsBoards: DefaultColumnsBoard[];
+  defaultColumns: DefaultColumn[];
+  defaultColumnsConfigured: boolean;
   sharingBoards: SharingBoard[];
   users: UserOption[];
 }) {
@@ -455,6 +463,11 @@ export function SystemSettingsForm({
           <BaselineCard boards={baselineBoards} />
           <ProgramCard programs={programs} boards={programBoards} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
+          <DefaultColumnsCard
+            boards={defaultColumnsBoards}
+            initialColumns={defaultColumns}
+            initialConfigured={defaultColumnsConfigured}
+          />
           <ReportSettingsCard boards={reportSettingsBoards} />
           <IntegrationCard boards={sharingBoards.map((b) => ({ id: b.id, name: b.name }))} />
         </>

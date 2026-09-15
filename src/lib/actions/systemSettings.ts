@@ -1,11 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { GanttDurationMode } from "@prisma/client";
+import { Prisma, type GanttDurationMode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
+import {
+  BUILT_IN_DEFAULT_COLUMNS,
+  parseDefaultColumns,
+  type DefaultColumn,
+} from "@/lib/defaultColumns";
 
 export async function getSystemSettings() {
   const settings = await prisma.systemSettings.findUnique({ where: { id: "global" } });
@@ -22,8 +27,80 @@ export async function getSystemSettings() {
     predWaitingColor: "#fdab3d",
     predBlockedColor: "#e2445c",
     hoursPerDay: 8,
+    defaultColumns: null as Prisma.JsonValue,
     updatedAt: new Date(),
   };
+}
+
+/** 新看板預設欄位, as the settings card shows them. Always a usable list —
+ *  the built-in one when nobody has configured anything. */
+export async function listDefaultBoardColumns(): Promise<{
+  columns: DefaultColumn[];
+  /** False while the built-in list is what new boards get. */
+  configured: boolean;
+}> {
+  const settings = await getSystemSettings();
+  return {
+    columns: parseDefaultColumns(settings.defaultColumns),
+    configured: Array.isArray(settings.defaultColumns) && settings.defaultColumns.length > 0,
+  };
+}
+
+/**
+ * 新看板要帶哪些欄位。
+ *
+ * Copied off a board that is already laid out the way this company's projects
+ * actually look, rather than typed in field by field — that is how anyone
+ * actually knows what they want, and it keeps the option lists (Type/Status/
+ * Link) identical to the board they came from instead of subtly different.
+ *
+ * Existing boards are not touched. A board's columns hold its data; rewriting
+ * them to match a new default would destroy it.
+ */
+export async function setDefaultBoardColumnsFromBoard(boardId: string) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: {
+      name: true,
+      columns: { orderBy: { order: "asc" }, select: { name: true, type: true, options: true } },
+    },
+  });
+  if (!board) throw new Error("找不到看板");
+  if (board.columns.length === 0) throw new Error("這個看板沒有欄位可以複製");
+
+  const columns = parseDefaultColumns(board.columns);
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", defaultColumns: columns as Prisma.InputJsonValue },
+    update: { defaultColumns: columns as Prisma.InputJsonValue },
+  });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `新看板預設欄位改為複製自「${board.name}」(${columns.length} 個欄位:${columns.map((c) => c.name).join("、")})`
+  );
+
+  revalidatePath("/settings");
+  return columns;
+}
+
+/** 恢復內建的那一份 — new boards go back to the standard column set. */
+export async function resetDefaultBoardColumns() {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", defaultColumns: Prisma.DbNull },
+    update: { defaultColumns: Prisma.DbNull },
+  });
+  await logAudit("SETTINGS", session.userId, "新看板預設欄位恢復為內建的那一份");
+
+  revalidatePath("/settings");
+  return BUILT_IN_DEFAULT_COLUMNS;
 }
 
 /** 一天算幾小時 — the factor that turns "50% for 10 days" into hours, and

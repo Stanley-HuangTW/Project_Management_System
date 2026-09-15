@@ -580,6 +580,10 @@ model SystemSettings {
   predBlockedColor          String            @default("#e2445c")
   /// 一天算幾小時 — 把「配置 50%、做 10 天」換算成工時與成本的那個係數。
   hoursPerDay               Int               @default(8)
+  /// 新看板要帶哪些欄位:[{ name, type, options }],順序就是欄位順序。
+  /// Null means nobody has set one, and a new board falls back to the built-in
+  /// list — the same one this used to be, hardcoded.
+  defaultColumns            Json?
   updatedAt                 DateTime          @updatedAt
 }
 
