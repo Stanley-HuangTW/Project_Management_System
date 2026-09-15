@@ -11,6 +11,7 @@ function task(
     id,
     name: id,
     wbsCode: id,
+    boardId: "b1",
     baselineStart: new Date(plan[0]),
     baselineEnd: new Date(plan[1]),
     baselineDays: plan[2],

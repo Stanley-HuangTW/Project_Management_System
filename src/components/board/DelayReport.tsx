@@ -96,7 +96,7 @@ export function DelayReport({ boardId, programId }: { boardId?: string; programI
               <tr key={culprit.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800">
                 <td className="max-w-[260px] px-3 py-2">
                   <Link
-                    href={`/boards/${boardId}?highlight=${culprit.id}`}
+                    href={`/boards/${culprit.boardId}?highlight=${culprit.id}`}
                     className="block truncate text-neutral-800 dark:text-neutral-100 hover:text-blue-600"
                   >
                     <span className="mr-1.5 text-xs text-neutral-400 dark:text-neutral-500">

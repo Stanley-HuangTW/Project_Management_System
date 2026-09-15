@@ -20,6 +20,8 @@ export type DelayInput = {
   id: string;
   name: string;
   wbsCode: string;
+  /** 它在哪個看板 —— 專案群組的追因橫跨好幾個看板,連結需要它。 */
+  boardId: string;
   /** The saved plan. Null for anything the baseline never covered — a task
    *  added after the plan was made cannot have slipped from it. */
   baselineStart: Date | null;
@@ -35,6 +37,7 @@ export type DelayCulprit = {
   id: string;
   name: string;
   wbsCode: string;
+  boardId: string;
   /** Calendar days later than planned. */
   startDelta: number;
   endDelta: number;
@@ -135,6 +138,7 @@ export function analyzeDelays(items: DelayInput[], scopeIds?: Set<string>): Dela
       id: item.id,
       name: item.name,
       wbsCode: item.wbsCode,
+      boardId: item.boardId,
       startDelta,
       endDelta,
       daysDelta,

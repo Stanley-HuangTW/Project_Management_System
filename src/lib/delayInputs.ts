@@ -113,6 +113,7 @@ export async function gatherDelayInputs(
         id: item.id,
         name: item.name,
         wbsCode: wbsByItemId.get(item.id) ?? "",
+        boardId: board.id,
         baselineStart: item.baselineStart ? new Date(item.baselineStart) : null,
         baselineEnd: item.baselineEnd ? new Date(item.baselineEnd) : null,
         baselineDays: item.baselineDays,
