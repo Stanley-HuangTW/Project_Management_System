@@ -1,32 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { Discipline } from "@prisma/client";
+import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
-import {
-  getLabourPlanView,
-  setLabourPlanCell,
-  type LabourPlanView,
-} from "@/lib/actions/labourPlan";
+import { getLabourPlanView, type LabourPlanView } from "@/lib/actions/labourPlan";
 
 /**
- * 人力規劃表:階段 × 單位,每一格填人月。
+ * 階段 × 單位的人月彙總 —— 唯讀。
  *
- * 每一格的金額是人月 × 該單位的標準月薪,一列加起來就是那個階段的人力
- * 預算 —— 所以「各類別」裡的人力那一列不是手填的,是這張表算出來的。
- * 這也是為什麼編預算時不必先知道會派誰去做。
+ * 人月是「人力表」每個名額逐月投入加總而來的,哪個月算哪個階段由日期決定,
+ * 所以這裡不是輸入端。一列加起來就是那個階段的人力預算,「各類別」的人力
+ * 那一列讀的就是它。
  */
 export function LabourPlanTable({ boardId }: { boardId: string }) {
-  const { notify, prompt } = useDialogs();
   const [view, setView] = useState<LabourPlanView | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-
-  const reload = useCallback(async () => setView(await getLabourPlanView(boardId)), [boardId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,43 +32,6 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
     };
   }, [boardId]);
 
-  async function editCell(
-    itemId: string,
-    itemName: string,
-    discipline: Discipline,
-    current: number
-  ) {
-    const answer = await prompt(
-      `${itemName} 的${DISCIPLINE_LABELS[discipline]}要投入幾個人月?輸入 0 可以清掉這一格。`,
-      {
-        title: "設定人月",
-        defaultValue: current > 0 ? String(current) : "",
-        numeric: true,
-      }
-    );
-    if (answer === null || answer.trim() === "") return;
-    const personMonths = Number(answer);
-    if (!Number.isFinite(personMonths) || personMonths < 0) return;
-
-    const key = `${itemId}:${discipline}`;
-    setBusyKey(key);
-    try {
-      const result = await setLabourPlanCell(itemId, discipline, personMonths);
-      if (result.error) {
-        await notify(result.error, { title: "無法儲存" });
-        return;
-      }
-      await reload();
-    } catch (err) {
-      await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
-        { title: isStaleBuildError(err) ? "需要重新整理" : "無法儲存" }
-      );
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!view) return null;
 
@@ -89,8 +41,8 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        每一格是人月,乘上該單位的標準月薪就是金額。一列加起來就是那個階段的人力預算,會直接寫進
-        「各類別」的人力那一列 —— 所以人力不必再手動填金額。標準月薪在系統設定裡。
+        這張是彙總,不是輸入:人月由「人力表」每個名額逐月的投入加總而來,哪個月算哪個階段由日期決定。
+        要改人月請到人力表。乘上單位標準月薪就是金額,會直接寫進「各類別」的人力那一列。
       </p>
 
       {summary.unpricedDisciplines.length > 0 && (
@@ -124,28 +76,20 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
             {summary.rows.map((row) => (
               <tr key={row.itemId} className="border-b border-neutral-100 dark:border-neutral-800">
                 <td className="py-1.5 pr-3 text-neutral-800 dark:text-neutral-100">{row.itemName}</td>
-                {row.cells.map((cell) => {
-                  const key = `${row.itemId}:${cell.discipline}`;
-                  return (
+                {row.cells.map((cell) => (
                     <td key={cell.discipline} className="py-1.5 text-right tabular-nums">
-                      <button
-                        type="button"
-                        disabled={!canEdit || busyKey === key}
-                        onClick={() => editCell(row.itemId, row.itemName, cell.discipline, cell.personMonths)}
+                      <span
                         title={cell.amount > 0 ? `${formatMoney(cell.amount)} 元` : undefined}
-                        className={`w-full rounded px-1.5 py-0.5 text-right ${
-                          canEdit ? "hover:bg-neutral-100 dark:hover:bg-neutral-800" : "cursor-default"
-                        } disabled:opacity-60`}
+                        className="block px-1.5 py-0.5 text-right"
                       >
                         {cell.personMonths > 0 ? (
                           <span className="text-neutral-800 dark:text-neutral-100">{cell.personMonths}</span>
                         ) : (
                           <span className="text-neutral-300 dark:text-neutral-600">—</span>
                         )}
-                      </button>
+                      </span>
                     </td>
-                  );
-                })}
+                ))}
                 <td className="py-1.5 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
                   {row.personMonths > 0 ? row.personMonths : "—"}
                 </td>

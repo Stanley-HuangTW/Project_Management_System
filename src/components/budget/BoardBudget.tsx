@@ -5,6 +5,8 @@ import Link from "next/link";
 import type { BoardWithData } from "@/types/board";
 import { BudgetPanel } from "./BudgetPanel";
 import { LabourPlanTable } from "./LabourPlanTable";
+import { LabourSheet } from "./LabourSheet";
+import { ProtoPlanTable } from "./ProtoPlanTable";
 
 /**
  * 預算 on a board: one phase at a time.
@@ -19,7 +21,7 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
   const phases = board.items.filter((item) => item.parentId === null);
   const [itemId, setItemId] = useState(phases[0]?.id ?? "");
   // 人力規劃橫跨所有階段,所以它不在階段面板裡面,而是跟它並排的另一個視圖。
-  const [view, setView] = useState<"phase" | "labour">("phase");
+  const [view, setView] = useState<"phase" | "sheet" | "proto" | "labour">("phase");
 
   if (phases.length === 0) {
     return (
@@ -35,7 +37,9 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
         {(
           [
             ["phase", "階段預算"],
-            ["labour", "人力規劃"],
+            ["sheet", "人力表"],
+            ["proto", "樣機計畫"],
+            ["labour", "人力規劃彙總"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -53,7 +57,11 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
         ))}
       </div>
 
-      {view === "labour" ? (
+      {view === "sheet" ? (
+        <LabourSheet boardId={board.id} />
+      ) : view === "proto" ? (
+        <ProtoPlanTable boardId={board.id} />
+      ) : view === "labour" ? (
         <LabourPlanTable boardId={board.id} />
       ) : (
         <>

@@ -107,6 +107,7 @@ model User {
   createdItems         Item[]                @relation("ItemCreatedBy")
   deletedItems         Item[]                @relation("ItemDeletedBy")
   deletedBoards        Board[]               @relation("BoardDeletedBy")
+  labourSlots          LabourSlot[]          @relation("LabourSlotOwner")
   savedViews           SavedView[]           @relation("SavedViewOwner")
   projectTemplates     ProjectTemplate[]     @relation("ProjectTemplateCreatedBy")
   timeEntries          TimeEntry[]
@@ -234,6 +235,10 @@ model Board {
   activityLog    ActivityLogEntry[]
   webhooks       Webhook[]
   baselines      Baseline[]
+  budgetPhases   BudgetPhase[]
+  planMilestones PlanMilestone[]
+  labourSlots    LabourSlot[]
+  protoPlans     ProtoPlan[]
 
   @@index([deletedAt])
 }
@@ -586,6 +591,125 @@ model WorkloadThreshold {
 // ganttDurationMode used to be per-Board fields; they're app-wide now, so a
 // write here also broadcasts to every Board's own copy of the field (kept
 // only so the many existing per-board reads don't need to change).
+/// 預算表自己的一組階段起訖日。
+///
+/// 刻意跟看板上那幾列階段的 Start/Finish 分開:預算表是初期評估,做的時候
+/// 實際時程還不存在,之後也一定會有落差 —— 而那個落差正是要看的東西。
+/// itemId 對上看板那一列之後,就比得出「當初排幾天 vs 現在要幾天」。
+model BudgetPhase {
+  id        String  @id @default(cuid())
+  boardId   String
+  board     Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name      String
+  /// "YYYY-MM-DD"。
+  startDate String
+  endDate   String
+  /// 對應到看板上的哪一列階段。null = 純預算階段,不比較時程。
+  itemId    String?
+  order     Int
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  protoPlans ProtoPlan[]
+
+  @@index([boardId, order])
+}
+
+/// 里程碑區間:軟體、硬體 PCBA 打件、機構出圖、認證、測試、demo 樣機……
+/// 有起也有迄,所以是一條帶,不是看板上 Type=Milestone 那種單一日期的點。
+/// track 讓它們分列排,就像那張 Excel 的「SW milestones」「Key Milestone」兩列。
+model PlanMilestone {
+  id        String @id @default(cuid())
+  boardId   String
+  board     Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// 排在哪一列帶,例如「軟體」「機構」「關鍵里程碑」。
+  track     String
+  name      String
+  startDate String
+  endDate   String
+  color     String @default("#fdab3d")
+  order     Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([boardId, track, order])
+}
+
+/// 一個人力名額,也就是那張 Excel 裡的一列(EE1、SW3、ME2……)。
+///
+/// 名額而不是人:預算階段常常還沒招到人,那一列就掛 TBH。指到人之後,
+/// userId 有值,ownerLabel 留著寫「TBH (Jason 代)」這種註記。
+model LabourSlot {
+  id          String     @id @default(cuid())
+  boardId     String
+  board       Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  discipline  Discipline
+  /// 名額代號,EE1、SW3。
+  label       String
+  /// 職能,EEDM、driver、web、PQA……比單位細一層。
+  func        String     @default("")
+  /// 指定的人。null = 還沒指定。
+  userId      String?
+  user        User?      @relation("LabourSlotOwner", fields: [userId], references: [id], onDelete: SetNull)
+  /// 沒指定人時寫在負責人欄的字,例如「TBH」「TBH (Jason 代)」。
+  ownerLabel  String     @default("")
+  description String     @default("")
+  order       Int
+
+  months LabourSlotMonth[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([boardId, order])
+}
+
+/// 某個名額某個月投入多少 —— 1 = 整個月全職,0.5 = 半個月。加總就是人月。
+model LabourSlotMonth {
+  id     String     @id @default(cuid())
+  slotId String
+  slot   LabourSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  /// "YYYY-MM"。
+  month  String
+  fte    Decimal    @db.Decimal(5, 2)
+
+  @@unique([slotId, month])
+}
+
+/// 樣機使用計畫:某個產品、某個階段、某個用途單位,要用掉幾台。
+///
+/// 跟人力表同一個道理 —— EVT 兩台給 SW 做 mock up、DVT1 三台給 QA-Rel,
+/// 這些數字談出來之後才知道要備多少料。用途單位比人力的 Discipline 廣:
+/// field test、sale department、marketing、工廠 golden sample 都會吃樣機,
+/// 但那些不是工程單位,所以是自由文字而不是列舉。
+model ProtoPlan {
+  id      String      @id @default(cuid())
+  boardId String
+  board   Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// 哪個產品。同一個看板可能同時排 M3 與充電站兩套。
+  product String
+  /// 用途單位,例如 HW-EE、SW、QA-Rel、Field test - US、Factory。
+  unit    String
+  /// 對應到 BudgetPhase 那一列。階段一刪,它的樣機數也跟著走。
+  phaseId String
+  phase   BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  /// 幾台。
+  qty     Int
+  /// 備註,例如「mock up」。
+  note    String      @default("")
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([boardId, product, unit, phaseId])
+  @@index([boardId, product])
+}
+
 /// 各單位的標準月薪。編預算的時候還不知道會是誰做,所以人力規劃一律用
 /// 單位的標準價;實際成本才用到人身上的費率。
 model DisciplineRate {
