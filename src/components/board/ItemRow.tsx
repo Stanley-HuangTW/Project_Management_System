@@ -21,6 +21,7 @@ import { ItemDetailModal } from "./ItemDetailModal";
 import { AssignmentModal } from "./AssignmentModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { useDeleteItem } from "./useDeleteItem";
 import { computeItemProgress } from "@/lib/progress";
@@ -185,15 +186,29 @@ export function ItemRow({
       )
     : [];
 
+  /** Shared by the two add paths: neither had any error handling, so a
+   *  refused or failed create left the row looking frozen. */
+  async function addRow<T>(work: () => Promise<T>, onDone: (created: T) => void) {
+    try {
+      onDone(await work());
+    } catch (err) {
+      await notify(
+        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "新增失敗",
+        { title: isStaleBuildError(err) ? "需要重新整理" : "無法新增項目" }
+      );
+    }
+  }
+
   async function handleAddSubitem() {
     if (collapsedIds.has(item.id)) onToggleCollapse(item.id);
-    const created = await createItem(boardId, groupId, "新子項目", item.id);
-    setNewChildItem(created);
+    await addRow(() => createItem(boardId, groupId, "新子項目", item.id), setNewChildItem);
   }
 
   async function handleInsert(position: "before" | "after") {
-    const created = await insertItem(boardId, groupId, item.parentId, item.id, position);
-    setInsertedItem(created);
+    await addRow(
+      () => insertItem(boardId, groupId, item.parentId, item.id, position),
+      setInsertedItem
+    );
   }
 
   const childRows = expanded

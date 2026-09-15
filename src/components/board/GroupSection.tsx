@@ -11,6 +11,8 @@ import { resolveGroupRoleAccess, groupDisciplineTeamUserIds } from "@/lib/groupR
 import { ItemRow } from "./ItemRow";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { renameGroup, deleteGroup } from "@/lib/actions/group";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { createItem } from "@/lib/actions/item";
 import { VisibilityModal } from "./VisibilityModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
@@ -125,6 +127,7 @@ export function GroupSection({
   const [collapsed, setCollapsed] = useState(false);
   const [name, setName] = useState(group.name);
   const [newItemName, setNewItemName] = useState("");
+  const { notify } = useDialogs();
   const [visibilityOpen, setVisibilityOpen] = useState(false);
   const scrollPaneKey = `group:${group.id}`;
 
@@ -142,10 +145,24 @@ export function GroupSection({
     }
   }
 
+  const [adding, setAdding] = useState(false);
+
   async function handleAddItem() {
-    if (!newItemName.trim()) return;
-    await createItem(boardId, group.id, newItemName.trim());
-    setNewItemName("");
+    if (!newItemName.trim() || adding) return;
+    setAdding(true);
+    try {
+      await createItem(boardId, group.id, newItemName.trim());
+      // Cleared only on success — a failed add should leave what was typed,
+      // not make the person retype it.
+      setNewItemName("");
+    } catch (err) {
+      await notify(
+        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "新增失敗",
+        { title: isStaleBuildError(err) ? "需要重新整理" : "無法新增項目" }
+      );
+    } finally {
+      setAdding(false);
+    }
   }
 
   const topLevelItems = items
