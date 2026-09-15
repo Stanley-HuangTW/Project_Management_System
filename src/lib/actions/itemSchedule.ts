@@ -6,6 +6,7 @@ import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
+import { subordinateIdsOf } from "@/lib/orgChartServer";
 import type { ColumnData, ItemData } from "@/types/board";
 
 export type ItemScheduleContext = {
@@ -73,12 +74,12 @@ export async function loadItemScheduleContext(itemId: string): Promise<ItemSched
     prisma.column.findMany({ where: { boardId, type: "PERSON" }, select: { id: true } }),
     loadGroupRoleContext(item.groupId, session.userId),
     session.role === "SUPERVISOR"
-      ? prisma.user.findMany({ where: { supervisorId: session.userId }, select: { id: true } })
-      : Promise.resolve([]),
+      ? subordinateIdsOf(session.userId)
+      : Promise.resolve(new Set<string>()),
   ]);
 
   const personColumnIds = personColumns.map((c) => c.id);
-  const teamUserIds = new Set(supervisedUsers.map((u) => u.id));
+  const teamUserIds = supervisedUsers;
   const hasScheduleRole = groupRole?.access.hasScheduleRole ?? false;
   const canOpen = canEditGanttItem(
     session.role,

@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { wouldCreateCycle } from "@/lib/orgChart";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
@@ -56,6 +57,23 @@ export async function updateUserHourlyRate(userId: string, rate: number | null) 
   revalidatePath("/users");
 }
 
+/**
+ * 一旦組織圖可以超過兩階,「指自己」就不再是唯一會繞回來的指派 ——
+ * A→B→A 也是,而且成環的那一群人會從每個人的下轄範圍裡消失。
+ */
+async function requireNoCycle(userId: string, supervisorId: string | null) {
+  if (!supervisorId) return;
+  const users = await prisma.user.findMany({ select: { id: true, supervisorId: true } });
+  if (wouldCreateCycle(users, userId, supervisorId)) {
+    const who = await prisma.user.findUnique({ where: { id: supervisorId }, select: { name: true } });
+    throw new Error(
+      userId === supervisorId
+        ? "不可指定自己為主管"
+        : `不可指定「${who?.name ?? supervisorId}」為主管:他在這個人的下轄範圍裡,會繞成一圈`
+    );
+  }
+}
+
 export async function createUser(
   name: string,
   email: string,
@@ -90,7 +108,9 @@ export async function createUser(
       email: trimmedEmail,
       passwordHash,
       role,
-      supervisorId: role === "MEMBER" ? supervisorId : null,
+      // 主管本來一律被寫成 null,所以組織圖鎖死在剛好兩階。現在誰都可以有
+      // 自己的主管,階層要幾階由填法決定。
+      supervisorId,
       order: (maxOrder._max.order ?? -1) + 1,
     },
   });
@@ -115,14 +135,11 @@ export async function updateUser(
   if (!trimmedName || !trimmedEmail) {
     throw new Error("姓名、Email 皆為必填");
   }
-  if (userId === supervisorId) {
-    throw new Error("不可指定自己為主管");
-  }
-
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) {
     throw new Error("找不到使用者");
   }
+  await requireNoCycle(userId, supervisorId);
 
   const emailOwner = await prisma.user.findUnique({ where: { email: trimmedEmail } });
   if (emailOwner && emailOwner.id !== userId) {
@@ -143,13 +160,16 @@ export async function updateUser(
         name: trimmedName,
         email: trimmedEmail,
         role,
-        supervisorId: role === "MEMBER" ? supervisorId : null,
+        supervisorId,
       },
     });
-    if (target.role === "SUPERVISOR" && role !== "SUPERVISOR") {
+    // 不再帶人的話,他的部屬往上接一層,而不是全部變成「未設定」—— 兩階
+    // 的時候上面沒有人可以接,所以只能清空;現在有了,清空等於把一整支
+    // 從組織圖上砍掉。
+    if (target.role === "SUPERVISOR" && role === "MEMBER") {
       await tx.user.updateMany({
         where: { supervisorId: userId },
-        data: { supervisorId: null },
+        data: { supervisorId },
       });
     }
   });
@@ -218,9 +238,7 @@ export async function updateUserSupervisor(
   if (session.role !== "ADMIN") {
     throw new Error("只有管理員可以設定所屬主管");
   }
-  if (userId === supervisorId) {
-    throw new Error("不可指定自己為主管");
-  }
+  await requireNoCycle(userId, supervisorId);
 
   await prisma.user.update({
     where: { id: userId },

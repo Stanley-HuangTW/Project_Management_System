@@ -9,6 +9,7 @@ import { notifyEmailIfNeeded } from "@/lib/notify";
 import { logActivity } from "@/lib/activityLog";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
+import { subordinateIdsOf } from "@/lib/orgChartServer";
 import type { SessionPayload } from "@/lib/jwt";
 
 /**
@@ -29,11 +30,7 @@ async function assertCanEditAssignment(boardId: string, itemId: string, session:
       ? isItemAssignedToTeam(
           item,
           personColumnIds,
-          new Set(
-            (await prisma.user.findMany({ where: { supervisorId: session.userId }, select: { id: true } })).map(
-              (u) => u.id
-            )
-          )
+          await subordinateIdsOf(session.userId)
         )
       : false;
   const groupRole = item ? await loadGroupRoleContext(item.groupId, session.userId) : null;
@@ -74,8 +71,7 @@ export async function upsertAssignment(
   const pct = Math.max(5, Math.min(100, Math.round(allocationPct / 5) * 5));
 
   if (session.role === "SUPERVISOR" && userId !== session.userId) {
-    const target = await prisma.user.findUnique({ where: { id: userId } });
-    if (target?.supervisorId !== session.userId) {
+    if (!(await subordinateIdsOf(session.userId)).has(userId)) {
       throw new Error("主管只能將任務指派給自己或自己團隊的成員");
     }
   }

@@ -20,6 +20,7 @@ import { GripVertical, KeyRound, Lock, Pencil, Plus, Trash2, Unlock } from "luci
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { subordinateIds, orgDepth } from "@/lib/orgChart";
 import {
   createUser,
   updateUser,
@@ -85,7 +86,8 @@ function RateInput({ user }: { user: UserRow }) {
 
 function SortableUserRow({
   user,
-  supervisors,
+  supervisorOptions,
+  depth,
   uploading,
   onAvatarClick,
   onEdit,
@@ -94,7 +96,10 @@ function SortableUserRow({
   onUnlock,
 }: {
   user: UserRow;
-  supervisors: UserRow[];
+  /** 誰可以當這個人的主管 —— 已經去掉他自己和他底下的人。 */
+  supervisorOptions: UserRow[];
+  /** 他在組織圖的第幾階:頭上沒有主管是第 1 階。 */
+  depth: number;
   uploading: boolean;
   onAvatarClick: (userId: string) => void;
   onEdit: () => void;
@@ -144,27 +149,30 @@ function SortableUserRow({
         )}
       </span>
       <span className="truncate text-neutral-500 dark:text-neutral-400">{user.email}</span>
-      <span className="text-neutral-500 dark:text-neutral-400">{roleLabel(user.role)}</span>
+      <span className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
+        {roleLabel(user.role)}
+        {depth > 1 && (
+          <span className="rounded bg-neutral-100 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+            第 {depth} 階
+          </span>
+        )}
+      </span>
       <span className="text-neutral-400 dark:text-neutral-500">
         {new Date(user.createdAt).toLocaleDateString("zh-TW")}
       </span>
       <RateInput user={user} />
-      {user.role === "MEMBER" ? (
-        <select
-          value={user.supervisorId ?? ""}
-          onChange={(e) => updateUserSupervisor(user.id, e.target.value || null)}
-          className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
-        >
-          <option value="">未設定</option>
-          {supervisors.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <span className="text-neutral-300 dark:text-neutral-600">—</span>
-      )}
+      <select
+        value={user.supervisorId ?? ""}
+        onChange={(e) => updateUserSupervisor(user.id, e.target.value || null)}
+        className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
+      >
+        <option value="">未設定</option>
+        {supervisorOptions.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
       <span className="flex items-center justify-end gap-2">
         {isLocked && (
           <button
@@ -261,7 +269,16 @@ export function UserManagement({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const supervisors = users.filter((u) => u.role === "SUPERVISOR");
+  const supervisors = users.filter((u) => u.role === "SUPERVISOR" || u.role === "ADMIN");
+
+  /**
+   * 三階以上開始有一種兩階時不可能出現的錯:把上層指給自己底下的人,
+   * 整條鏈就繞成一圈。伺服器端會擋,但選單裡根本不該出現這些人。
+   */
+  function supervisorsFor(userId: string): UserRow[] {
+    const below = subordinateIds(users, userId);
+    return supervisors.filter((s) => s.id !== userId && !below.has(s.id));
+  }
 
   function handleAvatarClick(userId: string) {
     setAvatarTargetId(userId);
@@ -447,7 +464,8 @@ export function UserManagement({
               <SortableUserRow
                 key={u.id}
                 user={u}
-                supervisors={supervisors}
+                supervisorOptions={supervisorsFor(u.id)}
+                depth={orgDepth(users, u.id)}
                 uploading={uploadingId === u.id}
                 onAvatarClick={handleAvatarClick}
                 onEdit={() => openEdit(u)}
@@ -503,7 +521,7 @@ export function UserManagement({
             <option value="SUPERVISOR">主管</option>
             <option value="ADMIN">管理者</option>
           </select>
-          {role === "MEMBER" && (
+          {
             <select
               value={supervisorId}
               onChange={(e) => setSupervisorId(e.target.value)}
@@ -516,7 +534,7 @@ export function UserManagement({
                 </option>
               ))}
             </select>
-          )}
+          }
           <button
             type="button"
             disabled={submitting || !name.trim() || !email.trim() || !password}
@@ -564,22 +582,18 @@ export function UserManagement({
             <option value="SUPERVISOR">主管</option>
             <option value="ADMIN">管理者</option>
           </select>
-          {editRole === "MEMBER" && (
-            <select
-              value={editSupervisorId}
-              onChange={(e) => setEditSupervisorId(e.target.value)}
-              className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            >
-              <option value="">所屬主管(未設定)</option>
-              {supervisors
-                .filter((s) => s.id !== editTarget?.id)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-            </select>
-          )}
+          <select
+            value={editSupervisorId}
+            onChange={(e) => setEditSupervisorId(e.target.value)}
+            className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          >
+            <option value="">所屬主管(未設定)</option>
+            {(editTarget ? supervisorsFor(editTarget.id) : supervisors).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             disabled={editSubmitting || !editName.trim() || !editEmail.trim()}

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { boardWithDataArgs } from "@/types/board";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
+import { subordinateIds } from "@/lib/orgChart";
 import { canManageStructure } from "@/lib/permissions";
 import {
   computeTeamWorkload,
@@ -84,9 +85,8 @@ export default async function DashboardPage({
   }
   const isSupervisor = session.role === "SUPERVISOR";
   const isAdmin = session.role === "ADMIN";
-  const teamMembers = isSupervisor
-    ? users.filter((u) => u.supervisorId === session.userId)
-    : [];
+  const below = subordinateIds(users, session.userId);
+  const teamMembers = isSupervisor ? users.filter((u) => below.has(u.id)) : [];
   // Admins see the whole org's workload; supervisors see their own plus
   // their team's (they do real work too, not just oversight); plain members
   // only see their own — not everyone else's.

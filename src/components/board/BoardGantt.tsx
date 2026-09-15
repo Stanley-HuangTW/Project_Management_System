@@ -58,6 +58,7 @@ import { ConstraintBadge } from "./ConstraintBadge";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { useDeleteItem } from "./useDeleteItem";
+import { subordinateIds } from "@/lib/orgChart";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 34, week: 10, month: 3 };
@@ -556,7 +557,7 @@ export function BoardGantt({
   }, [board.items, filters, groupFilterId, parentFilterId]);
 
   const teamUserIds = useMemo(
-    () => new Set(users.filter((u) => u.supervisorId === currentUserId).map((u) => u.id)),
+    () => subordinateIds(users, currentUserId),
     [users, currentUserId]
   );
 

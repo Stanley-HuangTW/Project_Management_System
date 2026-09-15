@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { boardWithDataArgs, type BoardWithData, type UserOption } from "@/types/board";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
+import { subordinateIds } from "@/lib/orgChart";
 import type { SessionPayload } from "@/lib/jwt";
 
 /**
@@ -27,7 +28,8 @@ export async function resolveWorkloadScope(
 
   const isSupervisor = session.role === "SUPERVISOR";
   const isAdmin = session.role === "ADMIN";
-  const teamMembers = isSupervisor ? users.filter((u) => u.supervisorId === session.userId) : [];
+  const below = subordinateIds(users, session.userId);
+  const teamMembers = isSupervisor ? users.filter((u) => below.has(u.id)) : [];
   const currentUser = users.find((u) => u.id === session.userId);
   const workloadScope = isSupervisor
     ? currentUser

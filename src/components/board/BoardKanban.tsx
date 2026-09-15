@@ -18,6 +18,7 @@ import { classifyItemStatus, resolveStatusColumn, type ItemStatusKind } from "@/
 import { computeRolledUpDateRange } from "@/lib/gantt";
 import { KanbanLane } from "./KanbanLane";
 import { upsertCellValue } from "@/lib/actions/cell";
+import { subordinateIds } from "@/lib/orgChart";
 
 // 逾期 first, then 未處理, then 實作中, then 已完成 last — same status
 // precedence as the Gantt/table/dashboard name-color rule, repurposed as a
@@ -70,9 +71,7 @@ export function BoardKanban({
 
   const isSupervisor = userRole === "SUPERVISOR";
   const isMember = userRole === "MEMBER";
-  const teamIds = isSupervisor
-    ? users.filter((u) => u.supervisorId === currentUserId).map((u) => u.id)
-    : null;
+  const teamIds = isSupervisor ? [...subordinateIds(users, currentUserId)] : null;
   const [scope, setScope] = useState<"team" | "all">(isSupervisor ? "team" : "all");
   // Members only ever see their own items — there's no "all" toggle for them,
   // unlike supervisors who can widen to the whole board.

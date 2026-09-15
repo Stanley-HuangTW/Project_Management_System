@@ -19,6 +19,7 @@ import { PredLampDot } from "./PredLampDot";
 import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
 import { computeWbsCodes } from "@/lib/wbs";
+import { subordinateIds } from "@/lib/orgChart";
 
 export function AssignmentModal({
   boardId,
@@ -202,10 +203,9 @@ export function AssignmentModal({
   // Gantt Assignments reference a real User row (foreign key) — Resources
   // (tools/vendors) can be a PERSON-column 負責人 but not a %-allocation here.
   const realUsers = users.filter((u) => !u.isResource);
+  const below = subordinateIds(users, currentUserId);
   const assignableUsers =
-    userRole === "SUPERVISOR"
-      ? realUsers.filter((u) => u.supervisorId === currentUserId)
-      : realUsers;
+    userRole === "SUPERVISOR" ? realUsers.filter((u) => below.has(u.id)) : realUsers;
 
   const assignedUserIds = new Set(assignments.map((a) => a.userId));
   const availableUsers = assignableUsers.filter((u) => !assignedUserIds.has(u.id));

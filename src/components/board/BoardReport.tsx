@@ -21,6 +21,7 @@ import { ProgressCurveChart } from "./ProgressCurveChart";
 import { CostReport } from "./CostReport";
 import { DelayReport } from "./DelayReport";
 import { computeWbsCodes } from "@/lib/wbs";
+import { teamIds as orgTeamIds } from "@/lib/orgChart";
 
 /** WBS code for every item on the board, computed per group (codes are
  *  group-scoped, same rule as the table's own WBS badges). */
@@ -174,9 +175,7 @@ export function BoardReport({
 }) {
   const router = useRouter();
   const isSupervisor = userRole === "SUPERVISOR";
-  const teamIds = isSupervisor
-    ? [currentUserId, ...users.filter((u) => u.supervisorId === currentUserId).map((u) => u.id)]
-    : null;
+  const teamIds = isSupervisor ? [...orgTeamIds(users, currentUserId)] : null;
   const [scope, setScope] = useState<"team" | "all">(isSupervisor ? "team" : "all");
   const effectiveTeamIds = scope === "team" ? teamIds : null;
   const [listModal, setListModal] = useState<{ title: string; items: ItemData[] } | null>(null);
