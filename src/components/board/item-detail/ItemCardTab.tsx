@@ -17,7 +17,7 @@ import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import type { ColumnData, ItemData, UserOption } from "@/types/board";
+import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 
 export function ItemCardTab({
   boardId,
@@ -33,6 +33,7 @@ export function ItemCardTab({
   predLamp,
   scheduleFloat,
   groupItems,
+  crossGroupPredOptions,
   lockedScheduleFields,
   manualScheduleHint,
   userRole,
@@ -54,6 +55,8 @@ export function ItemCardTab({
   /** Total float from the CPM backward pass — see computeCriticalPath. */
   scheduleFloat?: ScheduleFloat;
   groupItems?: ItemData[];
+  /** 這個分組以外的可選前置(含同群組其他看板的)。 */
+  crossGroupPredOptions?: PredOption[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
    *  is locked — see manualScheduleHint in @/lib/gantt. */
@@ -196,6 +199,7 @@ export function ItemCardTab({
                   isProgressColumn={col.id === progressColumnId}
                   predColumnId={predColumnId}
                   groupItems={groupItems}
+                  crossGroupPredOptions={crossGroupPredOptions}
                   bordered
                 />
               </span>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
-import type { ColumnData, ItemData, UserOption } from "@/types/board";
+import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
@@ -39,6 +39,7 @@ export function ItemDetailModal({
   predLamp,
   scheduleFloat,
   groupItems,
+  crossGroupPredOptions,
   lockedScheduleFields,
   manualScheduleHint,
   userRole,
@@ -65,6 +66,8 @@ export function ItemDetailModal({
   /** Total float from the CPM backward pass — see computeCriticalPath. */
   scheduleFloat?: ScheduleFloat;
   groupItems?: ItemData[];
+  /** 這個分組以外的可選前置(含同群組其他看板的)。 */
+  crossGroupPredOptions?: PredOption[];
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
    *  is locked — see manualScheduleHint in @/lib/gantt. */
@@ -135,6 +138,7 @@ export function ItemDetailModal({
           predLamp={predLamp}
           scheduleFloat={scheduleFloat}
           groupItems={groupItems}
+          crossGroupPredOptions={crossGroupPredOptions}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
           userRole={userRole}

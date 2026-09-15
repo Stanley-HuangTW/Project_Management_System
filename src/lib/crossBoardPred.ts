@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { computeWbsCodes } from "@/lib/wbs";
+import { compareWbsCodes, computeWbsCodes } from "@/lib/wbs";
 import type { PredOption } from "@/types/board";
 
 /**
@@ -23,10 +23,12 @@ export async function crossBoardPredOptions(boardId: string): Promise<PredOption
     where: { programId: board.programId, id: { not: boardId }, deletedAt: null },
     orderBy: { name: "asc" },
     select: {
+      id: true,
       name: true,
       groups: {
         orderBy: { order: "asc" },
         select: {
+          id: true,
           name: true,
           items: {
             where: { deletedAt: null },
@@ -42,13 +44,24 @@ export async function crossBoardPredOptions(boardId: string): Promise<PredOption
   for (const sibling of siblings) {
     for (const group of sibling.groups) {
       const codes = computeWbsCodes(group.items);
-      for (const item of group.items) {
+      // group.items 是照 order 排的,而 order 是「在同一個父項底下的序號」——
+      // 攤平之後全域比較會把樹打散,選單就變成 1.9.1、1.5.3.1、1.3.1 這種
+      // 讀不出結構的順序。照 WBS 排才跟看板上看到的一致。
+      const ordered = group.items
+        .filter((item) => codes.has(item.id))
+        .sort((a, b) => compareWbsCodes(codes.get(a.id)!, codes.get(b.id)!));
+      for (const item of ordered) {
         const code = codes.get(item.id);
         if (!code) continue;
         options.push({
           id: item.id,
           code: `${sibling.name} · ${group.name} · ${code}`,
           name: item.name,
+          boardId: sibling.id,
+          boardName: sibling.name,
+          groupId: group.id,
+          groupName: group.name,
+          wbsCode: code,
         });
       }
     }

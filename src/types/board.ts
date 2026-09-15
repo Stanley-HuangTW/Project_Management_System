@@ -32,9 +32,25 @@ export type ColumnData = BoardWithData["columns"][number];
 export type ItemData = BoardWithData["items"][number];
 export type CellValueData = ItemData["cellValues"][number];
 
-/** Pred 選單裡的一個選項。code 冠了分組(必要時還有看板)名,因為 WBS
- *  只在它自己的分組樹裡唯一。 */
-export type PredOption = { id: string; code: string; name: string };
+/**
+ * Pred 選單裡的一個選項。
+ *
+ * code 冠了分組(必要時還有看板)名,因為 WBS 只在它自己的分組樹裡唯一。
+ * 跨看板的選項另外帶著看板與分組的 id/名稱 —— 選單要能先挑看板、再挑
+ * 分組、最後才挑工作項,一串文字做不到那件事。
+ */
+export type PredOption = {
+  id: string;
+  code: string;
+  name: string;
+  /** 只有跨看板的選項才有。沒有 = 本看板的項目。 */
+  boardId?: string;
+  boardName?: string;
+  groupId?: string;
+  groupName?: string;
+  /** 它在自己分組裡的 WBS,層層篩選之後顯示用。 */
+  wbsCode?: string;
+};
 
 /** 位在同群組其他看板上的前置。看板甘特圖為它畫一列唯讀的長條,
  *  跨看板那條藍色虛線才有地方接。 */

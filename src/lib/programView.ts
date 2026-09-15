@@ -5,7 +5,7 @@ import { boardWithDataArgs, type BoardWithData, type ItemData } from "@/types/bo
 import { applyVisibility } from "@/lib/applyVisibility";
 import { computeRolledUpDateRange } from "@/lib/gantt";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
-import { computeWbsCodes } from "@/lib/wbs";
+import { computeWbsCodes, compareWbsCodes } from "@/lib/wbs";
 import { getStatusOptions } from "@/types/column";
 import {
   buildWbsIndexFromItems,
@@ -28,8 +28,12 @@ export type ProgramTask = {
   boardId: string;
   boardName: string;
   groupName: string;
+  /** 排序用 —— 分組的排列順序不能靠名稱。 */
+  groupId: string;
   /** Indent within its own board's tree, so the structure is still readable. */
   depth: number;
+  /** 它的父項。收合整棵子樹要靠它 —— 用 WBS 前綴去猜會在代號重複時出錯。 */
+  parentId: string | null;
   wbsCode: string;
   start: string | null;
   end: string | null;
@@ -161,6 +165,14 @@ export async function getProgramView(
   const tasks: ProgramTask[] = [];
   let crossBoardEdgeCount = 0;
 
+  // 看板 → 分組 → WBS 的排序鍵。分組用它在看板上的排列序號,不是名稱。
+  const groupOrderById = new Map<string, number>();
+  const boardOrderById = new Map<string, number>();
+  boards.forEach((board, index) => {
+    boardOrderById.set(board.id, index);
+    board.groups.forEach((group, groupIndex) => groupOrderById.set(group.id, groupIndex));
+  });
+
   for (const board of boards) {
     const groupNameById = new Map(board.groups.map((g) => [g.id, g.name]));
     const typeOptions = getStatusOptions(board.columns.find((c) => c.id === board.typeColumnId)?.options);
@@ -216,7 +228,9 @@ export async function getProgramView(
         boardId: board.id,
         boardName: board.name,
         groupName: groupNameById.get(item.groupId) ?? "",
+        groupId: item.groupId,
         depth: depthOf(item),
+        parentId: item.parentId,
         wbsCode: wbsByItemId.get(item.id) ?? "",
         start: range ? iso(range.start) : null,
         end: range ? iso(isMilestone ? range.start : range.end) : null,
@@ -229,6 +243,14 @@ export async function getProgramView(
       });
     }
   }
+
+  tasks.sort((a, b) => {
+    const board = (boardOrderById.get(a.boardId) ?? 0) - (boardOrderById.get(b.boardId) ?? 0);
+    if (board !== 0) return board;
+    const group = (groupOrderById.get(a.groupId) ?? 0) - (groupOrderById.get(b.groupId) ?? 0);
+    if (group !== 0) return group;
+    return compareWbsCodes(a.wbsCode, b.wbsCode);
+  });
 
   const dated = tasks.filter((t) => t.start && t.end);
   const startDate = dated.reduce<string | null>(

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Zap, Star, ArrowRightLeft } from "lucide-react";
+import { Zap, Star, ArrowRightLeft, ChevronDown, ChevronRight } from "lucide-react";
 import type { ProgramTask, ProgramView } from "@/lib/programView";
 import { buildDependencyArrows, type BarBox } from "@/lib/ganttArrows";
 import type { RelationshipType } from "@/lib/predecessorLink";
@@ -80,12 +80,58 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
     return map;
   }, [days]);
 
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  /** 誰有子項 —— 只有它們才需要收合的把手。 */
+  const hasChildren = useMemo(() => {
+    const parents = new Set<string>();
+    for (const task of view.tasks) if (task.parentId) parents.add(task.parentId);
+    return parents;
+  }, [view.tasks]);
+
+  /**
+   * 被收起來的列。
+   *
+   * 沿著 parentId 往上走,只要路上有任何一個祖先是收合的就藏起來 —— 靠
+   * WBS 前綴去猜會在代號重複時出錯(每個分組都從 1 重新開始)。
+   */
+  const hidden = useMemo(() => {
+    if (collapsed.size === 0) return new Set<string>();
+    const parentOf = new Map(view.tasks.map((t) => [t.id, t.parentId]));
+    const out = new Set<string>();
+    for (const task of view.tasks) {
+      let cursor = task.parentId;
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
+        if (collapsed.has(cursor)) {
+          out.add(task.id);
+          break;
+        }
+        cursor = parentOf.get(cursor) ?? null;
+      }
+    }
+    return out;
+  }, [collapsed, view.tasks]);
+
+  function toggleCollapsed(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const rows = useMemo(() => {
     const out: Row[] = [];
     for (const board of view.boards) {
       const color = colorOfBoard.get(board.id)!;
       const tasks = view.tasks.filter(
-        (t) => t.boardId === board.id && (!onlyCritical || t.isCritical || t.isSummary)
+        (t) =>
+          t.boardId === board.id &&
+          !hidden.has(t.id) &&
+          (!onlyCritical || t.isCritical || t.isSummary)
       );
       if (onlyCritical && tasks.every((t) => t.isSummary)) continue;
       out.push({
@@ -98,7 +144,7 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
       for (const task of tasks) out.push({ kind: "task", task, color });
     }
     return out;
-  }, [view.boards, view.tasks, colorOfBoard, onlyCritical]);
+  }, [view.boards, view.tasks, colorOfBoard, onlyCritical, hidden]);
 
   /** Where every bar sits, derived rather than measured: the rows are a fixed
    *  height and nothing collapses, so the arithmetic is exact and there is no
@@ -252,6 +298,22 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
         <button type="button" onClick={() => setShowArrows((v) => !v)} className={toggleClass(showArrows)}>
           <ArrowRightLeft size={12} /> 相依箭頭
         </button>
+        <button
+          type="button"
+          onClick={() => setCollapsed(new Set(hasChildren))}
+          className={toggleClass(false)}
+          title="把所有有子項的工作項收起來"
+        >
+          <ChevronRight size={12} /> 全部收合
+        </button>
+        <button
+          type="button"
+          onClick={() => setCollapsed(new Set())}
+          className={toggleClass(false)}
+          title="展開全部"
+        >
+          <ChevronDown size={12} /> 全部展開
+        </button>
         <span className="ml-auto flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="inline-block h-0.5 w-5 bg-blue-500" style={{ borderTop: "2px dashed" }} />
           跨看板相依 {view.crossBoardEdgeCount} 條
@@ -385,6 +447,9 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
                   dayIndexByIso={dayIndexByIso}
                   timelineWidth={timelineWidth}
                   showCritical={showCritical}
+                  canCollapse={hasChildren.has(row.task.id)}
+                  isCollapsed={collapsed.has(row.task.id)}
+                  onToggleCollapsed={toggleCollapsed}
                 />
               )
             )}
@@ -404,6 +469,9 @@ function TaskRow({
   dayIndexByIso,
   timelineWidth,
   showCritical,
+  canCollapse,
+  isCollapsed,
+  onToggleCollapsed,
 }: {
   task: ProgramTask;
   color: string;
@@ -413,6 +481,10 @@ function TaskRow({
   dayIndexByIso: Map<string, number>;
   timelineWidth: number;
   showCritical: boolean;
+  /** 有子項才給收合把手。 */
+  canCollapse: boolean;
+  isCollapsed: boolean;
+  onToggleCollapsed: (id: string) => void;
 }) {
   const startIndex = task.start ? dayIndexByIso.get(task.start) : undefined;
   const endIndex = task.end ? dayIndexByIso.get(task.end) : undefined;
@@ -428,6 +500,19 @@ function TaskRow({
         style={{ width: LABEL_WIDTH }}
       >
         <span style={{ width: task.depth * 12 }} className="shrink-0" />
+        {canCollapse ? (
+          <button
+            type="button"
+            onClick={() => onToggleCollapsed(task.id)}
+            aria-label={isCollapsed ? "展開" : "收合"}
+            className="shrink-0 rounded text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+          >
+            {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          </button>
+        ) : (
+          // 沒有子項的列也要讓出同樣的寬度,否則同一層的名稱會對不齊。
+          <span className="w-3 shrink-0" />
+        )}
         <span className="shrink-0 text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
           {task.wbsCode}
         </span>

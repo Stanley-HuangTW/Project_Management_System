@@ -10,9 +10,11 @@ import {
 } from "@/lib/predecessorLink";
 import { formatEdgeSuffix } from "@/lib/predEdgeSummary";
 
+import type { PredOption } from "@/types/board";
+
 const RELATIONSHIPS: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
-export type PredOption = { id: string; code: string; name: string };
+export type { PredOption };
 
 /** A chosen predecessor plus, when this edge overrides them, its own
  *  relationship and lag. Null means "use the item's Link/Lag columns". */
@@ -70,11 +72,51 @@ export function PredPicker({
   // in by scrolling — so the list filters as you type, on the code and the
   // name alike, since people search by either.
   const [query, setQuery] = useState("");
+
+  /**
+   * 跨看板的選項預設收起來。
+   *
+   * 兄弟看板有將近四百項,全部混進來的話,本看板自己的幾十項就被淹掉了 ——
+   * 而絕大多數的前置都是設在自己看板裡的。要跨看板是明確的決定,就讓它是
+   * 一個明確的勾選。
+   */
+  const [crossBoard, setCrossBoard] = useState(false);
+  const [boardFilter, setBoardFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
+
+  const crossOptions = useMemo(() => options.filter((o) => o.boardId), [options]);
+  const localOptions = useMemo(() => options.filter((o) => !o.boardId), [options]);
+  const hasCross = crossOptions.length > 0;
+
+  /** 勾了跨看板之後可以挑哪些看板 —— 順序照選項本身的順序。 */
+  const boardChoices = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const o of crossOptions) {
+      if (o.boardId && !seen.has(o.boardId)) seen.set(o.boardId, o.boardName ?? "");
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [crossOptions]);
+
+  /** 選定看板之後可以挑哪些分組。沒選看板就列出全部看板的分組。 */
+  const groupChoices = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const o of crossOptions) {
+      if (boardFilter && o.boardId !== boardFilter) continue;
+      if (o.groupId && !seen.has(o.groupId)) seen.set(o.groupId, o.groupName ?? "");
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [crossOptions, boardFilter]);
+
   const visible = useMemo(() => {
+    let pool = crossBoard ? crossOptions : localOptions;
+    if (crossBoard) {
+      if (boardFilter) pool = pool.filter((o) => o.boardId === boardFilter);
+      if (groupFilter) pool = pool.filter((o) => o.groupId === groupFilter);
+    }
     const needle = query.trim().toLowerCase();
-    if (!needle) return options;
-    return options.filter((o) => (o.code + " " + o.name).toLowerCase().includes(needle));
-  }, [options, query]);
+    if (!needle) return pool;
+    return pool.filter((o) => (o.code + " " + o.name).toLowerCase().includes(needle));
+  }, [crossBoard, crossOptions, localOptions, boardFilter, groupFilter, query]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
 
@@ -98,6 +140,12 @@ export function PredPicker({
   /** Changes one edge without touching the others. */
   function updateEdge(id: string, patch: Partial<Pick<SelectedPred, "relationship" | "lag">>) {
     commit(selected.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
+
+  function chooseBoard(id: string) {
+    setBoardFilter(id);
+    // 換了看板,舊的分組多半不屬於它 —— 留著會篩出空清單。
+    setGroupFilter("");
   }
 
   function handleOpenChange(open: boolean) {
@@ -180,6 +228,55 @@ export function PredPicker({
               </button>
             )}
           </div>
+          {hasCross && (
+            <div className="shrink-0 border-b border-neutral-100 px-2 py-1.5 dark:border-neutral-700">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-700 dark:text-neutral-200">
+                <input
+                  type="checkbox"
+                  checked={crossBoard}
+                  onChange={(e) => {
+                    setCrossBoard(e.target.checked);
+                    setBoardFilter("");
+                    setGroupFilter("");
+                  }}
+                  className="h-3.5 w-3.5 accent-blue-600"
+                />
+                跨看板
+                <span className="text-neutral-400 dark:text-neutral-500">
+                  ({crossOptions.length} 項)
+                </span>
+              </label>
+
+              {crossBoard && (
+                <div className="mt-1.5 flex gap-1">
+                  <select
+                    value={boardFilter}
+                    onChange={(e) => chooseBoard(e.target.value)}
+                    className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-1 py-0.5 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+                  >
+                    <option value="">全部看板</option>
+                    {boardChoices.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={groupFilter}
+                    onChange={(e) => setGroupFilter(e.target.value)}
+                    className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-1 py-0.5 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+                  >
+                    <option value="">全部分組</option>
+                    {groupChoices.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
           {selected.length > 0 && (
             <div className="max-h-40 shrink-0 overflow-y-auto border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-1">
               {selected.map((s) => (
@@ -240,7 +337,9 @@ export function PredPicker({
                   className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
                   <span className="min-w-0 flex-1 truncate">
-                    {o.code} {o.name}
+                    {/* 跨看板模式下,看板與分組已經在上面挑過了,再重複一次
+                        會把真正要看的名稱擠掉。 */}
+                    {crossBoard ? `${o.wbsCode ?? ""} ${o.name}` : `${o.code} ${o.name}`}
                   </span>
                   {isSelected && <Check size={14} className="shrink-0 text-blue-600" />}
                 </button>

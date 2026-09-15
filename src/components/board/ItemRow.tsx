@@ -394,6 +394,7 @@ export function ItemRow({
           linkColumnId={linkColumnId}
           predLamp={predLamps?.get(item.id)}
           groupItems={allGroupItems}
+          crossGroupPredOptions={crossGroupPredOptions}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
           userRole={userRole}
@@ -415,6 +416,7 @@ export function ItemRow({
           linkColumnId={linkColumnId}
           predLamp={predLamps?.get(item.id)}
           groupItems={allGroupItems}
+          crossGroupPredOptions={crossGroupPredOptions}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
           userRole={userRole}
@@ -436,6 +438,7 @@ export function ItemRow({
           linkColumnId={linkColumnId}
           predLamp={predLamps?.get(item.id)}
           groupItems={allGroupItems}
+          crossGroupPredOptions={crossGroupPredOptions}
           lockedScheduleFields={lockedScheduleFields}
           manualScheduleHint={manualScheduleHint}
           userRole={userRole}
