@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, GripVertical, Lock, Trash2 } from "lucide-react";
-import type { GroupData, ColumnData, ItemData, UserOption } from "@/types/board";
+import type { GroupData, ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { canManageStructure, canManageGroupStructure } from "@/lib/permissions";
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds } from "@/lib/groupRoles";
@@ -34,6 +34,7 @@ export function GroupSection({
   linkColumnId,
   lagColumnId,
   otherGroups,
+  crossBoardPreds,
   manualStartColumnId,
   manualDurationColumnId,
   lockedScheduleFields,
@@ -72,6 +73,8 @@ export function GroupSection({
   /** The board's other groups, for the Pred picker — a dependency may now
    *  cross one. */
   otherGroups: { id: string; name: string; items: ItemData[] }[];
+  /** 同群組其他看板的工作項,給 Pred 選單。 */
+  crossBoardPreds: PredOption[];
   manualStartColumnId?: string | null;
   manualDurationColumnId?: string | null;
   lockedScheduleFields: Map<string, ScheduleLock>;
@@ -103,14 +106,18 @@ export function GroupSection({
   // name: a code is a position within its own group's tree, so "1.2" means a
   // different task in each of them.
   const crossGroupPredOptions = useMemo(
-    () =>
-      otherGroups.flatMap((other) => {
+    () => [
+      ...otherGroups.flatMap((other) => {
         const codes = computeWbsCodes(other.items);
         return other.items
           .map((i) => ({ id: i.id, code: `${other.name} · ${codes.get(i.id) ?? ""}`, name: i.name }))
           .filter((o) => !o.code.endsWith(" · "));
       }),
-    [otherGroups]
+      // 同一個專案群組裡其他看板的項目。引擎一直都算得動跨看板的前置,
+      // 選單列出來之後才真的設得起來。
+      ...crossBoardPreds,
+    ],
+    [otherGroups, crossBoardPreds]
   );
   const canEditStructure = canManageStructure(userRole);
   const myGroupAccess = useMemo(

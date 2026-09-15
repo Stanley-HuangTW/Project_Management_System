@@ -6,6 +6,7 @@ import { boardWithDataArgs, type UserOption } from "@/types/board";
 import { BoardView } from "@/components/board/BoardView";
 import { listHolidays } from "@/lib/holidays";
 import { applyVisibility } from "@/lib/applyVisibility";
+import { crossBoardPredOptions } from "@/lib/crossBoardPred";
 
 export default async function BoardPage({
   params,
@@ -34,6 +35,10 @@ export default async function BoardPage({
   if (!board) notFound();
   if (!(await canAccessBoard(session, boardId))) notFound();
 
+  // 同群組其他看板的工作項,給 Pred 選單 —— 排程引擎本來就吃跨看板的前置,
+  // 缺的一直是選得到它們的地方。
+  const crossBoardPreds = await crossBoardPredOptions(boardId);
+
   // Resources (tools, external vendors) can be set as an item's 負責人
   // alongside real Users, so they're merged into the same assignee list —
   // but only here for board views, not in dashboards/workload/notifications.
@@ -59,6 +64,7 @@ export default async function BoardPage({
       currentUserId={session.userId}
       highlightItemId={highlight ?? null}
       holidays={holidays}
+      crossBoardPreds={crossBoardPreds}
     />
   );
 }

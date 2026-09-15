@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen, FileDiff, Wallet } from "lucide-react";
-import type { BoardWithData, UserOption } from "@/types/board";
+import type { BoardWithData, UserOption, PredOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
 import { BoardTable } from "./BoardTable";
@@ -32,6 +32,7 @@ export function BoardView({
   currentUserId,
   highlightItemId,
   holidays,
+  crossBoardPreds,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -39,6 +40,8 @@ export function BoardView({
   currentUserId: string;
   highlightItemId?: string | null;
   holidays: Holiday[];
+  /** 同群組其他看板的工作項,給 Pred 選單。 */
+  crossBoardPreds: PredOption[];
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes" | "budget">("table");
   const [ganttNavigateHighlight, setGanttNavigateHighlight] = useState<string | null>(null);
@@ -219,6 +222,7 @@ export function BoardView({
             onAddColumn={() => setAddColumnOpen(true)}
             highlightItemId={ganttNavigateHighlight ?? highlightItemId}
             holidays={holidays}
+            crossBoardPreds={crossBoardPreds}
           />
         )}
         {view === "kanban" && (
