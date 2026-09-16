@@ -9,7 +9,11 @@ export type RangeDraft = {
   name: string;
   startDate: string;
   endDate: string;
+  color: string;
 };
+
+/** 挑好的一組顏色:丟一個完整色票給人選,選得出看不見的顏色。 */
+const COLORS = ["#fdab3d", "#00c875", "#579bfc", "#a25ddc", "#e2445c", "#787d80"];
 
 /**
  * 階段與里程碑的期間設定。
@@ -39,6 +43,7 @@ export function PhaseRangeDialog({
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [color, setColor] = useState(COLORS[0]);
   const [error, setError] = useState<string | null>(null);
 
   // 每次打開都對齊當下的 initial —— 沿用上一次開啟留下的值會把別的階段的
@@ -52,6 +57,7 @@ export function PhaseRangeDialog({
     setName(initial?.name ?? "");
     setStartDate(initial?.startDate ?? "");
     setEndDate(initial?.endDate ?? "");
+    setColor(initial?.color ?? COLORS[0]);
     setError(null);
   }
 
@@ -65,6 +71,7 @@ export function PhaseRangeDialog({
       name: trimmed,
       startDate,
       endDate,
+      color,
     });
     onOpenChange(false);
   }
@@ -123,6 +130,24 @@ export function PhaseRangeDialog({
               className={field}
             />
           </label>
+        </div>
+
+        <div>
+          <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">顏色</span>
+          <div className="flex gap-1.5">
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                title={c}
+                className={`h-6 w-6 rounded ${
+                  color === c ? "ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-neutral-900" : ""
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </div>
         </div>
 
         {startDate && endDate && endDate >= startDate && (

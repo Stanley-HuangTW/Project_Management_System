@@ -6,7 +6,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
-import { monthKeyOf } from "@/lib/labourSheet";
+import { buildAxis, axisSpan, packBandRows, type AxisUnit } from "@/lib/labourSheet";
 import { PhaseRangeDialog, type RangeDraft } from "./PhaseRangeDialog";
 import {
   getLabourSheetView,
@@ -46,6 +46,8 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   const [view, setView] = useState<LabourSheetView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  /** 時間軸的刻度。人月的格子永遠是月,這只影響上面那幾條帶畫多細。 */
+  const [unit, setUnit] = useState<AxisUnit>("month");
 
   const reload = useCallback(async () => setView(await getLabourSheetView(boardId)), [boardId]);
 
@@ -100,7 +102,12 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     setRangeDialog({
       kind: "phase",
       title: `${phase.name} 的期間`,
-      initial: { name: phase.name, startDate: phase.startDate, endDate: phase.endDate },
+      initial: {
+        name: phase.name,
+        startDate: phase.startDate,
+        endDate: phase.endDate,
+        color: view?.phaseColors[phase.id] ?? "#fdab3d",
+      },
       phaseId: phase.id,
       itemId: phase.itemId,
     });
@@ -122,6 +129,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             startDate: draft.startDate,
             endDate: draft.endDate,
             itemId: dialog.itemId ?? null,
+            color: draft.color,
           }),
         dialog.phaseId ? "無法儲存階段" : "無法新增階段"
       );
@@ -134,6 +142,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           name: draft.name,
           startDate: draft.startDate,
           endDate: draft.endDate,
+          color: draft.color,
         }),
       "無法新增里程碑"
     );
@@ -155,17 +164,6 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         }),
       "無法新增名額"
     );
-  }
-
-  async function editCell(slotId: string, slotLabel: string, month: string, current: number) {
-    const answer = await prompt(
-      `${slotLabel} 在 ${month} 投入多少?1 = 整個月全職,0.5 = 半個月。輸入 0 清掉這一格。`,
-      { title: "設定投入", defaultValue: current > 0 ? String(current) : "", numeric: true }
-    );
-    if (answer === null || answer.trim() === "") return;
-    const fte = Number(answer);
-    if (!Number.isFinite(fte)) return;
-    await run(() => setLabourSlotMonth(boardId, slotId, month, fte), "無法儲存");
   }
 
   async function fillRow(slotId: string, slotLabel: string) {
@@ -190,22 +188,34 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!view) return null;
 
-  const { sheet, phases, milestones, slots, canEdit, variances } = view;
+  const { sheet, phases, milestones, slots, canEdit, variances, phaseColors } = view;
   const months = sheet.months;
+  // 帶畫在自己的刻度上;人月的格子仍然一格一個月。
+  const axis = buildAxis(phases, unit);
+  const colWidth = unit === "month" ? MONTH_WIDTH : 16;
+  const bandWidth = axis.length * colWidth;
   const totalOf = new Map(sheet.slotTotals.map((t) => [t.slotId, t]));
   const rateOf = new Map(view.rates.map((r) => [r.discipline, r.monthlySalary]));
   const tracks = [...new Set(milestones.map((m) => m.track))];
   const timelineWidth = months.length * MONTH_WIDTH;
 
-  /** 一條帶在月份軸上的位置。月份是最小刻度,所以跨到哪個月就畫到哪個月。 */
+  /** 一條帶在軸上的位置。 */
   function band(startDate: string, endDate: string) {
-    const from = months.indexOf(monthKeyOf(startDate));
-    const to = months.indexOf(monthKeyOf(endDate));
-    if (from === -1 && to === -1) return null;
-    const left = Math.max(0, from);
-    const right = to === -1 ? months.length - 1 : to;
-    return { left: left * MONTH_WIDTH, width: (right - left + 1) * MONTH_WIDTH };
+    const span = axisSpan(axis, unit, startDate, endDate);
+    if (!span) return null;
+    return { left: span.from * colWidth, width: (span.to - span.from + 1) * colWidth };
   }
+
+  // 疊在一起的往下放一列 —— 判斷的是軸上的欄位,不是日期有沒有交集。
+  const phaseBands = phases.map((p) => ({
+    id: p.id,
+    name: p.name,
+    startDate: p.startDate,
+    endDate: p.endDate,
+    color: phaseColors[p.id] ?? "#fdab3d",
+  }));
+  const phaseRowsPacked = packBandRows(phaseBands, axis, unit);
+  const phaseById = new Map(phases.map((p) => [p.id, p]));
 
   if (phases.length === 0) {
     return (
@@ -286,6 +296,28 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           >
             + 人力名額
           </button>
+
+          <span className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">刻度</span>
+          {(
+            [
+              ["month", "月"],
+              ["week", "週"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setUnit(value)}
+              className={`rounded-md px-2 py-1 text-xs ${
+                unit === value
+                  ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -313,55 +345,65 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             </div>
           </div>
 
-          {/* 階段帶 */}
-          <div className="flex items-center border-b border-neutral-200 dark:border-neutral-700">
+          {/* 階段帶。重疊的往下疊,所以這裡是一到多列。 */}
+          {phaseRowsPacked.map((row, rowIndex) => (
             <div
-              style={{ width: LABEL_WIDTH }}
-              className="shrink-0 px-2 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-300"
+              key={`phase-row-${rowIndex}`}
+              className="flex items-center border-b border-neutral-200 dark:border-neutral-700"
             >
-              預算階段
+              <div
+                style={{ width: LABEL_WIDTH }}
+                className="shrink-0 px-2 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-300"
+              >
+                {rowIndex === 0 ? "預算階段" : ""}
+              </div>
+              <div className="relative shrink-0" style={{ width: bandWidth, height: 26 }}>
+                {row.map((entry) => {
+                  const box = band(entry.startDate, entry.endDate);
+                  const phase = phaseById.get(entry.id);
+                  if (!box || !phase) return null;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      disabled={!canEdit || busy}
+                      onClick={() => editPhase(phase)}
+                      title={`${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEdit ? "(點選修改)" : ""}`}
+                      className="absolute top-1 flex h-5 items-center justify-center overflow-hidden rounded-sm px-1 text-[10px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
+                      style={{
+                        left: box.left + 1,
+                        width: box.width - 2,
+                        backgroundColor: entry.color,
+                      }}
+                    >
+                      {entry.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-1 items-center justify-end gap-1 px-2">
+                {canEdit &&
+                  row.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        const ok = await confirm(
+                          `刪除階段「${entry.name}」?它推算出來的人力預算會一併收回。`,
+                          { title: "刪除階段", confirmLabel: "刪除", danger: true }
+                        );
+                        if (ok) await run(() => deleteBudgetPhase(boardId, entry.id), "無法刪除");
+                      }}
+                      title={`刪除 ${entry.name}`}
+                      className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  ))}
+              </div>
             </div>
-            <div className="relative shrink-0" style={{ width: timelineWidth, height: 26 }}>
-              {phases.map((phase) => {
-                const box = band(phase.startDate, phase.endDate);
-                if (!box) return null;
-                return (
-                  <button
-                    key={phase.id}
-                    type="button"
-                    disabled={!canEdit || busy}
-                    onClick={() => editPhase(phase)}
-                    title={`${phase.name}:${phase.startDate} ~ ${phase.endDate}${canEdit ? "(點選修改期間)" : ""}`}
-                    className="absolute top-1 flex h-5 items-center justify-center overflow-hidden rounded-sm bg-amber-400 px-1 text-[10px] font-medium text-amber-950 hover:ring-1 hover:ring-amber-600 disabled:cursor-default dark:bg-amber-500"
-                    style={{ left: box.left + 1, width: box.width - 2 }}
-                  >
-                    {phase.name}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="flex flex-1 items-center justify-end gap-1 px-2">
-              {canEdit &&
-                phases.map((phase) => (
-                  <button
-                    key={phase.id}
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      const ok = await confirm(
-                        `刪除階段「${phase.name}」?它推算出來的人力預算會一併收回。`,
-                        { title: "刪除階段", confirmLabel: "刪除", danger: true }
-                      );
-                      if (ok) await run(() => deleteBudgetPhase(boardId, phase.id), "無法刪除");
-                    }}
-                    title={`刪除 ${phase.name}`}
-                    className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                ))}
-            </div>
-          </div>
+          ))}
 
           {/* 里程碑帶,一個 track 一列 */}
           {tracks.map((track) => (
@@ -372,7 +414,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
               >
                 {track}
               </div>
-              <div className="relative shrink-0" style={{ width: timelineWidth, height: 24 }}>
+              <div className="relative shrink-0" style={{ width: bandWidth, height: 24 }}>
                 {milestones
                   .filter((m) => m.track === track)
                   .map((milestone) => {
@@ -461,25 +503,15 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                         </span>
                       </div>
 
-                      {months.map((m) => {
-                        const fte = slot.months[m] ?? 0;
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            disabled={!canEdit || busy}
-                            onClick={() => editCell(slot.id, slot.label, m, fte)}
-                            className={`shrink-0 border-l border-neutral-100 py-1 text-center text-[11px] tabular-nums disabled:cursor-default dark:border-neutral-800 ${
-                              fte > 0
-                                ? "bg-blue-50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200"
-                                : "text-neutral-300 hover:bg-neutral-100 dark:text-neutral-700 dark:hover:bg-neutral-800"
-                            }`}
-                            style={{ width: MONTH_WIDTH }}
-                          >
-                            {fte > 0 ? fte : "·"}
-                          </button>
-                        );
-                      })}
+                      {months.map((m) => (
+                        <FteCell
+                          key={m}
+                          value={slot.months[m] ?? 0}
+                          disabled={!canEdit || busy}
+                          width={MONTH_WIDTH}
+                          onCommit={(next) => run(() => setLabourSlotMonth(boardId, slot.id, m, next), "無法儲存")}
+                        />
+                      ))}
 
                       <div className="flex flex-1 items-center justify-end gap-2 px-2">
                         <span className="text-xs tabular-nums text-neutral-700 dark:text-neutral-200">
@@ -671,5 +703,59 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * 一個月的投入格。
+ *
+ * 用真的 input 而不是一顆按鈕:整排空格子看起來就是一片空白,沒人知道那裡
+ * 可以打字,而按鈕還得再開一個對話框才填得了一個數字。離開欄位才存 ——
+ * 打 0.5 的過程會先經過 0,那是個會被寫進去的錯值。
+ */
+function FteCell({
+  value,
+  disabled,
+  width,
+  onCommit,
+}: {
+  value: number;
+  disabled: boolean;
+  width: number;
+  onCommit: (next: number) => void;
+}) {
+  const [text, setText] = useState(value > 0 ? String(value) : "");
+  const [prev, setPrev] = useState(value);
+  // 外面重新載入之後把格子同步過來,但不要蓋掉正在打的字。
+  if (value !== prev) {
+    setPrev(value);
+    setText(value > 0 ? String(value) : "");
+  }
+
+  function commit() {
+    const next = text.trim() === "" ? 0 : Number(text);
+    if (!Number.isFinite(next) || next < 0) {
+      setText(value > 0 ? String(value) : "");
+      return;
+    }
+    if (next !== value) onCommit(next);
+  }
+
+  return (
+    <input
+      value={text}
+      disabled={disabled}
+      inputMode="decimal"
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+      title="投入多少?1 = 整個月全職,0.5 = 半個月"
+      className={`shrink-0 border-l border-neutral-100 py-1 text-center text-[11px] tabular-nums outline-none focus:bg-white focus:ring-1 focus:ring-blue-400 disabled:cursor-default dark:border-neutral-800 dark:focus:bg-neutral-900 ${
+        value > 0
+          ? "bg-blue-50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200"
+          : "bg-transparent text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      }`}
+      style={{ width }}
+    />
   );
 }

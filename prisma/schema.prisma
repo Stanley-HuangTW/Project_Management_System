@@ -606,6 +606,8 @@ model BudgetPhase {
   endDate   String
   /// 對應到看板上的哪一列階段。null = 純預算階段,不比較時程。
   itemId    String?
+  /// 帶的顏色。同色的話,兩個相鄰的階段在時間軸上會糊成一條。
+  color     String  @default("#fdab3d")
   order     Int
 
   createdById String?

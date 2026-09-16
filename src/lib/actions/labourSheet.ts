@@ -21,6 +21,8 @@ import {
 
 export type LabourSheetView = {
   boardName: string;
+  /** 帶的顏色跟著階段走,所以 PhaseRow 之外另外給一張對照表。 */
+  phaseColors: Record<string, string>;
   phases: PhaseRow[];
   milestones: {
     id: string;
@@ -142,6 +144,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
 
   return {
     boardName: board.name,
+    phaseColors: Object.fromEntries(phaseRows.map((p) => [p.id, p.color])),
     phases,
     milestones,
     slots,
@@ -226,7 +229,14 @@ async function syncFromSheet(boardId: string) {
 
 export async function upsertBudgetPhase(
   boardId: string,
-  input: { id?: string; name: string; startDate: string; endDate: string; itemId: string | null }
+  input: {
+    id?: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    itemId: string | null;
+    color?: string;
+  }
 ): Promise<{ error?: string }> {
   const session = await requireSheetAdmin(boardId);
   const name = input.name.trim();
@@ -237,7 +247,13 @@ export async function upsertBudgetPhase(
   if (input.id) {
     await prisma.budgetPhase.update({
       where: { id: input.id },
-      data: { name, startDate: input.startDate, endDate: input.endDate, itemId: input.itemId },
+      data: {
+        name,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        itemId: input.itemId,
+        ...(input.color ? { color: input.color } : {}),
+      },
     });
   } else {
     const count = await prisma.budgetPhase.count({ where: { boardId } });
@@ -248,6 +264,7 @@ export async function upsertBudgetPhase(
         startDate: input.startDate,
         endDate: input.endDate,
         itemId: input.itemId,
+        ...(input.color ? { color: input.color } : {}),
         order: count,
         createdById: session.userId,
       },

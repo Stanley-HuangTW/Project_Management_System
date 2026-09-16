@@ -7,6 +7,9 @@ import {
   phaseVariances,
   type PhaseRow,
   type SlotRow,
+  packBandRows,
+  buildAxis,
+  axisSpan,
 } from "./labourSheet";
 
 const rates = { EE: 168_000, ME: 105_000, PM: 126_000 } as const;
@@ -199,5 +202,123 @@ describe("phaseVariances", () => {
 describe("monthKeyOf", () => {
   it("取出年月", () => {
     expect(monthKeyOf("2026-03-16")).toBe("2026-03");
+  });
+});
+
+describe("packBandRows", () => {
+  const band = (id: string, startDate: string, endDate: string) => ({
+    id,
+    name: id,
+    startDate,
+    endDate,
+    color: "#fff",
+  });
+  /** 用這幾條帶自己的範圍當軸。 */
+  const pack = (bands: ReturnType<typeof band>[], unit: "month" | "week" = "month") =>
+    packBandRows(bands, buildAxis(bands, unit), unit);
+
+  it("軸上分得開的排同一列", () => {
+    const rows = pack([
+      band("a", "2026-03-01", "2026-03-31"),
+      band("b", "2026-06-01", "2026-06-30"),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].map((b) => b.id)).toEqual(["a", "b"]);
+  });
+
+  it("重疊的往下疊一列", () => {
+    const rows = pack([
+      band("a", "2026-03-01", "2026-05-31"),
+      band("b", "2026-05-01", "2026-07-31"),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].map((b) => b.id)).toEqual(["a"]);
+    expect(rows[1].map((b) => b.id)).toEqual(["b"]);
+  });
+
+  it("首尾相接的階段在月刻度下各佔各的欄,同一列即可 —— 靠顏色分辨", () => {
+    // EFS 到 5/31、EVT 從 6/1:欄位是 [03,04,05] 與 [06,07,08],沒有交集。
+    const rows = pack([
+      band("EFS", "2026-03-02", "2026-05-31"),
+      band("EVT", "2026-06-01", "2026-08-31"),
+    ]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("日期沒重疊但落在同一個月,仍然要分列 —— 畫出來是疊在一起的", () => {
+    const rows = pack([
+      band("a", "2026-03-01", "2026-05-15"),
+      band("b", "2026-05-20", "2026-07-31"),
+    ]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("換成週刻度,同月但不同週就分得開了", () => {
+    const rows = pack(
+      [band("a", "2026-03-01", "2026-05-15"), band("b", "2026-05-20", "2026-07-31")],
+      "week"
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it("三個互相重疊就三列", () => {
+    const rows = pack([
+      band("a", "2026-03-01", "2026-08-31"),
+      band("b", "2026-04-01", "2026-09-30"),
+      band("c", "2026-05-01", "2026-10-31"),
+    ]);
+    expect(rows).toHaveLength(3);
+  });
+
+  it("空的就沒有列", () => {
+    expect(packBandRows([], [], "month")).toEqual([]);
+  });
+});
+
+describe("buildAxis", () => {
+  const span = [{ startDate: "2026-03-02", endDate: "2026-05-31" }];
+
+  it("月刻度跟 monthAxis 一樣", () => {
+    expect(buildAxis(span, "month")).toEqual(["2026-03", "2026-04", "2026-05"]);
+  });
+
+  it("週刻度每欄是一個週一", () => {
+    const axis = buildAxis(span, "week");
+    expect(axis[0]).toBe("2026-03-02");
+    expect(axis.every((d) => new Date(`${d}T00:00:00Z`).getUTCDay() === 1)).toBe(true);
+    // 三個月大約十三週,而且一定涵蓋到結束日那一週。
+    expect(axis.length).toBeGreaterThan(11);
+    expect(axis[axis.length - 1] >= "2026-05-25").toBe(true);
+  });
+
+  it("沒有階段就沒有欄位", () => {
+    expect(buildAxis([], "week")).toEqual([]);
+    expect(buildAxis([], "month")).toEqual([]);
+  });
+});
+
+describe("axisSpan", () => {
+  const phases = [{ startDate: "2026-03-02", endDate: "2026-08-31" }];
+
+  it("月刻度下算出起訖欄", () => {
+    const axis = buildAxis(phases, "month");
+    expect(axisSpan(axis, "month", "2026-04-01", "2026-05-31")).toEqual({ from: 1, to: 2 });
+  });
+
+  it("週刻度下也算得出來", () => {
+    const axis = buildAxis(phases, "week");
+    // 03-15 是禮拜天,屬於 03-09 開始的那一週,所以是第 1 欄不是第 2 欄。
+    const span = axisSpan(axis, "week", "2026-03-02", "2026-03-15");
+    expect(span).toEqual({ from: 0, to: 1 });
+  });
+
+  it("超出軸的左右兩端就夾到邊界,而不是整段消失", () => {
+    const axis = buildAxis(phases, "month");
+    expect(axisSpan(axis, "month", "2025-01-01", "2026-04-30")).toEqual({ from: 0, to: 1 });
+    expect(axisSpan(axis, "month", "2026-07-01", "2027-12-31")).toEqual({ from: 4, to: 5 });
+  });
+
+  it("軸是空的就沒有位置", () => {
+    expect(axisSpan([], "month", "2026-03-01", "2026-03-31")).toBeNull();
   });
 });

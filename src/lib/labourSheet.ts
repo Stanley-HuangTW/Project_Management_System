@@ -276,3 +276,85 @@ export function phaseVariances(
     };
   });
 }
+
+/** 時間軸的刻度。人月的格子永遠是月,這只影響上面那幾條帶畫多細。 */
+export type AxisUnit = "month" | "week";
+
+export type Band = { id: string; name: string; startDate: string; endDate: string; color: string };
+
+/**
+ * 把帶排進列裡:會疊在一起的往下放一列。
+ *
+ * 判斷的是「在軸上佔到哪幾欄」而不是日期有沒有交集 —— 月刻度下,5/15 結束
+ * 與 5/20 開始的兩段日期並不重疊,卻都落在 2026-05 那一欄,畫出來就是疊在
+ * 一起。貪心法由左往右放,放得下就同一列,所以不會無謂地多佔高度。
+ */
+export function packBandRows(bands: Band[], axis: string[], unit: AxisUnit): Band[][] {
+  const sorted = [...bands].sort(
+    (a, b) => a.startDate.localeCompare(b.startDate) || a.endDate.localeCompare(b.endDate)
+  );
+  const rows: { band: Band; from: number; to: number }[][] = [];
+  for (const band of sorted) {
+    const span = axisSpan(axis, unit, band.startDate, band.endDate);
+    // 落在軸外的畫不出來,也就不佔位。
+    if (!span) continue;
+    const row = rows.find((r) => r.every((b) => b.to < span.from || b.from > span.to));
+    if (row) row.push({ band, ...span });
+    else rows.push([{ band, ...span }]);
+  }
+  return rows.map((r) => r.map((entry) => entry.band));
+}
+
+/** 一週的開始(週一),用 ISO 日期算,不碰時區。 */
+function weekStart(iso: string): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  const day = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - day);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * 時間軸的欄位。月刻度就是 monthAxis;週刻度是每週一一欄。
+ *
+ * 週刻度下人月的格子仍然是一格一個月,只是橫跨那個月的幾週 —— FTE 的資料
+ * 模型本來就是月,拆成週會變成憑空捏造的精度。
+ */
+export function buildAxis(phases: { startDate: string; endDate: string }[], unit: AxisUnit): string[] {
+  if (unit === "month") return monthAxis(phases);
+  if (phases.length === 0) return [];
+
+  const from = weekStart(phases.reduce((min, p) => (p.startDate < min ? p.startDate : min), phases[0].startDate));
+  const last = weekStart(phases.reduce((max, p) => (p.endDate > max ? p.endDate : max), phases[0].endDate));
+
+  const axis: string[] = [];
+  const cursor = new Date(`${from}T00:00:00Z`);
+  // 上限純粹是防呆:資料壞掉時不要無限跑。
+  for (let i = 0; i < 600; i++) {
+    const iso = cursor.toISOString().slice(0, 10);
+    axis.push(iso);
+    if (iso >= last) break;
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+  }
+  return axis;
+}
+
+/** 一段期間在軸上佔哪幾欄。落在軸外就回 null。 */
+export function axisSpan(
+  axis: string[],
+  unit: AxisUnit,
+  startDate: string,
+  endDate: string
+): { from: number; to: number } | null {
+  if (axis.length === 0) return null;
+  const key = (iso: string) => (unit === "month" ? monthKeyOf(iso) : weekStart(iso));
+  const startKey = key(startDate);
+  const endKey = key(endDate);
+
+  // 找不到精確的一欄時退到範圍內最近的 —— 期間可能從軸的左邊之外開始。
+  let from = axis.indexOf(startKey);
+  if (from === -1) from = startKey < axis[0] ? 0 : -1;
+  let to = axis.indexOf(endKey);
+  if (to === -1) to = endKey > axis[axis.length - 1] ? axis.length - 1 : -1;
+  if (from === -1 || to === -1 || to < from) return null;
+  return { from, to };
+}
