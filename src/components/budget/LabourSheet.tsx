@@ -11,7 +11,6 @@ import {
   axisSpan,
   packBandRows,
   monthColumnSpans,
-  monthKeyOf,
   isoWeekNumber,
   type AxisUnit,
 } from "@/lib/labourSheet";
@@ -100,6 +99,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     initial?: RangeDraft;
     phaseId?: string;
     itemId?: string | null;
+    milestoneId?: string;
   } | null>(null);
 
   function addPhase() {
@@ -125,6 +125,21 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     setRangeDialog({ kind: "milestone", title: "新增里程碑" });
   }
 
+  function editMilestone(milestone: LabourSheetView["milestones"][number]) {
+    setRangeDialog({
+      kind: "milestone",
+      title: `${milestone.name} 的期間`,
+      initial: {
+        track: milestone.track,
+        name: milestone.name,
+        startDate: milestone.startDate,
+        endDate: milestone.endDate,
+        color: milestone.color,
+      },
+      milestoneId: milestone.id,
+    });
+  }
+
   async function submitRange(draft: RangeDraft) {
     const dialog = rangeDialog;
     if (!dialog) return;
@@ -146,13 +161,14 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     await run(
       () =>
         upsertPlanMilestone(boardId, {
+          id: dialog.milestoneId,
           track: draft.track ?? "里程碑",
           name: draft.name,
           startDate: draft.startDate,
           endDate: draft.endDate,
           color: draft.color,
         }),
-      "無法新增里程碑"
+      dialog.milestoneId ? "無法儲存里程碑" : "無法新增里程碑"
     );
   }
 
@@ -211,7 +227,13 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   };
   const totalOf = new Map(sheet.slotTotals.map((t) => [t.slotId, t]));
   const rateOf = new Map(view.rates.map((r) => [r.discipline, r.monthlySalary]));
-  const tracks = [...new Set(milestones.map((m) => m.track))];
+  const milestoneBands = milestones.map((m) => ({
+    id: m.id,
+    name: m.name,
+    startDate: m.startDate,
+    endDate: m.endDate,
+    color: m.color,
+  }));
 
   /** 一條帶在軸上的位置。 */
   function band(startDate: string, endDate: string) {
@@ -230,6 +252,8 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   }));
   const phaseRowsPacked = packBandRows(phaseBands, axis, unit);
   const phaseById = new Map(phases.map((p) => [p.id, p]));
+  const milestoneRowsPacked = packBandRows(milestoneBands, axis, unit);
+  const milestoneById = new Map(milestones.map((m) => [m.id, m]));
 
   if (phases.length === 0) {
     return (
@@ -284,56 +308,28 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         </div>
       )}
 
-      {canEdit && (
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">刻度</span>
+        {(
+          [
+            ["month", "月"],
+            ["week", "週"],
+          ] as const
+        ).map(([value, label]) => (
           <button
+            key={value}
             type="button"
-            disabled={busy}
-            onClick={addPhase}
-            className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            onClick={() => setUnit(value)}
+            className={`rounded-md px-2 py-1 text-xs ${
+              unit === value
+                ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            }`}
           >
-            + 階段
+            {label}
           </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={addMilestone}
-            className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
-          >
-            + 里程碑
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={addSlot}
-            className="rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
-          >
-            + 人力名額
-          </button>
-
-          <span className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">刻度</span>
-          {(
-            [
-              ["month", "月"],
-              ["week", "週"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setUnit(value)}
-              className={`rounded-md px-2 py-1 text-xs ${
-                unit === value
-                  ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+        ))}
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
         <div style={{ minWidth: LABEL_WIDTH + bandWidth + 260 }}>
@@ -343,40 +339,69 @@ export function LabourSheet({ boardId }: { boardId: string }) {
               style={{ width: LABEL_WIDTH }}
               className="shrink-0 px-2 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400"
             >
-              {unit === "month" ? "月份" : "週次"}
+              月份
             </div>
-            {unit === "month"
-              ? months.map((m, i) => (
-                  <div
-                    key={m}
-                    style={{ width: colWidth }}
-                    className="shrink-0 border-l border-neutral-200 py-1.5 text-center text-[11px] tabular-nums text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
-                  >
-                    {monthLabel(m, months[i - 1])}
-                  </div>
-                ))
-              : axis.map((weekIso, i) => {
-                  // 每個月的第一週帶上月份,其餘只寫週數 —— 一整排 W12 W13
-                  // 讀不出來走到哪個月了。
-                  const newMonth = i === 0 || monthKeyOf(axis[i - 1]) !== monthKeyOf(weekIso);
-                  return (
-                    <div
-                      key={weekIso}
-                      style={{ width: colWidth }}
-                      title={weekIso}
-                      className={`shrink-0 border-l py-1.5 text-center text-[10px] tabular-nums ${
-                        newMonth
-                          ? "border-neutral-300 font-medium text-neutral-700 dark:border-neutral-600 dark:text-neutral-200"
-                          : "border-neutral-200 text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
-                      }`}
-                    >
-                      {newMonth ? `${Number(weekIso.slice(5, 7))}月` : ""}
-                      <span className="block">W{isoWeekNumber(weekIso)}</span>
-                    </div>
-                  );
-                })}
+            {/* 月份自己一列:塞進週的格子裡會把那一欄撐得跟別欄不一樣寬。 */}
+            {months.map((m, i) => (
+              <div
+                key={m}
+                style={{ width: monthWidth(m) }}
+                className="shrink-0 border-l border-neutral-300 py-1.5 text-center text-[11px] tabular-nums text-neutral-700 dark:border-neutral-600 dark:text-neutral-200"
+              >
+                {monthLabel(m, months[i - 1])}
+              </div>
+            ))}
             <div className="flex-1 px-2 py-1.5 text-right text-xs font-medium text-neutral-500 dark:text-neutral-400">
               人月 / 金額
+            </div>
+          </div>
+
+          {unit === "week" && (
+            <div className="flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
+              <div
+                style={{ width: LABEL_WIDTH }}
+                className="shrink-0 px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400"
+              >
+                週次
+              </div>
+              {axis.map((weekIso) => (
+                <div
+                  key={weekIso}
+                  style={{ width: colWidth }}
+                  title={weekIso}
+                  className="shrink-0 border-l border-neutral-200 py-1 text-center text-[10px] tabular-nums text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
+                >
+                  {isoWeekNumber(weekIso)}
+                </div>
+              ))}
+              <div className="flex-1" />
+            </div>
+          )}
+
+          {/* 第一部分:時程。階段與里程碑都是「一段期間」,放在一起才看得出彼此的關係。 */}
+          <div className="flex items-center border-b-2 border-neutral-300 bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-800">
+            <div
+              style={{ width: LABEL_WIDTH }}
+              className="shrink-0 px-2 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-200"
+            >
+              時程規劃
+            </div>
+            <div className="flex flex-1 items-center gap-2 px-2 py-1">
+              {canEdit ? (
+                <>
+                  <button type="button" disabled={busy} onClick={addPhase} className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800">
+                    + 階段
+                  </button>
+                  <button type="button" disabled={busy} onClick={addMilestone} className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800">
+                    + 里程碑
+                  </button>
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                    點長條可以改名稱與期間
+                  </span>
+                </>
+              ) : (
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">階段與里程碑</span>
+              )}
             </div>
           </div>
 
@@ -440,49 +465,86 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             </div>
           ))}
 
-          {/* 里程碑帶,一個 track 一列 */}
-          {tracks.map((track) => (
-            <div key={track} className="flex items-center border-b border-neutral-200 dark:border-neutral-700">
+          {/* 里程碑帶。跟階段一樣:同一排,疊到才往下長。 */}
+          {milestoneRowsPacked.map((row, rowIndex) => (
+            <div
+              key={`ms-row-${rowIndex}`}
+              className="flex items-center border-b border-neutral-200 dark:border-neutral-700"
+            >
               <div
                 style={{ width: LABEL_WIDTH }}
                 className="shrink-0 truncate px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400"
               >
-                {track}
+                {rowIndex === 0 ? "里程碑" : ""}
               </div>
               <div className="relative shrink-0" style={{ width: bandWidth, height: 24 }}>
-                {milestones
-                  .filter((m) => m.track === track)
-                  .map((milestone) => {
-                    const box = band(milestone.startDate, milestone.endDate);
-                    if (!box) return null;
-                    return (
-                      <button
-                        key={milestone.id}
-                        type="button"
-                        disabled={!canEdit || busy}
-                        onClick={async () => {
-                          const ok = await confirm(
-                            `刪除里程碑「${milestone.name}」?`,
-                            { title: "刪除里程碑", confirmLabel: "刪除", danger: true }
-                          );
-                          if (ok) await run(() => deletePlanMilestone(boardId, milestone.id), "無法刪除");
-                        }}
-                        title={`${milestone.name}:${milestone.startDate} ~ ${milestone.endDate}${canEdit ? "(點選刪除)" : ""}`}
-                        className="absolute top-1 flex h-4 items-center justify-center overflow-hidden rounded-sm px-1 text-[9px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
-                        style={{
-                          left: box.left + 1,
-                          width: box.width - 2,
-                          backgroundColor: milestone.color,
-                        }}
-                      >
-                        {milestone.name}
-                      </button>
-                    );
-                  })}
+                {row.map((entry) => {
+                  const box = band(entry.startDate, entry.endDate);
+                  const milestone = milestoneById.get(entry.id);
+                  if (!box || !milestone) return null;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      disabled={!canEdit || busy}
+                      onClick={() => editMilestone(milestone)}
+                      title={`${milestone.track ? `${milestone.track}・` : ""}${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEdit ? "(點選修改)" : ""}`}
+                      className="absolute top-1 flex h-4 items-center justify-center overflow-hidden rounded-sm px-1 text-[9px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
+                      style={{
+                        left: box.left + 1,
+                        width: box.width - 2,
+                        backgroundColor: entry.color,
+                      }}
+                    >
+                      {entry.name}
+                    </button>
+                  );
+                })}
               </div>
-              <div className="flex-1" />
+              <div className="flex flex-1 items-center justify-end gap-1 px-2">
+                {canEdit &&
+                  row.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        const ok = await confirm(`刪除里程碑「${entry.name}」?`, {
+                          title: "刪除里程碑",
+                          confirmLabel: "刪除",
+                          danger: true,
+                        });
+                        if (ok) await run(() => deletePlanMilestone(boardId, entry.id), "無法刪除");
+                      }}
+                      title={`刪除 ${entry.name}`}
+                      className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  ))}
+              </div>
             </div>
           ))}
+
+          {/* 第二部分:人力設定。跟上面的時程帶分開,因為兩邊填的是不同的東西。 */}
+          <div className="flex items-center border-b-2 border-t-2 border-neutral-300 bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-800">
+            <div
+              style={{ width: LABEL_WIDTH }}
+              className="shrink-0 px-2 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-200"
+            >
+              人力設定
+            </div>
+            <div className="flex flex-1 items-center gap-2 px-2 py-1">
+              {canEdit && (
+                <button type="button" disabled={busy} onClick={addSlot} className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800">
+                  + 人力名額
+                </button>
+              )}
+              <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                每個名額逐月填投入,1 = 整個月全職
+              </span>
+            </div>
+          </div>
 
           {/* 人力名額,照單位分段 */}
           {DISCIPLINES.map((discipline) => {

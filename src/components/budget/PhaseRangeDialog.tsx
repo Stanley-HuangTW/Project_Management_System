@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 
 export type RangeDraft = {
-  /** 里程碑才有:排在哪一列帶。 */
+  /** 里程碑才有:分類,只是標示用。 */
   track?: string;
   name: string;
   startDate: string;
@@ -28,7 +28,7 @@ export function PhaseRangeDialog({
   title,
   /** 有值 = 編輯既有的;沒有 = 新增。 */
   initial,
-  /** 里程碑要多問一個「排在哪一列」。 */
+  /** 里程碑要多問一個分類。 */
   withTrack = false,
   onSubmit,
 }: {
@@ -85,7 +85,7 @@ export function PhaseRangeDialog({
         {withTrack && (
           <label className="block">
             <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
-              排在哪一列
+              分類
             </span>
             <input
               value={track}
