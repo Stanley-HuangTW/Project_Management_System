@@ -7,6 +7,7 @@ import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
 import { monthKeyOf } from "@/lib/labourSheet";
+import { PhaseRangeDialog, type RangeDraft } from "./PhaseRangeDialog";
 import {
   getLabourSheetView,
   upsertBudgetPhase,
@@ -82,73 +83,57 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     }
   }
 
-  /** 起訖日期兩問,兩者都要有才算數。 */
-  async function askRange(what: string, start?: string, end?: string) {
-    const from = await prompt(`${what}從哪一天開始?格式 2026-03-02`, {
-      title: what,
-      defaultValue: start ?? "",
-    });
-    if (from === null || !from.trim()) return null;
-    const to = await prompt(`${what}到哪一天結束?格式 2026-05-31`, {
-      title: what,
-      defaultValue: end ?? "",
-    });
-    if (to === null || !to.trim()) return null;
-    return { start: from.trim(), end: to.trim() };
+  /** 開著的期間對話框:階段或里程碑,新增或編輯。 */
+  const [rangeDialog, setRangeDialog] = useState<{
+    kind: "phase" | "milestone";
+    title: string;
+    initial?: RangeDraft;
+    phaseId?: string;
+    itemId?: string | null;
+  } | null>(null);
+
+  function addPhase() {
+    setRangeDialog({ kind: "phase", title: "新增預算階段" });
   }
 
-  async function addPhase() {
-    const name = await prompt("階段名稱?例如 EFS、EVT、DVT1", { title: "新增預算階段" });
-    if (name === null || !name.trim()) return;
-    const range = await askRange(`${name.trim()} 的期間`);
-    if (!range) return;
-    await run(
-      () =>
-        upsertBudgetPhase(boardId, {
-          name: name.trim(),
-          startDate: range.start,
-          endDate: range.end,
-          itemId: null,
-        }),
-      "無法新增階段"
-    );
+  function editPhase(phase: LabourSheetView["phases"][number]) {
+    setRangeDialog({
+      kind: "phase",
+      title: `${phase.name} 的期間`,
+      initial: { name: phase.name, startDate: phase.startDate, endDate: phase.endDate },
+      phaseId: phase.id,
+      itemId: phase.itemId,
+    });
   }
 
-  async function editPhase(phase: LabourSheetView["phases"][number]) {
-    const range = await askRange(`${phase.name} 的期間`, phase.startDate, phase.endDate);
-    if (!range) return;
-    await run(
-      () =>
-        upsertBudgetPhase(boardId, {
-          id: phase.id,
-          name: phase.name,
-          startDate: range.start,
-          endDate: range.end,
-          itemId: phase.itemId,
-        }),
-      "無法儲存階段"
-    );
+  function addMilestone() {
+    setRangeDialog({ kind: "milestone", title: "新增里程碑" });
   }
 
-  async function addMilestone() {
-    const track = await prompt("排在哪一列?例如 軟體、機構、認證", {
-      title: "新增里程碑",
-      defaultValue: "里程碑",
-    });
-    if (track === null) return;
-    const name = await prompt("里程碑名稱?例如 PCBA 打件、機構出圖、demo 樣機", {
-      title: "新增里程碑",
-    });
-    if (name === null || !name.trim()) return;
-    const range = await askRange(`${name.trim()} 的期間`);
-    if (!range) return;
+  async function submitRange(draft: RangeDraft) {
+    const dialog = rangeDialog;
+    if (!dialog) return;
+    if (dialog.kind === "phase") {
+      await run(
+        () =>
+          upsertBudgetPhase(boardId, {
+            id: dialog.phaseId,
+            name: draft.name,
+            startDate: draft.startDate,
+            endDate: draft.endDate,
+            itemId: dialog.itemId ?? null,
+          }),
+        dialog.phaseId ? "無法儲存階段" : "無法新增階段"
+      );
+      return;
+    }
     await run(
       () =>
         upsertPlanMilestone(boardId, {
-          track: track.trim() || "里程碑",
-          name: name.trim(),
-          startDate: range.start,
-          endDate: range.end,
+          track: draft.track ?? "里程碑",
+          name: draft.name,
+          startDate: draft.startDate,
+          endDate: draft.endDate,
         }),
       "無法新增里程碑"
     );
@@ -239,6 +224,16 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             <Plus size={14} /> 新增第一個階段
           </button>
         )}
+        {/* 空狀態是提早 return,對話框也得掛在這裡 —— 不然第一個階段永遠
+            建不起來:按鈕設了狀態,但沒有東西在畫它。 */}
+        <PhaseRangeDialog
+          open={rangeDialog !== null}
+          onOpenChange={(next) => !next && setRangeDialog(null)}
+          title={rangeDialog?.title ?? ""}
+          initial={rangeDialog?.initial}
+          withTrack={rangeDialog?.kind === "milestone"}
+          onSubmit={submitRange}
+        />
       </div>
     );
   }
@@ -654,6 +649,15 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           )}
         </div>
       </div>
+
+      <PhaseRangeDialog
+        open={rangeDialog !== null}
+        onOpenChange={(next) => !next && setRangeDialog(null)}
+        title={rangeDialog?.title ?? ""}
+        initial={rangeDialog?.initial}
+        withTrack={rangeDialog?.kind === "milestone"}
+        onSubmit={submitRange}
+      />
 
       {canEdit && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
