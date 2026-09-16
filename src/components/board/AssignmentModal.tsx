@@ -1,25 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
-import { Trash2 } from "lucide-react";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
-import { listAssignments, upsertAssignment, removeAssignment } from "@/lib/actions/assignment";
 import { upsertCellValue } from "@/lib/actions/cell";
 import { previewSchedule } from "@/lib/actions/predecessorSchedule";
 import { listDependentItems, type SchedulePreview } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "./DependentItemsRow";
-import { Avatar } from "@/components/ui/Avatar";
-import { PersonPicker } from "@/components/ui/PersonPicker";
+import { AssignmentEditor } from "./AssignmentEditor";
 import { CellEditor } from "./cell-editors/CellEditor";
 import { PredPicker } from "./cell-editors/PredPicker";
 import { PredLampDot } from "./PredLampDot";
 import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
 import { computeWbsCodes } from "@/lib/wbs";
-import { subordinateIds } from "@/lib/orgChart";
 
 export function AssignmentModal({
   boardId,
@@ -86,12 +82,6 @@ export function AssignmentModal({
   onScheduleApplied?: () => void;
 }) {
   const router = useRouter();
-  const [assignments, setAssignments] = useState<
-    Awaited<ReturnType<typeof listAssignments>>
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [pct, setPct] = useState(10);
   const [pendingChange, setPendingChange] = useState<{
     columnId: string;
     value: string | number | null;
@@ -110,23 +100,6 @@ export function AssignmentModal({
     setPendingChange(null);
     setDraftNumber(null);
   }
-
-  useEffect(() => {
-    if (!open || !item) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const result = await listAssignments(item.id);
-        if (!cancelled) setAssignments(result);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, item]);
 
   // Who is scheduled off this item — the other side of Pred, which on its own
   // only says what this item points at.
@@ -200,114 +173,18 @@ export function AssignmentModal({
       : [];
   const parentCode = item.parentId ? (predCodes?.get(item.parentId) ?? undefined) : undefined;
 
-  // Gantt Assignments reference a real User row (foreign key) — Resources
-  // (tools/vendors) can be a PERSON-column 負責人 but not a %-allocation here.
-  const realUsers = users.filter((u) => !u.isResource);
-  const below = subordinateIds(users, currentUserId);
-  const assignableUsers =
-    userRole === "SUPERVISOR" ? realUsers.filter((u) => below.has(u.id)) : realUsers;
-
-  const assignedUserIds = new Set(assignments.map((a) => a.userId));
-  const availableUsers = assignableUsers.filter((u) => !assignedUserIds.has(u.id));
-
-  async function refresh() {
-    if (!item) return;
-    setAssignments(await listAssignments(item.id));
-  }
-
-  async function handleAdd() {
-    if (!item || !selectedUserId) return;
-    await upsertAssignment(boardId, item.id, selectedUserId, pct);
-    setSelectedUserId("");
-    setPct(10);
-    await refresh();
-  }
-
-  async function handleRemove(userId: string) {
-    if (!item) return;
-    await removeAssignment(boardId, item.id, userId);
-    await refresh();
-  }
-
-  async function handleUpdatePct(userId: string, nextPct: number) {
-    if (!item) return;
-    await upsertAssignment(boardId, item.id, userId, nextPct);
-    await refresh();
-  }
-
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={`${item.name} — 人員分配`} size="lg">
-      <div className="mb-4 space-y-2">
-        {loading && <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>}
-        {!loading && assignments.length === 0 && (
-          <p className="text-sm text-neutral-400 dark:text-neutral-500">尚未指派人員</p>
-        )}
-        {assignments.map((a) => (
-          <div
-            key={a.userId}
-            className="flex items-center justify-between rounded-md bg-neutral-50 dark:bg-neutral-800 px-3 py-2"
-          >
-            <span className="flex min-w-0 items-center gap-2 text-sm text-neutral-800 dark:text-neutral-100">
-              <Avatar name={a.user.name} avatarUrl={a.user.avatarUrl} size={22} />
-              <span className="truncate">{a.user.name}</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={5}
-                max={100}
-                step={5}
-                value={a.allocationPct}
-                onChange={(e) => handleUpdatePct(a.userId, Number(e.target.value))}
-                className="w-16 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-right text-sm outline-none focus:border-blue-500"
-              />
-              <span className="text-sm text-neutral-500 dark:text-neutral-400">%</span>
-              <button
-                type="button"
-                onClick={() => handleRemove(a.userId)}
-                className="text-neutral-400 dark:text-neutral-500 hover:text-red-600"
-                aria-label="移除"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
+      <div className="mb-4">
+        <AssignmentEditor
+          boardId={boardId}
+          itemId={item.id}
+          users={users}
+          userRole={userRole}
+          currentUserId={currentUserId}
+          onChanged={() => router.refresh()}
+        />
       </div>
-
-      {availableUsers.length > 0 ? (
-        <div className="flex items-center gap-2">
-          <div className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600">
-            <PersonPicker
-              users={availableUsers}
-              selectedId={selectedUserId || null}
-              onSelect={(userId) => setSelectedUserId(userId ?? "")}
-            />
-          </div>
-          <input
-            type="number"
-            min={5}
-            max={100}
-            step={5}
-            value={pct}
-            onChange={(e) => setPct(Number(e.target.value))}
-            className="w-20 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-          />
-          <span className="text-sm text-neutral-500 dark:text-neutral-400">%</span>
-          <button
-            type="button"
-            disabled={!selectedUserId}
-            onClick={handleAdd}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            新增
-          </button>
-        </div>
-      ) : (
-        userRole === "SUPERVISOR" && (
-          <p className="text-sm text-neutral-400 dark:text-neutral-500">你的團隊目前沒有可指派的成員。</p>
-        )
-      )}
 
       {scheduleColumns.length > 0 && (
         <div className="mt-4 space-y-3 border-t border-neutral-100 dark:border-neutral-700 pt-4">

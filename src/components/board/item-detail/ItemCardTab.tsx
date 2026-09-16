@@ -16,6 +16,7 @@ import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
+import { AssignmentEditor } from "../AssignmentEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 
@@ -34,6 +35,7 @@ export function ItemCardTab({
   scheduleFloat,
   groupItems,
   crossGroupPredOptions,
+  onAssignmentChanged,
   lockedScheduleFields,
   manualScheduleHint,
   userRole,
@@ -57,6 +59,8 @@ export function ItemCardTab({
   groupItems?: ItemData[];
   /** 這個分組以外的可選前置(含同群組其他看板的)。 */
   crossGroupPredOptions?: PredOption[];
+  /** 人員分配改了之後,呼叫端可能要重畫甘特圖的長條或工作量。 */
+  onAssignmentChanged?: () => void;
   lockedScheduleFields?: Map<string, ScheduleLock>;
   /** What to tell the user to edit instead when a Start/Days/Finish field
    *  is locked — see manualScheduleHint in @/lib/gantt. */
@@ -272,6 +276,22 @@ export function ItemCardTab({
           </div>
         );
       })}
+      <div className="border-b border-neutral-100 px-4 py-3 dark:border-neutral-700">
+        <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+          人員分配
+          <span className="ml-1.5 text-neutral-300 dark:text-neutral-600">
+            投入百分比,會換算成工時與成本
+          </span>
+        </p>
+        <AssignmentEditor
+          boardId={boardId}
+          itemId={item.id}
+          users={users}
+          userRole={userRole}
+          currentUserId={currentUserId}
+          onChanged={onAssignmentChanged}
+        />
+      </div>
       <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
         <span className="text-xs text-neutral-400 dark:text-neutral-500">任務派遣人</span>
         <span className="w-40 truncate text-right text-sm text-neutral-800 dark:text-neutral-100">
