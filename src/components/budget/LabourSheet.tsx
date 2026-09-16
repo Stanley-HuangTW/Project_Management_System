@@ -6,7 +6,15 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
-import { buildAxis, axisSpan, packBandRows, type AxisUnit } from "@/lib/labourSheet";
+import {
+  buildAxis,
+  axisSpan,
+  packBandRows,
+  monthColumnSpans,
+  monthKeyOf,
+  isoWeekNumber,
+  type AxisUnit,
+} from "@/lib/labourSheet";
 import { PhaseRangeDialog, type RangeDraft } from "./PhaseRangeDialog";
 import {
   getLabourSheetView,
@@ -192,12 +200,18 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   const months = sheet.months;
   // 帶畫在自己的刻度上;人月的格子仍然一格一個月。
   const axis = buildAxis(phases, unit);
-  const colWidth = unit === "month" ? MONTH_WIDTH : 16;
+  const colWidth = unit === "month" ? MONTH_WIDTH : 22;
   const bandWidth = axis.length * colWidth;
+  // 月份的格子要跟上面的帶對齊,所以寬度由它在軸上佔幾欄決定 —— 不然
+  // 週刻度下帶跟格子會畫在兩條不同長度的軸上。
+  const monthSpans = monthColumnSpans(axis, unit, months);
+  const monthWidth = (month: string) => {
+    const span = monthSpans.find((s) => s.month === month);
+    return span ? (span.to - span.from + 1) * colWidth : 0;
+  };
   const totalOf = new Map(sheet.slotTotals.map((t) => [t.slotId, t]));
   const rateOf = new Map(view.rates.map((r) => [r.discipline, r.monthlySalary]));
   const tracks = [...new Set(milestones.map((m) => m.track))];
-  const timelineWidth = months.length * MONTH_WIDTH;
 
   /** 一條帶在軸上的位置。 */
   function band(startDate: string, endDate: string) {
@@ -322,24 +336,45 @@ export function LabourSheet({ boardId }: { boardId: string }) {
       )}
 
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
-        <div style={{ minWidth: LABEL_WIDTH + timelineWidth + 260 }}>
+        <div style={{ minWidth: LABEL_WIDTH + bandWidth + 260 }}>
           {/* 月份表頭 */}
           <div className="flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
             <div
               style={{ width: LABEL_WIDTH }}
               className="shrink-0 px-2 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400"
             >
-              月份
+              {unit === "month" ? "月份" : "週次"}
             </div>
-            {months.map((m, i) => (
-              <div
-                key={m}
-                style={{ width: MONTH_WIDTH }}
-                className="shrink-0 border-l border-neutral-200 py-1.5 text-center text-[11px] tabular-nums text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
-              >
-                {monthLabel(m, months[i - 1])}
-              </div>
-            ))}
+            {unit === "month"
+              ? months.map((m, i) => (
+                  <div
+                    key={m}
+                    style={{ width: colWidth }}
+                    className="shrink-0 border-l border-neutral-200 py-1.5 text-center text-[11px] tabular-nums text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
+                  >
+                    {monthLabel(m, months[i - 1])}
+                  </div>
+                ))
+              : axis.map((weekIso, i) => {
+                  // 每個月的第一週帶上月份,其餘只寫週數 —— 一整排 W12 W13
+                  // 讀不出來走到哪個月了。
+                  const newMonth = i === 0 || monthKeyOf(axis[i - 1]) !== monthKeyOf(weekIso);
+                  return (
+                    <div
+                      key={weekIso}
+                      style={{ width: colWidth }}
+                      title={weekIso}
+                      className={`shrink-0 border-l py-1.5 text-center text-[10px] tabular-nums ${
+                        newMonth
+                          ? "border-neutral-300 font-medium text-neutral-700 dark:border-neutral-600 dark:text-neutral-200"
+                          : "border-neutral-200 text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
+                      }`}
+                    >
+                      {newMonth ? `${Number(weekIso.slice(5, 7))}月` : ""}
+                      <span className="block">W{isoWeekNumber(weekIso)}</span>
+                    </div>
+                  );
+                })}
             <div className="flex-1 px-2 py-1.5 text-right text-xs font-medium text-neutral-500 dark:text-neutral-400">
               人月 / 金額
             </div>
@@ -466,7 +501,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                   {months.map((m) => (
                     <div
                       key={m}
-                      style={{ width: MONTH_WIDTH }}
+                      style={{ width: monthWidth(m) }}
                       className="shrink-0 border-l border-neutral-200 py-1 text-center text-[10px] tabular-nums text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
                     >
                       {total.byMonth[m] ? total.byMonth[m] : ""}
@@ -508,7 +543,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                           key={m}
                           value={slot.months[m] ?? 0}
                           disabled={!canEdit || busy}
-                          width={MONTH_WIDTH}
+                          width={monthWidth(m)}
                           onCommit={(next) => run(() => setLabourSlotMonth(boardId, slot.id, m, next), "無法儲存")}
                         />
                       ))}
@@ -568,7 +603,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             {months.map((m) => (
               <div
                 key={m}
-                style={{ width: MONTH_WIDTH }}
+                style={{ width: monthWidth(m) }}
                 className="shrink-0 border-l border-neutral-200 py-1.5 text-center text-[11px] tabular-nums text-neutral-700 dark:border-neutral-700 dark:text-neutral-200"
               >
                 {sheet.headcountByMonth[m] ?? ""}

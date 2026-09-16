@@ -10,6 +10,8 @@ import {
   packBandRows,
   buildAxis,
   axisSpan,
+  monthColumnSpans,
+  isoWeekNumber,
 } from "./labourSheet";
 
 const rates = { EE: 168_000, ME: 105_000, PM: 126_000 } as const;
@@ -320,5 +322,54 @@ describe("axisSpan", () => {
 
   it("軸是空的就沒有位置", () => {
     expect(axisSpan([], "month", "2026-03-01", "2026-03-31")).toBeNull();
+  });
+});
+
+describe("monthColumnSpans", () => {
+  const phases = [{ startDate: "2026-03-02", endDate: "2026-05-31" }];
+
+  it("月刻度下一個月就是一欄", () => {
+    const axis = buildAxis(phases, "month");
+    expect(monthColumnSpans(axis, "month", axis)).toEqual([
+      { month: "2026-03", from: 0, to: 0 },
+      { month: "2026-04", from: 1, to: 1 },
+      { month: "2026-05", from: 2, to: 2 },
+    ]);
+  });
+
+  it("週刻度下每一欄只屬於一個月,而且恰好鋪滿整條軸", () => {
+    const axis = buildAxis(phases, "week");
+    const months = monthAxis(phases);
+    const spans = monthColumnSpans(axis, "week", months);
+
+    // 首尾相接、不重疊、不留縫。
+    expect(spans[0].from).toBe(0);
+    expect(spans[spans.length - 1].to).toBe(axis.length - 1);
+    for (let i = 1; i < spans.length; i++) {
+      expect(spans[i].from).toBe(spans[i - 1].to + 1);
+    }
+  });
+
+  it("跨月的那一週整欄算給開始日的月份", () => {
+    // 2026-03-30 那一週跨到 4/5,整欄算三月。
+    const axis = buildAxis([{ startDate: "2026-03-30", endDate: "2026-04-10" }], "week");
+    const spans = monthColumnSpans(axis, "week", ["2026-03", "2026-04"]);
+    expect(axis[0]).toBe("2026-03-30");
+    expect(spans.find((s) => s.month === "2026-03")).toEqual({ month: "2026-03", from: 0, to: 0 });
+  });
+});
+
+describe("isoWeekNumber", () => {
+  it("年初與年末", () => {
+    expect(isoWeekNumber("2026-01-01")).toBe(1);
+    expect(isoWeekNumber("2026-12-28")).toBe(53);
+  });
+
+  it("同一週的任一天都是同一個週數", () => {
+    expect(isoWeekNumber("2026-03-02")).toBe(isoWeekNumber("2026-03-08"));
+  });
+
+  it("往後一週就加一", () => {
+    expect(isoWeekNumber("2026-03-09")).toBe(isoWeekNumber("2026-03-02") + 1);
   });
 });

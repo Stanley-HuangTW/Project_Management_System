@@ -358,3 +358,45 @@ export function axisSpan(
   if (from === -1 || to === -1 || to < from) return null;
   return { from, to };
 }
+
+/**
+ * 每個月在軸上佔哪幾欄。
+ *
+ * 週刻度下,跨月的那一週(例如 3/30 到 4/5)整欄算給它開始日所在的月份 ——
+ * 兩個月各算一次的話,月份的格子會互相疊到,而且加起來比軸還寬。這樣切
+ * 每一欄恰好屬於一個月,月份的格子就能精準鋪滿整條軸。
+ */
+export function monthColumnSpans(
+  axis: string[],
+  unit: AxisUnit,
+  months: MonthKey[]
+): { month: MonthKey; from: number; to: number }[] {
+  if (unit === "month") {
+    return months
+      .map((month) => ({ month, from: axis.indexOf(month), to: axis.indexOf(month) }))
+      .filter((s) => s.from !== -1);
+  }
+  const spans = new Map<MonthKey, { month: MonthKey; from: number; to: number }>();
+  axis.forEach((weekStartIso, index) => {
+    const month = monthKeyOf(weekStartIso);
+    const existing = spans.get(month);
+    if (existing) existing.to = index;
+    else spans.set(month, { month, from: index, to: index });
+  });
+  return months.map((month) => spans.get(month)).filter((s): s is NonNullable<typeof s> => !!s);
+}
+
+/**
+ * ISO 週數。給週刻度的表頭用 —— 一整排日期讀不出「這是第幾週」,而排程
+ * 上大家講的是週次。
+ */
+export function isoWeekNumber(iso: string): number {
+  const date = new Date(`${iso}T00:00:00Z`);
+  // 移到當週的星期四:ISO 規定含當年第一個星期四的那一週是第 1 週。
+  date.setUTCDate(date.getUTCDate() + 3 - ((date.getUTCDay() + 6) % 7));
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  firstThursday.setUTCDate(
+    firstThursday.getUTCDate() + 3 - ((firstThursday.getUTCDay() + 6) % 7)
+  );
+  return Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86_400_000)) + 1;
+}
