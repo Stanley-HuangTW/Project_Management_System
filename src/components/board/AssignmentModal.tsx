@@ -401,9 +401,11 @@ export function AssignmentModal({
                 <div className="w-56">
                   {isPredWithOptions ? (
                     <PredPicker
+                      boardId={boardId}
                       value={typeof displayValue === "string" ? displayValue : null}
                       options={predOptions}
                       parentCode={parentCode}
+                      parentItemId={item.parentId ?? null}
                       disabled={fieldDisabled}
                       onChange={(next) => handleScheduleFieldChange(col.id, next)}
                     />

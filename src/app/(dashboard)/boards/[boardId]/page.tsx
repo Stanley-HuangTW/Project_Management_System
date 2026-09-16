@@ -6,7 +6,6 @@ import { boardWithDataArgs, type UserOption } from "@/types/board";
 import { BoardView } from "@/components/board/BoardView";
 import { listHolidays } from "@/lib/holidays";
 import { applyVisibility } from "@/lib/applyVisibility";
-import { crossBoardPredOptions } from "@/lib/crossBoardPred";
 import { externalPredecessors } from "@/lib/externalPredecessors";
 
 export default async function BoardPage({
@@ -36,9 +35,6 @@ export default async function BoardPage({
   if (!board) notFound();
   if (!(await canAccessBoard(session, boardId))) notFound();
 
-  // 同群組其他看板的工作項,給 Pred 選單 —— 排程引擎本來就吃跨看板的前置,
-  // 缺的一直是選得到它們的地方。
-  const crossBoardPreds = await crossBoardPredOptions(boardId);
   // 已經被指到的那幾個外部前置,連日期一起 —— 甘特圖要為它們畫一列,
   // 藍色虛線才有地方接。
   const externalPreds = await externalPredecessors(boardId);
@@ -68,7 +64,6 @@ export default async function BoardPage({
       currentUserId={session.userId}
       highlightItemId={highlight ?? null}
       holidays={holidays}
-      crossBoardPreds={crossBoardPreds}
       externalPreds={externalPreds}
     />
   );

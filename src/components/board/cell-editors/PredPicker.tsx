@@ -2,13 +2,14 @@
 
 import { useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import {
   splitPredEntry,
   formatPredEntries,
   type RelationshipType,
 } from "@/lib/predecessorLink";
 import { formatEdgeSuffix } from "@/lib/predEdgeSummary";
+import { listCrossBoardPredOptions } from "@/lib/actions/predOptions";
 
 import type { PredOption } from "@/types/board";
 
@@ -31,19 +32,25 @@ type SelectedPred = PredOption & { relationship: RelationshipType | null; lag: n
  * since that is how people refer to these.
  */
 export function PredPicker({
+  boardId,
   value,
   options,
   parentCode,
+  parentItemId,
   disabled = false,
   triggerClassName,
   onChange,
 }: {
+  /** 勾了跨看板之後,拿同群組其他看板的工作項要用。 */
+  boardId: string;
   /** The stored Pred cell: comma-separated item ids, or a legacy WBS code. */
   value: string | null;
   options: PredOption[];
   /** Opening the list jumps here — the item's own parent is the most likely
    *  predecessor — without selecting it. */
   parentCode?: string;
+  /** 目前這個項目的父項。同看板時預設展開它那一支。 */
+  parentItemId?: string | null;
   disabled?: boolean;
   triggerClassName?: string;
   /** The new cell value: comma-separated ids, or null when nothing is left. */
@@ -83,10 +90,39 @@ export function PredPicker({
   const [crossBoard, setCrossBoard] = useState(false);
   const [boardFilter, setBoardFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState("");
+  /** null = 還沒去拿過。拿過一次就留著,重開選單不必再等。 */
+  const [fetched, setFetched] = useState<PredOption[] | null>(null);
+  const [loadingCross, setLoadingCross] = useState(false);
 
-  const crossOptions = useMemo(() => options.filter((o) => o.boardId), [options]);
+  const crossOptions = useMemo(
+    // 呼叫端已經帶了跨看板選項就用那份(表格的儲存格),否則用自己拿的。
+    () => (options.some((o) => o.boardId) ? options.filter((o) => o.boardId) : (fetched ?? [])),
+    [options, fetched]
+  );
   const localOptions = useMemo(() => options.filter((o) => !o.boardId), [options]);
-  const hasCross = crossOptions.length > 0;
+
+  async function toggleCrossBoard(next: boolean) {
+    setCrossBoard(next);
+    setBoardFilter("");
+    setGroupFilter("");
+    if (next) {
+      // 跨看板:那是別人的看板,沒有哪一支特別可能,全部收起來讓使用者自己找。
+      const pool = options.some((o) => o.boardId) ? options : (fetched ?? []);
+      setCollapsed(collapseAllExcept(new Set(), pool));
+    }
+    if (!next || fetched !== null || options.some((o) => o.boardId)) return;
+    setLoadingCross(true);
+    try {
+      const loaded = await listCrossBoardPredOptions(boardId);
+      setFetched(loaded);
+      setCollapsed(collapseAllExcept(new Set(), loaded));
+    } catch {
+      // 拿不到就當作沒有跨看板的選項,不要讓整個選單壞掉。
+      setFetched([]);
+    } finally {
+      setLoadingCross(false);
+    }
+  }
 
   /** 勾了跨看板之後可以挑哪些看板 —— 順序照選項本身的順序。 */
   const boardChoices = useMemo(() => {
@@ -118,6 +154,48 @@ export function PredPicker({
     return pool.filter((o) => (o.code + " " + o.name).toLowerCase().includes(needle));
   }, [crossBoard, crossOptions, localOptions, boardFilter, groupFilter, query]);
 
+  /**
+   * 選單排成可收合的樹。
+   *
+   * 四百個項目平鋪的時候,要找的東西在哪一層、屬於哪一支完全看不出來。
+   * 同看板時預設展開「目前這個項目的父項」那一支 —— 前置多半就在隔壁;
+   * 跨看板時全部收起來,因為那是別人的看板,沒有哪一支特別可能。
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** 展開過一次就不再自動調整,否則使用者每收一支就被打開回去。 */
+  const autoExpanded = useRef<string | null>(null);
+
+  const childrenOf = useMemo(() => {
+    const map = new Map<string, PredOption[]>();
+    for (const o of visible) {
+      const key = o.parentId ?? "";
+      const list = map.get(key);
+      if (list) list.push(o);
+      else map.set(key, [o]);
+    }
+    return map;
+  }, [visible]);
+
+  /** 在這份清單裡找不到父項的,就是這一層的根 —— 篩選之後父項可能不在。 */
+  const roots = useMemo(() => {
+    const ids = new Set(visible.map((o) => o.id));
+    return visible.filter((o) => !o.parentId || !ids.has(o.parentId));
+  }, [visible]);
+
+  /** 樹攤平成要畫的列,跳過被收起來的子樹。 */
+  const treeRows = useMemo(() => {
+    const out: { option: PredOption; depth: number; hasChildren: boolean }[] = [];
+    const walk = (nodes: PredOption[], depth: number) => {
+      for (const node of nodes) {
+        const kids = childrenOf.get(node.id) ?? [];
+        out.push({ option: node, depth, hasChildren: kids.length > 0 });
+        if (kids.length > 0 && !collapsed.has(node.id)) walk(kids, depth + 1);
+      }
+    };
+    walk(roots, 0);
+    return out;
+  }, [roots, childrenOf, collapsed]);
+
   const viewportRef = useRef<HTMLDivElement>(null);
 
   function commit(entries: SelectedPred[]) {
@@ -148,13 +226,36 @@ export function PredPicker({
     setGroupFilter("");
   }
 
+  /** 全部收起來,只留下要展開的那條祖先鏈。 */
+  function collapseAllExcept(keep: Set<string>, pool: PredOption[]) {
+    const parents = new Set<string>();
+    for (const o of pool) if (o.parentId) parents.add(o.parentId);
+    for (const id of keep) parents.delete(id);
+    return parents;
+  }
+
   function handleOpenChange(open: boolean) {
     // Each opening starts a fresh search rather than reopening onto whatever
     // the last one was narrowed down to.
     if (!open) {
       setQuery("");
+      autoExpanded.current = null;
       return;
     }
+    // 同看板:展開目前項目父項的那一條鏈,其餘收起來。父項不在時全部收起。
+    const chain = new Set<string>();
+    if (parentItemId) {
+      const parentOf = new Map(options.map((o) => [o.id, o.parentId ?? null]));
+      let cursor: string | null = parentItemId;
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
+        chain.add(cursor);
+        cursor = parentOf.get(cursor) ?? null;
+      }
+    }
+    setCollapsed(collapseAllExcept(chain, options));
+    autoExpanded.current = "local";
     if (!parentCode) return;
     // Popover.Content mounts into its portal on a render commit after
     // onOpenChange fires, so the target may not exist yet on the very next
@@ -228,22 +329,18 @@ export function PredPicker({
               </button>
             )}
           </div>
-          {hasCross && (
+          {
             <div className="shrink-0 border-b border-neutral-100 px-2 py-1.5 dark:border-neutral-700">
               <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-700 dark:text-neutral-200">
                 <input
                   type="checkbox"
                   checked={crossBoard}
-                  onChange={(e) => {
-                    setCrossBoard(e.target.checked);
-                    setBoardFilter("");
-                    setGroupFilter("");
-                  }}
+                  onChange={(e) => void toggleCrossBoard(e.target.checked)}
                   className="h-3.5 w-3.5 accent-blue-600"
                 />
                 跨看板
                 <span className="text-neutral-400 dark:text-neutral-500">
-                  ({crossOptions.length} 項)
+                  {loadingCross ? "(載入中...)" : crossBoard ? `(${crossOptions.length} 項)` : ""}
                 </span>
               </label>
 
@@ -276,7 +373,7 @@ export function PredPicker({
                 </div>
               )}
             </div>
-          )}
+          }
           {selected.length > 0 && (
             <div className="max-h-40 shrink-0 overflow-y-auto border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-1">
               {selected.map((s) => (
@@ -326,23 +423,57 @@ export function PredPicker({
             </div>
           )}
           <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto p-1">
-            {visible.map((o) => {
+            {/* 搜尋時攤平:打了字就是要直接找到那一個,樹狀反而礙事。 */}
+            {(query.trim()
+              ? visible.map((o) => ({ option: o, depth: 0, hasChildren: false }))
+              : treeRows
+            ).map(({ option: o, depth, hasChildren }) => {
               const isSelected = selected.some((s) => s.id === o.id);
+              const isCollapsed = collapsed.has(o.id);
               return (
+                <div key={o.id} className="flex items-center">
+                  <span style={{ width: depth * 12 }} className="shrink-0" />
+                  {hasChildren ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCollapsed((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(o.id)) next.delete(o.id);
+                          else next.add(o.id);
+                          return next;
+                        });
+                      }}
+                      aria-label={isCollapsed ? "展開" : "收合"}
+                      className="shrink-0 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                    >
+                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  ) : (
+                    // 沒有子項的列也讓出同樣的寬度,不然同一層的名稱會對不齊。
+                    <span className="w-[18px] shrink-0" />
+                  )}
                 <button
-                  key={o.id}
                   type="button"
                   data-code={o.code}
                   onClick={() => toggle(o.id)}
-                  className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {/* 跨看板模式下,看板與分組已經在上面挑過了,再重複一次
-                        會把真正要看的名稱擠掉。 */}
+                        會把真正要看的名稱擠掉 —— 但沒挑分組的時候就得標,
+                        否則兩個分組的「1 POC Phase」分不出誰是誰。 */}
                     {crossBoard ? `${o.wbsCode ?? ""} ${o.name}` : `${o.code} ${o.name}`}
+                    {crossBoard && !groupFilter && depth === 0 && o.groupName && (
+                      <span className="ml-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">
+                        {o.groupName}
+                      </span>
+                    )}
                   </span>
                   {isSelected && <Check size={14} className="shrink-0 text-blue-600" />}
                 </button>
+                </div>
               );
             })}
             {visible.length === 0 && (

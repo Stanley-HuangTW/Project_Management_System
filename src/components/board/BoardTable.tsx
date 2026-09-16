@@ -19,7 +19,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Search, Target, Trash2 } from "lucide-react";
-import type { BoardWithData, ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
+import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageStructure } from "@/lib/permissions";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
@@ -128,7 +128,6 @@ export function BoardTable({
   onAddColumn,
   highlightItemId,
   holidays,
-  crossBoardPreds,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -137,8 +136,6 @@ export function BoardTable({
   onAddColumn: () => void;
   highlightItemId?: string | null;
   holidays: Holiday[];
-  /** 同群組其他看板的工作項,給 Pred 選單。 */
-  crossBoardPreds: PredOption[];
 }) {
   const canEditStructure = canManageStructure(userRole);
   const router = useRouter();
@@ -555,7 +552,6 @@ export function BoardTable({
                   otherGroups={board.groups
                     .filter((g) => g.id !== group.id)
                     .map((g) => ({ id: g.id, name: g.name, items: itemsByGroup.get(g.id) ?? [] }))}
-                  crossBoardPreds={crossBoardPreds}
                   columns={orderedColumns}
                   users={users}
                   progressColumnId={board.progressColumnId}

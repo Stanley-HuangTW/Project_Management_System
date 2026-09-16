@@ -5,7 +5,7 @@ import { upsertCellValue } from "@/lib/actions/cell";
 import { computeWbsCodes } from "@/lib/wbs";
 import { useCellSave } from "./useCellSave";
 import { PredPicker } from "./PredPicker";
-import type { ItemData } from "@/types/board";
+import type { ItemData, PredOption } from "@/types/board";
 
 /** The table's Pred cell — the picker itself lives in PredPicker, shared with
  *  the assignment modal's own Pred field. */
@@ -32,14 +32,20 @@ export function PredCell({
   /** Items in the board's other groups, already labelled with their group
    *  name — a Pred may cross a group, and a bare "1.2" from another group
    *  would be unreadable. */
-  crossGroupPredOptions?: { id: string; code: string; name: string }[];
+  crossGroupPredOptions?: PredOption[];
 }) {
   const codes = wbsCodes ?? computeWbsCodes(groupItems);
-  const options = useMemo(
+  const options = useMemo<PredOption[]>(
     () =>
       groupItems
         .filter((i) => i.id !== itemId)
-        .map((i) => ({ id: i.id, code: codes.get(i.id) ?? "", name: i.name }))
+        .map((i): PredOption => ({
+          id: i.id,
+          code: codes.get(i.id) ?? "",
+          name: i.name,
+          wbsCode: codes.get(i.id) ?? "",
+          parentId: i.parentId,
+        }))
         .filter((o) => o.code)
         .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
         // Own group first, then the rest — the usual case stays at the top.
@@ -53,9 +59,11 @@ export function PredCell({
 
   return (
     <PredPicker
+      boardId={boardId}
       value={value}
       options={options}
       parentCode={parentCode}
+      parentItemId={currentItem?.parentId ?? null}
       onChange={(next) => save(() => upsertCellValue(boardId, itemId, columnId, next))}
     />
   );

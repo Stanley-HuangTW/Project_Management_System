@@ -50,6 +50,9 @@ export type PredOption = {
   groupName?: string;
   /** 它在自己分組裡的 WBS,層層篩選之後顯示用。 */
   wbsCode?: string;
+  /** 它的父項,選單要排成可收合的樹。用 WBS 前綴去推會在分組之間撞號 —— 
+   *  每個分組的代號都從 1 重新開始。 */
+  parentId?: string | null;
 };
 
 /** 位在同群組其他看板上的前置。看板甘特圖為它畫一列唯讀的長條,

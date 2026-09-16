@@ -62,6 +62,7 @@ export async function crossBoardPredOptions(boardId: string): Promise<PredOption
           groupId: group.id,
           groupName: group.name,
           wbsCode: code,
+          parentId: item.parentId,
         });
       }
     }
