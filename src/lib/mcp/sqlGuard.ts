@@ -61,6 +61,8 @@ function stripNoise(sql: string): string {
 
 /** 會改到東西的動詞。出現在語句結構裡(而不是字串裡)就拒絕。 */
 const WRITE_WORDS = [
+  // SELECT ... INTO newtable 會建表 —— 開頭是 SELECT,只看開頭的話完全看不出來。
+  "into",
   "insert",
   "update",
   "delete",
@@ -115,10 +117,31 @@ export function checkReadOnlySql(raw: string): SqlCheck {
 
   // WITH ... 之後仍然可能接 INSERT/UPDATE/DELETE(Postgres 的 data-modifying
   // CTE),所以不能只看開頭。
-  const words = bare.toLowerCase().match(/[a-z_]+/g) ?? [];
+  // 標成 string[]:match 回傳 RegExpMatchArray | null,`?? []` 之後是聯集,
+  // 對聯集呼叫 .includes 會踩到 never[] 那一支。
+  const words: string[] = bare.toLowerCase().match(/[a-z_]+/g) ?? [];
   for (const word of words) {
     if (WRITE_WORDS.includes(word)) {
       return { ok: false, reason: `查詢裡不允許出現「${word}」` };
+    }
+  }
+
+  // 有些函式本身就會改狀態或吃資源,而它們的名字帶底線,不會命中上面的
+  // 單字清單(set_config 不等於 set)。
+  const DANGEROUS_FUNCTIONS = [
+    "set_config",
+    "pg_sleep",
+    "pg_terminate_backend",
+    "pg_cancel_backend",
+    "pg_advisory_lock",
+    "pg_logical_emit_message",
+    "lo_import",
+    "lo_export",
+    "dblink_exec",
+  ];
+  for (const fn of DANGEROUS_FUNCTIONS) {
+    if (words.includes(fn)) {
+      return { ok: false, reason: `查詢裡不允許呼叫「${fn}」` };
     }
   }
 
