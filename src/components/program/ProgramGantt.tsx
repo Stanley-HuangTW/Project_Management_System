@@ -12,6 +12,7 @@ const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 9, month: 3 };
 const LABEL_WIDTH = 300;
 const ROW_H = 28;
 const BOARD_ROW_H = 30;
+const GROUP_ROW_H = 24;
 const DAY_MS = 86_400_000;
 
 /** One hue per board, so a bar says which board it belongs to without being
@@ -34,6 +35,9 @@ function isWeekend(date: Date): boolean {
 
 type Row =
   | { kind: "board"; boardId: string; boardName: string; taskCount: number; color: string }
+  /** 分組標題。WBS 是項目在自己分組樹裡的位置,每個分組都從 1 重新開始,
+   *  所以少了這一列,兩個分組的「1 POC Phase」看起來會像同一件事重複了。 */
+  | { kind: "group"; boardId: string; groupId: string; groupName: string; taskCount: number }
   | { kind: "task"; task: ProgramTask; color: string };
 
 /**
@@ -141,7 +145,23 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
         taskCount: board.taskCount,
         color,
       });
-      for (const task of tasks) out.push({ kind: "task", task, color });
+
+      // 照分組切開。tasks 已經是看板 → 分組 → WBS 的順序,所以只要在分組
+      // 換了的時候插一列標題就好,不必重新分群。
+      let currentGroup: string | null = null;
+      for (const task of tasks) {
+        if (task.groupId !== currentGroup) {
+          currentGroup = task.groupId;
+          out.push({
+            kind: "group",
+            boardId: board.id,
+            groupId: task.groupId,
+            groupName: task.groupName,
+            taskCount: tasks.filter((t) => t.groupId === task.groupId).length,
+          });
+        }
+        out.push({ kind: "task", task, color });
+      }
     }
     return out;
   }, [view.boards, view.tasks, colorOfBoard, onlyCritical, hidden]);
@@ -153,8 +173,8 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
     const boxes = new Map<string, BarBox>();
     let y = 0;
     for (const row of rows) {
-      if (row.kind === "board") {
-        y += BOARD_ROW_H;
+      if (row.kind === "board" || row.kind === "group") {
+        y += row.kind === "board" ? BOARD_ROW_H : GROUP_ROW_H;
         continue;
       }
       const { task } = row;
@@ -253,7 +273,10 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
     if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
   }, [todayIndex, dayWidth]);
 
-  const totalHeight = rows.reduce((h, row) => h + (row.kind === "board" ? BOARD_ROW_H : ROW_H), 0);
+  const totalHeight = rows.reduce(
+    (h, row) => h + (row.kind === "board" ? BOARD_ROW_H : row.kind === "group" ? GROUP_ROW_H : ROW_H),
+    0
+  );
 
   if (days.length === 0) {
     return (
@@ -432,6 +455,25 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
                     </Link>
                     <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
                       {row.taskCount} 項
+                    </span>
+                  </div>
+                  <div style={{ width: timelineWidth }} />
+                </div>
+              ) : row.kind === "group" ? (
+                <div
+                  key={`group-${row.boardId}-${row.groupId}`}
+                  className="flex border-b border-neutral-100 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-800/40"
+                  style={{ height: GROUP_ROW_H }}
+                >
+                  <div
+                    className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r border-neutral-200 bg-neutral-50/60 px-3 pl-6 dark:border-neutral-700 dark:bg-neutral-800/40"
+                    style={{ width: LABEL_WIDTH }}
+                  >
+                    <span className="min-w-0 truncate text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+                      {row.groupName || "(未分組)"}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+                      {row.taskCount}
                     </span>
                   </div>
                   <div style={{ width: timelineWidth }} />
