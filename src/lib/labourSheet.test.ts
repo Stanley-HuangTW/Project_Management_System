@@ -30,10 +30,22 @@ const slot = (
   discipline,
   label: id,
   func: "",
+  userId: null,
   ownerName: "TBH",
   description: "",
   months,
 });
+
+// 單位清單現在是系統設定,不是寫死的列舉 —— 測試自己給一份,順序就是表格
+// 欄位的順序。
+const UNITS = [
+  { code: "EE", label: "EE 電機", order: 0 },
+  { code: "SW", label: "SW 軟體", order: 1 },
+  { code: "QA", label: "QA 品保", order: 2 },
+  { code: "ME", label: "ME 機構", order: 3 },
+  { code: "PM", label: "PM 專案", order: 4 },
+  { code: "OTHER", label: "其他", order: 5 },
+];
 
 describe("monthAxis", () => {
   it("從最早的開始月排到最晚的結束月", () => {
@@ -94,26 +106,48 @@ describe("buildLabourSheet", () => {
     slot("me1", "ME", { "2026-03": 1, "2026-04": 1, "2026-05": 1 }),
   ];
 
+  it("欄位跟著設定的單位走,不是寫死的那六個", () => {
+    // 公司新增一個 FAE,人力表就該多一欄 —— 這是把列舉換成資料表的整個理由。
+    const units = [
+      { code: "EE", label: "EE 電機", order: 0 },
+      { code: "FAE", label: "FAE 技術支援", order: 1 },
+    ];
+    const sheet = buildLabourSheet(phases, slots, rates, units);
+    expect(sheet.byDiscipline.map((d) => d.discipline)).toEqual(["EE", "FAE"]);
+    expect(sheet.byPhase[0].byDiscipline.map((d) => d.discipline)).toEqual(["EE", "FAE"]);
+  });
+
+  it("名額的單位不在設定裡,它的人月就不會出現在任何一欄", () => {
+    // ME 從設定裡拿掉了,但 me1 這個名額還在。小計不該憑空生出一個 ME 欄,
+    // 也不該把它的人月偷偷算到別欄頭上。
+    const units = [{ code: "EE", label: "EE 電機", order: 0 }];
+    const sheet = buildLabourSheet(phases, slots, rates, units);
+    expect(sheet.byDiscipline.map((d) => d.discipline)).toEqual(["EE"]);
+    expect(sheet.totalPersonMonths).toBe(7.5);
+    // 但它的那一列本身還是算得出人月 —— 名額沒有消失,只是沒有欄收它。
+    expect(sheet.slotTotals.find((t) => t.slotId === "me1")?.personMonths).toBe(3);
+  });
+
   it("一列的人月是它每個月加起來", () => {
-    const sheet = buildLabourSheet(phases, slots, rates);
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS);
     expect(sheet.slotTotals.find((t) => t.slotId === "ee1")?.personMonths).toBe(6);
     expect(sheet.slotTotals.find((t) => t.slotId === "ee2")?.personMonths).toBe(1.5);
   });
 
   it("一列的金額 = 人月 × 該單位標準月薪", () => {
-    const sheet = buildLabourSheet(phases, slots, rates);
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS);
     expect(sheet.slotTotals.find((t) => t.slotId === "me1")?.amount).toBe(3 * 105_000);
   });
 
   it("單位小計把同單位的名額加起來", () => {
-    const sheet = buildLabourSheet(phases, slots, rates);
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS);
     const ee = sheet.byDiscipline.find((d) => d.discipline === "EE")!;
     expect(ee.personMonths).toBe(7.5);
     expect(ee.amount).toBe(7.5 * 168_000);
   });
 
   it("每個月要幾個人,是判斷過不過載的那一列", () => {
-    const sheet = buildLabourSheet(phases, slots, rates);
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS);
     const ee = sheet.byDiscipline.find((d) => d.discipline === "EE")!;
     expect(ee.byMonth["2026-03"]).toBe(1);
     expect(ee.byMonth["2026-06"]).toBe(1.5);
@@ -122,7 +156,7 @@ describe("buildLabourSheet", () => {
   });
 
   it("階段 × 單位是月份歸戶算出來的,不是另外填的", () => {
-    const sheet = buildLabourSheet(phases, slots, rates);
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS);
     const efs = sheet.byPhase.find((p) => p.phaseName === "EFS")!;
     const evt = sheet.byPhase.find((p) => p.phaseName === "EVT")!;
     expect(efs.byDiscipline.find((d) => d.discipline === "EE")!.personMonths).toBe(3);
@@ -132,7 +166,7 @@ describe("buildLabourSheet", () => {
   });
 
   it("階段加總 = 總計,一個人月都沒有漏掉或算兩次", () => {
-    const sheet = buildLabourSheet(phases, slots, rates);
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS);
     const fromPhases = sheet.byPhase.reduce((t, p) => t + p.personMonths, 0);
     expect(fromPhases).toBe(sheet.totalPersonMonths);
     expect(sheet.totalPersonMonths).toBe(10.5);
@@ -142,7 +176,8 @@ describe("buildLabourSheet", () => {
     const sheet = buildLabourSheet(
       phases,
       [...slots, slot("pm1", "PM", { "2026-12": 1 })],
-      rates
+      rates,
+      UNITS
     );
     expect(sheet.monthsOutsideAnyPhase).toEqual(["2026-12"]);
     // 仍然算進總人月,只是沒有階段收它。
@@ -151,14 +186,14 @@ describe("buildLabourSheet", () => {
   });
 
   it("單位沒有標準月薪的,人月照算,金額是 0,而且點名出來", () => {
-    const sheet = buildLabourSheet(phases, [...slots, slot("sw1", "SW", { "2026-06": 2 })], rates);
+    const sheet = buildLabourSheet(phases, [...slots, slot("sw1", "SW", { "2026-06": 2 })], rates, UNITS);
     expect(sheet.unpricedDisciplines).toEqual(["SW"]);
     expect(sheet.byDiscipline.find((d) => d.discipline === "SW")!.personMonths).toBe(2);
     expect(sheet.byDiscipline.find((d) => d.discipline === "SW")!.amount).toBe(0);
   });
 
   it("沒有名額的時候全部是 0", () => {
-    const sheet = buildLabourSheet(phases, [], rates);
+    const sheet = buildLabourSheet(phases, [], rates, UNITS);
     expect(sheet.totalPersonMonths).toBe(0);
     expect(sheet.totalAmount).toBe(0);
     expect(sheet.months).toHaveLength(6);
@@ -167,7 +202,7 @@ describe("buildLabourSheet", () => {
 
 describe("phaseVariances", () => {
   const slots = [slot("ee1", "EE", { "2026-03": 1, "2026-04": 1, "2026-05": 1 })];
-  const sheet = buildLabourSheet(phases, slots, rates);
+  const sheet = buildLabourSheet(phases, slots, rates, UNITS);
 
   it("工期拉長多少天,以及照同樣人力配置會多花多少", () => {
     // EFS 當初排 3/2–5/31(91 天),現在看板算出來到 6/30(121 天)

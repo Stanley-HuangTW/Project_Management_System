@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { wouldCreateCycle } from "@/lib/orgChart";
-import type { Discipline } from "@prisma/client";
+import type { Discipline } from "@/lib/labourPlan";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";

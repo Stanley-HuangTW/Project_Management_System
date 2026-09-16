@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import type { Discipline } from "@prisma/client";
+import type { Discipline } from "@/lib/labourPlan";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
-import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
+import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { formatMoney } from "@/lib/cost";
 import { listDisciplineRates, setDisciplineRate } from "@/lib/actions/labourPlan";
 import { setWorkingDaysPerMonth } from "@/lib/actions/systemSettings";
@@ -16,9 +16,12 @@ import { setWorkingDaysPerMonth } from "@/lib/actions/systemSettings";
  * 月薪/時薪只用在算實際成本。兩邊分開,是因為它們回答的是不同的問題。
  */
 export function DisciplineRateCard({
+  units,
   workingDaysPerMonth,
   hoursPerDay,
 }: {
+  /** 跟「公司組織單位」那張卡片同一份,由設定頁一次載入。 */
+  units: OrgUnit[];
   workingDaysPerMonth: number;
   hoursPerDay: number;
 }) {
@@ -117,12 +120,12 @@ export function DisciplineRateCard({
             </tr>
           </thead>
           <tbody>
-            {DISCIPLINES.map((discipline) => {
+            {units.map(({ code: discipline }) => {
               const monthly = Number(rates[discipline] ?? 0);
               return (
                 <tr key={discipline} className="border-t border-neutral-100 dark:border-neutral-800">
                   <td className="py-1.5 text-neutral-700 dark:text-neutral-200">
-                    {DISCIPLINE_LABELS[discipline]}
+                    {unitLabel(units, discipline)}
                   </td>
                   <td className="py-1.5">
                     <input

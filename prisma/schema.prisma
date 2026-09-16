@@ -87,7 +87,8 @@ model User {
   /// 放在使用者身上而不是設定頁:它跟著人的職級變動,不是一份全域參數。
   hourlyRate    Decimal?    @db.Decimal(12, 2)
   /// 所屬單位 —— 人力成本與人力規劃都照這個歸戶。
-  discipline    Discipline?
+  discipline    String?
+  orgUnit       OrgUnit?    @relation(fields: [discipline], references: [code], onDelete: SetNull, onUpdate: Cascade)
   /// 個人月薪。有填就蓋過所屬單位的標準月薪;時薪有填的話仍然優先,
   /// 換算順序見 labourRate.ts。
   monthlySalary Decimal?    @db.Decimal(12, 2)
@@ -237,6 +238,7 @@ model Board {
   baselines      Baseline[]
   budgetPhases   BudgetPhase[]
   planMilestones PlanMilestone[]
+  milestoneTypes MilestoneType[]
   labourSlots    LabourSlot[]
   protoPlans     ProtoPlan[]
 
@@ -622,22 +624,43 @@ model BudgetPhase {
 /// 里程碑區間:軟體、硬體 PCBA 打件、機構出圖、認證、測試、demo 樣機……
 /// 有起也有迄,所以是一條帶,不是看板上 Type=Milestone 那種單一日期的點。
 /// track 讓它們分列排,就像那張 Excel 的「SW milestones」「Key Milestone」兩列。
+/// 里程碑類型,例如「軟體」「機構」「key part 備料」。
+///
+/// 同一個類型的里程碑排在同一排 —— 類型就是那一排的名字。每塊看板自己一
+/// 份:M3 的「key part 備料」跟充電站的不是同一件事。
+model MilestoneType {
+  id      String @id @default(cuid())
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name    String
+  order   Int
+
+  milestones PlanMilestone[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([boardId, name])
+  @@index([boardId, order])
+}
+
 model PlanMilestone {
-  id        String @id @default(cuid())
+  id        String        @id @default(cuid())
   boardId   String
-  board     Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  /// 排在哪一列帶,例如「軟體」「機構」「關鍵里程碑」。
-  track     String
+  board     Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// 排在哪一排。類型底下的里程碑彼此重疊才會再往下長。
+  typeId    String
+  type      MilestoneType @relation(fields: [typeId], references: [id], onDelete: Restrict)
   name      String
   startDate String
   endDate   String
-  color     String @default("#fdab3d")
+  color     String        @default("#fdab3d")
   order     Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([boardId, track, order])
+  @@index([boardId, typeId, order])
 }
 
 /// 一個人力名額,也就是那張 Excel 裡的一列(EE1、SW3、ME2……)。
@@ -648,7 +671,8 @@ model LabourSlot {
   id          String     @id @default(cuid())
   boardId     String
   board       Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  discipline  Discipline
+  discipline  String
+  orgUnit     OrgUnit    @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 名額代號,EE1、SW3。
   label       String
   /// 職能,EEDM、driver、web、PQA……比單位細一層。
@@ -685,7 +709,7 @@ model LabourSlotMonth {
 /// 樣機使用計畫:某個產品、某個階段、某個用途單位,要用掉幾台。
 ///
 /// 跟人力表同一個道理 —— EVT 兩台給 SW 做 mock up、DVT1 三台給 QA-Rel,
-/// 這些數字談出來之後才知道要備多少料。用途單位比人力的 Discipline 廣:
+/// 這些數字談出來之後才知道要備多少料。用途單位比人力的 OrgUnit 廣:
 /// field test、sale department、marketing、工廠 golden sample 都會吃樣機,
 /// 但那些不是工程單位,所以是自由文字而不是列舉。
 model ProtoPlan {
@@ -712,10 +736,30 @@ model ProtoPlan {
   @@index([boardId, product])
 }
 
+/// 公司組織單位。人力成本、人力預算、樣機用途都按這個分,因為「這個階段
+/// 要花多少錢」在 NPI 裡實際上是「EE 幾個人月、ME 幾個人月」談出來的。
+///
+/// 是資料表而不是列舉:公司會新增單位(FAE、NPI、Sourcing……),那是設定,
+/// 不該每次都要改 schema。code 是代號(EE),label 是顯示用的全名。
+model OrgUnit {
+  code  String @id
+  label String
+  /// 排序。表格的欄位順序、下拉選單的順序都照這個。
+  order Int    @default(0)
+
+  users  User[]
+  rate   DisciplineRate?
+  plans  LabourPlan[]
+  slots  LabourSlot[]
+
+  @@index([order])
+}
+
 /// 各單位的標準月薪。編預算的時候還不知道會是誰做,所以人力規劃一律用
 /// 單位的標準價;實際成本才用到人身上的費率。
 model DisciplineRate {
-  discipline    Discipline @id
+  discipline    String  @id
+  orgUnit       OrgUnit @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 元/月。
   monthlySalary Int
   updatedAt     DateTime   @updatedAt
@@ -730,7 +774,8 @@ model LabourPlan {
   id           String     @id @default(cuid())
   itemId       String
   item         Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  discipline   Discipline
+  discipline   String
+  orgUnit      OrgUnit    @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 人月,允許到小數點兩位(0.5 個人月是常見的寫法)。
   personMonths Decimal    @db.Decimal(8, 2)
 
@@ -1171,17 +1216,6 @@ model ChangeRequest {
 }
 
 /// 費用類別。預算按類別核准,花費也按類別記,才看得出是哪一類爆掉。
-/// 工程單位。人力成本與人力預算都按這個分,因為「這個階段要花多少錢」在
-/// NPI 裡實際上是「EE 幾個人月、ME 幾個人月」談出來的。
-enum Discipline {
-  EE
-  SW
-  QA
-  ME
-  PM
-  OTHER
-}
-
 enum CostCategory {
   /// 人力。不必手動記帳——由核准過的工時 × 時薪自動算出。
   LABOUR

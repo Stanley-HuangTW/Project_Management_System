@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
-import { COMMON_PROTO_UNITS } from "@/lib/protoPlan";
+import { ProtoRowDialog } from "./ProtoRowDialog";
 import {
   getProtoPlanView,
   setProtoQty,
@@ -25,6 +25,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
   const [view, setView] = useState<ProtoPlanView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [rowDialog, setRowDialog] = useState<{ defaultProduct?: string } | null>(null);
 
   const reload = useCallback(async () => setView(await getProtoPlanView(boardId)), [boardId]);
 
@@ -62,18 +63,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     }
   }
 
-  async function addRow(defaultProduct?: string) {
-    const product = await prompt("哪個產品?例如 M3、充電站", {
-      title: "新增樣機用途",
-      defaultValue: defaultProduct ?? "",
-    });
-    if (product === null || !product.trim()) return;
-    const unit = await prompt(
-      `用途單位?常見的有:${COMMON_PROTO_UNITS.slice(0, 6).join("、")}……`,
-      { title: "新增樣機用途" }
-    );
-    if (unit === null || !unit.trim()) return;
-    await run(() => addProtoRow(boardId, product.trim(), unit.trim()), "無法新增");
+  function addRow(defaultProduct?: string) {
+    setRowDialog({ defaultProduct });
   }
 
   async function editCell(
@@ -107,7 +98,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!view) return null;
 
-  const { phases, summary, canEdit } = view;
+  const { phases, summary, canEdit, units } = view;
   const phaseName = new Map(phases.map((p) => [p.id, p.name]));
 
   if (phases.length === 0) {
@@ -282,6 +273,14 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
           )}
         </div>
       )}
+
+      <ProtoRowDialog
+        open={rowDialog !== null}
+        onOpenChange={(next) => !next && setRowDialog(null)}
+        units={units}
+        defaultProduct={rowDialog?.defaultProduct}
+        onSubmit={(product, unit) => run(() => addProtoRow(boardId, product, unit), "無法新增")}
+      />
     </div>
   );
 }

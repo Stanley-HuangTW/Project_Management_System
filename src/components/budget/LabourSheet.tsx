@@ -5,7 +5,7 @@ import { AlertTriangle, Plus, Trash2, Pencil } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
-import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
+import { unitLabel } from "@/lib/orgUnits";
 import {
   buildAxis,
   axisSpan,
@@ -15,12 +15,17 @@ import {
   type AxisUnit,
 } from "@/lib/labourSheet";
 import { PhaseRangeDialog, type RangeDraft } from "./PhaseRangeDialog";
+import { MilestoneTypeDialog } from "./MilestoneTypeDialog";
+import { SlotDialog, type SlotDraft } from "./SlotDialog";
 import {
   getLabourSheetView,
   upsertBudgetPhase,
   deleteBudgetPhase,
   upsertPlanMilestone,
   deletePlanMilestone,
+  createMilestoneType,
+  renameMilestoneType,
+  deleteMilestoneType,
   upsertLabourSlot,
   deleteLabourSlot,
   setLabourSlotMonth,
@@ -30,6 +35,12 @@ import {
 
 const MONTH_WIDTH = 46;
 const LABEL_WIDTH = 150;
+
+/** "2026-03-09" → "3/9"。週數說得出是第幾週,說不出那是幾號。 */
+function dayLabel(isoDate: string): string {
+  const [, month, day] = isoDate.split("-");
+  return `${Number(month)}/${Number(day)}`;
+}
 
 /** "2026-03" → "3月",跨年時帶上年份,否則一整排數字讀不出在哪一年。 */
 function monthLabel(key: string, previous?: string): string {
@@ -93,6 +104,8 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   }
 
   /** 開著的期間對話框:階段或里程碑,新增或編輯。 */
+  const [slotDialog, setSlotDialog] = useState<{ id?: string; initial?: SlotDraft } | null>(null);
+  const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [rangeDialog, setRangeDialog] = useState<{
     kind: "phase" | "milestone";
     title: string;
@@ -130,7 +143,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
       kind: "milestone",
       title: `${milestone.name} 的期間`,
       initial: {
-        track: milestone.track,
+        typeId: milestone.typeId,
         name: milestone.name,
         startDate: milestone.startDate,
         endDate: milestone.endDate,
@@ -138,6 +151,50 @@ export function LabourSheet({ boardId }: { boardId: string }) {
       },
       milestoneId: milestone.id,
     });
+  }
+
+  async function removePhase(id: string, name: string) {
+    const ok = await confirm(`刪除階段「${name}」?它推算出來的人力預算會一併收回。`, {
+      title: "刪除階段",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (ok) await run(() => deleteBudgetPhase(boardId, id), "無法刪除");
+  }
+
+  async function removeMilestone(id: string, name: string) {
+    const ok = await confirm(`刪除里程碑「${name}」?`, {
+      title: "刪除里程碑",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (ok) await run(() => deletePlanMilestone(boardId, id), "無法刪除");
+  }
+
+  async function removeMilestoneType(type: { id: string; name: string }) {
+    const ok = await confirm(`刪除里程碑類型「${type.name}」?`, {
+      title: "刪除類型",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (ok) await run(() => deleteMilestoneType(boardId, type.id), "無法刪除");
+  }
+
+  /** 對話框上那顆刪除:編輯既有的才有,新增的時候沒有東西可刪。 */
+  function deleteFromDialog(): (() => void) | undefined {
+    const dialog = rangeDialog;
+    if (!dialog || !canEdit) return undefined;
+    if (dialog.kind === "phase" && dialog.phaseId) {
+      const id = dialog.phaseId;
+      const name = phaseById.get(id)?.name ?? "";
+      return () => removePhase(id, name);
+    }
+    if (dialog.kind === "milestone" && dialog.milestoneId) {
+      const id = dialog.milestoneId;
+      const name = milestoneById.get(id)?.name ?? "";
+      return () => removeMilestone(id, name);
+    }
+    return undefined;
   }
 
   async function submitRange(draft: RangeDraft) {
@@ -162,7 +219,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
       () =>
         upsertPlanMilestone(boardId, {
           id: dialog.milestoneId,
-          track: draft.track ?? "里程碑",
+          typeId: draft.typeId ?? "",
           name: draft.name,
           startDate: draft.startDate,
           endDate: draft.endDate,
@@ -172,21 +229,38 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     );
   }
 
-  async function addSlot() {
-    const label = await prompt("名額代號?例如 EE1、SW3、ME2", { title: "新增人力名額" });
-    if (label === null || !label.trim()) return;
-    const guess = DISCIPLINES.find((d) => label.trim().toUpperCase().startsWith(d)) ?? "OTHER";
+  function addSlot() {
+    setSlotDialog({});
+  }
+
+  function editSlot(slot: LabourSheetView["slots"][number]) {
+    setSlotDialog({
+      id: slot.id,
+      initial: {
+        discipline: slot.discipline,
+        label: slot.label,
+        func: slot.func,
+        userId: slot.userId,
+        ownerLabel: slot.userId ? "" : slot.ownerName,
+      },
+    });
+  }
+
+  async function submitSlot(draft: SlotDraft) {
+    const dialog = slotDialog;
+    if (!dialog) return;
     await run(
       () =>
         upsertLabourSlot(boardId, {
-          discipline: guess,
-          label: label.trim(),
-          func: "",
-          userId: null,
-          ownerLabel: "TBH",
+          id: dialog.id,
+          discipline: draft.discipline,
+          label: draft.label,
+          func: draft.func,
+          userId: draft.userId,
+          ownerLabel: draft.ownerLabel,
           description: "",
         }),
-      "無法新增名額"
+      dialog.id ? "無法儲存名額" : "無法新增名額"
     );
   }
 
@@ -212,7 +286,18 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!view) return null;
 
-  const { sheet, phases, milestones, slots, canEdit, variances, phaseColors } = view;
+  const {
+    sheet,
+    phases,
+    milestones,
+    milestoneTypes,
+    slots,
+    canEdit,
+    variances,
+    phaseColors,
+    units,
+    assignableUsers,
+  } = view;
   const months = sheet.months;
   // 帶畫在自己的刻度上;人月的格子仍然一格一個月。
   const axis = buildAxis(phases, unit);
@@ -252,8 +337,17 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   }));
   const phaseRowsPacked = packBandRows(phaseBands, axis, unit);
   const phaseById = new Map(phases.map((p) => [p.id, p]));
-  const milestoneRowsPacked = packBandRows(milestoneBands, axis, unit);
   const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+  // 一個類型就是一排。同一排裡真的疊到了才再往下長 —— 不然兩個里程碑會
+  // 畫在同一個位置上,誰蓋住誰是看誰先畫。
+  const milestoneRowsByType = milestoneTypes.map((type) => ({
+    type,
+    rows: packBandRows(
+      milestoneBands.filter((b) => milestoneById.get(b.id)?.typeId === type.id),
+      axis,
+      unit
+    ),
+  }));
 
   if (phases.length === 0) {
     return (
@@ -279,7 +373,6 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           onOpenChange={(next) => !next && setRangeDialog(null)}
           title={rangeDialog?.title ?? ""}
           initial={rangeDialog?.initial}
-          withTrack={rangeDialog?.kind === "milestone"}
           onSubmit={submitRange}
         />
       </div>
@@ -294,7 +387,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           <div className="space-y-1">
             {sheet.unpricedDisciplines.length > 0 && (
               <p>
-                {sheet.unpricedDisciplines.map((d) => DISCIPLINE_LABELS[d]).join("、")}
+                {sheet.unpricedDisciplines.map((d) => unitLabel(units, d)).join("、")}
                 有排人月,但還沒有標準月薪,那些人月算不出金額。標準月薪在系統設定裡。
               </p>
             )}
@@ -362,16 +455,20 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                 style={{ width: LABEL_WIDTH }}
                 className="shrink-0 px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400"
               >
-                週次
+                週次 / 日期
               </div>
+              {/* 週數自己不夠定位 —— 看得出是第 12 週,看不出那是三月幾號。 */}
               {axis.map((weekIso) => (
                 <div
                   key={weekIso}
                   style={{ width: colWidth }}
                   title={weekIso}
-                  className="shrink-0 border-l border-neutral-200 py-1 text-center text-[10px] tabular-nums text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
+                  className="shrink-0 border-l border-neutral-200 py-0.5 text-center tabular-nums text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
                 >
-                  {isoWeekNumber(weekIso)}
+                  <span className="block text-[10px] leading-tight">{isoWeekNumber(weekIso)}</span>
+                  <span className="block text-[9px] leading-tight text-neutral-400 dark:text-neutral-500">
+                    {dayLabel(weekIso)}
+                  </span>
                 </div>
               ))}
               <div className="flex-1" />
@@ -394,6 +491,14 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                   </button>
                   <button type="button" disabled={busy} onClick={addMilestone} className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800">
                     + 里程碑
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setTypeDialogOpen(true)}
+                    className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  >
+                    里程碑類型
                   </button>
                   <span className="text-xs text-neutral-400 dark:text-neutral-500">
                     點長條可以改名稱與期間
@@ -448,13 +553,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       key={entry.id}
                       type="button"
                       disabled={busy}
-                      onClick={async () => {
-                        const ok = await confirm(
-                          `刪除階段「${entry.name}」?它推算出來的人力預算會一併收回。`,
-                          { title: "刪除階段", confirmLabel: "刪除", danger: true }
-                        );
-                        if (ok) await run(() => deleteBudgetPhase(boardId, entry.id), "無法刪除");
-                      }}
+                      onClick={() => removePhase(entry.id, entry.name)}
                       title={`刪除 ${entry.name}`}
                       className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
                     >
@@ -465,66 +564,62 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             </div>
           ))}
 
-          {/* 里程碑帶。跟階段一樣:同一排,疊到才往下長。 */}
-          {milestoneRowsPacked.map((row, rowIndex) => (
-            <div
-              key={`ms-row-${rowIndex}`}
-              className="flex items-center border-b border-neutral-200 dark:border-neutral-700"
-            >
+          {/* 里程碑帶。一個類型一排,同一排裡疊到才往下長。 */}
+          {milestoneRowsByType.map(({ type, rows }) =>
+            (rows.length > 0 ? rows : [[]]).map((row, rowIndex) => (
               <div
-                style={{ width: LABEL_WIDTH }}
-                className="shrink-0 truncate px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400"
+                key={`${type.id}-${rowIndex}`}
+                className="flex items-center border-b border-neutral-200 dark:border-neutral-700"
               >
-                {rowIndex === 0 ? "里程碑" : ""}
+                <div
+                  style={{ width: LABEL_WIDTH }}
+                  title={type.name}
+                  className="shrink-0 truncate px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400"
+                >
+                  {rowIndex === 0 ? type.name : ""}
+                </div>
+                <div className="relative shrink-0" style={{ width: bandWidth, height: 24 }}>
+                  {row.map((entry) => {
+                    const box = band(entry.startDate, entry.endDate);
+                    const milestone = milestoneById.get(entry.id);
+                    if (!box || !milestone) return null;
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        disabled={!canEdit || busy}
+                        onClick={() => editMilestone(milestone)}
+                        title={`${type.name}・${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEdit ? "(點選修改)" : ""}`}
+                        className="absolute top-1 flex h-4 items-center justify-center overflow-hidden rounded-sm px-1 text-[9px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
+                        style={{
+                          left: box.left + 1,
+                          width: box.width - 2,
+                          backgroundColor: entry.color,
+                        }}
+                      >
+                        {entry.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-1 items-center justify-end gap-1 px-2">
+                  {canEdit &&
+                    row.map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => removeMilestone(entry.id, entry.name)}
+                        title={`刪除 ${entry.name}`}
+                        className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    ))}
+                </div>
               </div>
-              <div className="relative shrink-0" style={{ width: bandWidth, height: 24 }}>
-                {row.map((entry) => {
-                  const box = band(entry.startDate, entry.endDate);
-                  const milestone = milestoneById.get(entry.id);
-                  if (!box || !milestone) return null;
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      disabled={!canEdit || busy}
-                      onClick={() => editMilestone(milestone)}
-                      title={`${milestone.track ? `${milestone.track}・` : ""}${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEdit ? "(點選修改)" : ""}`}
-                      className="absolute top-1 flex h-4 items-center justify-center overflow-hidden rounded-sm px-1 text-[9px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
-                      style={{
-                        left: box.left + 1,
-                        width: box.width - 2,
-                        backgroundColor: entry.color,
-                      }}
-                    >
-                      {entry.name}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex flex-1 items-center justify-end gap-1 px-2">
-                {canEdit &&
-                  row.map((entry) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      disabled={busy}
-                      onClick={async () => {
-                        const ok = await confirm(`刪除里程碑「${entry.name}」?`, {
-                          title: "刪除里程碑",
-                          confirmLabel: "刪除",
-                          danger: true,
-                        });
-                        if (ok) await run(() => deletePlanMilestone(boardId, entry.id), "無法刪除");
-                      }}
-                      title={`刪除 ${entry.name}`}
-                      className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  ))}
-              </div>
-            </div>
-          ))}
+            ))
+          )}
 
           {/* 第二部分:人力設定。跟上面的時程帶分開,因為兩邊填的是不同的東西。 */}
           <div className="flex items-center border-b-2 border-t-2 border-neutral-300 bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-800">
@@ -547,7 +642,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           </div>
 
           {/* 人力名額,照單位分段 */}
-          {DISCIPLINES.map((discipline) => {
+          {units.map(({ code: discipline }) => {
             const mine = slots.filter((s) => s.discipline === discipline);
             if (mine.length === 0) return null;
             const total = sheet.byDiscipline.find((d) => d.discipline === discipline)!;
@@ -558,7 +653,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                     style={{ width: LABEL_WIDTH }}
                     className="shrink-0 px-2 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-200"
                   >
-                    {DISCIPLINE_LABELS[discipline]}
+                    {unitLabel(units, discipline)}
                   </div>
                   {months.map((m) => (
                     <div
@@ -584,10 +679,18 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       key={slot.id}
                       className="group flex items-center border-b border-neutral-100 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40"
                     >
-                      <div
+                      {/* 整格可以點 —— 指派誰、屬於哪個單位都在同一個對話框裡改。 */}
+                      <button
+                        type="button"
+                        disabled={!canEdit || busy}
+                        onClick={() => editSlot(slot)}
                         style={{ width: LABEL_WIDTH }}
-                        className="flex shrink-0 items-center gap-1 px-2 py-1"
-                        title={slot.description}
+                        title={
+                          canEdit
+                            ? `${slot.description || slot.label}(點選設定單位與人員)`
+                            : slot.description
+                        }
+                        className="flex shrink-0 items-center gap-1 px-2 py-1 text-left hover:bg-neutral-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-neutral-800"
                       >
                         <span className="min-w-0 flex-1 truncate text-xs text-neutral-800 dark:text-neutral-100">
                           {slot.label}
@@ -595,10 +698,16 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                             <span className="ml-1 text-neutral-400 dark:text-neutral-500">{slot.func}</span>
                           )}
                         </span>
-                        <span className="shrink-0 truncate text-[10px] text-neutral-400 dark:text-neutral-500">
+                        <span
+                          className={`shrink-0 truncate text-[10px] ${
+                            slot.userId
+                              ? "text-neutral-500 dark:text-neutral-300"
+                              : "rounded bg-neutral-100 px-1 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
+                          }`}
+                        >
                           {slot.ownerName}
                         </span>
-                      </div>
+                      </button>
 
                       {months.map((m) => (
                         <FteCell
@@ -689,7 +798,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                 .map((d) => (
                   <tr key={d.discipline} className="border-t border-neutral-100 dark:border-neutral-800">
                     <td className="py-1 text-neutral-700 dark:text-neutral-200">
-                      {DISCIPLINE_LABELS[d.discipline]}
+                      {unitLabel(units, d.discipline)}
                     </td>
                     <td className="py-1 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
                       {d.personMonths} 人月
@@ -779,13 +888,41 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         </div>
       </div>
 
+      <SlotDialog
+        open={slotDialog !== null}
+        onOpenChange={(next) => !next && setSlotDialog(null)}
+        units={units}
+        users={assignableUsers}
+        initial={slotDialog?.initial}
+        onSubmit={submitSlot}
+      />
+
       <PhaseRangeDialog
         open={rangeDialog !== null}
         onOpenChange={(next) => !next && setRangeDialog(null)}
         title={rangeDialog?.title ?? ""}
         initial={rangeDialog?.initial}
-        withTrack={rangeDialog?.kind === "milestone"}
+        types={rangeDialog?.kind === "milestone" ? milestoneTypes : undefined}
+        onManageTypes={
+          rangeDialog?.kind === "milestone"
+            ? () => {
+                setRangeDialog(null);
+                setTypeDialogOpen(true);
+              }
+            : undefined
+        }
+        onDelete={deleteFromDialog()}
         onSubmit={submitRange}
+      />
+
+      <MilestoneTypeDialog
+        open={typeDialogOpen}
+        onOpenChange={setTypeDialogOpen}
+        types={milestoneTypes}
+        busy={busy}
+        onCreate={(name) => run(() => createMilestoneType(boardId, name), "無法新增類型")}
+        onRename={(id, name) => run(() => renameMilestoneType(boardId, id, name), "無法改名")}
+        onDelete={removeMilestoneType}
       />
 
       {canEdit && (

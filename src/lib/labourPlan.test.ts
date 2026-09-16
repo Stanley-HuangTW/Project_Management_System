@@ -11,6 +11,17 @@ const factors = { workingDaysPerMonth: 21, hoursPerDay: 8 };
 // 21 × 8 = 168 小時/月
 const rates = { EE: 168_000, ME: 84_000, PM: 168_000 } as const;
 
+// 單位清單現在是系統設定,不是寫死的列舉 —— 測試自己給一份,順序就是表格
+// 欄位的順序。
+const UNITS = [
+  { code: "EE", label: "EE 電機", order: 0 },
+  { code: "SW", label: "SW 軟體", order: 1 },
+  { code: "QA", label: "QA 品保", order: 2 },
+  { code: "ME", label: "ME 機構", order: 3 },
+  { code: "PM", label: "PM 專案", order: 4 },
+  { code: "OTHER", label: "其他", order: 5 },
+];
+
 describe("effectiveHourlyRate", () => {
   it("個人時薪最優先 —— 現有的成本數字不會因為多了月薪這條路而改變", () => {
     const rate = effectiveHourlyRate(
@@ -78,26 +89,26 @@ describe("summariseLabourPlan", () => {
   ];
 
   it("每個階段一列,每個單位一格,順序固定", () => {
-    const summary = summariseLabourPlan(phases, cells, rates);
+    const summary = summariseLabourPlan(phases, cells, rates, UNITS);
     expect(summary.rows.map((r) => r.itemName)).toEqual(["POC Phase", "EVT Phase"]);
     expect(summary.rows[0].cells.map((c) => c.discipline)).toEqual(["EE", "SW", "QA", "ME", "PM", "OTHER"]);
   });
 
   it("階段小計 = 那一列的人月與金額", () => {
-    const [poc] = summariseLabourPlan(phases, cells, rates).rows;
+    const [poc] = summariseLabourPlan(phases, cells, rates, UNITS).rows;
     expect(poc.personMonths).toBe(5);
     expect(poc.amount).toBe(3 * 168_000 + 2 * 84_000);
   });
 
   it("單位小計是跨階段加總", () => {
-    const summary = summariseLabourPlan(phases, cells, rates);
+    const summary = summariseLabourPlan(phases, cells, rates, UNITS);
     const ee = summary.byDiscipline.find((d) => d.discipline === "EE")!;
     expect(ee.personMonths).toBe(4);
     expect(ee.amount).toBe(4 * 168_000);
   });
 
   it("總計對得起來", () => {
-    const summary = summariseLabourPlan(phases, cells, rates);
+    const summary = summariseLabourPlan(phases, cells, rates, UNITS);
     expect(summary.totalPersonMonths).toBe(6.5);
     expect(summary.totalAmount).toBe(summary.rows.reduce((t, r) => t + r.amount, 0));
   });
@@ -106,7 +117,8 @@ describe("summariseLabourPlan", () => {
     const summary = summariseLabourPlan(
       phases,
       [...cells, { itemId: "poc", discipline: "SW" as const, personMonths: 4 }],
-      rates
+      rates,
+      UNITS
     );
     expect(summary.unpricedDisciplines).toEqual(["SW"]);
     // 算不出錢的人月仍然算進人月合計,只是金額是 0。
@@ -114,7 +126,7 @@ describe("summariseLabourPlan", () => {
   });
 
   it("沒有任何格子的時候全部是 0", () => {
-    const summary = summariseLabourPlan(phases, [], rates);
+    const summary = summariseLabourPlan(phases, [], rates, UNITS);
     expect(summary.totalAmount).toBe(0);
     expect(summary.totalPersonMonths).toBe(0);
     expect(summary.unpricedDisciplines).toEqual([]);

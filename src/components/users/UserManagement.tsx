@@ -35,8 +35,9 @@ import {
   adminResetUserPassword,
   unlockUser,
 } from "@/lib/actions/user";
-import type { UserRole, Discipline } from "@prisma/client";
-import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
+import type { UserRole } from "@prisma/client";
+import type { Discipline } from "@/lib/labourPlan";
+import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
@@ -124,6 +125,7 @@ function SalaryInput({ user }: { user: UserRow }) {
 
 function SortableUserRow({
   user,
+  units,
   supervisorOptions,
   depth,
   uploading,
@@ -134,6 +136,8 @@ function SortableUserRow({
   onUnlock,
 }: {
   user: UserRow;
+  /** 公司組織單位,照系統設定裡排好的順序。 */
+  units: OrgUnit[];
   /** 誰可以當這個人的主管 —— 已經去掉他自己和他底下的人。 */
   supervisorOptions: UserRow[];
   /** 他在組織圖的第幾階:頭上沒有主管是第 1 階。 */
@@ -204,9 +208,9 @@ function SortableUserRow({
         className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
       >
         <option value="">未設定</option>
-        {DISCIPLINES.map((d) => (
+        {units.map(({ code: d }) => (
           <option key={d} value={d}>
-            {DISCIPLINE_LABELS[d]}
+            {unitLabel(units, d)}
           </option>
         ))}
       </select>
@@ -270,9 +274,11 @@ function SortableUserRow({
 
 export function UserManagement({
   users,
+  units,
   currentUserId,
 }: {
   users: UserRow[];
+  units: OrgUnit[];
   currentUserId: string;
 }) {
   const [prevUsers, setPrevUsers] = useState(users);
@@ -517,6 +523,7 @@ export function UserManagement({
               <SortableUserRow
                 key={u.id}
                 user={u}
+                units={units}
                 supervisorOptions={supervisorsFor(u.id)}
                 depth={orgDepth(users, u.id)}
                 uploading={uploadingId === u.id}

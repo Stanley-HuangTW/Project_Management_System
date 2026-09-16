@@ -1,4 +1,4 @@
-import type { Discipline } from "@prisma/client";
+import type { OrgUnit } from "@/lib/orgUnits";
 
 /**
  * 人月與月薪。
@@ -14,16 +14,14 @@ import type { Discipline } from "@prisma/client";
  * 一個是「實際花了多少」。
  */
 
-export const DISCIPLINES: Discipline[] = ["EE", "SW", "QA", "ME", "PM", "OTHER"];
-
-export const DISCIPLINE_LABELS: Record<Discipline, string> = {
-  EE: "EE 電機",
-  SW: "SW 軟體",
-  QA: "QA 品保",
-  ME: "ME 機構",
-  PM: "PM 專案",
-  OTHER: "其他",
-};
+/**
+ * 單位代號。以前是 schema 裡的列舉,現在是 OrgUnit.code —— 型別上就是一個
+ * 字串,哪些字串合法由資料表說了算,不是由型別說了算。
+ *
+ * 名字沿用 Discipline:換掉它會動到一百多個引用點,而那些引用點的意思
+ * 一個字都沒變。
+ */
+export type Discipline = string;
 
 /** 一個人月要幾個工作天、一天幾小時 —— 全公司共用的換算係數。 */
 export type WorkFactors = { workingDaysPerMonth: number; hoursPerDay: number };
@@ -92,7 +90,7 @@ export type PlanCell = { itemId: string; discipline: Discipline; personMonths: n
 export type PlanRow = {
   itemId: string;
   itemName: string;
-  /** 照 DISCIPLINES 的順序,每一格的人月與金額。 */
+  /** 照單位設定的順序,每一格的人月與金額。 */
   cells: { discipline: Discipline; personMonths: number; amount: number }[];
   personMonths: number;
   amount: number;
@@ -110,13 +108,15 @@ export type LabourPlanSummary = {
 
 /**
  * 階段 × 單位的交叉表。階段的順序由呼叫端給(也就是看板上的順序),
- * 單位的順序固定,所以每次看到的表格長得一樣。
+ * 單位的順序照系統設定裡排好的,所以每次看到的表格長得一樣。
  */
 export function summariseLabourPlan(
   phases: { id: string; name: string }[],
   cells: PlanCell[],
-  disciplineRates: Partial<Record<Discipline, number>>
+  disciplineRates: Partial<Record<Discipline, number>>,
+  units: OrgUnit[]
 ): LabourPlanSummary {
+  const DISCIPLINES = units.map((u) => u.code);
   const byKey = new Map(cells.map((c) => [`${c.itemId}:${c.discipline}`, c.personMonths]));
   const unpriced = new Set<Discipline>();
 

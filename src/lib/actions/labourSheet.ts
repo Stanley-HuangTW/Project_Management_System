@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Discipline } from "@prisma/client";
+import type { Discipline } from "@/lib/labourPlan";
+import type { OrgUnit } from "@/lib/orgUnits";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
@@ -26,22 +28,28 @@ export type LabourSheetView = {
   phases: PhaseRow[];
   milestones: {
     id: string;
-    track: string;
+    typeId: string;
     name: string;
     startDate: string;
     endDate: string;
     color: string;
   }[];
+  /** 里程碑類型,照排序 —— 一個類型就是一排。 */
+  milestoneTypes: { id: string; name: string }[];
   slots: SlotRow[];
   sheet: LabourSheet;
   variances: PhaseVariance[];
   /** 看板上可以對應的階段列(最上層那幾列),給對應下拉用。 */
   boardPhases: { id: string; name: string }[];
   rates: { discipline: Discipline; monthlySalary: number }[];
+  /** 目前設定的組織單位,照排序 —— 表格的欄位與下拉選單都照它長。 */
+  units: OrgUnit[];
+  /** 名額可以指給誰 —— 名額常常先掛 TBH,招到人再指過去。 */
+  assignableUsers: { id: string; name: string }[];
   canEdit: boolean;
 };
 
-async function rateMap(): Promise<Partial<Record<Discipline, number>>> {
+async function rateMap(): Promise<Record<Discipline, number>> {
   const rows = await prisma.disciplineRate.findMany();
   return Object.fromEntries(rows.map((r) => [r.discipline, r.monthlySalary]));
 }
@@ -104,9 +112,20 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
   if (!board) return null;
 
-  const [phaseRows, milestones, slotRows, rates, boardPhases, actual] = await Promise.all([
+  const [
+    phaseRows,
+    milestones,
+    milestoneTypes,
+    slotRows,
+    rates,
+    boardPhases,
+    actual,
+    units,
+    assignableUsers,
+  ] = await Promise.all([
     prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
-    prisma.planMilestone.findMany({ where: { boardId }, orderBy: [{ track: "asc" }, { order: "asc" }] }),
+    prisma.planMilestone.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
+    prisma.milestoneType.findMany({ where: { boardId }, orderBy: [{ order: "asc" }, { name: "asc" }] }),
     prisma.labourSlot.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -119,6 +138,11 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
       select: { id: true, name: true },
     }),
     actualPhaseRanges(boardId),
+    loadOrgUnits(),
+    prisma.user.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
   const phases: PhaseRow[] = phaseRows.map((p) => ({
@@ -135,18 +159,29 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     discipline: s.discipline,
     label: s.label,
     func: s.func,
+    userId: s.userId,
     ownerName: s.user?.name ?? s.ownerLabel,
     description: s.description,
     months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
   }));
 
-  const sheet = buildLabourSheet(phases, slots, rates);
+  const sheet = buildLabourSheet(phases, slots, rates, units);
 
   return {
     boardName: board.name,
+    units,
     phaseColors: Object.fromEntries(phaseRows.map((p) => [p.id, p.color])),
     phases,
-    milestones,
+    milestones: milestones.map((m) => ({
+      id: m.id,
+      typeId: m.typeId,
+      name: m.name,
+      startDate: m.startDate,
+      endDate: m.endDate,
+      color: m.color,
+    })),
+    milestoneTypes: milestoneTypes.map((t) => ({ id: t.id, name: t.name })),
+    assignableUsers,
     slots,
     sheet,
     variances: phaseVariances(phases, sheet.byPhase, actual),
@@ -169,10 +204,11 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
  * 階段列的那些,因為 LabourPlan/Budget 是掛在工作項上的。
  */
 async function syncFromSheet(boardId: string) {
-  const [phaseRows, slotRows, rates] = await Promise.all([
+  const [phaseRows, slotRows, rates, units] = await Promise.all([
     prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
     prisma.labourSlot.findMany({ where: { boardId }, include: { months: true } }),
     rateMap(),
+    loadOrgUnits(),
   ]);
 
   const phases: PhaseRow[] = phaseRows.map((p) => ({
@@ -187,12 +223,13 @@ async function syncFromSheet(boardId: string) {
     discipline: s.discipline,
     label: s.label,
     func: s.func,
+    userId: s.userId,
     ownerName: "",
     description: "",
     months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
   }));
 
-  const { byPhase } = buildLabourSheet(phases, slots, rates);
+  const { byPhase } = buildLabourSheet(phases, slots, rates, units);
   const itemOf = new Map(phases.map((p) => [p.id, p.itemId]));
 
   for (const phase of byPhase) {
@@ -301,7 +338,7 @@ export async function upsertPlanMilestone(
   boardId: string,
   input: {
     id?: string;
-    track: string;
+    typeId: string;
     name: string;
     startDate: string;
     endDate: string;
@@ -310,16 +347,22 @@ export async function upsertPlanMilestone(
 ): Promise<{ error?: string }> {
   const session = await requireSheetAdmin(boardId);
   const name = input.name.trim();
-  const track = input.track.trim() || "里程碑";
   if (!name) return { error: "里程碑名稱不可為空" };
   if (!input.startDate || !input.endDate) return { error: "起訖日期都要填" };
   if (input.endDate < input.startDate) return { error: "結束日不可早於開始日" };
+
+  // 類型是選的,但選項是這塊看板的 —— 別塊看板的 id 進不來。
+  const type = await prisma.milestoneType.findFirst({
+    where: { id: input.typeId, boardId },
+    select: { id: true },
+  });
+  if (!type) return { error: "請先選一個里程碑類型" };
 
   if (input.id) {
     await prisma.planMilestone.update({
       where: { id: input.id },
       data: {
-        track,
+        typeId: type.id,
         name,
         startDate: input.startDate,
         endDate: input.endDate,
@@ -327,11 +370,11 @@ export async function upsertPlanMilestone(
       },
     });
   } else {
-    const count = await prisma.planMilestone.count({ where: { boardId, track } });
+    const count = await prisma.planMilestone.count({ where: { boardId, typeId: type.id } });
     await prisma.planMilestone.create({
       data: {
         boardId,
-        track,
+        typeId: type.id,
         name,
         startDate: input.startDate,
         endDate: input.endDate,
@@ -352,6 +395,77 @@ export async function deletePlanMilestone(boardId: string, id: string): Promise<
   if (!milestone) return { error: "找不到這個里程碑" };
   await prisma.planMilestone.delete({ where: { id } });
   await logAudit("COST", session.userId, `刪除人力表里程碑「${milestone.name}」`, boardId);
+  revalidateBoard(boardId);
+  return {};
+}
+
+/**
+ * 新增一個里程碑類型。名字在同一塊看板裡不重複 —— 兩個同名的類型會排成
+ * 兩排,但看起來是同一排的東西被拆開了。
+ */
+export async function createMilestoneType(
+  boardId: string,
+  rawName: string
+): Promise<{ error?: string }> {
+  const session = await requireSheetAdmin(boardId);
+  const name = rawName.trim();
+  if (!name) return { error: "類型名稱不可為空" };
+
+  const clash = await prisma.milestoneType.findFirst({ where: { boardId, name } });
+  if (clash) return { error: `「${name}」已經有了` };
+
+  const last = await prisma.milestoneType.findFirst({
+    where: { boardId },
+    orderBy: { order: "desc" },
+  });
+  await prisma.milestoneType.create({
+    data: { boardId, name, order: (last?.order ?? -1) + 1 },
+  });
+
+  await logAudit("COST", session.userId, `新增里程碑類型「${name}」`, boardId);
+  revalidateBoard(boardId);
+  return {};
+}
+
+export async function renameMilestoneType(
+  boardId: string,
+  id: string,
+  rawName: string
+): Promise<{ error?: string }> {
+  const session = await requireSheetAdmin(boardId);
+  const name = rawName.trim();
+  if (!name) return { error: "類型名稱不可為空" };
+
+  const type = await prisma.milestoneType.findFirst({ where: { id, boardId } });
+  if (!type) return { error: "找不到這個類型" };
+
+  const clash = await prisma.milestoneType.findFirst({
+    where: { boardId, name, id: { not: id } },
+  });
+  if (clash) return { error: `「${name}」已經有了` };
+
+  await prisma.milestoneType.update({ where: { id }, data: { name } });
+  await logAudit("COST", session.userId, `里程碑類型「${type.name}」改名為「${name}」`, boardId);
+  revalidateBoard(boardId);
+  return {};
+}
+
+/** 底下還有里程碑就不給刪 —— 刪掉那一排,那些里程碑會連帶不見。 */
+export async function deleteMilestoneType(
+  boardId: string,
+  id: string
+): Promise<{ error?: string }> {
+  const session = await requireSheetAdmin(boardId);
+  const type = await prisma.milestoneType.findFirst({ where: { id, boardId } });
+  if (!type) return { error: "找不到這個類型" };
+
+  const used = await prisma.planMilestone.count({ where: { typeId: id } });
+  if (used > 0) {
+    return { error: `「${type.name}」底下還有 ${used} 個里程碑,要先改到別的類型或刪掉。` };
+  }
+
+  await prisma.milestoneType.delete({ where: { id } });
+  await logAudit("COST", session.userId, `刪除里程碑類型「${type.name}」`, boardId);
   revalidateBoard(boardId);
   return {};
 }

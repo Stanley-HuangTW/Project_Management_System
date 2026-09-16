@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/session";
 import { listUsers } from "@/lib/actions/user";
 import { listResources } from "@/lib/actions/resource";
 import { UserManagement } from "@/components/users/UserManagement";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { ResourceManagement } from "@/components/resources/ResourceManagement";
 import { LeaveManagement } from "@/components/users/LeaveManagement";
 import { listLeaves } from "@/lib/actions/leave";
@@ -57,7 +58,11 @@ export default async function UsersPage({
         </Link>
       </div>
       {activeTab === "users" ? (
-        <UserManagement users={await listUsers()} currentUserId={session.userId} />
+        <UserManagement
+          users={await listUsers()}
+          units={await loadOrgUnits()}
+          currentUserId={session.userId}
+        />
       ) : activeTab === "leave" ? (
         <LeaveManagement
           initialLeaves={await listLeaves()}

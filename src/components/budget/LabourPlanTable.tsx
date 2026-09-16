@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { formatMoney } from "@/lib/cost";
-import { DISCIPLINES, DISCIPLINE_LABELS } from "@/lib/labourPlan";
+import { unitLabel } from "@/lib/orgUnits";
 import { getLabourPlanView, type LabourPlanView } from "@/lib/actions/labourPlan";
 
 /**
@@ -49,7 +49,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <p>
-            {summary.unpricedDisciplines.map((d) => DISCIPLINE_LABELS[d]).join("、")}
+            {summary.unpricedDisciplines.map((d) => unitLabel(view.units, d)).join("、")}
             有排人月,但還沒有標準月薪,所以那幾格算不出金額。請先到系統設定填上標準月薪。
           </p>
         </div>
@@ -60,9 +60,9 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 text-xs text-neutral-500 dark:text-neutral-400">
               <th className="py-2 text-left font-normal">階段</th>
-              {DISCIPLINES.map((d) => (
+              {view.units.map(({ code: d }) => (
                 <th key={d} className="py-2 text-right font-normal">
-                  {DISCIPLINE_LABELS[d]}
+                  {unitLabel(view.units, d)}
                   <span className="block text-[10px] text-neutral-400 dark:text-neutral-500">
                     {rateOf.get(d) ? `${formatMoney(rateOf.get(d)!)}/月` : "未設標準價"}
                   </span>

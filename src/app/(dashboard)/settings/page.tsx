@@ -4,6 +4,7 @@ import { getSystemSettings, listDefaultBoardColumns } from "@/lib/actions/system
 import { listHolidays } from "@/lib/holidays";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import { listPrograms, type ProgramRow } from "@/lib/actions/program";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { SystemSettingsForm } from "@/components/settings/SystemSettingsForm";
 
 export default async function SettingsPage() {
@@ -62,6 +63,7 @@ export default async function SettingsPage() {
     <div className="p-6">
       <h1 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">系統設定</h1>
       <SystemSettingsForm
+        orgUnits={await loadOrgUnits()}
         isAdmin={isAdmin}
         emailNotificationsEnabled={settings.emailNotificationsEnabled}
         ganttDurationMode={settings.ganttDurationMode}

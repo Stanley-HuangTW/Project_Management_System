@@ -1,5 +1,6 @@
-import type { Discipline } from "@prisma/client";
-import { DISCIPLINES, personMonthCost } from "@/lib/labourPlan";
+import type { Discipline } from "@/lib/labourPlan";
+import { personMonthCost } from "@/lib/labourPlan";
+import type { OrgUnit } from "@/lib/orgUnits";
 
 /**
  * 人力堆疊表。
@@ -29,6 +30,8 @@ export type SlotRow = {
   discipline: Discipline;
   label: string;
   func: string;
+  /** 指到的人;null = 還沒指定,那一列顯示 ownerName 裡的 TBH。 */
+  userId: string | null;
   ownerName: string;
   description: string;
   /** 月份 → FTE。沒填的月份不會出現。 */
@@ -113,8 +116,10 @@ function round2(n: number): number {
 export function buildLabourSheet(
   phases: PhaseRow[],
   slots: SlotRow[],
-  disciplineRates: Partial<Record<Discipline, number>>
+  disciplineRates: Partial<Record<Discipline, number>>,
+  units: OrgUnit[]
 ): LabourSheet {
+  const DISCIPLINES = units.map((u) => u.code);
   const months = monthAxis(phases);
   const unpriced = new Set<Discipline>();
   const orphanMonths = new Set<MonthKey>();

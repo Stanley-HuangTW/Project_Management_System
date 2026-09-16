@@ -14,7 +14,8 @@ import { computeCriticalPathAcross } from "@/lib/criticalPath";
 import { summarizeBudget, CATEGORY_LABELS } from "@/lib/budget";
 import { buildLabourSheet, type PhaseRow, type SlotRow } from "@/lib/labourSheet";
 import { summariseProtoPlan } from "@/lib/protoPlan";
-import { DISCIPLINE_LABELS } from "@/lib/labourPlan";
+import { unitLabel } from "@/lib/orgUnits";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { subordinateIds, orgDepth } from "@/lib/orgChart";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { logAudit } from "@/lib/activityLog";
@@ -523,19 +524,21 @@ async function getLabourSheetTool(session: SessionPayload, args: Json) {
     discipline: s.discipline,
     label: s.label,
     func: s.func,
+    userId: s.userId,
     ownerName: s.user?.name ?? s.ownerLabel,
     description: s.description,
     months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
   }));
 
-  const sheet = buildLabourSheet(phases, slots, rates);
+  const units = await loadOrgUnits();
+  const sheet = buildLabourSheet(phases, slots, rates, units);
   const totalOf = new Map(sheet.slotTotals.map((t) => [t.slotId, t]));
 
   return {
     months: sheet.months,
     slots: slots.map((s) => ({
       label: s.label,
-      discipline: DISCIPLINE_LABELS[s.discipline],
+      discipline: unitLabel(units, s.discipline),
       func: s.func,
       owner: s.ownerName,
       personMonths: totalOf.get(s.id)?.personMonths ?? 0,
@@ -543,7 +546,7 @@ async function getLabourSheetTool(session: SessionPayload, args: Json) {
       months: s.months,
     })),
     byDiscipline: sheet.byDiscipline.map((d) => ({
-      discipline: DISCIPLINE_LABELS[d.discipline],
+      discipline: unitLabel(units, d.discipline),
       personMonths: d.personMonths,
       amount: d.amount,
     })),
@@ -554,7 +557,7 @@ async function getLabourSheetTool(session: SessionPayload, args: Json) {
     })),
     totalPersonMonths: sheet.totalPersonMonths,
     totalAmount: sheet.totalAmount,
-    unpricedDisciplines: sheet.unpricedDisciplines.map((d) => DISCIPLINE_LABELS[d]),
+    unpricedDisciplines: sheet.unpricedDisciplines.map((d) => unitLabel(units, d)),
   };
 }
 

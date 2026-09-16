@@ -13,6 +13,8 @@ import {
 } from "@/lib/actions/systemSettings";
 import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModal";
 import { DisciplineRateCard } from "./DisciplineRateCard";
+import { OrgUnitCard } from "./OrgUnitCard";
+import type { OrgUnit } from "@/lib/orgUnits";
 import { WorkloadThresholdModal } from "@/components/dashboard/WorkloadThresholdModal";
 import type { WorkloadThresholdSettings } from "@/lib/workload";
 import type { UserOption } from "@/types/board";
@@ -406,6 +408,7 @@ function WorkloadThresholdCard({ threshold }: { threshold: WorkloadThresholdSett
 
 export function SystemSettingsForm({
   isAdmin,
+  orgUnits,
   emailNotificationsEnabled,
   ganttDurationMode,
   hoursPerDay,
@@ -428,6 +431,7 @@ export function SystemSettingsForm({
   users,
 }: {
   isAdmin: boolean;
+  orgUnits: OrgUnit[];
   emailNotificationsEnabled: boolean;
   ganttDurationMode: GanttDurationMode;
   hoursPerDay: number;
@@ -456,7 +460,12 @@ export function SystemSettingsForm({
           <EmailNotificationsCard initial={emailNotificationsEnabled} />
           <GanttModeCard initial={ganttDurationMode} />
           <HoursPerDayCard initial={hoursPerDay} />
-          <DisciplineRateCard workingDaysPerMonth={workingDaysPerMonth} hoursPerDay={hoursPerDay} />
+          <OrgUnitCard units={orgUnits} />
+          <DisciplineRateCard
+            units={orgUnits}
+            workingDaysPerMonth={workingDaysPerMonth}
+            hoursPerDay={hoursPerDay}
+          />
           <ExchangeRateCard />
           <HolidayCard holidays={holidays} />
           <LevelColorCard initial={levelColors} />

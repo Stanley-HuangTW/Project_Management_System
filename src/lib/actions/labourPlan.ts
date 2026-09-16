@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Discipline } from "@prisma/client";
+import type { Discipline } from "@/lib/labourPlan";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
@@ -10,10 +10,11 @@ import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { requireBudgetAdmin, canEditBudget } from "@/lib/actions/budget";
 import {
   summariseLabourPlan,
-  DISCIPLINE_LABELS,
   type LabourPlanSummary,
   type WorkFactors,
 } from "@/lib/labourPlan";
+import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 
 /** 跟 budget.ts 裡那一支一樣的重新整理範圍。沒有共用是因為 budget.ts 是
  *  "use server",它的每個 export 都會變成 Server Action,而這支是同步的。 */
@@ -27,11 +28,13 @@ export type LabourPlanView = {
   summary: LabourPlanSummary;
   /** 單位標準月薪,元/月 —— 沒設過的單位不會出現。 */
   rates: { discipline: Discipline; monthlySalary: number }[];
+  /** 目前設定的組織單位,照排序 —— 表格的欄位照它長。 */
+  units: OrgUnit[];
   factors: WorkFactors;
   canEdit: boolean;
 };
 
-async function disciplineRateMap(): Promise<Partial<Record<Discipline, number>>> {
+async function disciplineRateMap(): Promise<Record<Discipline, number>> {
   const rows = await prisma.disciplineRate.findMany();
   return Object.fromEntries(rows.map((r) => [r.discipline, r.monthlySalary]));
 }
@@ -53,13 +56,14 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     select: { id: true, name: true },
   });
 
-  const [cells, rates, settings] = await Promise.all([
+  const [cells, rates, settings, units] = await Promise.all([
     prisma.labourPlan.findMany({
       where: { itemId: { in: phases.map((p) => p.id) } },
       select: { itemId: true, discipline: true, personMonths: true },
     }),
     disciplineRateMap(),
     getSystemSettings(),
+    loadOrgUnits(),
   ]);
 
   const factors = {
@@ -73,12 +77,14 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     summary: summariseLabourPlan(
       phases,
       cells.map((c) => ({ ...c, personMonths: Number(c.personMonths) })),
-      rates
+      rates,
+      units
     ),
     rates: Object.entries(rates).map(([discipline, monthlySalary]) => ({
       discipline: discipline as Discipline,
       monthlySalary,
     })),
+    units,
     factors,
     canEdit: phases.length > 0 && (await canEditBudget({ kind: "item", id: phases[0].id }, session)),
   };
@@ -121,21 +127,23 @@ export async function setLabourPlanCell(
   await logAudit(
     "COST",
     session.userId,
-    `${resolved.name} 的${DISCIPLINE_LABELS[discipline]}人力規劃:${Number(before?.personMonths ?? 0)} → ${value} 人月`
+    `${resolved.name} 的${unitLabel(await loadOrgUnits(), discipline)}人力規劃:${Number(before?.personMonths ?? 0)} → ${value} 人月`
   );
   return {};
 }
 
 /** 這個階段的人力預算 = 它每一格人月 × 該單位標準月薪的合計。 */
 async function syncLabourBudget(itemId: string) {
-  const [cells, rates] = await Promise.all([
+  const [cells, rates, units] = await Promise.all([
     prisma.labourPlan.findMany({ where: { itemId }, select: { itemId: true, discipline: true, personMonths: true } }),
     disciplineRateMap(),
+    loadOrgUnits(),
   ]);
   const { totalAmount } = summariseLabourPlan(
     [{ id: itemId, name: "" }],
     cells.map((c) => ({ ...c, personMonths: Number(c.personMonths) })),
-    rates
+    rates,
+    units
   );
 
   if (cells.length === 0) {
@@ -192,7 +200,7 @@ export async function setDisciplineRate(
   await logAudit(
     "COST",
     session.userId,
-    `${DISCIPLINE_LABELS[discipline]}標準月薪:${before?.monthlySalary ?? 0} → ${value} 元,連動重算 ${affected.length} 個階段的人力預算`
+    `${unitLabel(await loadOrgUnits(), discipline)}標準月薪:${before?.monthlySalary ?? 0} → ${value} 元,連動重算 ${affected.length} 個階段的人力預算`
   );
   revalidatePath("/settings");
   revalidatePath("/dashboard");

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import type { OrgUnit } from "@/lib/orgUnits";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
@@ -12,6 +14,8 @@ export type ProtoPlanView = {
   /** 階段照人力表的順序 —— 兩張表共用同一組階段。 */
   phases: { id: string; name: string }[];
   summary: ProtoSummary;
+  /** 用途下拉的其中一組:公司組織單位。 */
+  units: OrgUnit[];
   canEdit: boolean;
 };
 
@@ -60,6 +64,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
       phases.map((p) => p.id),
       cells
     ),
+    units: await loadOrgUnits(),
     canEdit: first
       ? await canEditBudget({ kind: "item", id: first.id }, session)
       : session.role === "ADMIN",
