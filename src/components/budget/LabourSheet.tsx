@@ -136,6 +136,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         startDate: phase.startDate,
         endDate: phase.endDate,
         color: view?.phaseColors[phase.id] ?? "#fdab3d",
+        itemId: phase.itemId,
       },
       phaseId: phase.id,
       itemId: phase.itemId,
@@ -216,7 +217,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             name: draft.name,
             startDate: draft.startDate,
             endDate: draft.endDate,
-            itemId: dialog.itemId ?? null,
+            itemId: draft.itemId ?? null,
             color: draft.color,
           }),
         dialog.phaseId ? "無法儲存階段" : "無法新增階段"
@@ -291,6 +292,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     units,
     assignableUsers,
     holidays,
+    boardPhases,
   } = view;
   const months = sheet.months;
   // 帶畫在自己的刻度上;人月的格子仍然一格一個月。
@@ -963,6 +965,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             : undefined)
         }
         holidays={holidays}
+        boardPhases={rangeDialog?.kind === "phase" ? boardPhases : undefined}
         types={rangeDialog?.kind === "milestone" ? milestoneTypes : undefined}
         onManageTypes={
           rangeDialog?.kind === "milestone"

@@ -7,6 +7,8 @@ import { daysBetween, endFromDays, type DurationMode } from "@/lib/rangeDuration
 export type RangeDraft = {
   /** 里程碑才有:排在哪一排。 */
   typeId?: string;
+  /** 階段才有:對應到看板上的哪一列。null = 還沒對應。 */
+  itemId?: string | null;
   name: string;
   startDate: string;
   endDate: string;
@@ -14,6 +16,7 @@ export type RangeDraft = {
 };
 
 export type MilestoneTypeOption = { id: string; name: string };
+export type BoardPhaseOption = { id: string; name: string };
 
 /** 挑好的一組顏色:丟一個完整色票給人選,選得出看不見的顏色。 */
 const COLORS = ["#fdab3d", "#00c875", "#579bfc", "#a25ddc", "#e2445c", "#787d80"];
@@ -33,6 +36,7 @@ export function PhaseRangeDialog({
   initial,
   /** 里程碑要多選一個類型;給了清單就是里程碑。 */
   types,
+  boardPhases,
   holidays = [],
   onManageTypes,
   /** 編輯既有的才給 —— 刪除鍵跟著出現在同一個畫面上。 */
@@ -44,6 +48,8 @@ export function PhaseRangeDialog({
   title: string;
   initial?: RangeDraft;
   types?: MilestoneTypeOption[];
+  /** 階段才有:看板上可以對應的那幾列。 */
+  boardPhases?: BoardPhaseOption[];
   /** 算工作天要扣掉的國定假日。 */
   holidays?: string[];
   onManageTypes?: () => void;
@@ -55,6 +61,7 @@ export function PhaseRangeDialog({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [color, setColor] = useState(COLORS[0]);
+  const [itemId, setItemId] = useState<string>("");
   const [durationMode, setDurationMode] = useState<DurationMode>("calendar");
   const [days, setDays] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +112,13 @@ export function PhaseRangeDialog({
   if (key !== prevKey) {
     setPrevKey(key);
     setTypeId(initial?.typeId ?? types?.[0]?.id ?? "");
+    // 沒對應過的話,名字一樣的那一列是最可能的答案,先幫他選起來 ——
+    // 但仍然是可以改的,不是替他決定。
+    setItemId(
+      initial?.itemId ??
+        boardPhases?.find((p) => p.name.trim() === (initial?.name ?? "").trim())?.id ??
+        ""
+    );
     setName(initial?.name ?? "");
     setStartDate(initial?.startDate ?? "");
     setEndDate(initial?.endDate ?? "");
@@ -125,6 +139,7 @@ export function PhaseRangeDialog({
     if (endDate < startDate) return setError("結束日不可早於開始日");
     onSubmit({
       ...(types ? { typeId } : {}),
+      ...(boardPhases ? { itemId: itemId || null } : {}),
       name: trimmed,
       startDate,
       endDate,
@@ -175,6 +190,25 @@ export function PhaseRangeDialog({
             className={field}
           />
         </label>
+
+        {boardPhases && (
+          <label className="block">
+            <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+              對應看板階段
+            </span>
+            <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={field}>
+              <option value="">(未對應)</option>
+              {boardPhases.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-neutral-400 dark:text-neutral-500">
+              沒對應的話,這個階段的人月算不進「人力規劃彙總」,也不會寫回該列的人力預算。
+            </span>
+          </label>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">

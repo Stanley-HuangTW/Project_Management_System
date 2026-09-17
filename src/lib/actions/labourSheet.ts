@@ -238,27 +238,67 @@ async function syncFromSheet(boardId: string) {
   const { byPhase } = buildLabourSheet(phases, slots, rates, units);
   const itemOf = new Map(phases.map((p) => [p.id, p.itemId]));
 
+  /**
+   * 先按「對應到哪一列」加總,再一次寫進去。
+   *
+   * 兩個預算階段可以對應到同一列(DVT1 與 DVT2 都對到看板上的 DVT)——
+   * 一個階段寫一次的話,後面那個的 deleteMany 會把前面那個剛寫進去的清掉,
+   * 那一列就只剩最後一個階段的人月,而且金額也只剩最後一個。
+   */
+  const perItem = new Map<string, { byDiscipline: Map<string, number>; amount: number }>();
   for (const phase of byPhase) {
     const itemId = itemOf.get(phase.phaseId);
     if (!itemId) continue;
+    const bucket = perItem.get(itemId) ?? { byDiscipline: new Map<string, number>(), amount: 0 };
+    for (const d of phase.byDiscipline) {
+      if (d.personMonths <= 0) continue;
+      bucket.byDiscipline.set(d.discipline, (bucket.byDiscipline.get(d.discipline) ?? 0) + d.personMonths);
+    }
+    bucket.amount += phase.amount;
+    perItem.set(itemId, bucket);
+  }
 
+  /**
+   * 取消對應的那幾列要一起清掉。
+   *
+   * 只寫「現在有對應」的那些,舊的數字會留在原地 —— 畫面上看起來還在算,
+   * 其實已經沒有任何階段支撐它。人力表存在的看板,這幾列的人月與人力預算
+   * 就是由它產生的,所以由它負責收乾淨。
+   */
+  const allTopIds = (
+    await prisma.item.findMany({
+      where: { boardId, parentId: null, deletedAt: null },
+      select: { id: true },
+    })
+  ).map((i) => i.id);
+  const orphaned = allTopIds.filter((id) => !perItem.has(id));
+  if (orphaned.length > 0) {
+    await prisma.labourPlan.deleteMany({ where: { itemId: { in: orphaned } } });
+    await prisma.budget.deleteMany({
+      where: { itemId: { in: orphaned }, category: "LABOUR", note: "由人力表計算" },
+    });
+  }
+
+  for (const [itemId, bucket] of perItem) {
     await prisma.labourPlan.deleteMany({ where: { itemId } });
-    const cells = phase.byDiscipline.filter((d) => d.personMonths > 0);
+    const cells = [...bucket.byDiscipline].filter(([, months]) => months > 0);
     if (cells.length > 0) {
       await prisma.labourPlan.createMany({
-        data: cells.map((d) => ({
+        data: cells.map(([discipline, personMonths]) => ({
           itemId,
-          discipline: d.discipline,
-          personMonths: d.personMonths,
+          discipline,
+          // 加總之後可能跑出浮點數的尾巴,收到小數兩位 —— 人月的欄位就是
+          // Decimal(8,2),不收的話寫進去會被截掉而不是四捨五入。
+          personMonths: Math.round(personMonths * 100) / 100,
         })),
       });
     }
 
-    if (phase.amount > 0) {
+    if (bucket.amount > 0) {
       await prisma.budget.upsert({
         where: { itemId_category: { itemId, category: "LABOUR" } },
-        create: { itemId, category: "LABOUR", amount: phase.amount, note: "由人力表計算" },
-        update: { amount: phase.amount, note: "由人力表計算" },
+        create: { itemId, category: "LABOUR", amount: Math.round(bucket.amount), note: "由人力表計算" },
+        update: { amount: Math.round(bucket.amount), note: "由人力表計算" },
       });
     } else {
       // 一個人月都沒排,人力預算就回到「沒有編列」,而不是留一個 0 在那裡

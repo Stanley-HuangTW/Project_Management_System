@@ -46,6 +46,19 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
         要改人月請到人力表。乘上單位標準月薪就是金額,會直接寫進「各類別」的人力那一列。
       </p>
 
+      {/* 整張表都是「—」的時候,最常見的原因是階段沒對應到看板的階段列 ——
+          而那件事在另一個分頁裡,光看這張表看不出來。 */}
+      {summary.totalPersonMonths === 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <p>
+            這張表現在是空的。人月是從「人力表」的階段寫回來的,而階段要先
+            <strong>對應到看板上的階段列</strong>才寫得回來 —— 到「人力表」點任一條階段長條,
+            在「對應看板階段」選一列就會開始計算。
+          </p>
+        </div>
+      )}
+
       {summary.unpricedDisciplines.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
