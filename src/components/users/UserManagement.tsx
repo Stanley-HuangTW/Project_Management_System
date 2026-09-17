@@ -42,8 +42,15 @@ import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
+/**
+ * 姓名與 Email 給的是 minmax 而不是 1fr。
+ *
+ * 1fr 實際上是 minmax(auto, 1fr),欄位一多就會被其他固定寬度的欄擠到剩幾
+ * 個 px —— 加上 truncate,結果是整欄看起來空白,而不是被截斷。給一個下限
+ * 之後,寬度不夠時會撐出容器,由外層的 overflow-x-auto 捲,兩欄都還讀得到。
+ */
 const ROW_GRID =
-  "grid-cols-[24px_48px_1fr_1fr_90px_110px_100px_110px_110px_150px_110px]";
+  "grid-cols-[24px_48px_minmax(120px,1.1fr)_minmax(190px,1.4fr)_90px_110px_100px_110px_110px_150px_110px]";
 
 function roleLabel(role: UserRole) {
   return role === "ADMIN" ? "管理者" : role === "SUPERVISOR" ? "主管" : "團隊成員";
