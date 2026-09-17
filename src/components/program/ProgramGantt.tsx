@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Zap, Star, ArrowRightLeft, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Zap,
+  Star,
+  ArrowRightLeft,
+  ChevronDown,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import type { ProgramTask, ProgramView } from "@/lib/programView";
 import { buildDependencyArrows, type BarBox } from "@/lib/ganttArrows";
 import type { RelationshipType } from "@/lib/predecessorLink";
@@ -54,6 +62,12 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
   const [showCritical, setShowCritical] = useState(true);
   const [showArrows, setShowArrows] = useState(true);
   const [onlyCritical, setOnlyCritical] = useState(false);
+  /** 顯示比例。時間刻度換的是「一天多寬」,這個換的是整張圖多大 —— 兩個
+   *  一起用才能在一個畫面裡塞進一整年又看得清楚。 */
+  const [scalePct, setScalePct] = useState(100);
+  const [boardFilterId, setBoardFilterId] = useState("");
+  const [groupFilterId, setGroupFilterId] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
   const dayWidth = ZOOM_DAY_WIDTH[zoom];
@@ -118,6 +132,16 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
     return out;
   }, [collapsed, view.tasks]);
 
+  // 全螢幕沒有視窗框可以按,Esc 是唯一直覺的出口。
+  useEffect(() => {
+    if (!isFullscreen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+
   function toggleCollapsed(id: string) {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -130,13 +154,17 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
   const rows = useMemo(() => {
     const out: Row[] = [];
     for (const board of view.boards) {
+      if (boardFilterId && board.id !== boardFilterId) continue;
       const color = colorOfBoard.get(board.id)!;
       const tasks = view.tasks.filter(
         (t) =>
           t.boardId === board.id &&
+          (!groupFilterId || t.groupId === groupFilterId) &&
           !hidden.has(t.id) &&
           (!onlyCritical || t.isCritical || t.isSummary)
       );
+      // 篩掉之後整塊看板都空了就連標題一起收掉,不留一排只有名字的殼。
+      if (tasks.length === 0 && (boardFilterId || groupFilterId)) continue;
       if (onlyCritical && tasks.every((t) => t.isSummary)) continue;
       out.push({
         kind: "board",
@@ -164,7 +192,18 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
       }
     }
     return out;
-  }, [view.boards, view.tasks, colorOfBoard, onlyCritical, hidden]);
+  }, [view.boards, view.tasks, colorOfBoard, onlyCritical, hidden, boardFilterId, groupFilterId]);
+
+  /** 分組下拉的選項。選了看板就只列那塊看板的分組 —— 別塊的分組選了也篩不
+   *  出東西。同名不同塊的分組是不同的分組,所以用 id 當鍵。 */
+  const groupOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const task of view.tasks) {
+      if (boardFilterId && task.boardId !== boardFilterId) continue;
+      if (!seen.has(task.groupId)) seen.set(task.groupId, task.groupName);
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [view.tasks, boardFilterId]);
 
   /** Where every bar sits, derived rather than measured: the rows are a fixed
    *  height and nothing collapses, so the arithmetic is exact and there is no
@@ -269,9 +308,11 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
     const el = scrollRef.current;
     // 今天不在這個專案的區間裡(整個做完了,或還沒開始)就維持在最左邊。
     if (!el || todayIndex === undefined) return;
-    el.scrollLeft = Math.max(0, (todayIndex - 2) * dayWidth);
+    // 內容被 CSS zoom 縮放過,捲動距離是縮放後的像素 —— 少乘這一下,
+    // 放大或縮小之後「今天」就不在畫面上了。
+    el.scrollLeft = Math.max(0, (todayIndex - 2) * dayWidth * (scalePct / 100));
     if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
-  }, [todayIndex, dayWidth]);
+  }, [todayIndex, dayWidth, scalePct]);
 
   const totalHeight = rows.reduce(
     (h, row) => h + (row.kind === "board" ? BOARD_ROW_H : row.kind === "group" ? GROUP_ROW_H : ROW_H),
@@ -294,8 +335,14 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
     }`;
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-50 flex flex-col space-y-2 overflow-hidden bg-white p-4 dark:bg-neutral-950"
+          : "space-y-2"
+      }
+    >
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="flex items-center gap-1">
           {(["day", "week", "month"] as Zoom[]).map((z) => (
             <button
@@ -312,6 +359,20 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
             </button>
           ))}
         </div>
+        <span className="ml-1 text-xs text-neutral-500 dark:text-neutral-400">顯示比例</span>
+        <input
+          type="range"
+          min={50}
+          max={150}
+          step={5}
+          value={scalePct}
+          onChange={(e) => setScalePct(Number(e.target.value))}
+          className="w-24"
+          title="整張圖的縮放,跟時間刻度是兩件事"
+        />
+        <span className="w-9 text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+          {scalePct}%
+        </span>
         <button type="button" onClick={() => setShowCritical((v) => !v)} className={toggleClass(showCritical)}>
           <Zap size={12} /> 要徑 {view.criticalCount > 0 && `(${view.criticalCount})`}
         </button>
@@ -337,10 +398,64 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
         >
           <ChevronDown size={12} /> 全部展開
         </button>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">看板</span>
+          <select
+            value={boardFilterId}
+            onChange={(e) => {
+              setBoardFilterId(e.target.value);
+              // 換了看板,原本選的分組多半不屬於它 —— 留著會篩出一片空白。
+              setGroupFilterId("");
+            }}
+            className="max-w-[160px] rounded-md border border-neutral-300 px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+          >
+            <option value="">全部</option>
+            {view.boards.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">分組</span>
+          <select
+            value={groupFilterId}
+            onChange={(e) => setGroupFilterId(e.target.value)}
+            className="max-w-[180px] rounded-md border border-neutral-300 px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+          >
+            <option value="">全部</option>
+            {groupOptions.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {(boardFilterId || groupFilterId) && (
+          <button
+            type="button"
+            onClick={() => {
+              setBoardFilterId("");
+              setGroupFilterId("");
+            }}
+            className="text-xs text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-100"
+          >
+            清除
+          </button>
+        )}
         <span className="ml-auto flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="inline-block h-0.5 w-5 bg-blue-500" style={{ borderTop: "2px dashed" }} />
           跨看板相依 {view.crossBoardEdgeCount} 條
         </span>
+        <button
+          type="button"
+          onClick={() => setIsFullscreen((v) => !v)}
+          className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        >
+          {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          {isFullscreen ? "退出全螢幕" : "全螢幕"}
+        </button>
       </div>
 
       {/* 貼在頂端的水平捲軸:主容器自己的那條在三百多列底下,實際上碰不到。 */}
@@ -350,7 +465,9 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
         className="sticky top-0 z-30 mb-1 overflow-x-auto overflow-y-hidden bg-white dark:bg-neutral-900"
         style={{ height: 14 }}
       >
-        <div style={{ width: contentWidth, height: 1 }} />
+        {/* 內容被縮放過,這個佔位也要一起縮 —— 兩邊的可捲距離不一樣的話,
+            拖上面那條捲軸,下面會跑到別的地方去。 */}
+        <div style={{ width: contentWidth * (scalePct / 100), height: 1 }} />
       </div>
       <div
         ref={scrollRef}
@@ -359,142 +476,148 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
-        className={`max-h-[70vh] overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 ${
+        className={`${
+          isFullscreen ? "min-h-0 flex-1" : "max-h-[70vh]"
+        } overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 ${
           isPanning ? "cursor-grabbing select-none" : "cursor-grab"
         }`}
       >
-        <div style={{ minWidth: contentWidth }}>
-          {/* Header */}
-          <div className="sticky top-0 z-20 flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800">
-            <div
-              className="sticky left-0 z-10 shrink-0 border-r border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300"
-              style={{ width: LABEL_WIDTH }}
-            >
-              工作項
-            </div>
-            <div className="relative flex" style={{ width: timelineWidth }}>
-              {days.map((d) => {
-                const isoDate = toIso(d);
-                const off = isWeekend(d) || holidaySet.has(isoDate);
-                // At week/month zoom a per-day label is unreadable, so only
-                // the first day of each bucket carries one.
-                const label =
-                  zoom === "day"
-                    ? formatDay(d)
-                    : zoom === "week"
-                      ? d.getUTCDay() === 1
-                        ? formatDay(d)
-                        : ""
-                      : d.getUTCDate() === 1
-                        ? `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}`
-                        : "";
-                return (
-                  <div
-                    key={isoDate}
-                    className={`shrink-0 overflow-visible whitespace-nowrap border-r border-neutral-100 dark:border-neutral-800 py-2 text-center text-[10px] ${
-                      off ? "bg-neutral-100 dark:bg-neutral-900" : ""
-                    } text-neutral-500 dark:text-neutral-400`}
-                    style={{ width: dayWidth }}
-                  >
-                    {label}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Rows */}
-          <div className="relative">
-            {/* Arrows sit above the bars, offset to the timeline's origin. */}
-            <svg
-              className="pointer-events-none absolute z-10"
-              style={{ left: LABEL_WIDTH, top: 0, width: timelineWidth, height: totalHeight }}
-            >
-              {arrows.map((arrow) => (
-                <g key={arrow.key}>
-                  <title>{arrow.title}</title>
-                  <path
-                    d={arrow.path}
-                    fill="none"
-                    stroke={arrow.critical ? "#f59e0b" : arrow.crossBoard ? "#3b82f6" : "#9ca3af"}
-                    strokeWidth={arrow.crossBoard ? 2 : 1}
-                    strokeDasharray={arrow.crossBoard ? "4 3" : undefined}
-                  />
-                  <path
-                    d={arrow.head}
-                    fill={arrow.critical ? "#f59e0b" : arrow.crossBoard ? "#3b82f6" : "#9ca3af"}
-                  />
-                </g>
-              ))}
-            </svg>
-
-            {todayIndex !== undefined && (
+        {/* CSS zoom 會重新排版(跟 transform: scale 不同),所以捲動範圍、
+            黏住的表頭與左欄都還是對的。 */}
+        <div style={{ zoom: scalePct / 100 }}>
+          <div style={{ minWidth: contentWidth }}>
+            {/* Header */}
+            <div className="sticky top-0 z-20 flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800">
               <div
-                className="pointer-events-none absolute z-10 w-px bg-red-500"
-                style={{ left: LABEL_WIDTH + todayIndex * dayWidth, top: 0, height: totalHeight }}
-              />
-            )}
-
-            {rows.map((row) =>
-              row.kind === "board" ? (
-                <div
-                  key={`board-${row.boardId}`}
-                  className="flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800"
-                  style={{ height: BOARD_ROW_H }}
-                >
-                  <div
-                    className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3"
-                    style={{ width: LABEL_WIDTH }}
-                  >
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />
-                    <Link
-                      href={`/boards/${row.boardId}`}
-                      className="truncate text-xs font-semibold text-neutral-800 dark:text-neutral-100 hover:text-blue-600"
+                className="sticky left-0 z-10 shrink-0 border-r border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300"
+                style={{ width: LABEL_WIDTH }}
+              >
+                工作項
+              </div>
+              <div className="relative flex" style={{ width: timelineWidth }}>
+                {days.map((d) => {
+                  const isoDate = toIso(d);
+                  const off = isWeekend(d) || holidaySet.has(isoDate);
+                  // At week/month zoom a per-day label is unreadable, so only
+                  // the first day of each bucket carries one.
+                  const label =
+                    zoom === "day"
+                      ? formatDay(d)
+                      : zoom === "week"
+                        ? d.getUTCDay() === 1
+                          ? formatDay(d)
+                          : ""
+                        : d.getUTCDate() === 1
+                          ? `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}`
+                          : "";
+                  return (
+                    <div
+                      key={isoDate}
+                      className={`shrink-0 overflow-visible whitespace-nowrap border-r border-neutral-100 dark:border-neutral-800 py-2 text-center text-[10px] ${
+                        off ? "bg-neutral-100 dark:bg-neutral-900" : ""
+                      } text-neutral-500 dark:text-neutral-400`}
+                      style={{ width: dayWidth }}
                     >
-                      {row.boardName}
-                    </Link>
-                    <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
-                      {row.taskCount} 項
-                    </span>
-                  </div>
-                  <div style={{ width: timelineWidth }} />
-                </div>
-              ) : row.kind === "group" ? (
+                      {label}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Rows */}
+            <div className="relative">
+              {/* Arrows sit above the bars, offset to the timeline's origin. */}
+              <svg
+                className="pointer-events-none absolute z-10"
+                style={{ left: LABEL_WIDTH, top: 0, width: timelineWidth, height: totalHeight }}
+              >
+                {arrows.map((arrow) => (
+                  <g key={arrow.key}>
+                    <title>{arrow.title}</title>
+                    <path
+                      d={arrow.path}
+                      fill="none"
+                      stroke={arrow.critical ? "#f59e0b" : arrow.crossBoard ? "#3b82f6" : "#9ca3af"}
+                      strokeWidth={arrow.crossBoard ? 2 : 1}
+                      strokeDasharray={arrow.crossBoard ? "4 3" : undefined}
+                    />
+                    <path
+                      d={arrow.head}
+                      fill={arrow.critical ? "#f59e0b" : arrow.crossBoard ? "#3b82f6" : "#9ca3af"}
+                    />
+                  </g>
+                ))}
+              </svg>
+
+              {todayIndex !== undefined && (
                 <div
-                  key={`group-${row.boardId}-${row.groupId}`}
-                  className="flex border-b border-neutral-100 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-800/40"
-                  style={{ height: GROUP_ROW_H }}
-                >
-                  <div
-                    className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r border-neutral-200 bg-neutral-50/60 px-3 pl-6 dark:border-neutral-700 dark:bg-neutral-800/40"
-                    style={{ width: LABEL_WIDTH }}
-                  >
-                    <span className="min-w-0 truncate text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
-                      {row.groupName || "(未分組)"}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
-                      {row.taskCount}
-                    </span>
-                  </div>
-                  <div style={{ width: timelineWidth }} />
-                </div>
-              ) : (
-                <TaskRow
-                  key={row.task.id}
-                  task={row.task}
-                  color={row.color}
-                  dayWidth={dayWidth}
-                  days={days}
-                  holidaySet={holidaySet}
-                  dayIndexByIso={dayIndexByIso}
-                  timelineWidth={timelineWidth}
-                  showCritical={showCritical}
-                  canCollapse={hasChildren.has(row.task.id)}
-                  isCollapsed={collapsed.has(row.task.id)}
-                  onToggleCollapsed={toggleCollapsed}
+                  className="pointer-events-none absolute z-10 w-px bg-red-500"
+                  style={{ left: LABEL_WIDTH + todayIndex * dayWidth, top: 0, height: totalHeight }}
                 />
-              )
-            )}
+              )}
+
+              {rows.map((row) =>
+                row.kind === "board" ? (
+                  <div
+                    key={`board-${row.boardId}`}
+                    className="flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800"
+                    style={{ height: BOARD_ROW_H }}
+                  >
+                    <div
+                      className="sticky left-0 z-10 flex shrink-0 items-center gap-2 border-r border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3"
+                      style={{ width: LABEL_WIDTH }}
+                    >
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />
+                      <Link
+                        href={`/boards/${row.boardId}`}
+                        className="truncate text-xs font-semibold text-neutral-800 dark:text-neutral-100 hover:text-blue-600"
+                      >
+                        {row.boardName}
+                      </Link>
+                      <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+                        {row.taskCount} 項
+                      </span>
+                    </div>
+                    <div style={{ width: timelineWidth }} />
+                  </div>
+                ) : row.kind === "group" ? (
+                  <div
+                    key={`group-${row.boardId}-${row.groupId}`}
+                    className="flex border-b border-neutral-100 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-800/40"
+                    style={{ height: GROUP_ROW_H }}
+                  >
+                    <div
+                      className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 border-r border-neutral-200 bg-neutral-50/60 px-3 pl-6 dark:border-neutral-700 dark:bg-neutral-800/40"
+                      style={{ width: LABEL_WIDTH }}
+                    >
+                      <span className="min-w-0 truncate text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+                        {row.groupName || "(未分組)"}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">
+                        {row.taskCount}
+                      </span>
+                    </div>
+                    <div style={{ width: timelineWidth }} />
+                  </div>
+                ) : (
+                  <TaskRow
+                    key={row.task.id}
+                    task={row.task}
+                    color={row.color}
+                    dayWidth={dayWidth}
+                    days={days}
+                    holidaySet={holidaySet}
+                    dayIndexByIso={dayIndexByIso}
+                    timelineWidth={timelineWidth}
+                    showCritical={showCritical}
+                    canCollapse={hasChildren.has(row.task.id)}
+                    isCollapsed={collapsed.has(row.task.id)}
+                    onToggleCollapsed={toggleCollapsed}
+                  />
+                )
+              )}
+            </div>
           </div>
         </div>
       </div>
