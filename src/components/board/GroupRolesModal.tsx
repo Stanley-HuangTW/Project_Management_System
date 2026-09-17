@@ -25,8 +25,8 @@ const ROLE_LABELS: Record<GroupRole, string> = {
   HW_DM: "EE DM",
   ME_DM: "ME DM",
   QA: "QA DM",
-  PMM: "PMM",
-  PMD: "PMD",
+  PMM: "PMM(行銷 PM)",
+  PMD: "PMD(專案 PM)",
 };
 const ROLES: GroupRole[] = ["TEAM_LEADER", "SW_DM", "HW_DM", "ME_DM", "QA", "PMM", "PMD"];
 const DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA"];
@@ -192,8 +192,9 @@ export function GroupRolesModal({
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">角色</h3>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
-            Team Leader、PMD 可調整此分組任何項目的時程(拖曳甘特圖、改起訖日)。SW/EE/ME/QA
-            DM 可在此分組新增/指派項目、管理各自領域成員的進度,範圍僅限此分組。PMM 目前僅作花名冊,不授予額外權限。
+            Team Leader 與 PMD(專案 PM)可調整此分組任何項目的時程(拖曳甘特圖、改起訖日)。
+            SW/EE/ME/QA DM 可在此分組新增/指派項目、管理各自領域成員的進度,範圍僅限此分組。
+            PMM(行銷 PM)目前僅作花名冊,不授予額外權限。
             DM 的人選預設只列該部門的人,Team Leader / PMM / PMD 則是任一部門任一人。
           </p>
           <div className="space-y-2">
@@ -206,7 +207,7 @@ export function GroupRolesModal({
               const { options, scoped, deptEmpty } = optionsFor(key, discipline, selectedIds);
               return (
                 <div key={role} className="flex items-center gap-2">
-                  <span className="w-24 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                     {ROLE_LABELS[role]}
                   </span>
                   <MultiSelect
@@ -244,7 +245,7 @@ export function GroupRolesModal({
               const { options, scoped, deptEmpty } = optionsFor(key, discipline, selectedIds);
               return (
                 <div key={discipline} className="flex items-center gap-2">
-                  <span className="w-24 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                     {DISCIPLINE_LABELS[discipline]} member
                   </span>
                   <MultiSelect
@@ -270,7 +271,7 @@ export function GroupRolesModal({
             <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">Resource 成員</h3>
             <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">花名冊用途,Resource 沒有登入帳號、不會取得任何操作權限。</p>
             <div className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+              <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 Resource
               </span>
               <MultiSelect
