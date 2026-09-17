@@ -114,6 +114,10 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     phaseId?: string;
     itemId?: string | null;
     milestoneId?: string;
+    /** 從格子點進來時帶入的開始日。 */
+    startAt?: string;
+    /** 從某一排里程碑點進來時,那一排的類型。 */
+    typeId?: string;
   } | null>(null);
 
   function addPhase() {
@@ -298,6 +302,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     phaseColors,
     units,
     assignableUsers,
+    holidays,
   } = view;
   const months = sheet.months;
   // 帶畫在自己的刻度上;人月的格子仍然一格一個月。
@@ -320,6 +325,21 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     endDate: m.endDate,
     color: m.color,
   }));
+
+  /**
+   * 點到的是軸上的第幾欄,換成日期。
+   *
+   * 只有點在空白處才算 —— 點在長條上時 target 是那顆按鈕,那是編輯,不是
+   * 新增。月刻度下一欄是一個月,回那個月的一號。
+   */
+  function dateAtClick(e: React.MouseEvent<HTMLDivElement>): string | null {
+    if (e.target !== e.currentTarget) return null;
+    const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    const index = Math.floor(x / colWidth);
+    const key = axis[index];
+    if (!key) return null;
+    return unit === "month" ? `${key}-01` : key;
+  }
 
   /** 一條帶在軸上的位置。 */
   function band(startDate: string, endDate: string) {
@@ -374,6 +394,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           onOpenChange={(next) => !next && setRangeDialog(null)}
           title={rangeDialog?.title ?? ""}
           initial={rangeDialog?.initial}
+          holidays={view.holidays}
           onSubmit={submitRange}
         />
       </div>
@@ -425,10 +446,13 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         ))}
       </div>
 
-      <HScrollPane className="rounded-lg border border-neutral-200 dark:border-neutral-700">
+      <HScrollPane
+        className="rounded-lg border border-neutral-200 dark:border-neutral-700"
+        viewportClassName="max-h-[70vh]"
+      >
         <div style={{ minWidth: LABEL_WIDTH + bandWidth + 260 }}>
-          {/* 月份表頭 */}
-          <div className="flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
+          {/* 月份表頭。往下捲的時候要跟著走,不然看到一排數字卻不知道是哪個月。 */}
+          <div className="sticky top-0 z-30 flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
             <div
               style={{ width: LABEL_WIDTH }}
               className="shrink-0 px-2 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400"
@@ -451,7 +475,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           </div>
 
           {unit === "week" && (
-            <div className="flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
+            <div className="sticky top-[30px] z-30 flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
               <div
                 style={{ width: LABEL_WIDTH }}
                 className="shrink-0 px-2 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400"
@@ -523,7 +547,16 @@ export function LabourSheet({ boardId }: { boardId: string }) {
               >
                 {rowIndex === 0 ? "預算階段" : ""}
               </div>
-              <div className="relative shrink-0" style={{ width: bandWidth, height: 26 }}>
+              <div
+                className={`relative shrink-0 ${canEdit ? "cursor-copy" : ""}`}
+                style={{ width: bandWidth, height: 26 }}
+                title={canEdit ? "點空白處可以從那個時間開始新增階段" : undefined}
+                onClick={(e) => {
+                  if (!canEdit || busy) return;
+                  const date = dateAtClick(e);
+                  if (date) setRangeDialog({ kind: "phase", title: "新增預算階段", startAt: date });
+                }}
+              >
                 {row.map((entry) => {
                   const box = band(entry.startDate, entry.endDate);
                   const phase = phaseById.get(entry.id);
@@ -579,7 +612,23 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                 >
                   {rowIndex === 0 ? type.name : ""}
                 </div>
-                <div className="relative shrink-0" style={{ width: bandWidth, height: 24 }}>
+                <div
+                  className={`relative shrink-0 ${canEdit ? "cursor-copy" : ""}`}
+                  style={{ width: bandWidth, height: 24 }}
+                  title={canEdit ? `點空白處可以在「${type.name}」新增里程碑` : undefined}
+                  onClick={(e) => {
+                    if (!canEdit || busy) return;
+                    const date = dateAtClick(e);
+                    if (date) {
+                      setRangeDialog({
+                        kind: "milestone",
+                        title: `新增里程碑(${type.name})`,
+                        startAt: date,
+                        typeId: type.id,
+                      });
+                    }
+                  }}
+                >
                   {row.map((entry) => {
                     const box = band(entry.startDate, entry.endDate);
                     const milestone = milestoneById.get(entry.id);
@@ -902,7 +951,19 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         open={rangeDialog !== null}
         onOpenChange={(next) => !next && setRangeDialog(null)}
         title={rangeDialog?.title ?? ""}
-        initial={rangeDialog?.initial}
+        initial={
+          rangeDialog?.initial ??
+          (rangeDialog?.startAt
+            ? {
+                typeId: rangeDialog.typeId,
+                name: "",
+                startDate: rangeDialog.startAt,
+                endDate: "",
+                color: "#fdab3d",
+              }
+            : undefined)
+        }
+        holidays={holidays}
         types={rangeDialog?.kind === "milestone" ? milestoneTypes : undefined}
         onManageTypes={
           rangeDialog?.kind === "milestone"

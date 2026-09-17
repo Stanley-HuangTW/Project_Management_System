@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { daysBetween, endFromDays, type DurationMode } from "@/lib/rangeDuration";
 
 export type RangeDraft = {
   /** 里程碑才有:排在哪一排。 */
@@ -32,6 +33,7 @@ export function PhaseRangeDialog({
   initial,
   /** 里程碑要多選一個類型;給了清單就是里程碑。 */
   types,
+  holidays = [],
   onManageTypes,
   /** 編輯既有的才給 —— 刪除鍵跟著出現在同一個畫面上。 */
   onDelete,
@@ -42,6 +44,8 @@ export function PhaseRangeDialog({
   title: string;
   initial?: RangeDraft;
   types?: MilestoneTypeOption[];
+  /** 算工作天要扣掉的國定假日。 */
+  holidays?: string[];
   onManageTypes?: () => void;
   onDelete?: () => void;
   onSubmit: (draft: RangeDraft) => void;
@@ -51,7 +55,47 @@ export function PhaseRangeDialog({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [color, setColor] = useState(COLORS[0]);
+  const [durationMode, setDurationMode] = useState<DurationMode>("calendar");
+  const [days, setDays] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const holidaySet = useMemo(() => new Set(holidays), [holidays]);
+
+  /**
+   * 天數與結束日是同一件事的兩種寫法,所以改哪一邊都要把另一邊算出來。
+   *
+   * 三支各自處理,而不是放一個 effect 去同步:effect 版本分不出「使用者改
+   * 的是哪一欄」,只能兩邊互推,結果是游標在天數欄裡打到一半就被結束日推
+   * 回來。
+   */
+  function changeStart(next: string) {
+    setStartDate(next);
+    const n = Number(days);
+    if (days.trim() !== "" && Number.isFinite(n) && n >= 1) {
+      setEndDate(endFromDays(next, n, durationMode, holidaySet) ?? "");
+      return;
+    }
+    setDays(String(daysBetween(next, endDate, durationMode, holidaySet) ?? ""));
+  }
+
+  function changeEnd(next: string) {
+    setEndDate(next);
+    setDays(String(daysBetween(startDate, next, durationMode, holidaySet) ?? ""));
+  }
+
+  function changeDays(next: string) {
+    setDays(next);
+    const n = Number(next);
+    if (next.trim() === "" || !Number.isFinite(n) || n < 1) return;
+    const end = endFromDays(startDate, n, durationMode, holidaySet);
+    if (end) setEndDate(end);
+  }
+
+  /** 換算法的時候日期不動,重新換算天數 —— 同一段期間的工作天比日曆天少。 */
+  function changeMode(next: DurationMode) {
+    setDurationMode(next);
+    setDays(String(daysBetween(startDate, endDate, next, holidaySet) ?? ""));
+  }
 
   // 每次打開都對齊當下的 initial —— 沿用上一次開啟留下的值會把別的階段的
   // 日期帶進來。在 render 當下調整而不是放進 effect:effect 版本會先用舊值
@@ -65,6 +109,11 @@ export function PhaseRangeDialog({
     setStartDate(initial?.startDate ?? "");
     setEndDate(initial?.endDate ?? "");
     setColor(initial?.color ?? COLORS[0]);
+    setDays(
+      initial?.startDate && initial?.endDate
+        ? String(daysBetween(initial.startDate, initial.endDate, durationMode, holidaySet) ?? "")
+        : ""
+    );
     setError(null);
   }
 
@@ -133,9 +182,10 @@ export function PhaseRangeDialog({
             <input
               type="date"
               value={startDate}
-              // 結束日已經選了就不給選到它後面,錯誤在按下去之前就避開。
-              max={endDate || undefined}
-              onChange={(e) => setStartDate(e.target.value)}
+              // 刻意沒有 max:填了天數之後,把開始日往後挪是合理的(結束日
+              // 會跟著走),用結束日把它鎖住反而擋掉正常的編輯。順序不對
+              // 由送出時的檢查擋。
+              onChange={(e) => changeStart(e.target.value)}
               className={field}
             />
           </label>
@@ -145,10 +195,47 @@ export function PhaseRangeDialog({
               type="date"
               value={endDate}
               min={startDate || undefined}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => changeEnd(e.target.value)}
               className={field}
             />
           </label>
+        </div>
+
+        <div className="flex items-end gap-3">
+          <label className="block w-28">
+            <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">天數</span>
+            <input
+              value={days}
+              onChange={(e) => changeDays(e.target.value)}
+              inputMode="numeric"
+              placeholder="—"
+              className={field}
+            />
+          </label>
+          <div className="flex overflow-hidden rounded-md border border-neutral-300 text-xs dark:border-neutral-600">
+            {(
+              [
+                ["calendar", "日曆天"],
+                ["business", "工作天"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => changeMode(value)}
+                className={`px-2.5 py-1.5 ${
+                  durationMode === value
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-400"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="pb-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+            {durationMode === "business" ? "不含週末與國定假日" : "含週末"}
+          </p>
         </div>
 
         <div>
@@ -171,7 +258,8 @@ export function PhaseRangeDialog({
 
         {startDate && endDate && endDate >= startDate && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            共 {Math.round((Date.parse(endDate) - Date.parse(startDate)) / 86_400_000) + 1} 天
+            日曆天 {daysBetween(startDate, endDate, "calendar", holidaySet)} 天・工作天{" "}
+            {daysBetween(startDate, endDate, "business", holidaySet)} 天
           </p>
         )}
         {error && <p className="text-xs text-red-600">{error}</p>}

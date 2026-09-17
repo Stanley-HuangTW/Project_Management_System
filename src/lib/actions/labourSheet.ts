@@ -46,6 +46,8 @@ export type LabourSheetView = {
   units: OrgUnit[];
   /** 名額可以指給誰 —— 名額常常先掛 TBH,招到人再指過去。 */
   assignableUsers: { id: string; name: string }[];
+  /** 國定假日。對話框要算工作天,規則得跟甘特圖同一套。 */
+  holidays: string[];
   canEdit: boolean;
 };
 
@@ -122,6 +124,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     actual,
     units,
     assignableUsers,
+    holidayRows,
   ] = await Promise.all([
     prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
     prisma.planMilestone.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
@@ -143,6 +146,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    listHolidays(),
   ]);
 
   const phases: PhaseRow[] = phaseRows.map((p) => ({
@@ -182,6 +186,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     })),
     milestoneTypes: milestoneTypes.map((t) => ({ id: t.id, name: t.name })),
     assignableUsers,
+    holidays: holidayRows.map((h) => h.date),
     slots,
     sheet,
     variances: phaseVariances(phases, sheet.byPhase, actual),
