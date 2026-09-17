@@ -2,6 +2,7 @@
 
 import { formatMoney } from "@/lib/cost";
 import type { BudgetForecast } from "@/lib/budgetForecast";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const WIDTH = 720;
 const HEIGHT = 220;
@@ -69,7 +70,7 @@ export function SpendCurveChart({ forecast }: { forecast: BudgetForecast }) {
         <Legend color="#111827" dash label="核准預算" />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
+      <HScrollPane className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
         <svg width={WIDTH} height={HEIGHT} role="img" aria-label="燒錢曲線">
           {[0, 0.25, 0.5, 0.75, 1].map((fraction) => {
             const value = ceiling * fraction;
@@ -143,7 +144,7 @@ export function SpendCurveChart({ forecast }: { forecast: BudgetForecast }) {
             ) : null
           )}
         </svg>
-      </div>
+      </HScrollPane>
 
       {breachIndex >= 0 && (
         <p className="text-xs text-red-600">

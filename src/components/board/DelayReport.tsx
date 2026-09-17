@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getDelayAnalysis, getProgramDelayAnalysis } from "@/lib/actions/delayAnalysis";
 import type { DelayAnalysis } from "@/lib/delayAnalysis";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 /**
  * 延遲追因 — the answer to "誰害的".
@@ -69,7 +70,7 @@ export function DelayReport({ boardId, programId }: { boardId?: string; programI
         或是做的天數比計畫多。其餘的工作項只是被推。
       </p>
 
-      <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+      <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700">
         <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-500 dark:text-neutral-400">
             <tr>
@@ -124,7 +125,7 @@ export function DelayReport({ boardId, programId }: { boardId?: string; programI
             ))}
           </tbody>
         </table>
-      </div>
+      </HScrollPane>
 
       {analysis.culprits.length > shown.length && (
         <button

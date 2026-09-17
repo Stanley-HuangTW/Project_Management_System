@@ -24,6 +24,7 @@ import {
   type RiskRow,
   type RiskInput,
 } from "@/lib/actions/risk";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const EMPTY: RiskInput = {
   kind: "RISK",
@@ -187,7 +188,7 @@ export function BoardRisks({
           還沒有紀錄。NUDD 會議上談到的風險與議題,記在這裡才追得下去。
         </p>
       ) : (
-<div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+<HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700">
           <table className="w-full min-w-[880px] text-sm">
             <thead className="bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-500 dark:text-neutral-400">
               <tr>
@@ -292,7 +293,7 @@ export function BoardRisks({
               })}
             </tbody>
           </table>
-        </div>
+        </HScrollPane>
       )}
 
       <Modal

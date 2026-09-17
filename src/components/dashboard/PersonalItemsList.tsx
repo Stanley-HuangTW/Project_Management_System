@@ -5,6 +5,7 @@ import type { UserRole } from "@prisma/client";
 import type { PersonalItemEntry } from "@/lib/dashboard";
 import type { UserOption } from "@/types/board";
 import { PersonalItemRow } from "./PersonalItemRow";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 type ColKey = "name" | "window" | "board" | "status" | "progress" | "date";
 type FilterKey = ColKey | "group";
@@ -157,7 +158,7 @@ export function PersonalItemsList({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+      <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
         <div
           className="grid items-center border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-4 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400"
           style={{ gridTemplateColumns: gridTemplate }}
@@ -192,7 +193,7 @@ export function PersonalItemsList({
             ))}
           </ul>
         )}
-      </div>
+      </HScrollPane>
     </div>
   );
 }

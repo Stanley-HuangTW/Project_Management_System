@@ -7,6 +7,7 @@ import {
   getProgramCostReport,
   type BoardCostReport,
 } from "@/lib/actions/boardCost";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 function Stat({
   label,
@@ -158,7 +159,7 @@ export function CostReport({ boardId, programId }: { boardId?: string; programId
           <h4 className="mb-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
             花得比做出來的多的工作項
           </h4>
-          <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+          <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700">
             <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-500 dark:text-neutral-400">
                 <tr>
@@ -191,7 +192,7 @@ export function CostReport({ boardId, programId }: { boardId?: string; programId
                 ))}
               </tbody>
             </table>
-          </div>
+          </HScrollPane>
         </section>
       )}
     </div>

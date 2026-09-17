@@ -32,6 +32,7 @@ import {
   fillLabourSlotRange,
   type LabourSheetView,
 } from "@/lib/actions/labourSheet";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const MONTH_WIDTH = 46;
 const LABEL_WIDTH = 150;
@@ -424,7 +425,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+      <HScrollPane className="rounded-lg border border-neutral-200 dark:border-neutral-700">
         <div style={{ minWidth: LABEL_WIDTH + bandWidth + 260 }}>
           {/* 月份表頭 */}
           <div className="flex border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60">
@@ -785,7 +786,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             </div>
           </div>
         </div>
-      </div>
+      </HScrollPane>
 
       {/* 單位彙總,就是那張 Excel 右下角的 Summary */}
       <div className="grid gap-3 sm:grid-cols-2">

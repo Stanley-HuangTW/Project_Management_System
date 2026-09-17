@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toPercent, type ProgressCurve } from "@/lib/progressCurve";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const WIDTH = 720;
 const HEIGHT = 240;
@@ -88,7 +89,7 @@ export function ProgressCurveChart({ curve }: { curve: ProgressCurve }) {
         ))}
       </div>
 
-      <div className="overflow-x-auto">
+      <HScrollPane>
         <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} width="100%" style={{ minWidth: 480 }} role="img">
           {[0, 25, 50, 75, 100].map((percent) => (
             <g key={percent}>
@@ -143,7 +144,7 @@ export function ProgressCurveChart({ curve }: { curve: ProgressCurve }) {
             );
           })}
         </svg>
-      </div>
+      </HScrollPane>
 
       <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
         以葉節點工作項數量計算,每週一點。

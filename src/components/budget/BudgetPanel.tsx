@@ -25,6 +25,7 @@ import {
   type BudgetView,
   type AttachmentRow,
 } from "@/lib/actions/budget";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 /**
  * 預算管控 — 核准多少、花掉多少、承諾出去多少、還剩多少。
@@ -705,7 +706,7 @@ function CategoryTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+    <HScrollPane className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
       <table className="w-full text-xs">
         <thead className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400">
           <tr>
@@ -807,7 +808,7 @@ function CategoryTable({
           </tr>
         </tfoot>
       </table>
-    </div>
+    </HScrollPane>
   );
 }
 

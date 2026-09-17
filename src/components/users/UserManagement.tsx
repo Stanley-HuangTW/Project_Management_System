@@ -39,6 +39,7 @@ import type { UserRole } from "@prisma/client";
 import type { Discipline } from "@/lib/labourPlan";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
@@ -504,7 +505,7 @@ export function UserManagement({
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+      <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
         <div
           className={`grid ${ROW_GRID} gap-2 border-b border-neutral-100 dark:border-neutral-700 px-4 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400`}
         >
@@ -543,7 +544,7 @@ export function UserManagement({
             ))}
           </SortableContext>
         </DndContext>
-      </div>
+      </HScrollPane>
 
       <Modal
         open={open}

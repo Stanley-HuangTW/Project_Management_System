@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { formatMoney } from "@/lib/cost";
 import { unitLabel } from "@/lib/orgUnits";
 import { getLabourPlanView, type LabourPlanView } from "@/lib/actions/labourPlan";
+import { HScrollPane } from "@/components/ui/HScrollPane";
 
 /**
  * 階段 × 單位的人月彙總 —— 唯讀。
@@ -55,7 +56,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
         </div>
       )}
 
-      <div className="overflow-x-auto">
+      <HScrollPane>
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-neutral-200 dark:border-neutral-700 text-xs text-neutral-500 dark:text-neutral-400">
@@ -116,7 +117,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
             </tr>
           </tfoot>
         </table>
-      </div>
+      </HScrollPane>
 
       {!canEdit && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
