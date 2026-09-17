@@ -32,6 +32,9 @@ services:
       - "3000:3000"
     volumes:
       - uploads_data:/app/public/uploads
+      # 週報落在專案資料夾底下,直接用檔案總管打得開。不放 public/uploads:
+      # 那個目錄對外服務,週報裡有預算與人力。
+      - ./weekly-reports:/app/weekly-reports
 
 volumes:
   db_data:

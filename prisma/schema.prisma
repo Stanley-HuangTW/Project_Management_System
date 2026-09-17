@@ -93,6 +93,7 @@ model User {
   /// 換算順序見 labourRate.ts。
   monthlySalary Decimal?    @db.Decimal(12, 2)
 
+  weeklyReports WeeklyReport[]
   supervisorId String?
   supervisor   User?   @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
   teamMembers  User[]  @relation("Supervision")
@@ -1410,4 +1411,29 @@ model Program {
   boards      Board[]
   budgets     Budget[]
   reserves    Reserve[]
+}
+
+/// 一份存下來的週報。
+///
+/// 存起來不只是為了有歷史可以翻:「這週完成了什麼」是拿這一份跟上一週那
+/// 一份比出來的,沒有存檔就只能去解析活動紀錄那幾句中文再猜一次。
+///
+/// 一個人一週一份 —— 看得到哪些看板是跟著人走的,所以週報也是。
+model WeeklyReport {
+  id        String @id @default(cuid())
+  /// ISO 週的週一,"YYYY-MM-DD"。
+  weekStart String
+  weekEnd   String
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 完整結構化內容,頁面跟下一週的比對都讀它。
+  data      Json
+  /// 產出當下排版好的 Markdown —— 之後改了排版,舊的那幾份仍然是當初寄出去的樣子。
+  markdown  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, weekStart])
+  @@index([userId, weekStart])
 }

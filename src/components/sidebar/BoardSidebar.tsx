@@ -24,6 +24,7 @@ import {
   FolderKanban,
   ClipboardCheck,
   ScrollText,
+  FileText,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageBoard } from "@/lib/permissions";
@@ -313,6 +314,17 @@ export function BoardSidebar({
             待我審核
           </Link>
         )}
+        <Link
+          href="/reports/weekly"
+          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+            pathname === "/reports/weekly"
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <FileText size={14} className="shrink-0" />
+          週報
+        </Link>
         {userRole === "ADMIN" && (
           <Link
             href="/audit"

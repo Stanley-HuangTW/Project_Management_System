@@ -1,0 +1,76 @@
+import { NextResponse } from "next/server";
+import { sessionFromApiKey } from "@/lib/apiAuth";
+import { getSession } from "@/lib/session";
+import { generateAndStoreWeeklyReport } from "@/lib/weeklyReportServer";
+import { deliverWeeklyReport } from "@/lib/weeklyReportDelivery";
+import { weekRangeOf, previousWeekOf } from "@/lib/weeklyReport";
+
+/**
+ * 產一份週報。
+ *
+ * 排程打這一支就好 —— 不必在容器裡多裝一套 TypeScript 執行環境,也不必把
+ * 計算複製一份到腳本裡。驗證走既有的 API 金鑰,所以週報看得到的範圍跟發
+ * 金鑰那個人登入時完全一樣。
+ *
+ * 也吃瀏覽器的登入狀態,這樣週報頁面上那顆「立即產生」可以打同一支。
+ */
+
+export async function POST(request: Request) {
+  const session = (await sessionFromApiKey(request)) ?? (await getSession());
+  if (!session) {
+    return NextResponse.json(
+      { error: "需要有效的 API 金鑰(Authorization: Bearer <key>)或登入狀態" },
+      { status: 401 }
+    );
+  }
+
+  const url = new URL(request.url);
+  // 預設是「上一週」:這支是給週一早上的排程用的,那時候要的是剛結束的
+  // 那一週,不是才剛開始的這一週。
+  const scope = url.searchParams.get("week") ?? "last";
+  const today = new Date().toISOString().slice(0, 10);
+  const thisWeek = weekRangeOf(today);
+  const target =
+    scope === "this" ? thisWeek.weekStart : scope === "last" ? previousWeekOf(thisWeek.weekStart).weekStart : scope;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
+    return NextResponse.json(
+      { error: "week 只能是 last、this,或 YYYY-MM-DD" },
+      { status: 400 }
+    );
+  }
+
+  const deliver = url.searchParams.get("deliver") !== "0";
+
+  try {
+    const { snapshot, diff, markdown } = await generateAndStoreWeeklyReport(session, target);
+    const delivery = deliver ? await deliverWeeklyReport(session, snapshot, markdown) : null;
+    return NextResponse.json({
+      weekStart: snapshot.weekStart,
+      weekEnd: snapshot.weekEnd,
+      boards: snapshot.boards.length,
+      overdue: snapshot.overdue.length,
+      upcoming: snapshot.upcoming.length,
+      completedThisWeek: diff.firstEver ? null : diff.completed.length,
+      newlyOverdue: diff.firstEver ? null : diff.newlyOverdue.length,
+      firstEver: diff.firstEver,
+      delivery,
+      markdown,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "產生週報失敗" },
+      { status: 500 }
+    );
+  }
+}
+
+/** 給人用瀏覽器確認端點活著,不需要金鑰。 */
+export async function GET() {
+  return NextResponse.json({
+    name: "週報產生器",
+    usage: "POST /api/reports/weekly?week=last|this|YYYY-MM-DD&deliver=1",
+    auth: "Authorization: Bearer <API 金鑰>,或瀏覽器登入狀態",
+    note: "一個人一週一份,同一週重跑會覆蓋。",
+  });
+}

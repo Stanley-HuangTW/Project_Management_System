@@ -49,3 +49,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 週報產出物 —— 裡面有預算與人力,不進版控。
+weekly-reports/
