@@ -12,11 +12,13 @@ import {
   packBandRows,
   monthColumnSpans,
   isoWeekNumber,
+  MAX_FTE,
   type AxisUnit,
 } from "@/lib/labourSheet";
 import { PhaseRangeDialog, type RangeDraft } from "./PhaseRangeDialog";
 import { MilestoneTypeDialog } from "./MilestoneTypeDialog";
 import { SlotDialog, type SlotDraft } from "./SlotDialog";
+import { FillRangeDialog } from "./FillRangeDialog";
 import {
   getLabourSheetView,
   upsertBudgetPhase,
@@ -61,7 +63,7 @@ function monthLabel(key: string, previous?: string): string {
  * 實際一定有落差,而下面那張差異表就是拿來看那個落差的。
  */
 export function LabourSheet({ boardId }: { boardId: string }) {
-  const { notify, confirm, prompt } = useDialogs();
+  const { notify, confirm } = useDialogs();
   const [view, setView] = useState<LabourSheetView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -107,6 +109,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   /** 開著的期間對話框:階段或里程碑,新增或編輯。 */
   const [slotDialog, setSlotDialog] = useState<{ id?: string; initial?: SlotDraft } | null>(null);
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
+  const [fillDialog, setFillDialog] = useState<{ slotId: string; label: string } | null>(null);
   const [rangeDialog, setRangeDialog] = useState<{
     kind: "phase" | "milestone";
     title: string;
@@ -269,23 +272,8 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     );
   }
 
-  async function fillRow(slotId: string, slotLabel: string) {
-    const from = await prompt(`${slotLabel} 從哪個月開始?格式 2026-03`, { title: "整列填滿" });
-    if (from === null || !from.trim()) return;
-    const to = await prompt(`${slotLabel} 到哪個月結束?格式 2026-08`, { title: "整列填滿" });
-    if (to === null || !to.trim()) return;
-    const answer = await prompt("每個月投入多少?1 = 全職", {
-      title: "整列填滿",
-      defaultValue: "1",
-      numeric: true,
-    });
-    if (answer === null || answer.trim() === "") return;
-    const fte = Number(answer);
-    if (!Number.isFinite(fte)) return;
-    await run(
-      () => fillLabourSlotRange(boardId, slotId, from.trim(), to.trim(), fte),
-      "無法填入"
-    );
+  function fillRow(slotId: string, slotLabel: string) {
+    setFillDialog({ slotId, label: slotLabel });
   }
 
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
@@ -938,6 +926,17 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         </div>
       </div>
 
+      <FillRangeDialog
+        open={fillDialog !== null}
+        onOpenChange={(next) => !next && setFillDialog(null)}
+        slotLabel={fillDialog?.label ?? ""}
+        months={months}
+        onSubmit={(from, to, fte) => {
+          const slotId = fillDialog?.slotId;
+          if (slotId) run(() => fillLabourSlotRange(boardId, slotId, from, to, fte), "無法填入");
+        }}
+      />
+
       <SlotDialog
         open={slotDialog !== null}
         onOpenChange={(next) => !next && setSlotDialog(null)}
@@ -1030,7 +1029,9 @@ function FteCell({
 
   function commit() {
     const next = text.trim() === "" ? 0 : Number(text);
-    if (!Number.isFinite(next) || next < 0) {
+    // 超過上限就退回原值,不要送出去等伺服器打回來 —— 那一趟往返之間,
+    // 格子上顯示的是一個不會被接受的數字。
+    if (!Number.isFinite(next) || next < 0 || next > MAX_FTE) {
       setText(value > 0 ? String(value) : "");
       return;
     }
@@ -1045,7 +1046,7 @@ function FteCell({
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
-      title="投入多少?1 = 整個月全職,0.5 = 半個月"
+      title={`投入多少?${MAX_FTE} = 整個月全職,0.5 = 半個月。一個名額最多 ${MAX_FTE},需要兩個人請開兩個名額。`}
       className={`shrink-0 border-l border-neutral-100 py-1 text-center text-[11px] tabular-nums outline-none focus:bg-white focus:ring-1 focus:ring-blue-400 disabled:cursor-default dark:border-neutral-800 dark:focus:bg-neutral-900 ${
         value > 0
           ? "bg-blue-50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200"

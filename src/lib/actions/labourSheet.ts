@@ -11,6 +11,7 @@ import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
 import { getItemDateRange } from "@/lib/gantt";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
+import { MAX_FTE, FTE_CAP_MESSAGE } from "@/lib/labourSheet";
 import { boardWithDataArgs } from "@/types/board";
 import {
   buildLabourSheet,
@@ -537,7 +538,9 @@ export async function setLabourSlotMonth(
 ): Promise<{ error?: string }> {
   await requireSheetAdmin(boardId);
   if (!Number.isFinite(fte) || fte < 0) return { error: "投入必須是 0 或正數" };
-  if (fte > 20) return { error: "一個名額一個月不會超過 20 個人月,請確認是不是填錯了" };
+  // 一個名額就是一個人。要兩個人做,就是兩個名額 —— 讓它超過 1 的話,
+  // 「每月總人數」那一列會算出比實際頭數還多的人。
+  if (fte > MAX_FTE) return { error: FTE_CAP_MESSAGE };
   const value = Math.round(fte * 100) / 100;
 
   if (value === 0) {
@@ -569,7 +572,8 @@ export async function fillLabourSlotRange(
   fte: number
 ): Promise<{ error?: string }> {
   await requireSheetAdmin(boardId);
-  if (!Number.isFinite(fte) || fte < 0 || fte > 20) return { error: "投入必須介於 0 到 20" };
+  if (!Number.isFinite(fte) || fte < 0) return { error: "投入必須是 0 或正數" };
+  if (fte > MAX_FTE) return { error: FTE_CAP_MESSAGE };
   if (toMonth < fromMonth) return { error: "結束月份不可早於開始月份" };
   const value = Math.round(fte * 100) / 100;
 

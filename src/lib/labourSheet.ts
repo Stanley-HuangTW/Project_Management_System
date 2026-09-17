@@ -405,3 +405,14 @@ export function isoWeekNumber(iso: string): number {
   );
   return Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86_400_000)) + 1;
 }
+
+/**
+ * 一個名額一個月最多投入 1。
+ *
+ * 一個名額代表一個人,不是一個團隊 —— 讓它超過 1 的話,「每月總人數」那一
+ * 列會算出比實際頭數還多的人,而那一列正是拿來判斷過不過載的。要兩個人做
+ * 同一件事,就開兩個名額。
+ */
+export const MAX_FTE = 1;
+
+export const FTE_CAP_MESSAGE = "一個名額一個月最多 1(全職)。需要兩個人請開兩個名額。";
