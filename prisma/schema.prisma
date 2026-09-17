@@ -94,6 +94,8 @@ model User {
   monthlySalary Decimal?    @db.Decimal(12, 2)
 
   weeklyReports WeeklyReport[]
+  oauthCodes    OAuthCode[]
+  oauthTokens   OAuthToken[]
   supervisorId String?
   supervisor   User?   @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
   teamMembers  User[]  @relation("Supervision")
@@ -1436,4 +1438,69 @@ model WeeklyReport {
 
   @@unique([userId, weekStart])
   @@index([userId, weekStart])
+}
+
+/// 一個透過動態註冊(RFC 7591)登記的 OAuth 用戶端。
+///
+/// MCP 的遠端連接器要求可以自己註冊 —— 沒有這一支,每接一個用戶端都得有
+/// 人先到後台手動建一筆。註冊本身不代表任何權限:能拿到什麼,要等某個人
+/// 在同意畫面上按下允許。
+model OAuthClient {
+  id           String   @id @default(cuid())
+  /// 給用戶端的 client_id,對外可見。
+  clientId     String   @unique
+  /// 顯示在同意畫面上的名字,由用戶端自己申報,只是給人看的。
+  name         String
+  /// 授權碼只能送到這幾個網址,而且要完全相同。
+  redirectUris String[]
+  createdAt    DateTime @default(now())
+
+  codes  OAuthCode[]
+  tokens OAuthToken[]
+}
+
+/// 一次性的授權碼。
+///
+/// 存的是雜湊,而且活得很短 —— 它只需要活到用戶端把它換成權杖為止。
+/// usedAt 有值就不能再換:攔到授權碼的人重放一次會被擋下來。
+model OAuthCode {
+  id            String      @id @default(cuid())
+  hashedCode    String      @unique
+  clientId      String
+  client        OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 換權杖時要帶同一個,不同就拒絕。
+  redirectUri   String
+  codeChallenge String
+  /// RFC 8707:這張授權碼是為了哪個資源發的。
+  resource      String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime    @default(now())
+
+  @@index([expiresAt])
+}
+
+/// 一張存取權杖(以及它的更新權杖)。
+///
+/// 跟 API 金鑰分開:這一張會過期、綁著某個用戶端、可以連人帶用戶端一起
+/// 撤銷。兩者都存雜湊,所以外流的備份裡沒有能用的東西。
+model OAuthToken {
+  id                 String      @id @default(cuid())
+  hashedAccessToken  String      @unique
+  hashedRefreshToken String?     @unique
+  clientId           String
+  client             OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resource           String?
+  expiresAt          DateTime
+  refreshExpiresAt   DateTime?
+  revokedAt          DateTime?
+  lastUsedAt         DateTime?
+  createdAt          DateTime    @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }

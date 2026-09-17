@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { safeNextPath } from "@/lib/safeNext";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -66,7 +67,7 @@ export async function login(
     role: user.role,
   });
 
-  redirect("/boards");
+  redirect(safeNextPath(formData.get("next")));
 }
 
 export async function logout() {

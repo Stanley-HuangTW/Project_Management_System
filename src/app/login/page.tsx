@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { Suspense, useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 import { login, type LoginState } from "@/lib/actions/auth";
 
 const initialState: LoginState = {};
 
-export default function LoginPage() {
+function LoginForm() {
   const [state, formAction, pending] = useActionState(login, initialState);
+  // OAuth 流程會先把人送來登入,登完要回到原本那個授權頁面。伺服器那邊會
+  // 再驗一次這個值只能是本站路徑 —— 這裡只是把它帶過去。
+  const next = useSearchParams().get("next") ?? "";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 dark:bg-neutral-800">
@@ -16,6 +20,8 @@ export default function LoginPage() {
         className="w-full max-w-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-8 shadow-sm"
       >
         <h1 className="mb-6 text-xl font-semibold text-neutral-900 dark:text-neutral-100">登入</h1>
+
+        <input type="hidden" name="next" value={next} />
 
         <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-100">
           帳號 (Email)
@@ -56,5 +62,13 @@ export default function LoginPage() {
         </button>
       </form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

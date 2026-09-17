@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { sessionFromApiKey } from "@/lib/apiAuth";
+import { sessionFromBearer } from "@/lib/apiAuth";
+import { issuer } from "@/lib/oauth/server";
 import { TOOLS, callTool } from "@/lib/mcp/tools";
 
 /**
@@ -46,14 +47,21 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 202 });
   }
 
-  const session = await sessionFromApiKey(request);
+  const session = await sessionFromBearer(request);
   if (!session) {
-    return rpcError(
+    // WWW-Authenticate 指向資源描述,MCP 用戶端照著它就能自己找到授權伺服
+    // 器並跑完 OAuth —— 沒有這個標頭,連接器只會看到一個沒得談的 401。
+    const response = rpcError(
       id,
       -32001,
-      "需要有效的 API 金鑰,請在 Authorization 標頭帶 Bearer <key>。金鑰在「系統設定 → 整合」產生。",
+      "需要授權:用 OAuth 連接器登入,或在 Authorization 標頭帶 Bearer <API 金鑰>(系統設定 → 整合)。",
       401
     );
+    response.headers.set(
+      "WWW-Authenticate",
+      `Bearer resource_metadata="${issuer()}/.well-known/oauth-protected-resource"`
+    );
+    return response;
   }
 
   switch (method) {

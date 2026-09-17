@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashApiKey, looksLikeApiKey, readBearerToken } from "@/lib/apiKey";
+import { sessionFromOAuthToken } from "@/lib/oauth/server";
 import type { SessionPayload } from "@/lib/jwt";
 
 /**
@@ -24,6 +25,20 @@ export async function sessionFromApiKey(request: Request): Promise<SessionPayloa
   await prisma.apiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
 
   return { userId: key.owner.id, email: key.owner.email, name: key.owner.name, role: key.owner.role };
+}
+
+/**
+ * 兩種 Bearer 都收:手動產的 API 金鑰,或 OAuth 換來的存取權杖。
+ *
+ * 用金鑰的前綴分辨,所以兩者不會互相誤判 —— 金鑰一律是 hrapp_ 開頭,不是
+ * 這個開頭的就當作 OAuth 權杖去查。兩條路最後都回同一種 session,因此下游
+ * 每一個既有的權限檢查完全不用改。
+ */
+export async function sessionFromBearer(request: Request): Promise<SessionPayload | null> {
+  const token = readBearerToken(request.headers.get("authorization"));
+  if (!token) return null;
+  if (looksLikeApiKey(token)) return sessionFromApiKey(request);
+  return sessionFromOAuthToken(token);
 }
 
 export function unauthorized(): NextResponse {

@@ -8,12 +8,15 @@ import {
   listApiKeys,
   createApiKey,
   revokeApiKey,
+  listOAuthGrants,
+  revokeOAuthGrant,
   listWebhooks,
   createWebhook,
   setWebhookActive,
   deleteWebhook,
   type ApiKeyRow,
   type WebhookRow,
+  type OAuthGrantRow,
 } from "@/lib/actions/integration";
 
 /**
@@ -31,13 +34,17 @@ export function IntegrationCard({ boards }: { boards: { id: string; name: string
   const [hooks, setHooks] = useState<WebhookRow[]>([]);
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState<WebhookEvent[]>([...WEBHOOK_EVENTS]);
+  const [grants, setGrants] = useState<OAuthGrantRow[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const rows = await listApiKeys();
-      if (!cancelled) setKeys(rows);
+      const [rows, grantRows] = await Promise.all([listApiKeys(), listOAuthGrants()]);
+      if (!cancelled) {
+        setKeys(rows);
+        setGrants(grantRows);
+      }
     })();
     return () => {
       cancelled = true;
@@ -162,6 +169,29 @@ export function IntegrationCard({ boards }: { boards: { id: string; name: string
           </div>
         )}
 
+        <OAuthGrants
+          grants={grants}
+          busy={busy}
+          onRevoke={async (grant) => {
+            const ok = await confirm(
+              `撤銷對「${grant.clientName}」的授權?它手上的權杖會立刻失效,下次要用得重新授權。`,
+              { title: "撤銷 MCP 授權", confirmLabel: "撤銷", danger: true }
+            );
+            if (!ok) return;
+            setBusy(true);
+            try {
+              const result = await revokeOAuthGrant(grant.clientRowId);
+              if (result.error) {
+                await notify(result.error, { title: "無法撤銷" });
+                return;
+              }
+              setGrants(await listOAuthGrants());
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+
         {keys.length > 0 && (
           <ul className="mt-3 divide-y divide-neutral-100 dark:divide-neutral-700 rounded-md border border-neutral-200 dark:border-neutral-700">
             {keys.map((key) => (
@@ -285,5 +315,59 @@ export function IntegrationCard({ boards }: { boards: { id: string; name: string
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * 我授權過的 MCP 應用程式。
+ *
+ * 同意畫面上寫著「可以隨時在系統設定撤銷」—— 那句話要有地方兌現,不然它
+ * 只是一句讓人安心的話。
+ */
+function OAuthGrants({
+  grants,
+  busy,
+  onRevoke,
+}: {
+  grants: OAuthGrantRow[];
+  busy: boolean;
+  onRevoke: (grant: OAuthGrantRow) => void;
+}) {
+  if (grants.length === 0) return null;
+  return (
+    <div className="mt-4">
+      <p className="mb-1 text-xs font-medium text-neutral-700 dark:text-neutral-200">
+        已授權的 MCP 應用程式
+      </p>
+      <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
+        這些應用程式以你的身分讀資料,看得到的範圍跟你自己登入時一樣。
+      </p>
+      <ul className="divide-y divide-neutral-100 rounded-md border border-neutral-200 dark:divide-neutral-700 dark:border-neutral-700">
+        {grants.map((grant) => (
+          <li key={grant.clientRowId} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-neutral-800 dark:text-neutral-100">
+                {grant.clientName}
+              </span>
+              <span className="block text-xs text-neutral-400 dark:text-neutral-500">
+                {grant.activeTokens} 張有效權杖・
+                {grant.lastUsedAt
+                  ? `最後使用 ${new Date(grant.lastUsedAt).toLocaleDateString("zh-TW")}`
+                  : "尚未使用"}
+              </span>
+            </span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onRevoke(grant)}
+              className="rounded p-1 text-neutral-400 hover:text-red-600 disabled:opacity-50 dark:text-neutral-500"
+              aria-label="撤銷授權"
+            >
+              <Trash2 size={14} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

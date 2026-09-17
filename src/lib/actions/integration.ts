@@ -157,3 +157,69 @@ export async function deleteWebhook(webhookId: string): Promise<{ error?: string
   revalidatePath("/settings");
   return {};
 }
+
+export type OAuthGrantRow = {
+  clientRowId: string;
+  clientName: string;
+  clientId: string;
+  /** 這個用戶端目前還有幾張沒過期也沒撤銷的權杖。 */
+  activeTokens: number;
+  lastUsedAt: string | null;
+  authorizedAt: string;
+};
+
+/**
+ * 我授權過哪些 OAuth 應用程式。
+ *
+ * 只列自己的:一個人撤銷不了別人的授權,那是別人跟那個應用程式之間的事。
+ */
+export async function listOAuthGrants(): Promise<OAuthGrantRow[]> {
+  const session = await requireSession();
+  const tokens = await prisma.oAuthToken.findMany({
+    where: { userId: session.userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    include: { client: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const byClient = new Map<string, OAuthGrantRow>();
+  for (const token of tokens) {
+    const existing = byClient.get(token.clientId);
+    if (existing) {
+      existing.activeTokens += 1;
+      if (token.lastUsedAt && (!existing.lastUsedAt || token.lastUsedAt.toISOString() > existing.lastUsedAt)) {
+        existing.lastUsedAt = token.lastUsedAt.toISOString();
+      }
+      continue;
+    }
+    byClient.set(token.clientId, {
+      clientRowId: token.clientId,
+      clientName: token.client.name,
+      clientId: token.client.clientId,
+      activeTokens: 1,
+      lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
+      authorizedAt: token.createdAt.toISOString(),
+    });
+  }
+  return [...byClient.values()];
+}
+
+/** 撤銷我給某個應用程式的授權 —— 它手上所有權杖立刻失效。 */
+export async function revokeOAuthGrant(clientRowId: string): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const client = await prisma.oAuthClient.findUnique({ where: { id: clientRowId } });
+  if (!client) return { error: "找不到這個應用程式" };
+
+  // where 帶上 userId:撤的只會是自己那幾張,不會動到別人的。
+  const result = await prisma.oAuthToken.updateMany({
+    where: { clientId: clientRowId, userId: session.userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  await prisma.oAuthCode.deleteMany({ where: { clientId: clientRowId, userId: session.userId, usedAt: null } });
+
+  await logAudit(
+    "ACCESS",
+    session.userId,
+    `撤銷對「${client.name}」的 MCP 授權,${result.count} 張權杖失效`
+  );
+  return {};
+}

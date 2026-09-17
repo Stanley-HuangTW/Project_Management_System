@@ -37,6 +37,40 @@ Slack、Notion 那種是廠商自己做了端點放進 Claude 的目錄裡。這
 
 接上之後用 `/mcp` 確認連線狀態。
 
+## 二之二、接上 Cowork / claude.ai(OAuth)
+
+Claude Code 用金鑰就夠了,但 **Cowork 與 claude.ai 的自訂連接器走 OAuth**,而且是從 Anthropic 的雲端連過來的 —— 不是從你這台電腦。兩個結果:
+
+- **端點必須對外開放**(正式網域 + HTTPS)。只在 localhost 或內網跑的話,那邊連不到,這條路不通。
+- **不用手動貼 token**,使用者按「允許」就完成授權。
+
+這個 app 已經實作了整套所需的端點:
+
+| 端點 | 做什麼 |
+|---|---|
+| `/.well-known/oauth-protected-resource` | 告訴用戶端該找哪台授權伺服器(RFC 9728) |
+| `/.well-known/oauth-authorization-server` | 授權伺服器的自我描述(RFC 8414) |
+| `/api/oauth/register` | 動態註冊(RFC 7591),用戶端自己登記,不用有人開後台 |
+| `/oauth/authorize` | 同意畫面,人在這裡按允許 |
+| `/api/oauth/token` | 換權杖與更新權杖 |
+
+設定步驟:claude.ai → **Settings → Connectors → Add custom connector**,網址填 `https://你的網域/api/mcp`,其餘留空 —— 註冊與授權會自己跑完。
+
+### 這一層守了什麼
+
+- **強制 PKCE,而且只收 S256**。`plain` 的 code_challenge 就是 verifier 本身,攔到授權請求的人直接就有 verifier,等於沒做 —— 所以不收。
+- **redirect_uri 必須跟註冊的完全相同**。前綴比對會讓 `https://claude.ai.evil.com/cb` 這種東西通過,授權碼就送到別人手上了。
+- **授權碼一次性,活 60 秒**。用第二次不只是拒絕,**連同那張碼換出去的權杖一起撤銷** —— 一張碼被用兩次代表它很可能被攔截了,這時候保住資料比保住連線重要。
+- **更新權杖也是一次性的**,換一次就輪替。
+- **授權碼與權杖都只存雜湊**,外流的備份裡沒有能用的東西。
+- **不發 client_secret**。MCP 的用戶端是公開用戶端,密鑰藏不住,保護來自 PKCE 與 redirect_uri 比對,不靠一個會外流的密鑰。
+- **權杖借用授權那個人的權限**,而且角色是每次查的 —— 一個人被降權之後,他先前發出去的權杖立刻跟著降。
+
+### 撤銷
+
+**系統設定 → 整合 → 已授權的 MCP 應用程式**,按垃圾桶,那個應用程式手上的權杖立刻全部失效。
+
+
 ## 三、有哪些工具
 
 | 工具 | 回答什麼 |
@@ -81,7 +115,14 @@ Slack、Notion 那種是廠商自己做了端點放進 Claude 的目錄裡。這
 - **金鑰外流等於整個資料庫外流**（如果那是 ADMIN 的金鑰）。定期在整合頁面看 `lastUsedAt`，不用的就刪掉
 - 只需要唯讀統計的話，**發一把 MEMBER 或 SUPERVISOR 的金鑰就好** —— 它拿不到 `run_sql`，看得到的看板也受限
 
-只有自己這台機器要用的話，不必對外開放：改用本機的 stdio MCP 轉接，金鑰不離開這台機器。
+只有自己這台機器要用的話,不必對外開放:Claude Code 直接用 API 金鑰打 `http://localhost:3000/api/mcp` 就好,金鑰不離開這台機器。
+
+**要讓 Cowork / claude.ai 用得到就一定得對外開放**,沒有別條路 —— 那邊是從 Anthropic 的雲端連過來的。要開的話:
+
+- 用 **Cloudflare Tunnel** 之類的方式,不必在防火牆上開埠、也不需要固定 IP(通道是從你這邊撥出去的)
+- `APP_BASE_URL` 要改成對外的網址 —— OAuth 的自我描述與導向都照它產生,還留著 localhost 的話整套談不起來
+- 對外之後,**登入頁與所有 API 也一起暴露了**。密碼鎖定機制本來就在,但值得再看一次誰有帳號
+- 想只給週報、不想開整套,見 [weekly-report.md](weekly-report.md):那條路一個洞都不用開
 
 ## 六、除錯
 
