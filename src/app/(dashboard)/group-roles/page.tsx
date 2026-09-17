@@ -30,7 +30,7 @@ export default async function GroupRolesSettingsPage() {
       orderBy: { name: "asc" },
     }),
     prisma.user.findMany({
-      select: { id: true, name: true, supervisorId: true, avatarUrl: true },
+      select: { id: true, name: true, supervisorId: true, avatarUrl: true, discipline: true },
       orderBy: { name: "asc" },
     }),
     prisma.resource.findMany({ orderBy: { order: "asc" } }),

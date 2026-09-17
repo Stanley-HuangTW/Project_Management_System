@@ -75,6 +75,8 @@ export type UserOption = {
   name: string;
   supervisorId?: string | null;
   avatarUrl?: string | null;
+  /** 所屬單位(OrgUnit.code)。分組角色要照部門挑人,靠的是它。 */
+  discipline?: string | null;
   // Set for entries backed by a Resource (tool/vendor) rather than a real
   // User — they can be a PERSON-column 負責人, but have no account, so
   // anything with a real FK to User (e.g. Gantt Assignments) must exclude them.
