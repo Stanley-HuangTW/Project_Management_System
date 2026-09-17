@@ -22,7 +22,7 @@ export type GroupRolesData = {
 const ROLE_LABELS: Record<GroupRole, string> = {
   TEAM_LEADER: "Team Leader",
   SW_DM: "SW DM",
-  HW_DM: "HW DM",
+  HW_DM: "EE DM",
   ME_DM: "ME DM",
   QA: "QA DM",
   PMM: "PMM",
@@ -30,6 +30,14 @@ const ROLE_LABELS: Record<GroupRole, string> = {
 };
 const ROLES: GroupRole[] = ["TEAM_LEADER", "SW_DM", "HW_DM", "ME_DM", "QA", "PMM", "PMD"];
 const DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA"];
+
+/** 畫面上的部門名稱。HW 這個列舉值對外一律叫 EE。 */
+const DISCIPLINE_LABELS: Record<GroupDiscipline, string> = {
+  SW: "SW",
+  HW: "EE",
+  ME: "ME",
+  QA: "QA",
+};
 
 /**
  * 哪個角色綁哪個部門。
@@ -50,13 +58,13 @@ const ROLE_DISCIPLINE: Record<GroupRole, GroupDiscipline | null> = {
 /**
  * 部門代號可能對不上使用者身上的單位。
  *
- * 分組職能是固定的 SW/HW/ME/QA,而「公司組織單位」是設定出來的(預設
- * EE/ME/SW/QA/FAE/PM,沒有 HW)。硬比代號的話 HW DM 會永遠是空的,所以
- * 硬體那一欄也收 EE —— 電機就是硬體那條線上的人。
+ * 分組職能的列舉值是固定的 SW/HW/ME/QA,而「公司組織單位」是設定出來的
+ * (預設 EE/ME/SW/QA/FAE/PM)。HW 這一支對外叫 EE,所以先比 EE;舊資料裡
+ * 如果真的有人的單位是 HW,也一併收,不然那些人會突然從清單上消失。
  */
 const UNIT_ALIASES: Record<GroupDiscipline, string[]> = {
   SW: ["SW"],
-  HW: ["HW", "EE"],
+  HW: ["EE", "HW"],
   ME: ["ME"],
   QA: ["QA"],
 };
@@ -184,7 +192,7 @@ export function GroupRolesModal({
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">角色</h3>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
-            Team Leader、PMD 可調整此分組任何項目的時程(拖曳甘特圖、改起訖日)。SW/HW/ME/QA
+            Team Leader、PMD 可調整此分組任何項目的時程(拖曳甘特圖、改起訖日)。SW/EE/ME/QA
             DM 可在此分組新增/指派項目、管理各自領域成員的進度,範圍僅限此分組。PMM 目前僅作花名冊,不授予額外權限。
             DM 的人選預設只列該部門的人,Team Leader / PMM / PMD 則是任一部門任一人。
           </p>
@@ -209,7 +217,9 @@ export function GroupRolesModal({
                     }))}
                     selectedIds={selectedIds}
                     disabled={pending === key}
-                    placeholder={discipline && scoped ? `未指定(${discipline} 部門)` : "未指定"}
+                    placeholder={
+                      discipline && scoped ? `未指定(${DISCIPLINE_LABELS[discipline]} 部門)` : "未指定"
+                    }
                     emptyText="沒有可選的人"
                     footer={scopeFooter(key, discipline, deptEmpty)}
                     onToggle={(userId) => toggleRole(role, userId)}
@@ -223,7 +233,7 @@ export function GroupRolesModal({
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">實作成員</h3>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
-            SW/HW/ME/QA DM 只能管理各自欄位底下列出的成員。人選同樣預設只列該部門的人。
+            SW/EE/ME/QA DM 只能管理各自欄位底下列出的成員。人選同樣預設只列該部門的人。
           </p>
           <div className="space-y-2">
             {DISCIPLINES.map((discipline) => {
@@ -235,7 +245,7 @@ export function GroupRolesModal({
               return (
                 <div key={discipline} className="flex items-center gap-2">
                   <span className="w-24 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                    {discipline} member
+                    {DISCIPLINE_LABELS[discipline]} member
                   </span>
                   <MultiSelect
                     options={options.map((u) => ({
@@ -245,7 +255,7 @@ export function GroupRolesModal({
                     }))}
                     selectedIds={selectedIds}
                     disabled={pending === key}
-                    placeholder={scoped ? `未指定(${discipline} 部門)` : "未指定"}
+                    placeholder={scoped ? `未指定(${DISCIPLINE_LABELS[discipline]} 部門)` : "未指定"}
                     footer={scopeFooter(key, discipline, deptEmpty)}
                     onToggle={(userId) => toggleMember(discipline, userId)}
                   />

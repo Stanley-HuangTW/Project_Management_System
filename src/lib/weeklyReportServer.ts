@@ -42,7 +42,7 @@ export type WeeklyReportSnapshot = WeeklyReportData;
 /** 對應中文的部門名稱 —— GroupDiscipline 是四種工程職能。 */
 const DISCIPLINE_LABELS: Record<string, string> = {
   SW: "SW 軟體",
-  HW: "HW 硬體",
+  HW: "EE 電機",
   ME: "ME 機構",
   QA: "QA 品保",
 };
