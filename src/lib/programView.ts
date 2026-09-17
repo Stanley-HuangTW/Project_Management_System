@@ -13,6 +13,7 @@ import {
   type RelationshipType,
 } from "@/lib/predecessorLink";
 import { computeCriticalPathAcross, type NetworkColumns } from "@/lib/criticalPath";
+import { resolveStatusColumn } from "@/lib/dashboard";
 
 /**
  * One row of a 專案群組's combined schedule, flattened and serialisable.
@@ -40,6 +41,10 @@ export type ProgramTask = {
   isSummary: boolean;
   isMilestone: boolean;
   assigneeNames: string[];
+  /** 指派到誰。週報要靠 id 對上部門名冊 —— 名字會重複,而且會改。 */
+  assigneeIds: string[];
+  /** 狀態欄目前的選項標籤。週報拿它比出「這週狀態變了什麼」。 */
+  status: string | null;
   /** Edges INTO this task, already resolved to ids — including the ones that
    *  cross to another board, which is the whole reason this view exists. */
   preds: { predId: string; relationship: RelationshipType | null; crossBoard: boolean }[];
@@ -68,6 +73,17 @@ export type ProgramView = {
 
 function iso(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+/** 這個項目的狀態標籤。沒有狀態欄、或還沒選,都回 null 而不是編一個字。 */
+function statusLabelOf(board: BoardWithData, item: ItemData): string | null {
+  const column = resolveStatusColumn(board);
+  if (!column) return null;
+  const value = item.cellValues.find((cv) => cv.columnId === column.id)?.value;
+  if (typeof value !== "string") return null;
+  // 選項是 JSON,要走 getStatusOptions 才拿得到形狀 —— 直接 .find 會踩到
+  // Prisma 的 JsonValue 聯集。
+  return getStatusOptions(column.options).find((o) => o.id === value)?.label ?? null;
 }
 
 function networkColumnsOf(board: BoardWithData): NetworkColumns {
@@ -237,6 +253,8 @@ export async function getProgramView(
         isSummary: hasChildren.has(item.id),
         isMilestone,
         assigneeNames: item.assignments.map((a) => a.user.name),
+        assigneeIds: item.assignments.map((a) => a.user.id),
+        status: statusLabelOf(board, item),
         preds,
         totalFloat: float?.totalFloat ?? null,
         isCritical: float?.isCritical ?? false,

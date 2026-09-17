@@ -3,12 +3,12 @@ import type { SessionPayload } from "@/lib/jwt";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { boardWithDataArgs, type BoardWithData } from "@/types/board";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
-import { computeWbsCodes } from "@/lib/wbs";
 import { computeOverdueUpcoming } from "@/lib/dashboard";
-import { computeStatusBuckets, groupItemsByBucket } from "@/lib/boardReport";
+import { computeStatusBuckets } from "@/lib/boardReport";
 import { gatherDelayInputs } from "@/lib/delayInputs";
 import { analyzeDelays } from "@/lib/delayAnalysis";
 import { summarizeBudget } from "@/lib/budget";
+import { getProgramView } from "@/lib/programView";
 import {
   diffWeeks,
   renderWeeklyReportMarkdown,
@@ -17,6 +17,9 @@ import {
   type BoardLine,
   type BudgetLine,
   type DelayLine,
+  type DepartmentSection,
+  type ItemBucket,
+  type ProgramSection,
   type ReportItem,
   type WeeklyReportData,
   type WeeklyReportDiff,
@@ -25,42 +28,32 @@ import {
 /**
  * 週報的資料來源。
  *
- * 每一個數字都走畫面在用的那些函式(computeOverdueUpcoming、
- * computeStatusBuckets、analyzeDelays、summarizeBudget)—— 週報跟儀表板
- * 對不起來的時候,沒有人會知道該信哪一個。
+ * 每一個數字都走畫面在用的那些函式(getProgramView、computeOverdueUpcoming、
+ * computeStatusBuckets、analyzeDelays、summarizeBudget)—— 週報跟儀表板、
+ * 群組甘特圖對不起來的時候,沒有人會知道該信哪一個。里程碑與要徑就是這樣
+ * 來的:群組甘特圖已經在算了,這裡不重算第二套。
  *
  * 看得到哪些看板照 accessibleBoardWhere 走,所以週報永遠不會比那個人自己
  * 登入時看得更多。
  */
 
-/** 這一週的已完成清單也要存,下一週才比得出「這週完成了什麼」。 */
-export type WeeklyReportSnapshot = WeeklyReportData & { done: ReportItem[] };
+export type WeeklyReportSnapshot = WeeklyReportData;
 
-function itemShape(
-  item: { id: string; name: string; groupId: string },
-  board: BoardWithData,
-  wbs: Map<string, string>,
-  end: string
-): ReportItem {
-  return {
-    id: item.id,
-    wbsCode: wbs.get(item.id) ?? "",
-    name: item.name,
-    boardName: board.name,
-    groupName: board.groups.find((g) => g.id === item.groupId)?.name ?? "",
-    end,
-  };
-}
+/** 對應中文的部門名稱 —— GroupDiscipline 是四種工程職能。 */
+const DISCIPLINE_LABELS: Record<string, string> = {
+  SW: "SW 軟體",
+  HW: "HW 硬體",
+  ME: "ME 機構",
+  QA: "QA 品保",
+};
 
-/** 一塊看板裡每個項目的 WBS —— 代號是在自己分組樹裡的位置,一個分組算一次。 */
-function wbsOf(board: BoardWithData): Map<string, string> {
-  const codes = new Map<string, string>();
-  for (const group of board.groups) {
-    const mine = board.items.filter((i) => i.groupId === group.id);
-    for (const [id, code] of computeWbsCodes(mine)) codes.set(id, code);
-  }
-  return codes;
-}
+/** 哪個角色帶哪個職能。QA 的 DM 就是 QA 角色本身。 */
+const DM_ROLE_OF: Record<string, string> = {
+  SW: "SW_DM",
+  HW: "HW_DM",
+  ME: "ME_DM",
+  QA: "QA",
+};
 
 export async function buildWeeklyReport(
   session: SessionPayload,
@@ -68,96 +61,263 @@ export async function buildWeeklyReport(
 ): Promise<{ snapshot: WeeklyReportSnapshot; diff: WeeklyReportDiff; markdown: string }> {
   const { weekStart, weekEnd } = weekRangeOf(weekStartIso);
 
-  const [boards, holidayRows, programs] = await Promise.all([
+  const [boards, holidayRows] = await Promise.all([
     prisma.board.findMany({ where: accessibleBoardWhere(session), ...boardWithDataArgs }),
     listHolidays(),
-    prisma.program.findMany({ select: { id: true, name: true } }),
   ]);
-  const programName = new Map(programs.map((p) => [p.id, p.name]));
   const holidays = toHolidaySet(holidayRows);
 
+  // 逾期/七天內到期照儀表板那支算,一次算完再分給各專案。
   const { overdue, upcoming } = computeOverdueUpcoming(boards, undefined, holidays);
+  const bucketOf = new Map<string, ItemBucket>();
+  for (const e of overdue) bucketOf.set(e.itemId, "overdue");
+  for (const e of upcoming) bucketOf.set(e.itemId, "upcoming");
 
-  const boardLines: BoardLine[] = [];
-  const done: ReportItem[] = [];
-  for (const board of boards) {
-    const counts = computeStatusBuckets(board, board.items, holidays);
-    boardLines.push({
-      boardId: board.id,
-      boardName: board.name,
-      programName: board.programId ? (programName.get(board.programId) ?? null) : null,
-      total: counts.total,
-      done: counts.done,
-      overdue: counts.overdue,
-      inProgress: counts.inProgress,
-      notStarted: counts.notStarted + counts.planned,
+  const programIds = [...new Set(boards.map((b) => b.programId).filter((id): id is string => !!id))];
+  const programs = await prisma.program.findMany({
+    where: { id: { in: programIds } },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  const sections: ProgramSection[] = [];
+  for (const program of programs) {
+    const view = await getProgramView(program.id, session);
+    if (!view) continue;
+    const mine = boards.filter((b) => b.programId === program.id);
+    sections.push({
+      programName: program.name,
+      boards: boardLinesOf(mine, program.name, holidays),
+      items: view.tasks.map((task) => ({
+        id: task.id,
+        wbsCode: task.wbsCode,
+        name: task.name,
+        boardName: task.boardName,
+        groupName: task.groupName,
+        programName: program.name,
+        start: task.start,
+        end: task.end,
+        status: task.status,
+        ownerIds: task.assigneeIds,
+        ownerNames: task.assigneeNames,
+        isMilestone: task.isMilestone,
+        isCritical: task.isCritical,
+        bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(mine, holidays)),
+      })),
+      budgets: await gatherBudgets(mine),
+      delays: await gatherDelays(mine, session),
     });
-
-    // 已完成的那一桶要逐項存下來,下一週才知道哪幾項是新完成的。
-    const wbs = wbsOf(board);
-    const buckets = groupItemsByBucket(board, board.items, holidays);
-    for (const item of buckets.done) done.push(itemShape(item, board, wbs, ""));
   }
 
-  const shape = (list: typeof overdue): ReportItem[] =>
-    list.map((e) => ({
-      id: e.itemId,
-      wbsCode: e.wbsCode,
-      name: e.itemName,
-      boardName: e.boardName,
-      groupName: e.groupName,
-      end: e.end.toISOString().slice(0, 10),
-    }));
-
-  const [delays, budgets, activity] = await Promise.all([
-    gatherDelays(boards, session),
-    gatherBudgets(boards),
-    gatherActivity(boards, weekStart, weekEnd),
-  ]);
+  // 沒有歸屬專案群組的看板自己一段 —— 漏掉它們,那些工作項就整個消失了。
+  const orphans = boards.filter((b) => !b.programId);
+  if (orphans.length > 0) {
+    sections.push({
+      programName: null,
+      boards: boardLinesOf(orphans, null, holidays),
+      items: orphanItems(orphans, holidays, bucketOf),
+      budgets: await gatherBudgets(orphans),
+      delays: await gatherDelays(orphans, session),
+    });
+  }
 
   const snapshot: WeeklyReportSnapshot = {
     weekStart,
     weekEnd,
     generatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
     viewerName: session.name,
-    boards: boardLines,
-    overdue: shape(overdue),
-    upcoming: shape(upcoming),
-    doneTotal: done.length,
-    budgets,
-    delays,
-    activity,
-    done,
+    programs: sections,
+    departments: await gatherDepartments(boards, sections),
+    activity: await gatherActivity(boards, weekStart, weekEnd),
   };
 
   const previous = await loadSnapshot(session.userId, previousWeekOf(weekStart).weekStart);
-  const diff = diffWeeks(
-    { done: snapshot.done, overdue: snapshot.overdue },
-    previous ? { done: previous.done, overdue: previous.overdue } : null
-  );
-
+  const diff = diffWeeks(snapshot, previous);
   return { snapshot, diff, markdown: renderWeeklyReportMarkdown(snapshot, diff) };
+}
+
+/** 已完成的項目 id —— 照看板自己的「報表完成狀態」設定判定。 */
+function doneIds(boards: BoardWithData[], holidays: Set<string>): Set<string> {
+  const ids = new Set<string>();
+  for (const board of boards) {
+    const done = new Set(board.reportDoneOptionIds);
+    if (done.size === 0 || !board.reportStatusColumnId) continue;
+    for (const item of board.items) {
+      const value = item.cellValues.find((cv) => cv.columnId === board.reportStatusColumnId)?.value;
+      if (typeof value === "string" && done.has(value)) ids.add(item.id);
+    }
+  }
+  void holidays;
+  return ids;
+}
+
+/** 已完成優先於逾期 —— 跟畫面上的分桶規則同一個順序。 */
+function resolveBucket(
+  itemId: string,
+  status: string | null,
+  bucketOf: Map<string, ItemBucket>,
+  done: Set<string>
+): ItemBucket {
+  void status;
+  if (done.has(itemId)) return "done";
+  return bucketOf.get(itemId) ?? "other";
+}
+
+function boardLinesOf(
+  boards: BoardWithData[],
+  programName: string | null,
+  holidays: Set<string>
+): BoardLine[] {
+  return boards.map((board) => {
+    const counts = computeStatusBuckets(board, board.items, holidays);
+    return {
+      boardId: board.id,
+      boardName: board.name,
+      programName,
+      total: counts.total,
+      done: counts.done,
+      overdue: counts.overdue,
+      inProgress: counts.inProgress,
+      notStarted: counts.notStarted + counts.planned,
+    };
+  });
+}
+
+/**
+ * 沒有專案群組的看板拿不到 getProgramView,所以這裡自己攤平。
+ *
+ * 少了里程碑與要徑 —— 那兩個是跨看板算出來的,一塊孤立的看板沒有那個網絡。
+ * 標成 false 而不是假裝算得出來。
+ */
+function orphanItems(
+  boards: BoardWithData[],
+  holidays: Set<string>,
+  bucketOf: Map<string, ItemBucket>
+): ReportItem[] {
+  const done = doneIds(boards, holidays);
+  const out: ReportItem[] = [];
+  for (const board of boards) {
+    const groupName = new Map(board.groups.map((g) => [g.id, g.name]));
+    for (const item of board.items) {
+      out.push({
+        id: item.id,
+        wbsCode: "",
+        name: item.name,
+        boardName: board.name,
+        groupName: groupName.get(item.groupId) ?? "",
+        programName: null,
+        start: null,
+        end: null,
+        status: null,
+        ownerIds: item.assignments.map((a) => a.user.id),
+        ownerNames: item.assignments.map((a) => a.user.name),
+        isMilestone: false,
+        isCritical: false,
+        bucket: done.has(item.id) ? "done" : (bucketOf.get(item.id) ?? "other"),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * 各部門的工作事項。
+ *
+ * 部門是掛在分組底下的:同一個 SW 在 M3 跟在 AMR BOX 是不同一組人,所以
+ * 一個分組的一個職能算一個部門。DM 從分組角色來,成員從分組名冊來,工作
+ * 項則是「指派給這些成員的」——按人分,而不是按項目上的某個欄位分,因為
+ * 實際上是人被指派了工作,不是工作被標了部門。
+ */
+async function gatherDepartments(
+  boards: BoardWithData[],
+  sections: ProgramSection[]
+): Promise<DepartmentSection[]> {
+  const groupIds = boards.flatMap((b) => b.groups.map((g) => g.id));
+  if (groupIds.length === 0) return [];
+
+  const [roles, members] = await Promise.all([
+    prisma.groupRoleAssignment.findMany({
+      where: { groupId: { in: groupIds } },
+      include: { user: { select: { id: true, name: true } } },
+    }),
+    prisma.groupMember.findMany({
+      where: { groupId: { in: groupIds } },
+      include: { user: { select: { id: true, name: true } } },
+    }),
+  ]);
+  if (members.length === 0) return [];
+
+  const itemsByOwner = new Map<string, ReportItem[]>();
+  for (const item of sections.flatMap((s) => s.items)) {
+    for (const ownerId of item.ownerIds) {
+      itemsByOwner.set(ownerId, [...(itemsByOwner.get(ownerId) ?? []), item]);
+    }
+  }
+
+  const groupInfo = new Map<string, { groupName: string; boardName: string }>();
+  for (const board of boards) {
+    for (const group of board.groups) {
+      groupInfo.set(group.id, { groupName: group.name, boardName: board.name });
+    }
+  }
+
+  const out: DepartmentSection[] = [];
+  const byKey = new Map<string, typeof members>();
+  for (const member of members) {
+    const key = `${member.groupId}:${member.discipline}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), member]);
+  }
+
+  for (const [key, roster] of byKey) {
+    const [groupId, discipline] = key.split(":");
+    const info = groupInfo.get(groupId);
+    if (!info) continue;
+
+    const dmRole = DM_ROLE_OF[discipline];
+    const dmNames = roles
+      .filter((r) => r.groupId === groupId && r.role === dmRole)
+      .map((r) => r.user.name);
+
+    // 同一項可能指派給同部門兩個人,收斂成一份,不然同一件事會列兩次。
+    const seen = new Set<string>();
+    const mine: ReportItem[] = [];
+    for (const member of roster) {
+      for (const item of itemsByOwner.get(member.userId) ?? []) {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        mine.push(item);
+      }
+    }
+
+    out.push({
+      key,
+      discipline: DISCIPLINE_LABELS[discipline] ?? discipline,
+      groupName: info.groupName,
+      boardName: info.boardName,
+      dmNames,
+      memberNames: roster.map((m) => m.user.name),
+      overdue: mine.filter((i) => i.bucket === "overdue"),
+      upcoming: mine.filter((i) => i.bucket === "upcoming"),
+      inProgress: mine.filter((i) => i.bucket === "other"),
+    });
+  }
+
+  return out.sort((a, b) => a.boardName.localeCompare(b.boardName) || a.discipline.localeCompare(b.discipline));
 }
 
 /** 每個專案群組算一次延誤 —— 要徑跟延誤都是跨看板的,一塊一塊算會低估。 */
 async function gatherDelays(boards: BoardWithData[], session: SessionPayload): Promise<DelayLine[]> {
-  const byProgram = new Map<string, BoardWithData[]>();
-  for (const board of boards) {
-    const key = board.programId ?? `solo:${board.id}`;
-    byProgram.set(key, [...(byProgram.get(key) ?? []), board]);
-  }
-
-  const lines: DelayLine[] = [];
-  for (const group of byProgram.values()) {
-    const { inputs, visibleIds } = await gatherDelayInputs(
-      group.map((b) => b.id),
-      session
-    );
-    const analysis = analyzeDelays(inputs, visibleIds);
-    // 沒有基準線就沒有「晚幾天」可談,不假裝算得出來。
-    if (analysis.noBaseline || analysis.projectDelay <= 0) continue;
-    lines.push({
-      boardName: group.map((b) => b.name).join("、"),
+  if (boards.length === 0) return [];
+  const { inputs, visibleIds } = await gatherDelayInputs(
+    boards.map((b) => b.id),
+    session
+  );
+  const analysis = analyzeDelays(inputs, visibleIds);
+  // 沒有基準線就沒有「晚幾天」可談,不假裝算得出來。
+  if (analysis.noBaseline || analysis.projectDelay <= 0) return [];
+  return [
+    {
+      boardName: boards.map((b) => b.name).join("、"),
       projectDelayDays: analysis.projectDelay,
       culprits: analysis.culprits.slice(0, 5).map((c) => ({
         wbsCode: c.wbsCode,
@@ -165,9 +325,8 @@ async function gatherDelays(boards: BoardWithData[], session: SessionPayload): P
         ownDelayDays: c.ownDelay,
         downstreamCount: c.downstreamCount,
       })),
-    });
-  }
-  return lines;
+    },
+  ];
 }
 
 /** 每個有編預算的階段一列。金額全部轉成 number —— Decimal 過不了 JSON。 */
@@ -219,7 +378,9 @@ async function gatherBudgets(boards: BoardWithData[]): Promise<BudgetLine[]> {
     const mine = new Set(subtrees.get(phaseId) ?? []);
     const item = budgetRows.find((b) => b.itemId === phaseId)!.item;
     const summary = summarizeBudget({
-      budgets: budgetRows.filter((b) => b.itemId === phaseId).map((b) => ({ category: b.category, amount: b.amount })),
+      budgets: budgetRows
+        .filter((b) => b.itemId === phaseId)
+        .map((b) => ({ category: b.category, amount: b.amount })),
       actuals: expenses
         .filter((e) => mine.has(e.itemId))
         .map((e) => ({ category: e.category, amount: Number(e.amount) })),
@@ -270,12 +431,20 @@ async function gatherActivity(
     .sort((a, b) => b.count - a.count);
 }
 
+/**
+ * 上一週那一份。
+ *
+ * 舊版的快照沒有 programs 這個欄位 —— 回 null 當成「沒得比」,因為拿不到
+ * 逐項名單就算不出差異,硬比會把整份名單都說成這週新增的。
+ */
 async function loadSnapshot(userId: string, weekStart: string): Promise<WeeklyReportSnapshot | null> {
   const row = await prisma.weeklyReport.findUnique({
     where: { userId_weekStart: { userId, weekStart } },
     select: { data: true },
   });
-  return row ? (row.data as unknown as WeeklyReportSnapshot) : null;
+  if (!row) return null;
+  const data = row.data as unknown as Partial<WeeklyReportSnapshot>;
+  return Array.isArray(data.programs) ? (data as WeeklyReportSnapshot) : null;
 }
 
 /** 產出並存檔。同一個人同一週再跑一次就覆蓋,不會長出第二份。 */
