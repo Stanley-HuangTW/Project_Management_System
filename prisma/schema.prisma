@@ -85,20 +85,20 @@ model User {
 
   /// 每小時人力成本(元)。null = 尚未設定,成本會照 0 算並在報表上點名。
   /// 放在使用者身上而不是設定頁:它跟著人的職級變動,不是一份全域參數。
-  hourlyRate    Decimal?    @db.Decimal(12, 2)
+  hourlyRate    Decimal? @db.Decimal(12, 2)
   /// 所屬單位 —— 人力成本與人力規劃都照這個歸戶。
   discipline    String?
-  orgUnit       OrgUnit?    @relation(fields: [discipline], references: [code], onDelete: SetNull, onUpdate: Cascade)
+  orgUnit       OrgUnit? @relation(fields: [discipline], references: [code], onDelete: SetNull, onUpdate: Cascade)
   /// 個人月薪。有填就蓋過所屬單位的標準月薪;時薪有填的話仍然優先,
   /// 換算順序見 labourRate.ts。
-  monthlySalary Decimal?    @db.Decimal(12, 2)
+  monthlySalary Decimal? @db.Decimal(12, 2)
 
   weeklyReports WeeklyReport[]
   oauthCodes    OAuthCode[]
   oauthTokens   OAuthToken[]
-  supervisorId String?
-  supervisor   User?   @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
-  teamMembers  User[]  @relation("Supervision")
+  supervisorId  String?
+  supervisor    User?          @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
+  teamMembers   User[]         @relation("Supervision")
 
   ownedBoards          Board[]
   comments             Comment[]
@@ -244,6 +244,7 @@ model Board {
   milestoneTypes MilestoneType[]
   labourSlots    LabourSlot[]
   protoPlans     ProtoPlan[]
+  bomLines       BomLine[]
 
   @@index([deletedAt])
 }
@@ -622,6 +623,7 @@ model BudgetPhase {
   budgets     Budget[]
   reserves    Reserve[]
   labourPlans LabourPlan[]
+  bomLines    BomLine[]
 
   @@index([boardId, order])
 }
@@ -673,21 +675,21 @@ model PlanMilestone {
 /// 名額而不是人:預算階段常常還沒招到人,那一列就掛 TBH。指到人之後,
 /// userId 有值,ownerLabel 留著寫「TBH (Jason 代)」這種註記。
 model LabourSlot {
-  id          String     @id @default(cuid())
+  id          String  @id @default(cuid())
   boardId     String
-  board       Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  board       Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
   discipline  String
-  orgUnit     OrgUnit    @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  orgUnit     OrgUnit @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 名額代號,EE1、SW3。
   label       String
   /// 職能,EEDM、driver、web、PQA……比單位細一層。
-  func        String     @default("")
+  func        String  @default("")
   /// 指定的人。null = 還沒指定。
   userId      String?
-  user        User?      @relation("LabourSlotOwner", fields: [userId], references: [id], onDelete: SetNull)
+  user        User?   @relation("LabourSlotOwner", fields: [userId], references: [id], onDelete: SetNull)
   /// 沒指定人時寫在負責人欄的字,例如「TBH」「TBH (Jason 代)」。
-  ownerLabel  String     @default("")
-  description String     @default("")
+  ownerLabel  String  @default("")
+  description String  @default("")
   order       Int
 
   months LabourSlotMonth[]
@@ -741,6 +743,55 @@ model ProtoPlan {
   @@index([boardId, product])
 }
 
+/// 樣機 BOM:某個產品、某個階段,一台裝置要用哪些料。
+///
+/// 一個階段一份,不是一張表標三個階段的價錢 —— EVT 用的是工程樣品,DVT
+/// 換成量產件,PVT 又不一樣,同一個位置在三個階段可能是三個料號、三個廠商、
+/// 三個價錢。硬塞成一張表就沒辦法回答「DVT 那一版貴在哪裡」。
+///
+/// 多層:一列可以是「子集」(電池模組、主機板),底下再掛它自己的零件。
+/// 有子項目的那一列不填單價 —— 它的價錢是底下加起來的,兩邊都填就會有
+/// 一個永遠對不起來的數字,而且沒人知道該信哪一個。
+model BomLine {
+  id      String      @id @default(cuid())
+  boardId String
+  board   Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// 哪個產品。跟樣機計畫同一組名字(M3、充電站)。
+  product String
+  /// 哪個階段。階段一刪,它的 BOM 也跟著走。
+  phaseId String
+  phase   BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+
+  /// 上一層的子集。null = 最上層。
+  parentId String?
+  parent   BomLine?  @relation("BomTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children BomLine[] @relation("BomTree")
+
+  /// 品名。
+  name       String
+  /// 廠商。
+  vendor     String  @default("")
+  /// 型號 / 料號。
+  partNumber String  @default("")
+  /// 上一層要用幾個。最上層就是一台裝置要幾個;在子集底下就是那個子集裡要幾個。
+  qty        Decimal @db.Decimal(12, 3)
+  /// 單價,幣別由 currency 決定。有子項目的列填了也不算 —— 價錢從底下加上來。
+  unitPrice  Decimal @db.Decimal(14, 4)
+  currency   String  @default("TWD")
+  /// 換算台幣的匯率,凍結在填的當下 —— 跟訂單同一個道理,事後匯率變了不該
+  /// 讓半年前談好的那顆零件變貴。
+  fxRate     Decimal @db.Decimal(12, 6)
+  note       String  @default("")
+  order      Int
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([boardId, product, phaseId, order])
+  @@index([parentId])
+}
+
 /// 公司組織單位。人力成本、人力預算、樣機用途都按這個分,因為「這個階段
 /// 要花多少錢」在 NPI 裡實際上是「EE 幾個人月、ME 幾個人月」談出來的。
 ///
@@ -752,10 +803,10 @@ model OrgUnit {
   /// 排序。表格的欄位順序、下拉選單的順序都照這個。
   order Int    @default(0)
 
-  users  User[]
-  rate   DisciplineRate?
-  plans  LabourPlan[]
-  slots  LabourSlot[]
+  users User[]
+  rate  DisciplineRate?
+  plans LabourPlan[]
+  slots LabourSlot[]
 
   @@index([order])
 }
@@ -763,11 +814,11 @@ model OrgUnit {
 /// 各單位的標準月薪。編預算的時候還不知道會是誰做,所以人力規劃一律用
 /// 單位的標準價;實際成本才用到人身上的費率。
 model DisciplineRate {
-  discipline    String  @id
-  orgUnit       OrgUnit @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  discipline    String   @id
+  orgUnit       OrgUnit  @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 元/月。
   monthlySalary Int
-  updatedAt     DateTime   @updatedAt
+  updatedAt     DateTime @updatedAt
 }
 
 /// 一個階段要用掉某個單位幾個人月。階段 × 單位交叉起來就是人力規劃表,
@@ -783,9 +834,9 @@ model LabourPlan {
   phaseId      String
   phase        BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   discipline   String
-  orgUnit      OrgUnit    @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  orgUnit      OrgUnit     @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 人月,允許到小數點兩位(0.5 個人月是常見的寫法)。
-  personMonths Decimal    @db.Decimal(8, 2)
+  personMonths Decimal     @db.Decimal(8, 2)
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -1240,7 +1291,7 @@ enum CostCategory {
 /// 「做掉的事有沒有比估的貴」。這裡的是「這個階段/這個專案總共核准多少錢」,
 /// 拿來回答「還剩多少可以花」——兩個問題不一樣,所以兩份數字並存。
 model Budget {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   /// 恰好其中一個有值:預算階段、看板上的一列工作項,或整個專案群組。
   ///
   /// phaseId 是現在的主軸:預算是「計畫」,而計畫的單位是預算階段 ——
@@ -1252,9 +1303,9 @@ model Budget {
   phaseId   String?
   phase     BudgetPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   itemId    String?
-  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item      Item?        @relation(fields: [itemId], references: [id], onDelete: Cascade)
   programId String?
-  program   Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program   Program?     @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   category CostCategory
   /// 元。
