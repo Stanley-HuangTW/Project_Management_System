@@ -752,6 +752,11 @@ function CategoryTable({
                       {view.labourFromPlan ? "(由人力規劃表計算)" : "(由工時自動計算)"}
                     </span>
                   )}
+                  {category === "MATERIAL" && view.materialFromBom && (
+                    <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">
+                      (由樣機 BOM 計算)
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
                   {budget ? formatMoney(budget) : "—"}
@@ -784,6 +789,13 @@ function CategoryTable({
                         title="到「人力規劃」那張表改人月,或到系統設定改單位標準月薪"
                       >
                         見人力規劃
+                      </span>
+                    ) : category === "MATERIAL" && view.materialFromBom ? (
+                      <span
+                        className="text-[11px] text-neutral-400 dark:text-neutral-500"
+                        title="到「樣機 BOM」那張表改單價、廠商或台數"
+                      >
+                        見 BOM
                       </span>
                     ) : (
                       <button

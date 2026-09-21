@@ -8,6 +8,7 @@ import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
+import { resyncBomMaterial } from "@/lib/actions/bom";
 import { summariseProtoPlan, type ProtoSummary } from "@/lib/protoPlan";
 
 export type ProtoPlanView = {
@@ -92,6 +93,9 @@ export async function setProtoQty(
     update: { qty, note: note.trim() },
   });
 
+  // 台數變了,這個階段的材料預算(單台 BOM 價 × 台數)就得跟著動——如果
+  // 這個階段根本沒有 BOM,resyncBomMaterial 什麼都不做。
+  await resyncBomMaterial(boardId, phaseId);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }
@@ -139,6 +143,10 @@ export async function deleteProtoRow(
   unit: string
 ): Promise<{ error?: string }> {
   const session = await requireProtoAdmin(boardId);
+  const affected = await prisma.protoPlan.findMany({
+    where: { boardId, product, unit },
+    select: { phaseId: true },
+  });
   const removed = await prisma.protoPlan.deleteMany({ where: { boardId, product, unit } });
   await logAudit(
     "COST",
@@ -146,6 +154,9 @@ export async function deleteProtoRow(
     `刪除樣機計畫「${product} / ${unit}」(${removed.count} 個階段的台數)`,
     boardId
   );
+  for (const phaseId of new Set(affected.map((a) => a.phaseId))) {
+    await resyncBomMaterial(boardId, phaseId);
+  }
   revalidatePath(`/boards/${boardId}`);
   return {};
 }

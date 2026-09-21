@@ -111,6 +111,8 @@ export type BudgetView = {
   labourActual: number;
   /** 人力核准金額是不是人力規劃表算出來的 —— 是的話就不該再手填。 */
   labourFromPlan: boolean;
+  /** 材料核准金額是不是樣機 BOM 算出來的 —— 是的話就不該再手填。 */
+  materialFromBom: boolean;
   /** 照這樣下去會花多少 — see budgetForecast.ts. */
   forecast: BudgetForecast;
   /** 目前可選的幣別與匯率,用來預填輸入框。 */
@@ -465,6 +467,13 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
         ? (await prisma.labourPlan.count({ where: { phaseId: scope.id } })) > 0
         : scope.kind === "item" &&
           (await prisma.labourPlan.count({ where: { phase: { itemId: scope.id } } })) > 0,
+    // 同一個道理:材料是不是由 BOM 驅動,看的是這個階段有沒有任何一筆
+    // BomLine——不是看目前算出來的金額是不是 0(0 也可能是 BOM 算出來的)。
+    materialFromBom:
+      scope.kind === "phase"
+        ? (await prisma.bomLine.count({ where: { phaseId: scope.id } })) > 0
+        : scope.kind === "item" &&
+          (await prisma.bomLine.count({ where: { phase: { itemId: scope.id } } })) > 0,
     // Same rule the write paths enforce — see canEditBudget.
     canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({

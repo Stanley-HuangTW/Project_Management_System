@@ -8,6 +8,7 @@ import { BudgetPanel } from "./BudgetPanel";
 import { LabourPlanTable } from "./LabourPlanTable";
 import { LabourSheet } from "./LabourSheet";
 import { ProtoPlanTable } from "./ProtoPlanTable";
+import { BomTable } from "./BomTable";
 
 type PhaseOption = { id: string; name: string; itemId: string | null };
 
@@ -25,7 +26,7 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
   const [phases, setPhases] = useState<PhaseOption[] | null>(null);
   const [phaseId, setPhaseId] = useState("");
   // 人力規劃橫跨所有階段,所以它不在階段面板裡面,而是跟它並排的另一個視圖。
-  const [view, setView] = useState<"phase" | "sheet" | "proto" | "labour">("phase");
+  const [view, setView] = useState<"phase" | "sheet" | "proto" | "bom" | "labour">("phase");
 
   useEffect(() => {
     let cancelled = false;
@@ -52,6 +53,7 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
             ["phase", "階段預算"],
             ["sheet", "人力表"],
             ["proto", "樣機計畫"],
+            ["bom", "樣機 BOM"],
             ["labour", "人力規劃彙總"],
           ] as const
         ).map(([id, label]) => (
@@ -74,6 +76,8 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
         <LabourSheet boardId={board.id} />
       ) : view === "proto" ? (
         <ProtoPlanTable boardId={board.id} />
+      ) : view === "bom" ? (
+        <BomTable boardId={board.id} />
       ) : view === "labour" ? (
         <LabourPlanTable boardId={board.id} />
       ) : phases === null ? (
