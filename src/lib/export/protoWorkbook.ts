@@ -137,10 +137,13 @@ export async function buildProtoWorkbook(input: ProtoWorkbookInput): Promise<Buf
   }
 
   r++;
-  ws.getCell(r, 1).value =
+  // 寫在第 2 欄,不是第 1 欄——第 1 欄是區塊邊界用的那一欄,這一列留白
+  // 才會被當成單純的分隔列略過,不會被讀成「還在上一個產品裡」的一筆
+  // 台數全是 0 的假用途單位。
+  ws.getCell(r, 2).value =
     "改完存檔,回程式按「匯入 Excel」。要新增產品,比照上面的格式加一個新區塊:" +
     "第一欄填「產品名稱 Proto Plan」,後面接各階段名稱。";
-  ws.getCell(r, 1).font = { italic: true, color: { argb: "FF808080" } };
+  ws.getCell(r, 2).font = { italic: true, color: { argb: "FF808080" } };
 
   // exceljs 帶著自己那份舊的 @types/node,型別上的 Buffer 跟專案的對不起來;
   // 執行期拿到的是真的 Buffer。
@@ -185,7 +188,13 @@ export async function parseProtoWorkbook(buffer: Buffer): Promise<ParsedProtoWor
       continue;
     }
 
-    if (label === "" || label === SUBTOTAL_LABEL) continue; // 空白分隔列、小計列都跳過。
+    if (label === "" || label === SUBTOTAL_LABEL) {
+      // 空白分隔列、小計列本身不是資料,但也結束目前的區塊——不然最後一個
+      // 區塊底下的說明文字(改完存檔,回程式按「匯入 Excel」……)會被當成
+      // 還在「目前這個產品」裡,讀成一個台數全是 0 的假用途單位。
+      currentProduct = null;
+      continue;
+    }
 
     if (!currentProduct) {
       warnings.push(`第 ${r} 列(${label})不在任何產品區塊裡,略過。`);

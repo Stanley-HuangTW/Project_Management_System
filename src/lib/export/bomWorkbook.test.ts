@@ -89,6 +89,16 @@ describe("樣機 BOM Excel 往返", () => {
     expect(rows[2].parentIndex).toBeNull();
   });
 
+  it("最後一行的操作說明不會被讀成一筆多出來的資料", async () => {
+    // 迴歸測試:樣機計畫的 Excel 曾經因為小計/空白列沒有真的結束區塊,把
+    // 最後那行操作說明讀成一筆假資料。這裡確認 BOM 的匯出檔案不會重蹈
+    // 覆轍——匯出檔案最下面一定有這行說明,只有 1 個區塊、1 列才是對的。
+    const parsed = await parseBomWorkbook(await build([block("M3", "EFS", m3EfsLines)]));
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.blocks).toHaveLength(1);
+    expect(parsed.blocks[0].rows).toHaveLength(3);
+  });
+
   it("還原出來的樹算出跟原本一樣的單台價格", async () => {
     const parsed = await parseBomWorkbook(await build([block("M3", "EFS", m3EfsLines)]));
     const rows = parsed.blocks[0].rows;

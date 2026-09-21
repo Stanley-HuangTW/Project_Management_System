@@ -56,6 +56,17 @@ describe("樣機計畫 Excel 往返", () => {
     expect(byKey.get("M3/SW/DVT2")).toMatchObject({ qty: 4, note: "" });
   });
 
+  it("最後一行的操作說明不會被讀成一筆假的用途單位", async () => {
+    // 迴歸測試:說明文字寫在最後一個區塊下面,曾經因為小計/空白列沒有真的
+    // 結束區塊,被當成還在最後一個產品裡的一筆台數全是 0 的用途單位,
+    // 名稱就是那整句說明文字。
+    const parsed = await parseProtoWorkbook(await build(m3Cells));
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.cells.every((c) => !c.unit.includes("匯入 Excel"))).toBe(true);
+    // M3 只有 HW-EE / HW-ME / SW 三個用途單位,不能多出別的名字。
+    expect(new Set(parsed.cells.map((c) => c.unit))).toEqual(new Set(["HW-EE", "HW-ME", "SW"]));
+  });
+
   it("沒填的格子也讀得到,值是 0——0 是存起來的答案,不是沒填", async () => {
     const parsed = await parseProtoWorkbook(await build(m3Cells));
     const cell = parsed.cells.find((c) => c.product === "M3" && c.unit === "HW-EE" && c.phaseName === "EVT");
