@@ -225,4 +225,65 @@ describe("人力表 Excel 往返", () => {
     expect(sum.getCell(2, 3).value).toBe(100000);
     expect((sum.getCell(2, 4).value as { formula?: string }).formula).toBe("B2*C2");
   });
+
+  describe("里程碑資訊", () => {
+    const milestoneTypes = [
+      { id: "t1", name: "SW milestones" },
+      { id: "t2", name: "Key Milestones" },
+    ];
+    const milestones = [
+      { typeId: "t1", name: "features complete", startDate: "2026-04-06", endDate: "2026-07-27" },
+      { typeId: "t2", name: "mock up", startDate: "2026-06-01", endDate: "2026-06-22" },
+      { typeId: "t2", name: "結構設計", startDate: "2026-06-22", endDate: "2026-07-06" },
+    ];
+
+    function buildWithMilestones() {
+      return buildLabourWorkbook({
+        boardName: "M3專案",
+        months,
+        phases,
+        slots,
+        units,
+        rates,
+        milestoneTypes,
+        milestones,
+      });
+    }
+
+    it("一個類型一列,列在階段列下面,名額往後挪", async () => {
+      const ws = await open(await buildWithMilestones());
+      expect(ws.getCell(2, 2).value).toBe("階段");
+      expect(ws.getCell(3, 2).value).toBe("SW milestones");
+      expect(ws.getCell(4, 2).value).toBe("Key Milestones");
+      expect(ws.getCell(5, 2).value).toBe("每月人數");
+      // 名額往後挪了兩列(兩個類型),第 6 列才是第一個名額。
+      expect(ws.getCell(6, 2).value).toBe("EE1 (DM)");
+    });
+
+    it("哪個月落在里程碑區間內就顯示它的名字", async () => {
+      const ws = await open(await buildWithMilestones());
+      // 2026-04 在 features complete 的區間內(第 7 欄)。
+      expect(ws.getCell(3, 7).value).toBe("features complete");
+      // 2026-03 在它之前,不顯示。
+      expect(ws.getCell(3, 6).value).toBeNull();
+    });
+
+    it("同一個月同一類型有兩個里程碑,用「/」接起來", async () => {
+      const ws = await open(await buildWithMilestones());
+      // 2026-06 同時落在 mock up 與結構設計的區間內(第 9 欄)。
+      expect(ws.getCell(4, 9).value).toBe("mock up / 結構設計");
+    });
+
+    it("往返之後,名額與投入還是讀得回來(表頭列數變了不影響)", async () => {
+      const parsed = await parseLabourWorkbook(await buildWithMilestones());
+      expect(parsed.slots.map((s) => s.label)).toEqual(["EE1 (DM)", "SW1"]);
+      expect(parsed.slots[0].fte).toEqual({ "2026-03": 1, "2026-04": 0.8, "2026-06": 0.5 });
+    });
+
+    it("小計欄的公式指到位移後的名額列", async () => {
+      const ws = await open(await buildWithMilestones());
+      const headcount = ws.getCell(5, 6).value as { formula?: string };
+      expect(headcount.formula).toBe("SUM(F6:F7)");
+    });
+  });
 });

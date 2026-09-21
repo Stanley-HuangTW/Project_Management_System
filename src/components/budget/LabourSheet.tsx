@@ -573,21 +573,6 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                   );
                 })}
               </div>
-              <div className="flex flex-1 items-center justify-end gap-1 px-2">
-                {canEdit &&
-                  row.map((entry) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => removePhase(entry.id, entry.name)}
-                      title={`刪除 ${entry.name}`}
-                      className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-                  ))}
-              </div>
             </div>
           ))}
 
@@ -644,21 +629,6 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       </button>
                     );
                   })}
-                </div>
-                <div className="flex flex-1 items-center justify-end gap-1 px-2">
-                  {canEdit &&
-                    row.map((entry) => (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => removeMilestone(entry.id, entry.name)}
-                        title={`刪除 ${entry.name}`}
-                        className="rounded p-0.5 text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    ))}
                 </div>
               </div>
             ))

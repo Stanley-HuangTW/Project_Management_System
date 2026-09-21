@@ -14,7 +14,28 @@ import {
  * 談人力的會議還是開著 Excel 在談 —— 匯出去讓人在熟悉的地方改,改完收回來。
  * 匯入只新增與更新,不刪:Excel 裡少一列的理由太多了,而刪掉一個名額會連
  * 它十幾個月的投入一起帶走。少掉的名額會在結果裡列出來,要刪在程式裡刪。
+ *
+ * 匯出一次拿兩個檔案:.xlsx 本身傳到 Google 雲端硬碟、用「Google 試算表」
+ * 開就能用(公式、跨表參照兩邊都懂),另一份 .gs 是選用的補丁 —— 轉檔補回
+ * Excel 那條「投入上限 0~1」的資料驗證,在名額區塊插新列時 Google 試算表
+ * 不會自動幫新列繼承這條規則。跟甘特圖匯出同一套做法。
  */
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function base64ToBytes(base64: string): ArrayBuffer {
+  const byteChars = atob(base64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+  return bytes.buffer;
+}
+
 export function LabourExcelButtons({
   boardId,
   canEdit,
@@ -29,26 +50,25 @@ export function LabourExcelButtons({
   const [busy, setBusy] = useState<"export" | "import" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LabourImportResult | null>(null);
+  const [exported, setExported] = useState(false);
 
   async function download() {
     setBusy("export");
     setError(null);
     setResult(null);
+    setExported(false);
     try {
       const out = await exportLabourWorkbook(boardId);
       if ("error" in out) return setError(out.error);
 
-      const bytes = Uint8Array.from(atob(out.base64), (c) => c.charCodeAt(0));
-      const url = URL.createObjectURL(
-        new Blob([bytes], {
+      downloadBlob(
+        out.xlsxFilename,
+        new Blob([base64ToBytes(out.xlsxBase64)], {
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         })
       );
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = out.filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(out.gsFilename, new Blob([out.gsContent], { type: "text/plain" }));
+      setExported(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "匯出失敗");
     } finally {
@@ -118,9 +138,22 @@ export function LabourExcelButtons({
           </>
         )}
         <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-          匯出的檔案帶公式,在 Excel 改完直接匯回來。匯入只新增與更新,不會刪掉名額。
+          匯出的檔案帶公式與各階段的里程碑資訊,在 Excel 改完直接匯回來。匯入只新增與更新,不會刪掉名額。
         </span>
       </div>
+
+      {exported && (
+        <div className="space-y-1 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+          <p>已下載 .xlsx 與 .gs 兩個檔案。.xlsx 可以直接在 Excel 開,也可以轉成 Google 試算表:</p>
+          <ol className="list-decimal space-y-0.5 pl-4">
+            <li>將 .xlsx 上傳到 Google 雲端硬碟,以「Google 試算表」開啟即可直接使用</li>
+            <li>
+              (選用)插入新的名額列想繼續套用投入上限,擴充功能 → Apps Script,貼上 .gs
+              檔內容並儲存,重新整理後在選單按「人力表 → 重新套用投入上限驗證」
+            </li>
+          </ol>
+        </div>
+      )}
 
       {error && (
         <p className="rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">

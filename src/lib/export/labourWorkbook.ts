@@ -19,9 +19,15 @@ import type { OrgUnit } from "@/lib/orgUnits";
 
 /** 名額欄位:ID(隱藏)、名額、單位、職能、負責人。月份從第 6 欄開始。 */
 export const FIRST_MONTH_COL = 6;
-/** 第 1~3 列是表頭(月份/階段/每月人數),名額從第 4 列開始。 */
-export const FIRST_SLOT_ROW = 4;
 export const SHEET_NAME = "manpower";
+/** 每月人數那一列的標籤。表頭列數會因為里程碑類型多少而變動,匯入時就是
+ *  靠找這個字串認出「名額從下一列開始」,不是靠固定的列號。 */
+const HEADCOUNT_LABEL = "每月人數";
+/** 第 1 列是月份,第 2 列是階段,每個里程碑類型各一列,最後是每月人數
+ *  —— 名額從再下一列開始。沒有里程碑類型時就是舊有的第 4 列。 */
+function firstSlotRow(milestoneTypeCount: number): number {
+  return 4 + milestoneTypeCount;
+}
 /**
  * 小計放在另一張表。
  *
@@ -32,6 +38,9 @@ export const SHEET_NAME = "manpower";
  */
 export const SUMMARY_SHEET_NAME = "合計";
 
+export type MilestoneRow = { typeId: string; name: string; startDate: string; endDate: string };
+export type MilestoneTypeRow = { id: string; name: string };
+
 export type LabourWorkbookInput = {
   boardName: string;
   months: MonthKey[];
@@ -40,6 +49,9 @@ export type LabourWorkbookInput = {
   units: OrgUnit[];
   /** 單位標準月薪,元/月。用來在表尾算金額。 */
   rates: { discipline: string; monthlySalary: number }[];
+  /** 里程碑類型,照排序 —— 一個類型一列,列在階段列下面。 */
+  milestoneTypes?: MilestoneTypeRow[];
+  milestones?: MilestoneRow[];
 };
 
 /** 匯入讀出來的一列。fte 只放使用者真的填了的月份。 */
@@ -94,17 +106,20 @@ function textOf(value: ExcelJS.CellValue): string {
 }
 
 export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<Buffer> {
-  const { months, phases, slots, units, rates } = input;
+  const { months, phases, slots, units, rates, milestoneTypes = [], milestones = [] } = input;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "工作管理平台";
   wb.created = new Date();
-  const ws = wb.addWorksheet(SHEET_NAME, { views: [{ state: "frozen", xSplit: 5, ySplit: 3 }] });
+  const firstSlot = firstSlotRow(milestoneTypes.length);
+  const ws = wb.addWorksheet(SHEET_NAME, {
+    views: [{ state: "frozen", xSplit: 5, ySplit: firstSlot - 1 }],
+  });
 
   const lastMonthCol = FIRST_MONTH_COL + months.length - 1;
   const totalCol = lastMonthCol + 1;
   const letter = (col: number) => ws.getColumn(col).letter;
-  const lastSlotRow = FIRST_SLOT_ROW + Math.max(slots.length, 1) - 1;
+  const lastSlotRow = firstSlot + Math.max(slots.length, 1) - 1;
 
   ws.getColumn(1).width = 26;
   ws.getColumn(1).hidden = true;
@@ -128,18 +143,34 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
   });
   phaseRow.font = { italic: true, color: { argb: "FF808080" } };
 
-  // 第 3 列:每個月全部人加起來幾個人。公式,所以在 Excel 裡改一格就會動。
-  const headcount = ws.getRow(3);
-  headcount.getCell(2).value = "每月人數";
+  // 一個里程碑類型一列,列在階段列下面 —— 跟畫面上的排法一樣:同一類型
+  // 排在同一排。哪個月要顯示哪個里程碑,用「這個月落在里程碑的起訖區間
+  // 內」判斷,一個月裡有好幾個同類型的里程碑就用「/」接起來。
+  milestoneTypes.forEach((type, typeIdx) => {
+    const row = ws.getRow(3 + typeIdx);
+    row.getCell(2).value = type.name;
+    months.forEach((month, m) => {
+      const names = milestones
+        .filter((ms) => ms.typeId === type.id && ms.startDate.slice(0, 7) <= month && month <= ms.endDate.slice(0, 7))
+        .map((ms) => ms.name);
+      if (names.length > 0) row.getCell(FIRST_MONTH_COL + m).value = names.join(" / ");
+    });
+    row.font = { italic: true, color: { argb: "FF808080" } };
+  });
+
+  // 每月人數:每個月全部人加起來幾個人。公式,所以在 Excel 裡改一格就會動。
+  const headcountRow = 3 + milestoneTypes.length;
+  const headcount = ws.getRow(headcountRow);
+  headcount.getCell(2).value = HEADCOUNT_LABEL;
   for (let c = FIRST_MONTH_COL; c <= totalCol; c++) {
     headcount.getCell(c).value = {
-      formula: `SUM(${letter(c)}${FIRST_SLOT_ROW}:${letter(c)}${lastSlotRow})`,
+      formula: `SUM(${letter(c)}${firstSlot}:${letter(c)}${lastSlotRow})`,
     };
   }
   headcount.font = { bold: true };
 
   slots.forEach((slot, i) => {
-    const row = ws.getRow(FIRST_SLOT_ROW + i);
+    const row = ws.getRow(firstSlot + i);
     row.getCell(1).value = slot.id;
     row.getCell(2).value = slot.label;
     row.getCell(3).value = slot.discipline;
@@ -157,7 +188,7 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
   // 一格最多 1 —— 程式裡擋得住,Excel 裡也要擋得住,不然改完才在匯入時
   // 被退回,人已經填了一整排。
   if (months.length > 0 && slots.length > 0) {
-    for (let r = FIRST_SLOT_ROW; r <= lastSlotRow; r++) {
+    for (let r = firstSlot; r <= lastSlotRow; r++) {
       for (let c = FIRST_MONTH_COL; c <= lastMonthCol; c++) {
         ws.getCell(r, c).dataValidation = {
           type: "decimal",
@@ -185,7 +216,7 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
   units.forEach((unit, i) => {
     const row = sum.getRow(2 + i);
     const slotRows = slots
-      .map((s, n) => (s.discipline === unit.code ? FIRST_SLOT_ROW + n : null))
+      .map((s, n) => (s.discipline === unit.code ? firstSlot + n : null))
       .filter((n): n is number => n !== null);
     row.getCell(1).value = unit.label ? `${unit.code}(${unit.label})` : unit.code;
     row.getCell(2).value =
@@ -250,9 +281,24 @@ export async function parseLabourWorkbook(buffer: Buffer): Promise<ParsedLabourW
     );
   }
 
+  // 名額從「每月人數」那一列的下一列開始 —— 不是靠固定的列號,因為上面
+  // 里程碑類型有幾排是可以變的。找不到就假設整張表都被改過表頭,不猜著讀。
+  let headcountRow: number | null = null;
+  for (let r = 2; r <= Math.min(ws.rowCount, 200); r++) {
+    if (textOf(ws.getRow(r).getCell(2).value) === HEADCOUNT_LABEL) {
+      headcountRow = r;
+      break;
+    }
+  }
+  if (headcountRow === null) {
+    throw new Error(
+      `第 B 欄找不到「${HEADCOUNT_LABEL}」那一列。請用程式匯出的檔案來改,不要自己新建一份。`
+    );
+  }
+
   const slots: ParsedSlot[] = [];
   const seenId = new Set<string>();
-  for (let r = FIRST_SLOT_ROW; r <= ws.rowCount; r++) {
+  for (let r = headcountRow + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
     const label = textOf(row.getCell(2).value);
     // 空白的一列就是排版用的空行,跳過。

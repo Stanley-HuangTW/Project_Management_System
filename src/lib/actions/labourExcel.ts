@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/activityLog";
 import { getLabourSheetView, resyncBoardLabour } from "@/lib/actions/labourSheet";
 import { canEditBudget } from "@/lib/actions/budget";
 import { buildLabourWorkbook, parseLabourWorkbook } from "@/lib/export/labourWorkbook";
+import { LABOUR_APPS_SCRIPT } from "@/lib/export/labourAppsScript";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
 
 /**
@@ -46,9 +47,11 @@ function safeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
 }
 
-export async function exportLabourWorkbook(
-  boardId: string
-): Promise<{ filename: string; base64: string } | { error: string }> {
+export type LabourExportResult =
+  | { error: string }
+  | { xlsxFilename: string; xlsxBase64: string; gsFilename: string; gsContent: string };
+
+export async function exportLabourWorkbook(boardId: string): Promise<LabourExportResult> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
@@ -65,12 +68,17 @@ export async function exportLabourWorkbook(
     slots: view.slots,
     units: view.units,
     rates: view.rates,
+    milestoneTypes: view.milestoneTypes,
+    milestones: view.milestones,
   });
 
   await logAudit("COST", session.userId, `匯出「${view.boardName}」的人力表 Excel`);
+  const baseName = safeFilename(view.boardName);
   return {
-    filename: `${safeFilename(view.boardName)}-人力表.xlsx`,
-    base64: buffer.toString("base64"),
+    xlsxFilename: `${baseName}-人力表.xlsx`,
+    xlsxBase64: buffer.toString("base64"),
+    gsFilename: `${baseName}-人力表-AppsScript.gs`,
+    gsContent: LABOUR_APPS_SCRIPT,
   };
 }
 
