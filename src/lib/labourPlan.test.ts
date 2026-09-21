@@ -82,10 +82,10 @@ describe("summariseLabourPlan", () => {
     { id: "evt", name: "EVT Phase" },
   ];
   const cells = [
-    { itemId: "poc", discipline: "EE" as const, personMonths: 3 },
-    { itemId: "poc", discipline: "ME" as const, personMonths: 2 },
-    { itemId: "evt", discipline: "EE" as const, personMonths: 1 },
-    { itemId: "evt", discipline: "PM" as const, personMonths: 0.5 },
+    { rowId: "poc", discipline: "EE" as const, personMonths: 3 },
+    { rowId: "poc", discipline: "ME" as const, personMonths: 2 },
+    { rowId: "evt", discipline: "EE" as const, personMonths: 1 },
+    { rowId: "evt", discipline: "PM" as const, personMonths: 0.5 },
   ];
 
   it("每個階段一列,每個單位一格,順序固定", () => {
@@ -116,7 +116,7 @@ describe("summariseLabourPlan", () => {
   it("有填人月但單位沒有標準價的,點名出來 —— 那些人月算不出錢", () => {
     const summary = summariseLabourPlan(
       phases,
-      [...cells, { itemId: "poc", discipline: "SW" as const, personMonths: 4 }],
+      [...cells, { rowId: "poc", discipline: "SW" as const, personMonths: 4 }],
       rates,
       UNITS
     );

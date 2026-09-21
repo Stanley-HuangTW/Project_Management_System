@@ -379,9 +379,11 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     items: resolved.items,
     labourActual: Math.round(labour),
     // 只有階段有人力規劃表;專案群組的人力是各階段加總,沒有自己的表。
+    // 人力現在掛在預算階段上,所以問的是「有沒有階段對應到這一列、而且
+    // 那個階段排了人月」—— 不是這一列自己底下有沒有人月。
     labourFromPlan:
       scope.kind === "item" &&
-      (await prisma.labourPlan.count({ where: { itemId: scope.id } })) > 0,
+      (await prisma.labourPlan.count({ where: { phase: { itemId: scope.id } } })) > 0,
     // Same rule the write paths enforce — see canEditBudget.
     canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({

@@ -421,7 +421,6 @@ model Item {
   commitments   Commitment[]
   expenses      Expense[]
   reserves      Reserve[]
-  labourPlans   LabourPlan[]
 
   @@index([boardId])
   @@index([groupId])
@@ -619,7 +618,9 @@ model BudgetPhase {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  protoPlans ProtoPlan[]
+  protoPlans  ProtoPlan[]
+  budgets     Budget[]
+  labourPlans LabourPlan[]
 
   @@index([boardId, order])
 }
@@ -774,9 +775,12 @@ model DisciplineRate {
 ///
 /// 掛在階段那一列工作項上,跟 Budget 一樣的錨點。
 model LabourPlan {
-  id           String     @id @default(cuid())
-  itemId       String
-  item         Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id           String      @id @default(cuid())
+  /// 掛在預算階段上,不是看板工作項:一個階段就是一段要編人力的計畫,
+  /// 而兩個階段可以對到看板上同一列(DVT1、DVT2 → DVT),掛在工作項上
+  /// 的話那兩段會擠成一筆。
+  phaseId      String
+  phase        BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   discipline   String
   orgUnit      OrgUnit    @relation(fields: [discipline], references: [code], onDelete: Restrict, onUpdate: Cascade)
   /// 人月,允許到小數點兩位(0.5 個人月是常見的寫法)。
@@ -786,7 +790,7 @@ model LabourPlan {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([itemId, discipline])
+  @@unique([phaseId, discipline])
 }
 
 model SystemSettings {
@@ -1236,10 +1240,16 @@ enum CostCategory {
 /// 拿來回答「還剩多少可以花」——兩個問題不一樣,所以兩份數字並存。
 model Budget {
   id        String   @id @default(cuid())
-  /// 恰好其中一個有值:預算掛在某個階段上,或整個專案群組上。
+  /// 恰好其中一個有值:預算階段、看板上的一列工作項,或整個專案群組。
   ///
-  /// 階段在這套系統裡是一列工作項(例如「EVT Phase」),不是分組——分組通常
-  /// 是整個專案。閘門也是這樣掛的,兩者對齊。預算涵蓋該列底下的整棵子樹。
+  /// phaseId 是現在的主軸:預算是「計畫」,而計畫的單位是預算階段 ——
+  /// DVT1 與 DVT2 是兩段各自要編預算的計畫,即使它們對到看板上同一列。
+  /// 實際花費(Expense/Commitment)仍然掛在看板工作項上,因為錢是花在真正
+  /// 做的事情上;兩邊分開才比得出「估的」與「花的」差多少。
+  ///
+  /// itemId 留著給沒有建預算階段的看板沿用,語意不變。
+  phaseId   String?
+  phase     BudgetPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   itemId    String?
   item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   programId String?
@@ -1254,6 +1264,7 @@ model Budget {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@unique([phaseId, category])
   @@unique([itemId, category])
   @@unique([programId, category])
 }

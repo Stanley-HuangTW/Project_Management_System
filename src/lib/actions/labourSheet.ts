@@ -236,74 +236,41 @@ async function syncFromSheet(boardId: string) {
   }));
 
   const { byPhase } = buildLabourSheet(phases, slots, rates, units);
-  const itemOf = new Map(phases.map((p) => [p.id, p.itemId]));
 
   /**
-   * 先按「對應到哪一列」加總,再一次寫進去。
+   * 一個預算階段寫一列,不再按「對應到哪一列工作項」去併。
    *
-   * 兩個預算階段可以對應到同一列(DVT1 與 DVT2 都對到看板上的 DVT)——
-   * 一個階段寫一次的話,後面那個的 deleteMany 會把前面那個剛寫進去的清掉,
-   * 那一列就只剩最後一個階段的人月,而且金額也只剩最後一個。
+   * 預算現在掛在階段上,所以 DVT1 與 DVT2 各有各的人月與金額,即使它們對到
+   * 看板上同一列 —— 對應那一欄只用來比「估的 vs 實際花的」,不再決定數字
+   * 存在哪裡。
    */
-  const perItem = new Map<string, { byDiscipline: Map<string, number>; amount: number }>();
   for (const phase of byPhase) {
-    const itemId = itemOf.get(phase.phaseId);
-    if (!itemId) continue;
-    const bucket = perItem.get(itemId) ?? { byDiscipline: new Map<string, number>(), amount: 0 };
-    for (const d of phase.byDiscipline) {
-      if (d.personMonths <= 0) continue;
-      bucket.byDiscipline.set(d.discipline, (bucket.byDiscipline.get(d.discipline) ?? 0) + d.personMonths);
-    }
-    bucket.amount += phase.amount;
-    perItem.set(itemId, bucket);
-  }
+    const phaseId = phase.phaseId;
+    await prisma.labourPlan.deleteMany({ where: { phaseId } });
 
-  /**
-   * 取消對應的那幾列要一起清掉。
-   *
-   * 只寫「現在有對應」的那些,舊的數字會留在原地 —— 畫面上看起來還在算,
-   * 其實已經沒有任何階段支撐它。人力表存在的看板,這幾列的人月與人力預算
-   * 就是由它產生的,所以由它負責收乾淨。
-   */
-  const allTopIds = (
-    await prisma.item.findMany({
-      where: { boardId, parentId: null, deletedAt: null },
-      select: { id: true },
-    })
-  ).map((i) => i.id);
-  const orphaned = allTopIds.filter((id) => !perItem.has(id));
-  if (orphaned.length > 0) {
-    await prisma.labourPlan.deleteMany({ where: { itemId: { in: orphaned } } });
-    await prisma.budget.deleteMany({
-      where: { itemId: { in: orphaned }, category: "LABOUR", note: "由人力表計算" },
-    });
-  }
-
-  for (const [itemId, bucket] of perItem) {
-    await prisma.labourPlan.deleteMany({ where: { itemId } });
-    const cells = [...bucket.byDiscipline].filter(([, months]) => months > 0);
+    const cells = phase.byDiscipline.filter((d) => d.personMonths > 0);
     if (cells.length > 0) {
       await prisma.labourPlan.createMany({
-        data: cells.map(([discipline, personMonths]) => ({
-          itemId,
-          discipline,
-          // 加總之後可能跑出浮點數的尾巴,收到小數兩位 —— 人月的欄位就是
-          // Decimal(8,2),不收的話寫進去會被截掉而不是四捨五入。
-          personMonths: Math.round(personMonths * 100) / 100,
+        data: cells.map((d) => ({
+          phaseId,
+          discipline: d.discipline,
+          // 人月的欄位是 Decimal(8,2),不收到小數兩位的話寫進去會被截掉
+          // 而不是四捨五入。
+          personMonths: Math.round(d.personMonths * 100) / 100,
         })),
       });
     }
 
-    if (bucket.amount > 0) {
+    if (phase.amount > 0) {
       await prisma.budget.upsert({
-        where: { itemId_category: { itemId, category: "LABOUR" } },
-        create: { itemId, category: "LABOUR", amount: Math.round(bucket.amount), note: "由人力表計算" },
-        update: { amount: Math.round(bucket.amount), note: "由人力表計算" },
+        where: { phaseId_category: { phaseId, category: "LABOUR" } },
+        create: { phaseId, category: "LABOUR", amount: Math.round(phase.amount), note: "由人力表計算" },
+        update: { amount: Math.round(phase.amount), note: "由人力表計算" },
       });
     } else {
       // 一個人月都沒排,人力預算就回到「沒有編列」,而不是留一個 0 在那裡
       // 假裝這個階段核准過 0 元的人力。
-      await prisma.budget.deleteMany({ where: { itemId, category: "LABOUR" } });
+      await prisma.budget.deleteMany({ where: { phaseId, category: "LABOUR" } });
     }
   }
 }
@@ -365,13 +332,9 @@ export async function deleteBudgetPhase(boardId: string, id: string): Promise<{ 
   const phase = await prisma.budgetPhase.findUnique({ where: { id }, select: { name: true, itemId: true } });
   if (!phase) return { error: "找不到這個階段" };
 
+  // 人月與人力預算都掛在這個階段上,外鍵是 Cascade,刪階段就一起走了 ——
+  // 不必再去看板工作項那邊清,那裡本來就沒有它們。
   await prisma.budgetPhase.delete({ where: { id } });
-  // 這個階段不在了,它推算出來的人力預算也要跟著收回,否則會留下一筆
-  // 沒有任何東西支撐的核准金額。
-  if (phase.itemId) {
-    await prisma.labourPlan.deleteMany({ where: { itemId: phase.itemId } });
-    await prisma.budget.deleteMany({ where: { itemId: phase.itemId, category: "LABOUR" } });
-  }
   await syncFromSheet(boardId);
   await logAudit("COST", session.userId, `刪除人力表階段「${phase.name}」`, boardId);
   revalidateBoard(boardId);
@@ -635,4 +598,14 @@ export async function fillLabourSlotRange(
   await syncFromSheet(boardId);
   revalidateBoard(boardId);
   return {};
+}
+
+/**
+ * 重新把這塊看板的人力表算回 LabourPlan 與 Budget。
+ *
+ * 給「改了單位標準月薪」那條路用:價錢變了,已經編出來的金額就得跟著變,
+ * 而這些數字唯一的來源就是人力表。
+ */
+export async function resyncBoardLabour(boardId: string): Promise<void> {
+  await syncFromSheet(boardId);
 }

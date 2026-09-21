@@ -88,7 +88,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
           </thead>
           <tbody>
             {summary.rows.map((row) => (
-              <tr key={row.itemId} className="border-b border-neutral-100 dark:border-neutral-800">
+              <tr key={row.rowId} className="border-b border-neutral-100 dark:border-neutral-800">
                 <td className="py-1.5 pr-3 text-neutral-800 dark:text-neutral-100">{row.itemName}</td>
                 {row.cells.map((cell) => (
                     <td key={cell.discipline} className="py-1.5 text-right tabular-nums">

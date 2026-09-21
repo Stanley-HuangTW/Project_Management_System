@@ -85,10 +85,12 @@ export function personMonthCost(
   return personMonths * monthly;
 }
 
-export type PlanCell = { itemId: string; discipline: Discipline; personMonths: number };
+/** rowId 是「這一格屬於哪一列」—— 現在那是預算階段的 id。刻意不叫 itemId:
+ *  它曾經是看板工作項,改掛階段之後那個名字會騙人。 */
+export type PlanCell = { rowId: string; discipline: Discipline; personMonths: number };
 
 export type PlanRow = {
-  itemId: string;
+  rowId: string;
   itemName: string;
   /** 照單位設定的順序,每一格的人月與金額。 */
   cells: { discipline: Discipline; personMonths: number; amount: number }[];
@@ -117,7 +119,7 @@ export function summariseLabourPlan(
   units: OrgUnit[]
 ): LabourPlanSummary {
   const DISCIPLINES = units.map((u) => u.code);
-  const byKey = new Map(cells.map((c) => [`${c.itemId}:${c.discipline}`, c.personMonths]));
+  const byKey = new Map(cells.map((c) => [`${c.rowId}:${c.discipline}`, c.personMonths]));
   const unpriced = new Set<Discipline>();
 
   const rows: PlanRow[] = phases.map((phase) => {
@@ -131,7 +133,7 @@ export function summariseLabourPlan(
       };
     });
     return {
-      itemId: phase.id,
+      rowId: phase.id,
       itemName: phase.name,
       cells: rowCells,
       personMonths: rowCells.reduce((t, c) => t + c.personMonths, 0),
