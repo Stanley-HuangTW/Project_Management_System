@@ -39,6 +39,9 @@ export type BomContext = {
   phases: { id: string; name: string }[];
   /** 已經在用的產品名稱(樣機計畫 + BOM 兩邊的聯集),給下拉選單當候選。 */
   products: string[];
+  /** 整塊看板層級的編輯權——跟選了哪個產品/階段無關,匯入 Excel(動到整
+   *  塊看板的 BOM)這種操作用得到,不用等使用者選了某個產品才知道能不能匯入。 */
+  canEdit: boolean;
 };
 
 export async function getBomContext(boardId: string): Promise<BomContext | null> {
@@ -48,7 +51,7 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
   if (!board) return null;
 
-  const [phases, protoProducts, bomProducts] = await Promise.all([
+  const [phases, protoProducts, bomProducts, first] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -56,10 +59,18 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
     }),
     prisma.protoPlan.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
     prisma.bomLine.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
+    prisma.item.findFirst({
+      where: { boardId, parentId: null, deletedAt: null },
+      orderBy: { order: "asc" },
+      select: { id: true },
+    }),
   ]);
 
   const products = [...new Set([...protoProducts, ...bomProducts].map((p) => p.product))].sort();
-  return { phases, products };
+  const canEdit = first
+    ? await canEditBudget({ kind: "item", id: first.id }, session)
+    : session.role === "ADMIN";
+  return { phases, products, canEdit };
 }
 
 export type BomLineRow = BomNode;

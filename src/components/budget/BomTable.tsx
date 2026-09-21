@@ -17,6 +17,7 @@ import {
 } from "@/lib/actions/bom";
 import { BomLineDialog, type BomLineOption } from "./BomLineDialog";
 import type { BomLineDraft } from "@/lib/actions/bom";
+import { BomExcelButtons } from "./BomExcelButtons";
 
 /** 這一列自己與它底下所有子孫的 id —— flattenBom 是先序走訪,子孫剛好是
  *  它後面那一段「深度比它深」的連續區間,不用重新爬一次樹。 */
@@ -189,12 +190,20 @@ export function BomTable({ boardId }: { boardId: string }) {
 
   const otherPhasesWithBom = ctx.phases.filter((p) => p.id !== phaseId);
 
+  async function onBomImported() {
+    await reload();
+    // 匯入可能一次動到很多產品/階段,候選清單也要一併重讀。
+    setCtx(await getBomContext(boardId));
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         某個產品、某個階段要用的料:廠商、型號、名稱,可以往下分子集(電池模組底下再掛零件)。算出來
         的單台價格會自動回寫這個階段的材料預算。
       </p>
+
+      <BomExcelButtons boardId={boardId} canEdit={ctx.canEdit} onImported={onBomImported} />
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="block">

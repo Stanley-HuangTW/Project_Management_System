@@ -1,5 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { summariseBom, flattenBom, bomMaterialBudget, type BomLineInput } from "./bom";
+import {
+  summariseBom,
+  flattenBom,
+  bomMaterialBudget,
+  reconstructBomTree,
+  type BomLineInput,
+  type IndentedBomLine,
+} from "./bom";
+
+function indented(over: Partial<IndentedBomLine> & { depth: number; name: string }): IndentedBomLine {
+  return {
+    vendor: "",
+    partNumber: "",
+    qty: 1,
+    unitPrice: 0,
+    currency: "TWD",
+    fxRate: 1,
+    note: "",
+    ...over,
+  };
+}
 
 function line(over: Partial<BomLineInput> & { id: string }): BomLineInput {
   return {
@@ -147,5 +167,96 @@ describe("bomMaterialBudget", () => {
 
   it("什麼都沒有就是 0", () => {
     expect(bomMaterialBudget([])).toBe(0);
+  });
+});
+
+describe("reconstructBomTree", () => {
+  it("全部同一階層,大家都是最上層", () => {
+    const { rows, warnings } = reconstructBomTree([
+      indented({ depth: 0, name: "a" }),
+      indented({ depth: 0, name: "b" }),
+    ]);
+    expect(warnings).toEqual([]);
+    expect(rows.map((r) => r.parentIndex)).toEqual([null, null]);
+  });
+
+  it("往下一層,上層是緊接在前面那一筆", () => {
+    const { rows } = reconstructBomTree([
+      indented({ depth: 0, name: "mod" }),
+      indented({ depth: 1, name: "part" }),
+    ]);
+    expect(rows[1].parentIndex).toBe(0);
+  });
+
+  it("同一層的兩筆,共用同一個上層", () => {
+    const { rows } = reconstructBomTree([
+      indented({ depth: 0, name: "mod" }),
+      indented({ depth: 1, name: "p1" }),
+      indented({ depth: 1, name: "p2" }),
+    ]);
+    expect(rows[1].parentIndex).toBe(0);
+    expect(rows[2].parentIndex).toBe(0);
+  });
+
+  it("退回上一層再往下,上層對回正確的那一筆祖先", () => {
+    const { rows } = reconstructBomTree([
+      indented({ depth: 0, name: "modA" }), // 0
+      indented({ depth: 1, name: "p1" }), // 1, parent 0
+      indented({ depth: 0, name: "modB" }), // 2
+      indented({ depth: 1, name: "p2" }), // 3, parent 2 (不是 0)
+    ]);
+    expect(rows[3].parentIndex).toBe(2);
+  });
+
+  it("三層:每一層都對到正確的直接上層", () => {
+    const { rows } = reconstructBomTree([
+      indented({ depth: 0, name: "top" }),
+      indented({ depth: 1, name: "mid" }),
+      indented({ depth: 2, name: "leaf" }),
+    ]);
+    expect(rows[1].parentIndex).toBe(0);
+    expect(rows[2].parentIndex).toBe(1);
+  });
+
+  it("階層從 0 跳到 2,自動夾回上一列的下一層,而且講清楚是哪一筆", () => {
+    const { rows, warnings } = reconstructBomTree([
+      indented({ depth: 0, name: "top" }),
+      indented({ depth: 2, name: "跳太多" }),
+    ]);
+    expect(rows[1].depth).toBe(1);
+    expect(rows[1].parentIndex).toBe(0);
+    expect(warnings.join()).toContain("跳太多");
+  });
+
+  it("負的階層當成 0", () => {
+    const { rows } = reconstructBomTree([indented({ depth: -1, name: "a" })]);
+    expect(rows[0].depth).toBe(0);
+    expect(rows[0].parentIndex).toBeNull();
+  });
+
+  it("空清單回傳空結果", () => {
+    expect(reconstructBomTree([])).toEqual({ rows: [], warnings: [] });
+  });
+
+  it("還原出來的父子關係餵回 summariseBom,算得出一樣的單台價格", () => {
+    const { rows } = reconstructBomTree([
+      indented({ depth: 0, name: "mod", qty: 2 }),
+      indented({ depth: 1, name: "leaf", qty: 3, unitPrice: 10 }),
+    ]);
+    const asInput: BomLineInput[] = rows.map((r, i) => ({
+      id: String(i),
+      parentId: r.parentIndex === null ? null : String(r.parentIndex),
+      name: r.name,
+      vendor: r.vendor,
+      partNumber: r.partNumber,
+      qty: r.qty,
+      unitPrice: r.unitPrice,
+      currency: r.currency,
+      fxRate: r.fxRate,
+      note: r.note,
+      order: i,
+    }));
+    // leaf: 3*10=30 一組;mod 用兩組 = 60。
+    expect(summariseBom(asInput).unitCostTwd).toBe(60);
   });
 });

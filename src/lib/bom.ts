@@ -158,3 +158,61 @@ export function bomMaterialBudget(
 ): number {
   return Math.round(perProduct.reduce((t, p) => t + p.unitCostTwd * p.qty, 0));
 }
+
+/**
+ * Excel 匯出入用的縮排格式:一列一階層數字,不是父子 id。
+ *
+ * Excel 裡沒有「這一列的上層是哪一列」這種天然的東西,而且新增一整棵子樹
+ * 時,使用者也不會知道還沒建出來的上層的資料庫 id。縮排就是大家已經會的
+ * 寫法 —— 跟這個表格畫面上用縮排表示階層是同一件事,往下一層階層數字加
+ * 一,程式自己找最近的上一層對回去。
+ */
+export type IndentedBomLine = {
+  /** 0 = 最上層。 */
+  depth: number;
+  name: string;
+  vendor: string;
+  partNumber: string;
+  qty: number;
+  unitPrice: number;
+  currency: string;
+  fxRate: number;
+  note: string;
+};
+
+export type RootedBomLine = IndentedBomLine & {
+  /** 上層是清單裡第幾筆(索引)。null = 最上層。 */
+  parentIndex: number | null;
+};
+
+/**
+ * 把縮排格式的清單,依階層數字還原成父子關係。
+ *
+ * 上層是「往上找最近一筆階層剛好少 1 的那一列」——跟畫面上的縮排是同一套
+ * 規則:同一層緊接著排,子項目才會往下縮一層。階層跳太多(例如從 0 直接
+ * 跳到 2,中間沒有階層 1)會被夾回「上一列的下一層」,不會生出一個不存在
+ * 的中間層。
+ */
+export function reconstructBomTree(lines: IndentedBomLine[]): {
+  rows: RootedBomLine[];
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  // stack[d] = 目前為止,深度 d 那一層最近一筆的索引。
+  const stack: number[] = [];
+  const rows: RootedBomLine[] = [];
+
+  lines.forEach((line, i) => {
+    let depth = Math.max(0, Math.round(line.depth));
+    if (depth > stack.length) {
+      warnings.push(`第 ${i + 1} 筆(${line.name})的階層跳太多,自動當成上一列的下一層。`);
+      depth = stack.length;
+    }
+    const parentIndex = depth > 0 ? stack[depth - 1] : null;
+    rows.push({ ...line, depth, parentIndex });
+    stack[depth] = i;
+    stack.length = depth + 1;
+  });
+
+  return { rows, warnings };
+}
