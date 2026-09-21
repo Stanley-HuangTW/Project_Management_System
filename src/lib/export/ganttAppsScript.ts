@@ -4,9 +4,18 @@
  * script the source sheet already relies on. Bundling a copy for a NEW file is
  * not the same as editing the original — that file is never touched.
  *
- * One addition on top of the original: BuildBurndownChart, because .xlsx has
- * no way to express a chart and Google Sheets does. The burn-down sheet the
- * export writes is the data; this draws it.
+ * Two additions on top of the original:
+ * - BuildBurndownChart, because .xlsx has no way to express a chart and
+ *   Google Sheets does. The burn-down sheet the export writes is the data;
+ *   this draws it.
+ * - todayTaipei_() plus pinning the spreadsheet's time zone to Asia/Taipei in
+ *   onOpen(). A freshly-imported Google Sheet does not inherit the .xlsx
+ *   file's (nonexistent) time zone — Google picks its own default, which can
+ *   land a day behind Taiwan. Every TODAY()-driven mark (the current-day
+ *   highlight, MarkCurrentWeek, GoToToday, overdue colouring) was silently
+ *   reading that wrong day. Every "what day is it" computation in this file
+ *   goes through todayTaipei_() so they all agree with the pinned time zone
+ *   instead of whatever the script runtime happens to default to.
  */
 export const GANTT_APPS_SCRIPT = `/**************************************************************************
  * AMR Platform Schedule - Google Apps Script (Fully Fixed)
@@ -15,7 +24,15 @@ export const GANTT_APPS_SCRIPT = `/*********************************************
 var SHEETS = ['Gantt (Day)', 'Gantt (Week)', 'Gantt (Month)'];
 var FIRST_ROW = 7;
 
+function todayTaipei_() {
+  var ymd = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd').split('-');
+  return new Date(Number(ymd[0]), Number(ymd[1]) - 1, Number(ymd[2]));
+}
+
 function onOpen() {
+  // 試算表本身的時區才是 TODAY() 公式(今日標記那條底色)看的那個 —— 沒
+  // 設的話 Google 會挑自己的預設,常常跟台灣差了一天。
+  SpreadsheetApp.getActiveSpreadsheet().setSpreadsheetTimeZone('Asia/Taipei');
   SpreadsheetApp.getUi()
     .createMenu('Gantt')
     .addItem('Refresh all', 'RefreshAll')
@@ -102,7 +119,7 @@ function FitTimeline() {
 
   var lastRow = getLastDataRow_(day);
   var fin = day.getRange(FIRST_ROW, finCol, lastRow - FIRST_ROW + 1, 1).getValues();
-  var maxF = new Date(); maxF.setHours(0, 0, 0, 0);
+  var maxF = todayTaipei_();
   for (var i = 0; i < fin.length; i++) {
     var v = fin[i][0];
     if (v instanceof Date && v.getTime() > maxF.getTime()) maxF = v;
@@ -140,7 +157,7 @@ function GoToToday() {
   if (!day) return;
   var tl0 = tlStart_(day);
   if (!tl0) return;
-  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var today = todayTaipei_();
   var lastCol = day.getLastColumn();
   var hdr = day.getRange(6, tl0, 1, lastCol - tl0 + 1).getValues()[0];
   for (var c = 0; c < hdr.length; c++) {
@@ -219,7 +236,7 @@ function colorTodayTasksRed() { applyTaskColors_(true); }
 function applyTaskColors_(showAlert) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const today = todayTaipei_();
     var applied = 0, missing = [];
     for (var s = 0; s < SHEETS.length; s++) {
       const sheet = ss.getSheetByName(SHEETS[s]);
@@ -354,7 +371,7 @@ function ToggleOverdueFilter() {
   var typ = sh.getRange(FIRST_ROW, typeCol, n, 1).getValues();
   var fin = sh.getRange(FIRST_ROW, finishCol, n, 1).getValues();
   var pct = sh.getRange(FIRST_ROW, pctCol, n, 1).getValues();
-  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var today = todayTaipei_();
   function isDone(p) {
     if (typeof p === 'number') return (p > 1 ? p / 100 : p) >= 1;
     if (p != null && p !== '') { var x = parseFloat(String(p).replace('%', '').trim()); if (!isNaN(x)) return (x > 1 ? x / 100 : x) >= 1; }
