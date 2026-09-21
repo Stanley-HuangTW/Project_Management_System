@@ -35,6 +35,7 @@ import {
   type LabourSheetView,
 } from "@/lib/actions/labourSheet";
 import { HScrollPane } from "@/components/ui/HScrollPane";
+import { LabourExcelButtons } from "./LabourExcelButtons";
 
 const MONTH_WIDTH = 46;
 const LABEL_WIDTH = 150;
@@ -393,6 +394,8 @@ export function LabourSheet({ boardId }: { boardId: string }) {
 
   return (
     <div className="space-y-4">
+      <LabourExcelButtons boardId={boardId} canEdit={canEdit} onImported={reload} />
+
       {(sheet.unpricedDisciplines.length > 0 || sheet.monthsOutsideAnyPhase.length > 0) && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
