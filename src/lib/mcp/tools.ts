@@ -470,7 +470,9 @@ async function getBudgetTool(session: SessionPayload, args: Json) {
   const itemIds = [...subtree];
 
   const [budgets, expenses, commitments] = await Promise.all([
-    prisma.budget.findMany({ where: { itemId } }),
+    // 預算現在可能掛在預算階段上,而階段對應到這一列 —— 只問 itemId 的話,
+    // 用人力表編預算的看板在這裡會一片空白。
+    prisma.budget.findMany({ where: { OR: [{ itemId }, { phase: { itemId } }] } }),
     prisma.expense.findMany({ where: { itemId: { in: itemIds } } }),
     prisma.commitment.findMany({ where: { itemId: { in: itemIds }, settled: false } }),
   ]);

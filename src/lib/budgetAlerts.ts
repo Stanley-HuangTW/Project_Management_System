@@ -37,10 +37,19 @@ export type BudgetAlert = {
 export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert[]> {
   const budgets = await prisma.budget.findMany({
     select: {
+      phaseId: true,
       itemId: true,
       programId: true,
       category: true,
       amount: true,
+      phase: {
+        select: {
+          name: true,
+          boardId: true,
+          itemId: true,
+          board: { select: { name: true } },
+        },
+      },
       item: { select: { name: true, boardId: true, board: { select: { name: true } } } },
       program: { select: { name: true, boards: { where: { deletedAt: null }, select: { id: true } } } },
     },
@@ -52,13 +61,18 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
   // an alert of its own.
   const byScope = new Map<string, typeof budgets>();
   for (const budget of budgets) {
-    const key = budget.itemId ? `i:${budget.itemId}` : `p:${budget.programId}`;
+    const key = budget.phaseId
+      ? `f:${budget.phaseId}`
+      : budget.itemId
+        ? `i:${budget.itemId}`
+        : `p:${budget.programId}`;
     byScope.set(key, [...(byScope.get(key) ?? []), budget]);
   }
 
   const alerts: BudgetAlert[] = [];
   for (const [key, rows] of byScope) {
-    const isPhase = key.startsWith("i:");
+    // f = 預算階段、i = 看板上的一列、p = 專案群組。
+    const kind = key[0] as "f" | "i" | "p";
     const id = key.slice(2);
 
     let itemIds: string[];
@@ -66,7 +80,17 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     let boardName: string | null = null;
     let href: string;
 
-    if (isPhase) {
+    if (kind === "f") {
+      const phase = rows[0].phase;
+      if (!phase) continue;
+      if (!(await canAccessBoard(session, phase.boardId))) continue;
+      // 花費記在看板的工作項上,所以只有對應過去的階段算得出實際數字。沒
+      // 對應的階段實際是 0,一定算不到警示線,自然不會出現在這張清單上。
+      itemIds = phase.itemId ? await subtreeIds(phase.boardId, phase.itemId) : [];
+      scopeName = phase.name;
+      boardName = phase.board.name;
+      href = `/boards/${phase.boardId}`;
+    } else if (kind === "i") {
       const phase = rows[0].item;
       if (!phase) continue;
       if (!(await canAccessBoard(session, phase.boardId))) continue;
@@ -110,7 +134,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       // The same scope the budget rows came from — a reserve is approved
       // alongside the budget, not spread across the subtree.
       prisma.reserve.findMany({
-        where: isPhase ? { itemId: id } : { programId: id },
+        where: kind === "f" ? { phaseId: id } : kind === "i" ? { itemId: id } : { programId: id },
         include: { draws: { select: { amount: true } } },
       }),
     ]);
@@ -138,7 +162,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     alerts.push({
       href,
       scopeName,
-      scopeKind: isPhase ? "階段" : "專案群組",
+      scopeKind: kind === "p" ? "專案群組" : "階段",
       boardName,
       level,
       budget: summary.total.budget,

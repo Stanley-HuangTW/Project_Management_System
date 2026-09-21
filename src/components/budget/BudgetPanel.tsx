@@ -582,6 +582,21 @@ function CurrencyFields({
   );
 }
 
+/**
+ * 這個範圍沒有可以記帳的工作項。
+ *
+ * 只有未對應的預算階段會走到這裡:預算編得出來,但訂單與支出是記在看板上
+ * 真的那一列底下的,沒有那一列就無處可記。
+ */
+function NoLedgerTargetNote() {
+  return (
+    <p className="rounded-md border border-dashed border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      這個階段還沒有對應到看板上的工作項,所以沒有地方可以記帳。到「人力表」編輯這個階段,把
+      「對應看板階段」設定好之後就可以在這裡登記。
+    </p>
+  );
+}
+
 const fieldClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
 
@@ -888,7 +903,9 @@ function CommitmentTable({
         等到入帳時按「入帳」,它就轉成一筆實際支出。
       </p>
 
-      {view.canEdit && (
+      {view.canEdit && view.items.length === 0 && <NoLedgerTargetNote />}
+
+      {view.canEdit && view.items.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
           <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={`${fieldClass} max-w-[16rem]`}>
             {view.items.map((i) => (
@@ -1099,7 +1116,9 @@ function ExpenseTable({
         人力成本不在這裡登記——它由核准過的工時 × 時薪自動算出,再記一次就會重複計算。
       </p>
 
-      {view.canEdit && (
+      {view.canEdit && view.items.length === 0 && <NoLedgerTargetNote />}
+
+      {view.canEdit && view.items.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
           <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={`${fieldClass} max-w-[16rem]`}>
             {view.items.map((i) => (

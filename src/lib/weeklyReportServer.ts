@@ -329,20 +329,62 @@ async function gatherDelays(boards: BoardWithData[], session: SessionPayload): P
   ];
 }
 
-/** 每個有編預算的階段一列。金額全部轉成 number —— Decimal 過不了 JSON。 */
+/**
+ * 每個有編預算的階段一列。金額全部轉成 number —— Decimal 過不了 JSON。
+ *
+ * 預算可以掛在「預算階段」上,也可以掛在看板上的一列工作項上,兩種都要收:
+ * 階段是計畫的單位,而花費一律記在看板的工作項底下,所以階段要透過它對應
+ * 到的那一列去收實際數字。沒對應的階段只有核准金額,實際與已下單是 0。
+ */
 async function gatherBudgets(boards: BoardWithData[]): Promise<BudgetLine[]> {
   const boardIds = boards.map((b) => b.id);
   if (boardIds.length === 0) return [];
 
-  const budgetRows = (
-    await prisma.budget.findMany({
+  const [phaseHeld, itemHeld] = await Promise.all([
+    prisma.budget.findMany({
+      where: { phaseId: { not: null }, phase: { boardId: { in: boardIds } } },
+      include: { phase: { select: { id: true, name: true, boardId: true, itemId: true } } },
+    }),
+    prisma.budget.findMany({
       where: { itemId: { not: null }, item: { boardId: { in: boardIds }, deletedAt: null } },
       include: { item: { select: { id: true, name: true, boardId: true, parentId: true } } },
-    })
-  ).flatMap((row) => (row.item ? [{ ...row, itemId: row.itemId as string, item: row.item }] : []));
-  if (budgetRows.length === 0) return [];
+    }),
+  ]);
 
-  const phaseIds = [...new Set(budgetRows.map((b) => b.itemId))];
+  // 一列一個範圍:scopeId 是它的身分(階段 id 或工作項 id),rootId 是實際
+  // 花費要從哪一列往下收 —— 未對應的階段沒有那一列,所以是 null。
+  const scopes = [
+    ...phaseHeld.flatMap((row) =>
+      row.phase
+        ? [
+            {
+              scopeId: row.phase.id,
+              name: row.phase.name,
+              boardId: row.phase.boardId,
+              rootId: row.phase.itemId,
+              category: row.category,
+              amount: row.amount,
+            },
+          ]
+        : []
+    ),
+    ...itemHeld.flatMap((row) =>
+      row.item
+        ? [
+            {
+              scopeId: row.item.id,
+              name: row.item.name,
+              boardId: row.item.boardId,
+              rootId: row.item.id,
+              category: row.category,
+              amount: row.amount,
+            },
+          ]
+        : []
+    ),
+  ];
+  if (scopes.length === 0) return [];
+
   const allItems = await prisma.item.findMany({
     where: { boardId: { in: boardIds }, deletedAt: null },
     select: { id: true, parentId: true },
@@ -365,7 +407,10 @@ async function gatherBudgets(boards: BoardWithData[]): Promise<BudgetLine[]> {
     return out;
   };
 
-  const subtrees = new Map(phaseIds.map((id) => [id, subtreeOf(id)]));
+  const scopeIds = [...new Set(scopes.map((s) => s.scopeId))];
+  const subtrees = new Map(
+    scopes.map((s) => [s.scopeId, s.rootId ? subtreeOf(s.rootId) : []])
+  );
   const everyId = [...new Set([...subtrees.values()].flat())];
   const [expenses, commitments] = await Promise.all([
     prisma.expense.findMany({ where: { itemId: { in: everyId } } }),
@@ -374,13 +419,13 @@ async function gatherBudgets(boards: BoardWithData[]): Promise<BudgetLine[]> {
 
   const boardName = new Map(boards.map((b) => [b.id, b.name]));
   const lines: BudgetLine[] = [];
-  for (const phaseId of phaseIds) {
-    const mine = new Set(subtrees.get(phaseId) ?? []);
-    const item = budgetRows.find((b) => b.itemId === phaseId)!.item;
+  for (const scopeId of scopeIds) {
+    const mine = new Set(subtrees.get(scopeId) ?? []);
+    const scope = scopes.find((s) => s.scopeId === scopeId)!;
     const summary = summarizeBudget({
-      budgets: budgetRows
-        .filter((b) => b.itemId === phaseId)
-        .map((b) => ({ category: b.category, amount: b.amount })),
+      budgets: scopes
+        .filter((s) => s.scopeId === scopeId)
+        .map((s) => ({ category: s.category, amount: s.amount })),
       actuals: expenses
         .filter((e) => mine.has(e.itemId))
         .map((e) => ({ category: e.category, amount: Number(e.amount) })),
@@ -390,9 +435,9 @@ async function gatherBudgets(boards: BoardWithData[]): Promise<BudgetLine[]> {
     });
     const { budget, actual, committed } = summary.total;
     lines.push({
-      itemId: phaseId,
-      boardName: boardName.get(item.boardId) ?? "",
-      phaseName: item.name,
+      itemId: scopeId,
+      boardName: boardName.get(scope.boardId) ?? "",
+      phaseName: scope.name,
       approved: budget,
       spent: actual,
       committed,

@@ -27,8 +27,39 @@ import { logAudit } from "@/lib/activityLog";
 import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
 import { effectiveRateMap } from "@/lib/labourRate";
 
-/** 階段(一列工作項)或整個專案群組 — the two levels a budget is approved at. */
-export type BudgetScope = { kind: "item"; id: string } | { kind: "program"; id: string };
+/**
+ * 預算核准的三個層級:預算階段、看板上的一列工作項,或整個專案群組。
+ *
+ * "phase" 是人力表上畫出來的預算階段 —— 預算與準備金掛在它身上;"item" 是
+ * 看板上真的那一列,實際花費(訂單、支出、工時)記在它底下。兩者刻意分開:
+ * 預估的金額與實際發生的金額不會一樣,混成一筆就比不出差距。
+ *
+ * 一個階段可以對應到一列工作項(BudgetPhase.itemId);沒對應的階段仍然編得
+ * 出預算,只是還沒有實際數字可以跟它對。
+ */
+export type BudgetScope =
+  | { kind: "phase"; id: string }
+  | { kind: "item"; id: string }
+  | { kind: "program"; id: string };
+
+/** 這個範圍的預算/準備金掛在哪個外鍵上。 */
+function scopeKey(scope: BudgetScope) {
+  if (scope.kind === "phase") return { phaseId: scope.id };
+  if (scope.kind === "item") return { itemId: scope.id };
+  return { programId: scope.id };
+}
+
+function budgetWhereUnique(scope: BudgetScope, category: CostCategory) {
+  if (scope.kind === "phase") return { phaseId_category: { phaseId: scope.id, category } };
+  if (scope.kind === "item") return { itemId_category: { itemId: scope.id, category } };
+  return { programId_category: { programId: scope.id, category } };
+}
+
+function reserveWhereUnique(scope: BudgetScope, kind: ReserveKind) {
+  if (scope.kind === "phase") return { phaseId_kind: { phaseId: scope.id, kind } };
+  if (scope.kind === "item") return { itemId_kind: { itemId: scope.id, kind } };
+  return { programId_kind: { programId: scope.id, kind } };
+}
 
 export type AttachmentRow = { id: string; fileName: string; size: number };
 
@@ -111,7 +142,51 @@ export type BudgetView = {
 async function resolveScope(
   scope: BudgetScope,
   session: Awaited<ReturnType<typeof requireSession>>
-): Promise<{ name: string; itemIds: string[]; items: BudgetView["items"] } | null> {
+): Promise<{
+  name: string;
+  itemIds: string[];
+  items: BudgetView["items"];
+  /** 階段自己排的起訖日。只有預算階段有 —— 工作項與專案群組的期間是從
+   *  它們底下的工作項讀出來的。 */
+  plannedRange?: { start: string; end: string };
+} | null> {
+  if (scope.kind === "phase") {
+    const phase = await prisma.budgetPhase.findUnique({
+      where: { id: scope.id },
+      select: {
+        name: true,
+        boardId: true,
+        itemId: true,
+        startDate: true,
+        endDate: true,
+        board: { select: { name: true } },
+      },
+    });
+    if (!phase) return null;
+    await requireBoardAccess(phase.boardId, session);
+
+    // 實際花費記在看板的工作項上,所以「這個階段實際花了多少」只有對應過去
+    // 才問得到。沒對應的階段一樣編得出預算 —— 那正是它存在的意義:先有
+    // 計畫,之後才去指出真實發生在哪一列。
+    const all = phase.itemId
+      ? await prisma.item.findMany({
+          where: { boardId: phase.boardId, deletedAt: null },
+          select: { id: true, name: true, parentId: true, order: true },
+          orderBy: { order: "asc" },
+        })
+      : [];
+    const plannedRange = { start: phase.startDate, end: phase.endDate };
+    const linked = all.find((i) => i.id === phase.itemId);
+    if (!linked) return { name: phase.name, itemIds: [], items: [], plannedRange };
+    const subtree = collectSubtree(linked.id, all, phase.boardId, phase.board.name);
+    return {
+      name: phase.name,
+      itemIds: subtree.map((i) => i.id),
+      items: subtree,
+      plannedRange,
+    };
+  }
+
   if (scope.kind === "item") {
     const root = await prisma.item.findUnique({
       where: { id: scope.id },
@@ -180,7 +255,10 @@ async function forecastFor(
   expenses: { date: string; amount: number }[],
   commitments: { date: string | null; amount: number }[],
   labour: number,
-  boardIds: string[]
+  boardIds: string[],
+  /** 工作項讀不出日期時用的備用期間 —— 未對應的預算階段只有自己排的起訖日,
+   *  沒有它的話計畫支出那條線整條畫不出來。 */
+  fallbackRange?: { start: string; end: string }
 ): Promise<BudgetForecast> {
   const today = new Date().toISOString().slice(0, 10);
   const [boards, items, holidayRows] = await Promise.all([
@@ -245,8 +323,8 @@ async function forecastFor(
     budget,
     expenses: [...expenses, ...(labour > 0 ? [{ date: today, amount: labour }] : [])],
     commitments,
-    scheduleStart: start,
-    scheduleEnd: end,
+    scheduleStart: start ?? fallbackRange?.start ?? null,
+    scheduleEnd: end ?? fallbackRange?.end ?? null,
     fractionDone: weightedFractionDone(tasks),
     todayIso: today,
   });
@@ -277,7 +355,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
 
   const [budgets, commitments, expenses, labour] = await Promise.all([
     prisma.budget.findMany({
-      where: scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id },
+      where: scopeKey(scope),
       select: { category: true, amount: true },
     }),
     prisma.commitment.findMany({
@@ -323,11 +401,12 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     // the totals agree with the summary above even though the curve cannot
     // place it in time.
     Math.round(labour),
-    boardIds
+    boardIds,
+    resolved.plannedRange
   );
 
   const reserveRows = await prisma.reserve.findMany({
-    where: scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id },
+    where: scopeKey(scope),
     include: {
       draws: {
         orderBy: { createdAt: "desc" },
@@ -379,11 +458,13 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     items: resolved.items,
     labourActual: Math.round(labour),
     // 只有階段有人力規劃表;專案群組的人力是各階段加總,沒有自己的表。
-    // 人力現在掛在預算階段上,所以問的是「有沒有階段對應到這一列、而且
-    // 那個階段排了人月」—— 不是這一列自己底下有沒有人月。
+    // 看板那一列問的是「有沒有階段對應到它、而且那個階段排了人月」——
+    // 人月是掛在階段上的,不是掛在那一列自己底下。
     labourFromPlan:
-      scope.kind === "item" &&
-      (await prisma.labourPlan.count({ where: { phase: { itemId: scope.id } } })) > 0,
+      scope.kind === "phase"
+        ? (await prisma.labourPlan.count({ where: { phaseId: scope.id } })) > 0
+        : scope.kind === "item" &&
+          (await prisma.labourPlan.count({ where: { phase: { itemId: scope.id } } })) > 0,
     // Same rule the write paths enforce — see canEditBudget.
     canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({
@@ -435,6 +516,25 @@ export async function canEditBudget(
   session: Awaited<ReturnType<typeof requireSession>>
 ): Promise<boolean> {
   if (session.role === "ADMIN") return true;
+
+  if (scope.kind === "phase") {
+    const phase = await prisma.budgetPhase.findUnique({
+      where: { id: scope.id },
+      select: { boardId: true, board: { select: { ownerId: true } } },
+    });
+    if (!phase) return false;
+    if (phase.board.ownerId === session.userId) return true;
+    // 階段不屬於某一個分組 —— 它橫跨整塊看板,所以問的是這塊看板上任一分組
+    // 的 Team Leader。
+    const groups = await prisma.group.findMany({
+      where: { boardId: phase.boardId },
+      select: { id: true },
+    });
+    return hasTeamLeaderRole(
+      groups.map((g) => g.id),
+      session.userId
+    );
+  }
 
   if (scope.kind === "item") {
     const item = await prisma.item.findUnique({
@@ -493,11 +593,8 @@ export async function setBudget(
   if (!Number.isFinite(amount) || amount < 0) return { error: "預算金額必須是 0 或正數" };
   const value = Math.round(amount);
 
-  const where =
-    scope.kind === "item"
-      ? { itemId_category: { itemId: scope.id, category } }
-      : { programId_category: { programId: scope.id, category } };
-  const key = scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id };
+  const where = budgetWhereUnique(scope, category);
+  const key = scopeKey(scope);
 
   const before = await prisma.budget.findUnique({ where });
   if (value === 0) {
@@ -802,11 +899,8 @@ export async function setReserve(
   if (!Number.isFinite(amount) || amount < 0) return { error: "金額必須是 0 或正數" };
   const value = Math.round(amount);
 
-  const where =
-    scope.kind === "item"
-      ? { itemId_kind: { itemId: scope.id, kind } }
-      : { programId_kind: { programId: scope.id, kind } };
-  const key = scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id };
+  const where = reserveWhereUnique(scope, kind);
+  const key = scopeKey(scope);
 
   const existing = await prisma.reserve.findUnique({ where, include: { draws: true } });
   if (value === 0) {
@@ -861,21 +955,15 @@ export async function drawFromReserve(
   const trimmed = reason.trim();
   if (!trimmed) return { error: "動支準備金必須寫下理由——這是之後唯一查得到為什麼動用的紀錄。" };
 
-  const where =
-    scope.kind === "item"
-      ? { itemId_kind: { itemId: scope.id, kind } }
-      : { programId_kind: { programId: scope.id, kind } };
+  const where = reserveWhereUnique(scope, kind);
   const reserve = await prisma.reserve.findUnique({ where, include: { draws: true } });
   if (!reserve) return { error: "這個範圍還沒有這種準備金" };
 
   const remaining = reserve.amount - reserve.draws.reduce((t, d) => t + d.amount, 0);
   if (value > remaining) return { error: `準備金只剩 ${remaining} 元,不夠動支 ${value} 元。` };
 
-  const budgetWhere =
-    scope.kind === "item"
-      ? { itemId_category: { itemId: scope.id, category } }
-      : { programId_category: { programId: scope.id, category } };
-  const budgetKey = scope.kind === "item" ? { itemId: scope.id } : { programId: scope.id };
+  const budgetWhere = budgetWhereUnique(scope, category);
+  const budgetKey = scopeKey(scope);
   const currentBudget = await prisma.budget.findUnique({ where: budgetWhere });
 
   await prisma.$transaction([

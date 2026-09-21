@@ -620,6 +620,7 @@ model BudgetPhase {
 
   protoPlans  ProtoPlan[]
   budgets     Budget[]
+  reserves    Reserve[]
   labourPlans LabourPlan[]
 
   @@index([boardId, order])
@@ -1372,11 +1373,13 @@ enum ReserveKind {
 /// (見 ReserveDraw)。少了這一層,「還剩 20 萬」就分不出那是可以花的錢,
 /// 還是本來就該留著的緩衝。
 model Reserve {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
+  phaseId   String?
+  phase     BudgetPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   itemId    String?
-  item      Item?    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item      Item?        @relation(fields: [itemId], references: [id], onDelete: Cascade)
   programId String?
-  program   Program? @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program   Program?     @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   kind   ReserveKind
   /// 元。核准的原始額度,動支不會改這個數字——餘額是它減掉動支。
@@ -1389,6 +1392,7 @@ model Reserve {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@unique([phaseId, kind])
   @@unique([itemId, kind])
   @@unique([programId, kind])
 }

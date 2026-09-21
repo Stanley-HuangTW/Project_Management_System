@@ -45,6 +45,8 @@ export type BoardLine = {
 };
 
 export type BudgetLine = {
+  /** 這一列預算範圍的 id:預算階段的 id,或看板上那一列工作項的 id。
+   *  週報比對上週用它當身分,所以欄位名沿用舊的。 */
   itemId: string;
   boardName: string;
   phaseName: string;

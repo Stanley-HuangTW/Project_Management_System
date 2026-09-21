@@ -609,3 +609,21 @@ export async function fillLabourSlotRange(
 export async function resyncBoardLabour(boardId: string): Promise<void> {
   await syncFromSheet(boardId);
 }
+
+/**
+ * 這塊看板的預算階段,照排序 —— 給「預算管控」那個下拉用。
+ *
+ * 只回 id、名稱、對應到哪一列:下拉就只需要這三樣,而整張人力表 view 要一路
+ * 抓名額、逐月投入、里程碑跟假日,問一次不便宜。
+ */
+export async function listBudgetPhases(
+  boardId: string
+): Promise<{ id: string; name: string; itemId: string | null }[]> {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+  return prisma.budgetPhase.findMany({
+    where: { boardId },
+    orderBy: { order: "asc" },
+    select: { id: true, name: true, itemId: true },
+  });
+}
