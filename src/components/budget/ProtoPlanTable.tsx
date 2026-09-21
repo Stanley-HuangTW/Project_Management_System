@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { ProtoRowDialog } from "./ProtoRowDialog";
+import { ProtoExcelButtons } from "./ProtoExcelButtons";
 import {
   getProtoPlanView,
   setProtoQty,
@@ -115,6 +116,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
         每一格是台數:某個產品、某個用途單位、某個階段要幾台。階段欄位跟人力表共用同一組,所以時間軸
         對得起來。要備多少料看最下面「全部產品」那一列。
       </p>
+
+      <ProtoExcelButtons boardId={boardId} canEdit={canEdit} onImported={reload} />
 
       {canEdit && (
         <button
