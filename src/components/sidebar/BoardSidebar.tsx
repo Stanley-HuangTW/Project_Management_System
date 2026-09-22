@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   ScrollText,
   FileText,
+  DatabaseBackup,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageBoard } from "@/lib/permissions";
@@ -324,6 +325,17 @@ export function BoardSidebar({
         >
           <FileText size={14} className="shrink-0" />
           週報
+        </Link>
+        <Link
+          href="/data-export"
+          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+            pathname === "/data-export"
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <DatabaseBackup size={14} className="shrink-0" />
+          資料備份
         </Link>
         {userRole === "ADMIN" && (
           <Link
