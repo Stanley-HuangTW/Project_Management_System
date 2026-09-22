@@ -193,7 +193,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   /** 對話框上那顆刪除:編輯既有的才有,新增的時候沒有東西可刪。 */
   function deleteFromDialog(): (() => void) | undefined {
     const dialog = rangeDialog;
-    if (!dialog || !canEdit) return undefined;
+    if (!dialog || !canEditSchedule) return undefined;
     if (dialog.kind === "phase" && dialog.phaseId) {
       const id = dialog.phaseId;
       const name = phaseById.get(id)?.name ?? "";
@@ -287,7 +287,8 @@ export function LabourSheet({ boardId }: { boardId: string }) {
     milestones,
     milestoneTypes,
     slots,
-    canEdit,
+    canEditSchedule,
+    canAddSlot,
     variances,
     phaseColors,
     units,
@@ -309,6 +310,9 @@ export function LabourSheet({ boardId }: { boardId: string }) {
   };
   const totalOf = new Map(sheet.slotTotals.map((t) => [t.slotId, t]));
   const rateOf = new Map(view.rates.map((r) => [r.discipline, r.monthlySalary]));
+  // 時程規劃、新增名額、或至少一個名額能編,三選一——有其中一項就不是
+  // 純唯讀,底下的提示文字才有意義。
+  const hasAnyEditRight = canEditSchedule || canAddSlot || slots.some((s) => s.canEdit);
   const milestoneBands = milestones.map((m) => ({
     id: m.id,
     name: m.name,
@@ -369,7 +373,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
           名額每個月投入多少。這裡的日期是預算表自己的初期評估,跟看板時程分開 —— 之後兩邊的落差會在
           下面的差異表列出來。
         </p>
-        {canEdit && (
+        {canEditSchedule && (
           <button
             type="button"
             onClick={addPhase}
@@ -394,7 +398,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
 
   return (
     <div className="space-y-4">
-      <LabourExcelButtons boardId={boardId} canEdit={canEdit} onImported={reload} />
+      <LabourExcelButtons boardId={boardId} canEdit={canEditSchedule} onImported={reload} />
 
       {(sheet.unpricedDisciplines.length > 0 || sheet.monthsOutsideAnyPhase.length > 0) && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -502,7 +506,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
               時程規劃
             </div>
             <div className="flex flex-1 items-center gap-2 px-2 py-1">
-              {canEdit ? (
+              {canEditSchedule ? (
                 <>
                   <button type="button" disabled={busy} onClick={addPhase} className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800">
                     + 階段
@@ -541,11 +545,11 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                 {rowIndex === 0 ? "預算階段" : ""}
               </div>
               <div
-                className={`relative shrink-0 ${canEdit ? "cursor-copy" : ""}`}
+                className={`relative shrink-0 ${canEditSchedule ? "cursor-copy" : ""}`}
                 style={{ width: bandWidth, height: 26 }}
-                title={canEdit ? "點空白處可以從那個時間開始新增階段" : undefined}
+                title={canEditSchedule ? "點空白處可以從那個時間開始新增階段" : undefined}
                 onClick={(e) => {
-                  if (!canEdit || busy) return;
+                  if (!canEditSchedule || busy) return;
                   const date = dateAtClick(e);
                   if (date) setRangeDialog({ kind: "phase", title: "新增預算階段", startAt: date });
                 }}
@@ -558,9 +562,9 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                     <button
                       key={entry.id}
                       type="button"
-                      disabled={!canEdit || busy}
+                      disabled={!canEditSchedule || busy}
                       onClick={() => editPhase(phase)}
-                      title={`${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEdit ? "(點選修改)" : ""}`}
+                      title={`${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEditSchedule ? "(點選修改)" : ""}`}
                       className="absolute top-1 flex h-5 items-center justify-center overflow-hidden rounded-sm px-1 text-[10px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
                       style={{
                         left: box.left + 1,
@@ -591,11 +595,11 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                   {rowIndex === 0 ? type.name : ""}
                 </div>
                 <div
-                  className={`relative shrink-0 ${canEdit ? "cursor-copy" : ""}`}
+                  className={`relative shrink-0 ${canEditSchedule ? "cursor-copy" : ""}`}
                   style={{ width: bandWidth, height: 24 }}
-                  title={canEdit ? `點空白處可以在「${type.name}」新增里程碑` : undefined}
+                  title={canEditSchedule ? `點空白處可以在「${type.name}」新增里程碑` : undefined}
                   onClick={(e) => {
-                    if (!canEdit || busy) return;
+                    if (!canEditSchedule || busy) return;
                     const date = dateAtClick(e);
                     if (date) {
                       setRangeDialog({
@@ -615,9 +619,9 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       <button
                         key={entry.id}
                         type="button"
-                        disabled={!canEdit || busy}
+                        disabled={!canEditSchedule || busy}
                         onClick={() => editMilestone(milestone)}
-                        title={`${type.name}・${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEdit ? "(點選修改)" : ""}`}
+                        title={`${type.name}・${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEditSchedule ? "(點選修改)" : ""}`}
                         className="absolute top-1 flex h-4 items-center justify-center overflow-hidden rounded-sm px-1 text-[9px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
                         style={{
                           left: box.left + 1,
@@ -643,7 +647,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
               人力設定
             </div>
             <div className="flex flex-1 items-center gap-2 px-2 py-1">
-              {canEdit && (
+              {canAddSlot && (
                 <button type="button" disabled={busy} onClick={addSlot} className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800">
                   + 人力名額
                 </button>
@@ -701,16 +705,16 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                         {/* 整格可以點 —— 指派誰、屬於哪個單位都在同一個對話框裡改。 */}
                         <button
                           type="button"
-                          disabled={!canEdit || busy}
+                          disabled={!slot.canEdit || busy}
                           onClick={() => editSlot(slot)}
                           style={{ width: LABEL_WIDTH }}
                           title={
-                            canEdit
+                            slot.canEdit
                               ? `${slot.description || slot.label}(點選設定單位與人員)`
                               : slot.description
                           }
                           className={`flex items-center gap-1 py-1 pl-2 text-left hover:bg-neutral-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-neutral-800 ${
-                            canEdit ? "pr-9" : "pr-2"
+                            slot.canEdit ? "pr-9" : "pr-2"
                           }`}
                         >
                           <span className="min-w-0 flex-1 truncate text-xs text-neutral-800 dark:text-neutral-100">
@@ -730,7 +734,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                           </span>
                         </button>
 
-                        {canEdit && (
+                        {slot.canEdit && (
                           <span
                             className="absolute z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100"
                             style={{ right: 2, top: "50%", transform: "translateY(-50%)" }}
@@ -768,7 +772,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                         <FteCell
                           key={m}
                           value={slot.months[m] ?? 0}
-                          disabled={!canEdit || busy}
+                          disabled={!slot.canEdit || busy}
                           width={monthWidth(m)}
                           onCommit={(next) => run(() => setLabourSlotMonth(boardId, slot.id, m, next), "無法儲存")}
                         />
@@ -975,13 +979,13 @@ export function LabourSheet({ boardId }: { boardId: string }) {
         onDelete={removeMilestoneType}
       />
 
-      {canEdit && (
+      {hasAnyEditRight && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
           點階段帶可以改期間,點格子填投入,滑到一列名額旁邊可以整列填滿或刪除。人月加總會自動寫回各階段的
           人力預算,所以「各類別」的人力那一列不用手填。
         </p>
       )}
-      {!canEdit && (
+      {!hasAnyEditRight && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
           你沒有編輯這個看板預算的權限,以上為唯讀。
         </p>

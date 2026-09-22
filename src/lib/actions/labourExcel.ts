@@ -5,8 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
-import { getLabourSheetView, resyncBoardLabour } from "@/lib/actions/labourSheet";
-import { canEditBudget } from "@/lib/actions/budget";
+import { getLabourSheetView, resyncBoardLabour, requireScheduleAdmin } from "@/lib/actions/labourSheet";
 import { buildLabourWorkbook, parseLabourWorkbook } from "@/lib/export/labourWorkbook";
 import { LABOUR_APPS_SCRIPT } from "@/lib/export/labourAppsScript";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
@@ -20,28 +19,6 @@ import { loadOrgUnits } from "@/lib/orgUnitsServer";
 
 /** 20MB,跟憑證上傳同一個上限。 */
 const MAX_UPLOAD = 20 * 1024 * 1024;
-
-/**
- * 能編這個看板預算的人才能匯入人力表 —— 跟 labourSheet.ts 的
- * requireSheetAdmin 同一條規則。匯入會一次改掉一整張表,權限不該比
- * 在畫面上一格一格改來得鬆。
- */
-async function requireImportAccess(boardId: string) {
-  const session = await requireSession();
-  await requireBoardAccess(boardId, session);
-  const first = await prisma.item.findFirst({
-    where: { boardId, parentId: null, deletedAt: null },
-    orderBy: { order: "asc" },
-    select: { id: true },
-  });
-  const allowed = first
-    ? await canEditBudget({ kind: "item", id: first.id }, session)
-    : session.role === "ADMIN";
-  if (!allowed) {
-    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以匯入人力表");
-  }
-  return session;
-}
 
 function safeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
@@ -102,7 +79,7 @@ export async function importLabourWorkbook(
   boardId: string,
   base64: string
 ): Promise<LabourImportResult> {
-  const session = await requireImportAccess(boardId);
+  const session = await requireScheduleAdmin(boardId);
 
   const empty = { created: 0, updated: 0, untouched: [], warnings: [] };
 

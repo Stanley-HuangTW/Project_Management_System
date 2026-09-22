@@ -8,8 +8,12 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
-import { canEditBudget } from "@/lib/actions/budget";
 import { getItemDateRange } from "@/lib/gantt";
+import {
+  resolveGroupRoleAccess,
+  canEditLabourSlot,
+  type GroupRoleAccess,
+} from "@/lib/groupRoles";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { MAX_FTE, FTE_CAP_MESSAGE } from "@/lib/labourSheet";
 import { boardWithDataArgs } from "@/types/board";
@@ -37,7 +41,8 @@ export type LabourSheetView = {
   }[];
   /** 里程碑類型,照排序 —— 一個類型就是一排。 */
   milestoneTypes: { id: string; name: string }[];
-  slots: SlotRow[];
+  /** 每一列多帶一個 canEdit——名額的組織單位不同,能編的人也不同。 */
+  slots: (SlotRow & { canEdit: boolean })[];
   sheet: LabourSheet;
   variances: PhaseVariance[];
   /** 看板上可以對應的階段列(最上層那幾列),給對應下拉用。 */
@@ -49,7 +54,10 @@ export type LabourSheetView = {
   assignableUsers: { id: string; name: string }[];
   /** 國定假日。對話框要算工作天,規則得跟甘特圖同一套。 */
   holidays: string[];
-  canEdit: boolean;
+  /** 時程規劃(階段帶、里程碑、里程碑類型)——Team Leader/PMD/管理者。 */
+  canEditSchedule: boolean;
+  /** 「+ 人力名額」按鈕要不要顯示——有排程權,或至少是某個單位的 DM。 */
+  canAddSlot: boolean;
 };
 
 async function rateMap(): Promise<Record<Discipline, number>> {
@@ -57,22 +65,50 @@ async function rateMap(): Promise<Record<Discipline, number>> {
   return Object.fromEntries(rows.map((r) => [r.discipline, r.monthlySalary]));
 }
 
-async function requireSheetAdmin(boardId: string) {
+/** 管理者、或這塊看板的建立者,兩者都是「什麼都能編」,不用再問分組角色。 */
+const FULL_ACCESS: GroupRoleAccess = { hasScheduleRole: true, disciplines: new Set(["SW", "HW", "ME", "QA"]) };
+
+/**
+ * 這個人在這塊看板上,分組角色給他的存取權。
+ *
+ * 一塊看板可能不只一個分組,而人力表是整塊看板共用的一張表,不屬於哪一個
+ * 分組——所以跟 canEditBudget 的 phase 範圍同一個道理,把這塊看板上「任一」
+ * 分組給的角色都併進來問,不挑一個分組出來。
+ */
+async function loadBoardRoleAccess(
+  boardId: string,
+  session: Awaited<ReturnType<typeof requireSession>>
+): Promise<GroupRoleAccess> {
+  if (session.role === "ADMIN") return FULL_ACCESS;
+  const board = await prisma.board.findUnique({ where: { id: boardId }, select: { ownerId: true } });
+  if (board?.ownerId === session.userId) return FULL_ACCESS;
+  const groups = await prisma.group.findMany({ where: { boardId }, select: { id: true } });
+  if (groups.length === 0) return { hasScheduleRole: false, disciplines: new Set() };
+  const assignments = await prisma.groupRoleAssignment.findMany({
+    where: { groupId: { in: groups.map((g) => g.id) }, userId: session.userId },
+    select: { role: true },
+  });
+  return resolveGroupRoleAccess(assignments);
+}
+
+/** 時程規劃:階段、里程碑、里程碑類型。只有 Team Leader/PMD/管理者能動。 */
+export async function requireScheduleAdmin(boardId: string) {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
-  const phases = await prisma.item.findMany({
-    where: { boardId, parentId: null, deletedAt: null },
-    orderBy: { order: "asc" },
-    select: { id: true },
-    take: 1,
-  });
-  // 權限跟預算同一套:能編這個看板預算的人才能動人力表。看板還沒有任何
-  // 工作項時沒有階段可以當範圍,那就只有管理者。
-  const allowed = phases[0]
-    ? await canEditBudget({ kind: "item", id: phases[0].id }, session)
-    : session.role === "ADMIN";
-  if (!allowed) {
-    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯人力預算");
+  const access = await loadBoardRoleAccess(boardId, session);
+  if (!access.hasScheduleRole) {
+    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader/PMD 可以異動時程規劃(階段/里程碑)");
+  }
+  return session;
+}
+
+/** 人力設定:單一名額的指定人員、月份數字、新增/刪除/改組織單位。 */
+async function requireSlotAdmin(boardId: string, discipline: string) {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+  const access = await loadBoardRoleAccess(boardId, session);
+  if (!canEditLabourSlot(access, discipline)) {
+    throw new Error("權限不足:只有管理者與該單位的 DM(或該分組的 Team Leader/PMD)可以編輯這個名額");
   }
   return session;
 }
@@ -158,8 +194,10 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     itemId: p.itemId,
   }));
 
+  const access = await loadBoardRoleAccess(boardId, session);
+
   // Decimal 不能過 RSC 邊界。
-  const slots: SlotRow[] = slotRows.map((s) => ({
+  const slots: (SlotRow & { canEdit: boolean })[] = slotRows.map((s) => ({
     id: s.id,
     discipline: s.discipline,
     label: s.label,
@@ -168,6 +206,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     ownerName: s.user?.name ?? s.ownerLabel,
     description: s.description,
     months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
+    canEdit: canEditLabourSlot(access, s.discipline),
   }));
 
   const sheet = buildLabourSheet(phases, slots, rates, units);
@@ -196,9 +235,8 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
       discipline: discipline as Discipline,
       monthlySalary,
     })),
-    canEdit: boardPhases[0]
-      ? await canEditBudget({ kind: "item", id: boardPhases[0].id }, session)
-      : session.role === "ADMIN",
+    canEditSchedule: access.hasScheduleRole,
+    canAddSlot: access.hasScheduleRole || access.disciplines.size > 0,
   };
 }
 
@@ -288,7 +326,7 @@ export async function upsertBudgetPhase(
     color?: string;
   }
 ): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const name = input.name.trim();
   if (!name) return { error: "階段名稱不可為空" };
   if (!input.startDate || !input.endDate) return { error: "起訖日期都要填" };
@@ -328,7 +366,7 @@ export async function upsertBudgetPhase(
 }
 
 export async function deleteBudgetPhase(boardId: string, id: string): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const phase = await prisma.budgetPhase.findUnique({ where: { id }, select: { name: true, itemId: true } });
   if (!phase) return { error: "找不到這個階段" };
 
@@ -354,7 +392,7 @@ export async function upsertPlanMilestone(
     color?: string;
   }
 ): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const name = input.name.trim();
   if (!name) return { error: "里程碑名稱不可為空" };
   if (!input.startDate || !input.endDate) return { error: "起訖日期都要填" };
@@ -399,7 +437,7 @@ export async function upsertPlanMilestone(
 }
 
 export async function deletePlanMilestone(boardId: string, id: string): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const milestone = await prisma.planMilestone.findUnique({ where: { id }, select: { name: true } });
   if (!milestone) return { error: "找不到這個里程碑" };
   await prisma.planMilestone.delete({ where: { id } });
@@ -416,7 +454,7 @@ export async function createMilestoneType(
   boardId: string,
   rawName: string
 ): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const name = rawName.trim();
   if (!name) return { error: "類型名稱不可為空" };
 
@@ -441,7 +479,7 @@ export async function renameMilestoneType(
   id: string,
   rawName: string
 ): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const name = rawName.trim();
   if (!name) return { error: "類型名稱不可為空" };
 
@@ -464,7 +502,7 @@ export async function deleteMilestoneType(
   boardId: string,
   id: string
 ): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  const session = await requireScheduleAdmin(boardId);
   const type = await prisma.milestoneType.findFirst({ where: { id, boardId } });
   if (!type) return { error: "找不到這個類型" };
 
@@ -493,7 +531,19 @@ export async function upsertLabourSlot(
     description: string;
   }
 ): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
+  // 改既有名額:要對「原本的單位」有編輯權才能動它;如果順便把單位換了,
+  // 「換去的單位」也要有編輯權才准換——不然隨便一個 DM 都能把別的單位的
+  // 名額，改成自己的單位據為己有。
+  const existing = input.id
+    ? await prisma.labourSlot.findUnique({ where: { id: input.id }, select: { discipline: true } })
+    : null;
+  if (input.id && !existing) return { error: "找不到這個名額" };
+  const session = existing
+    ? await requireSlotAdmin(boardId, existing.discipline)
+    : await requireSlotAdmin(boardId, input.discipline);
+  if (existing && existing.discipline !== input.discipline) {
+    await requireSlotAdmin(boardId, input.discipline);
+  }
   const label = input.label.trim();
   if (!label) return { error: "名額代號不可為空,例如 EE1" };
 
@@ -522,9 +572,9 @@ export async function upsertLabourSlot(
 }
 
 export async function deleteLabourSlot(boardId: string, id: string): Promise<{ error?: string }> {
-  const session = await requireSheetAdmin(boardId);
-  const slot = await prisma.labourSlot.findUnique({ where: { id }, select: { label: true } });
+  const slot = await prisma.labourSlot.findUnique({ where: { id }, select: { label: true, discipline: true } });
   if (!slot) return { error: "找不到這個名額" };
+  const session = await requireSlotAdmin(boardId, slot.discipline);
   await prisma.labourSlot.delete({ where: { id } });
   await syncFromSheet(boardId);
   await logAudit("COST", session.userId, `刪除人力名額「${slot.label}」`, boardId);
@@ -539,7 +589,9 @@ export async function setLabourSlotMonth(
   month: string,
   fte: number
 ): Promise<{ error?: string }> {
-  await requireSheetAdmin(boardId);
+  const slot = await prisma.labourSlot.findUnique({ where: { id: slotId }, select: { discipline: true } });
+  if (!slot) return { error: "找不到這個名額" };
+  await requireSlotAdmin(boardId, slot.discipline);
   if (!Number.isFinite(fte) || fte < 0) return { error: "投入必須是 0 或正數" };
   // 一個名額就是一個人。要兩個人做,就是兩個名額 —— 讓它超過 1 的話,
   // 「每月總人數」那一列會算出比實際頭數還多的人。
@@ -574,7 +626,9 @@ export async function fillLabourSlotRange(
   toMonth: string,
   fte: number
 ): Promise<{ error?: string }> {
-  await requireSheetAdmin(boardId);
+  const slot = await prisma.labourSlot.findUnique({ where: { id: slotId }, select: { discipline: true } });
+  if (!slot) return { error: "找不到這個名額" };
+  await requireSlotAdmin(boardId, slot.discipline);
   if (!Number.isFinite(fte) || fte < 0) return { error: "投入必須是 0 或正數" };
   if (fte > MAX_FTE) return { error: FTE_CAP_MESSAGE };
   if (toMonth < fromMonth) return { error: "結束月份不可早於開始月份" };
