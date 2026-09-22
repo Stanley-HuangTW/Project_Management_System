@@ -13,7 +13,10 @@ export async function setSessionCookie(payload: SessionPayload) {
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // 只有真的用 https 服務才能標 secure——標了但實際是 http 的話,瀏覽器會
+    // 直接不設定這顆 cookie(不會報錯),導致登入後馬上又被彈回登入頁。
+    // NODE_ENV==="production" 不代表有 https,跟著 APP_BASE_URL 的協定走才對。
+    secure: (process.env.APP_BASE_URL ?? "").startsWith("https://"),
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_DURATION_SECONDS,
