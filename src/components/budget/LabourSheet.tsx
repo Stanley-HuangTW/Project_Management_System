@@ -692,35 +692,73 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       key={slot.id}
                       className="group flex items-center border-b border-neutral-100 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40"
                     >
-                      {/* 整格可以點 —— 指派誰、屬於哪個單位都在同一個對話框裡改。 */}
-                      <button
-                        type="button"
-                        disabled={!canEdit || busy}
-                        onClick={() => editSlot(slot)}
-                        style={{ width: LABEL_WIDTH }}
-                        title={
-                          canEdit
-                            ? `${slot.description || slot.label}(點選設定單位與人員)`
-                            : slot.description
-                        }
-                        className="flex shrink-0 items-center gap-1 px-2 py-1 text-left hover:bg-neutral-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-neutral-800"
-                      >
-                        <span className="min-w-0 flex-1 truncate text-xs text-neutral-800 dark:text-neutral-100">
-                          {slot.label}
-                          {slot.func && (
-                            <span className="ml-1 text-neutral-400 dark:text-neutral-500">{slot.func}</span>
-                          )}
-                        </span>
-                        <span
-                          className={`shrink-0 truncate text-[10px] ${
-                            slot.userId
-                              ? "text-neutral-500 dark:text-neutral-300"
-                              : "rounded bg-neutral-100 px-1 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
-                          }`}
+                      {/* 固定寬度跟名額欄一樣寬,浮動按鈕鎖在這個框裡面
+                          (right 定位)——不管名字多長都不會跨到月份欄,
+                          第一個月格子永遠點得到。 */}
+                      <div className="relative shrink-0" style={{ width: LABEL_WIDTH }}>
+                        {/* 整格可以點 —— 指派誰、屬於哪個單位都在同一個對話框裡改。 */}
+                        <button
+                          type="button"
+                          disabled={!canEdit || busy}
+                          onClick={() => editSlot(slot)}
+                          style={{ width: LABEL_WIDTH }}
+                          title={
+                            canEdit
+                              ? `${slot.description || slot.label}(點選設定單位與人員)`
+                              : slot.description
+                          }
+                          className="flex items-center gap-1 px-2 py-1 text-left hover:bg-neutral-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-neutral-800"
                         >
-                          {slot.ownerName}
-                        </span>
-                      </button>
+                          <span className="min-w-0 flex-1 truncate text-xs text-neutral-800 dark:text-neutral-100">
+                            {slot.label}
+                            {slot.func && (
+                              <span className="ml-1 text-neutral-400 dark:text-neutral-500">{slot.func}</span>
+                            )}
+                          </span>
+                          <span
+                            className={`shrink-0 truncate text-[10px] ${
+                              slot.userId
+                                ? "text-neutral-500 dark:text-neutral-300"
+                                : "rounded bg-neutral-100 px-1 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
+                            }`}
+                          >
+                            {slot.ownerName}
+                          </span>
+                        </button>
+
+                        {canEdit && (
+                          <span
+                            className="absolute z-10 flex items-center gap-1 opacity-0 transition group-hover:opacity-100"
+                            style={{ right: 2, top: "50%", transform: "translateY(-50%)" }}
+                          >
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => fillRow(slot.id, slot.label)}
+                              title="整列填滿:從某月到某月"
+                              className="rounded bg-white p-0.5 text-neutral-400 shadow-sm hover:text-blue-600 disabled:opacity-50 dark:bg-neutral-900"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                const ok = await confirm(`刪除名額「${slot.label}」?`, {
+                                  title: "刪除名額",
+                                  confirmLabel: "刪除",
+                                  danger: true,
+                                });
+                                if (ok) await run(() => deleteLabourSlot(boardId, slot.id), "無法刪除");
+                              }}
+                              title="刪除這個名額"
+                              className="rounded bg-white p-0.5 text-neutral-400 shadow-sm hover:text-red-600 disabled:opacity-50 dark:bg-neutral-900"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </span>
+                        )}
+                      </div>
 
                       {months.map((m) => (
                         <FteCell
@@ -739,35 +777,6 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                         <span className="w-24 text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
                           {rowTotal?.amount ? formatMoney(rowTotal.amount) : "—"}
                         </span>
-                        {canEdit && (
-                          <span className="flex shrink-0 gap-1 opacity-0 transition group-hover:opacity-100">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => fillRow(slot.id, slot.label)}
-                              title="整列填滿:從某月到某月"
-                              className="rounded p-0.5 text-neutral-400 hover:text-blue-600 disabled:opacity-50"
-                            >
-                              <Pencil size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={async () => {
-                                const ok = await confirm(`刪除名額「${slot.label}」?`, {
-                                  title: "刪除名額",
-                                  confirmLabel: "刪除",
-                                  danger: true,
-                                });
-                                if (ok) await run(() => deleteLabourSlot(boardId, slot.id), "無法刪除");
-                              }}
-                              title="刪除這個名額"
-                              className="rounded p-0.5 text-neutral-400 hover:text-red-600 disabled:opacity-50"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          </span>
-                        )}
                       </div>
                     </div>
                   );
@@ -964,7 +973,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
 
       {canEdit && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          點階段帶可以改期間,點格子填投入,滑到一列右側可以整列填滿或刪除。人月加總會自動寫回各階段的
+          點階段帶可以改期間,點格子填投入,滑到一列名額旁邊可以整列填滿或刪除。人月加總會自動寫回各階段的
           人力預算,所以「各類別」的人力那一列不用手填。
         </p>
       )}
