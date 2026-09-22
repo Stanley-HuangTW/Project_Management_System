@@ -694,7 +694,9 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                     >
                       {/* 固定寬度跟名額欄一樣寬,浮動按鈕鎖在這個框裡面
                           (right 定位)——不管名字多長都不會跨到月份欄,
-                          第一個月格子永遠點得到。 */}
+                          第一個月格子永遠點得到。右邊用 padding 常駐讓出
+                          按鈕的位置、人員名字加 max-width,兩個按鈕才不會
+                          蓋到字。 */}
                       <div className="relative shrink-0" style={{ width: LABEL_WIDTH }}>
                         {/* 整格可以點 —— 指派誰、屬於哪個單位都在同一個對話框裡改。 */}
                         <button
@@ -707,7 +709,9 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                               ? `${slot.description || slot.label}(點選設定單位與人員)`
                               : slot.description
                           }
-                          className="flex items-center gap-1 px-2 py-1 text-left hover:bg-neutral-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-neutral-800"
+                          className={`flex items-center gap-1 py-1 pl-2 text-left hover:bg-neutral-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-neutral-800 ${
+                            canEdit ? "pr-9" : "pr-2"
+                          }`}
                         >
                           <span className="min-w-0 flex-1 truncate text-xs text-neutral-800 dark:text-neutral-100">
                             {slot.label}
@@ -716,7 +720,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                             )}
                           </span>
                           <span
-                            className={`shrink-0 truncate text-[10px] ${
+                            className={`max-w-[70px] shrink-0 truncate text-[10px] ${
                               slot.userId
                                 ? "text-neutral-500 dark:text-neutral-300"
                                 : "rounded bg-neutral-100 px-1 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500"
