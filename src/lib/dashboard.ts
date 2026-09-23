@@ -304,7 +304,8 @@ export function resolveItemNameColor(
 export function computeOverdueUpcoming(
   boards: BoardWithData[],
   userIds?: string[],
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  upcomingDays = 7
 ): {
   overdue: DueItemEntry[];
   upcoming: DueItemEntry[];
@@ -312,7 +313,7 @@ export function computeOverdueUpcoming(
 } {
   const today = todayUtc();
   const weekAhead = new Date(today);
-  weekAhead.setDate(weekAhead.getDate() + 7);
+  weekAhead.setDate(weekAhead.getDate() + upcomingDays);
   const idSet = userIds ? new Set(userIds) : null;
 
   const overdue: DueItemEntry[] = [];

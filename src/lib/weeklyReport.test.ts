@@ -67,6 +67,7 @@ const snapshot = (items: ReportItem[], budgets: BudgetLine[] = []): WeeklyReport
   viewerName: "Stanley Huang",
   programs: [program(items, budgets)],
   departments: [],
+  upcomingDays: 7,
   activity: [],
 });
 
@@ -328,12 +329,16 @@ describe("Markdown", () => {
     expect(md).toContain("沒有未完成的里程碑");
   });
 
-  it("未來七天獨立一段", () => {
+  it("未來幾天獨立一段,天數跟著 upcomingDays 走", () => {
     const md = renderWeeklyReportMarkdown(
       snapshot([item({ id: "u", bucket: "upcoming" })]),
       noDiff
     );
-    expect(md).toContain("### 未來七天(1)");
+    expect(md).toContain("### 未來 7 天(1)");
+
+    const data = snapshot([item({ id: "u", bucket: "upcoming" })]);
+    data.upcomingDays = 14;
+    expect(renderWeeklyReportMarkdown(data, noDiff)).toContain("### 未來 14 天(1)");
   });
 
   it("有上一週就給摘要數字", () => {
@@ -361,50 +366,61 @@ describe("Markdown", () => {
     expect(md).toContain("從沒超支變成超支");
   });
 
-  it("部門那一段列出 DM 與成員", () => {
+  it("部門那一段照人分列,DM 跟成員各自一份", () => {
     const data = snapshot([]);
     data.departments = [
       {
-        key: "g1:SW",
+        userId: "u-henry",
+        userName: "Henry Chen",
+        role: "DM",
         discipline: "SW 軟體",
         groupName: "M3",
         boardName: "M3專案",
-        dmNames: ["Henry Chen"],
-        memberNames: ["Ezra Li", "Jeff Chen"],
         overdue: [item({ id: "o", bucket: "overdue" })],
+        completedThisWeek: [],
         upcoming: [],
-        inProgress: [],
+      },
+      {
+        userId: "u-ezra",
+        userName: "Ezra Li",
+        role: "MEMBER",
+        discipline: "SW 軟體",
+        groupName: "M3",
+        boardName: "M3專案",
+        overdue: [],
+        completedThisWeek: [],
+        upcoming: [],
       },
     ];
     const md = renderWeeklyReportMarkdown(data, noDiff);
-    expect(md).toContain("### SW 軟體・M3專案 / M3");
-    expect(md).toContain("DM:Henry Chen");
-    expect(md).toContain("成員:Ezra Li、Jeff Chen");
+    expect(md).toContain("### [DM] Henry Chen・SW 軟體(M3專案 / M3)");
+    expect(md).toContain("### [成員] Ezra Li・SW 軟體(M3專案 / M3)");
     expect(md).toContain("**逾期(1)**");
+  });
+
+  it("Team Leader 自己的工作項獨立列出,不掛在任何職能底下", () => {
+    const data = snapshot([]);
+    data.departments = [
+      {
+        userId: "u-lead",
+        userName: "Jason Huang",
+        role: "TEAM_LEADER",
+        discipline: "Team Leader",
+        groupName: "M3",
+        boardName: "M3專案",
+        overdue: [],
+        completedThisWeek: [item({ id: "c", bucket: "done" })],
+        upcoming: [],
+      },
+    ];
+    const md = renderWeeklyReportMarkdown(data, noDiff);
+    expect(md).toContain("### [Team Leader] Jason Huang・Team Leader(M3專案 / M3)");
+    expect(md).toContain("**這週已完成(1)**");
   });
 
   it("沒有部門名冊時說得出原因,而不是一段空白", () => {
     const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
     expect(md).toContain("沒有設定分組角色與部門名冊");
-  });
-
-  it("DM 沒指定就寫未指定,不是留空", () => {
-    const data = snapshot([]);
-    data.departments = [
-      {
-        key: "g1:QA",
-        discipline: "QA 品保",
-        groupName: "M3",
-        boardName: "M3專案",
-        dmNames: [],
-        memberNames: ["Janet Lin"],
-        overdue: [],
-        upcoming: [],
-        inProgress: [],
-      },
-    ];
-    const md = renderWeeklyReportMarkdown(data, noDiff);
-    expect(md).toContain("DM:未指定");
   });
 
   it("清單太長會收尾,不會把幾百項全部貼進信裡", () => {

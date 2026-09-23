@@ -17,7 +17,7 @@ import {
   type BoardLine,
   type BudgetLine,
   type DelayLine,
-  type DepartmentSection,
+  type PersonSection,
   type ItemBucket,
   type ProgramSection,
   type ReportItem,
@@ -39,12 +39,13 @@ import {
 
 export type WeeklyReportSnapshot = WeeklyReportData;
 
-/** 對應中文的部門名稱 —— GroupDiscipline 是四種工程職能。 */
+/** 對應中文的部門名稱 —— GroupDiscipline 是五種職能。 */
 const DISCIPLINE_LABELS: Record<string, string> = {
   SW: "SW 軟體",
   HW: "EE 電機",
   ME: "ME 機構",
   QA: "QA 品保",
+  PM: "PM 專案管理",
 };
 
 /** 哪個角色帶哪個職能。QA 的 DM 就是 QA 角色本身。 */
@@ -53,11 +54,13 @@ const DM_ROLE_OF: Record<string, string> = {
   HW: "HW_DM",
   ME: "ME_DM",
   QA: "QA",
+  PM: "PM_DM",
 };
 
 export async function buildWeeklyReport(
   session: SessionPayload,
-  weekStartIso: string
+  weekStartIso: string,
+  upcomingDays = 7
 ): Promise<{ snapshot: WeeklyReportSnapshot; diff: WeeklyReportDiff; markdown: string }> {
   const { weekStart, weekEnd } = weekRangeOf(weekStartIso);
 
@@ -67,8 +70,9 @@ export async function buildWeeklyReport(
   ]);
   const holidays = toHolidaySet(holidayRows);
 
-  // 逾期/七天內到期照儀表板那支算,一次算完再分給各專案。
-  const { overdue, upcoming } = computeOverdueUpcoming(boards, undefined, holidays);
+  // 逾期/未來幾天到期照儀表板那支算,一次算完再分給各專案跟各部門——同一份
+  // report 裡「未來幾天」的定義只有一個,不會專案區塊跟部門區塊各自算。
+  const { overdue, upcoming } = computeOverdueUpcoming(boards, undefined, holidays, upcomingDays);
   const bucketOf = new Map<string, ItemBucket>();
   for (const e of overdue) bucketOf.set(e.itemId, "overdue");
   for (const e of upcoming) bucketOf.set(e.itemId, "upcoming");
@@ -121,18 +125,23 @@ export async function buildWeeklyReport(
     });
   }
 
+  // diff 要先算出來,才有「這週已完成」的名單可以分給各部門/各人——見
+  // gatherPersonSections 的說明。diffWeeks 只讀 current.programs,所以在
+  // snapshot 組完整之前先用 sections 算是等價的。
+  const previous = await loadSnapshot(session.userId, previousWeekOf(weekStart).weekStart);
+  const diff = diffWeeks({ programs: sections }, previous);
+
   const snapshot: WeeklyReportSnapshot = {
     weekStart,
     weekEnd,
     generatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
     viewerName: session.name,
     programs: sections,
-    departments: await gatherDepartments(boards, sections),
+    departments: await gatherPersonSections(boards, sections, diff.completed),
+    upcomingDays,
     activity: await gatherActivity(boards, weekStart, weekEnd),
   };
 
-  const previous = await loadSnapshot(session.userId, previousWeekOf(weekStart).weekStart);
-  const diff = diffWeeks(snapshot, previous);
   return { snapshot, diff, markdown: renderWeeklyReportMarkdown(snapshot, diff) };
 }
 
@@ -221,17 +230,21 @@ function orphanItems(
 }
 
 /**
- * 各部門的工作事項。
+ * 每個人自己手上的事:逾期、這週完成、接下來要到期的。
  *
- * 部門是掛在分組底下的:同一個 SW 在 M3 跟在 AMR BOX 是不同一組人,所以
- * 一個分組的一個職能算一個部門。DM 從分組角色來,成員從分組名冊來,工作
- * 項則是「指派給這些成員的」——按人分,而不是按項目上的某個欄位分,因為
- * 實際上是人被指派了工作,不是工作被標了部門。
+ * 帶人的人要問的是「我的人手上有什麼」,聚合成一個部門的清單看不出是誰在
+ * 忙、誰很閒,所以一個人一份,不再是一個「分組 × 職能」聚合成一份。DM/
+ * 成員從分組角色與名冊來;Team Leader 沒有單一職能,但一樣要看得到他自己
+ * 名下的工作項,所以另外整理一份、不掛在任何職能底下。
+ *
+ * 「這週已完成」不是重新算的——上層 diffWeeks 已經比出這週跟上週的差異,
+ * completedThisWeek 這裡直接拿那份結果依 ownerIds 分,是同一份資料源。
  */
-async function gatherDepartments(
+async function gatherPersonSections(
   boards: BoardWithData[],
-  sections: ProgramSection[]
-): Promise<DepartmentSection[]> {
+  sections: ProgramSection[],
+  completedThisWeek: ReportItem[]
+): Promise<PersonSection[]> {
   const groupIds = boards.flatMap((b) => b.groups.map((g) => g.id));
   if (groupIds.length === 0) return [];
 
@@ -245,12 +258,18 @@ async function gatherDepartments(
       include: { user: { select: { id: true, name: true } } },
     }),
   ]);
-  if (members.length === 0) return [];
+  if (roles.length === 0 && members.length === 0) return [];
 
   const itemsByOwner = new Map<string, ReportItem[]>();
   for (const item of sections.flatMap((s) => s.items)) {
     for (const ownerId of item.ownerIds) {
       itemsByOwner.set(ownerId, [...(itemsByOwner.get(ownerId) ?? []), item]);
+    }
+  }
+  const completedByOwner = new Map<string, ReportItem[]>();
+  for (const item of completedThisWeek) {
+    for (const ownerId of item.ownerIds) {
+      completedByOwner.set(ownerId, [...(completedByOwner.get(ownerId) ?? []), item]);
     }
   }
 
@@ -261,48 +280,79 @@ async function gatherDepartments(
     }
   }
 
-  const out: DepartmentSection[] = [];
-  const byKey = new Map<string, typeof members>();
-  for (const member of members) {
-    const key = `${member.groupId}:${member.discipline}`;
-    byKey.set(key, [...(byKey.get(key) ?? []), member]);
-  }
-
-  for (const [key, roster] of byKey) {
-    const [groupId, discipline] = key.split(":");
-    const info = groupInfo.get(groupId);
-    if (!info) continue;
-
-    const dmRole = DM_ROLE_OF[discipline];
-    const dmNames = roles
-      .filter((r) => r.groupId === groupId && r.role === dmRole)
-      .map((r) => r.user.name);
-
-    // 同一項可能指派給同部門兩個人,收斂成一份,不然同一件事會列兩次。
-    const seen = new Set<string>();
-    const mine: ReportItem[] = [];
-    for (const member of roster) {
-      for (const item of itemsByOwner.get(member.userId) ?? []) {
-        if (seen.has(item.id)) continue;
-        seen.add(item.id);
-        mine.push(item);
-      }
-    }
-
-    out.push({
-      key,
-      discipline: DISCIPLINE_LABELS[discipline] ?? discipline,
+  function personSection(
+    userId: string,
+    userName: string,
+    role: PersonSection["role"],
+    discipline: string,
+    info: { groupName: string; boardName: string }
+  ): PersonSection {
+    const mine = itemsByOwner.get(userId) ?? [];
+    return {
+      userId,
+      userName,
+      role,
+      discipline,
       groupName: info.groupName,
       boardName: info.boardName,
-      dmNames,
-      memberNames: roster.map((m) => m.user.name),
       overdue: mine.filter((i) => i.bucket === "overdue"),
+      completedThisWeek: completedByOwner.get(userId) ?? [],
       upcoming: mine.filter((i) => i.bucket === "upcoming"),
-      inProgress: mine.filter((i) => i.bucket === "other"),
-    });
+    };
   }
 
-  return out.sort((a, b) => a.boardName.localeCompare(b.boardName) || a.discipline.localeCompare(b.discipline));
+  const out: PersonSection[] = [];
+  // 名冊上的人;是不是那個職能的 DM 另外查角色表,同一個人不會被列兩次。
+  const seen = new Set<string>();
+  for (const member of members) {
+    const info = groupInfo.get(member.groupId);
+    if (!info) continue;
+    const key = `${member.groupId}:${member.discipline}:${member.userId}`;
+    seen.add(key);
+    const isDm = roles.some(
+      (r) =>
+        r.groupId === member.groupId &&
+        r.userId === member.userId &&
+        r.role === DM_ROLE_OF[member.discipline]
+    );
+    out.push(
+      personSection(
+        member.userId,
+        member.user.name,
+        isDm ? "DM" : "MEMBER",
+        DISCIPLINE_LABELS[member.discipline] ?? member.discipline,
+        info
+      )
+    );
+  }
+
+  // 掛了 DM 角色、但沒被列進名冊的人(角色跟名冊是兩份獨立設定)——一樣要
+  // 看得到,不然這個部門的 DM 憑空消失。
+  for (const [discipline, dmRole] of Object.entries(DM_ROLE_OF)) {
+    for (const r of roles.filter((r) => r.role === dmRole)) {
+      const info = groupInfo.get(r.groupId);
+      if (!info) continue;
+      const key = `${r.groupId}:${discipline}:${r.userId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(personSection(r.userId, r.user.name, "DM", DISCIPLINE_LABELS[discipline] ?? discipline, info));
+    }
+  }
+
+  // Team Leader 自己的工作項,不掛在任何一個職能底下。
+  for (const tl of roles.filter((r) => r.role === "TEAM_LEADER")) {
+    const info = groupInfo.get(tl.groupId);
+    if (!info) continue;
+    out.push(personSection(tl.userId, tl.user.name, "TEAM_LEADER", "Team Leader", info));
+  }
+
+  return out.sort(
+    (a, b) =>
+      a.boardName.localeCompare(b.boardName) ||
+      a.groupName.localeCompare(b.groupName) ||
+      a.discipline.localeCompare(b.discipline) ||
+      a.userName.localeCompare(b.userName)
+  );
 }
 
 /** 每個專案群組算一次延誤 —— 要徑跟延誤都是跨看板的,一塊一塊算會低估。 */

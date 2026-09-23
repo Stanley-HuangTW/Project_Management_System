@@ -63,18 +63,19 @@ export type DelayLine = {
   culprits: { wbsCode: string; name: string; ownDelayDays: number; downstreamCount: number }[];
 };
 
-/** 一個部門:誰帶、有誰、手上有哪些事。 */
-export type DepartmentSection = {
-  /** 例如「SW(M3)」—— 部門是掛在分組底下的,同一個 SW 在不同分組是不同組人。 */
-  key: string;
+/** 一個人手上的事:逾期、這週做完的、接下來要到期的。 */
+export type PersonSection = {
+  userId: string;
+  userName: string;
+  role: "TEAM_LEADER" | "DM" | "MEMBER";
+  /** Team Leader 不屬於單一職能,這裡放「Team Leader」本身。 */
   discipline: string;
   groupName: string;
   boardName: string;
-  dmNames: string[];
-  memberNames: string[];
   overdue: ReportItem[];
+  completedThisWeek: ReportItem[];
+  /** 未來 upcomingDays 天內到期的——這個數字是外面傳進來的,不是寫死。 */
   upcoming: ReportItem[];
-  inProgress: ReportItem[];
 };
 
 export type ProgramSection = {
@@ -91,7 +92,9 @@ export type WeeklyReportData = {
   generatedAt: string;
   viewerName: string;
   programs: ProgramSection[];
-  departments: DepartmentSection[];
+  departments: PersonSection[];
+  /** 「未來 X 天」的 X——顯示區塊標題要用。 */
+  upcomingDays: number;
   /** 這一週的異動筆數,照看板分。 */
   activity: { boardName: string; count: number }[];
 };
@@ -337,7 +340,7 @@ export function renderWeeklyReportMarkdown(data: WeeklyReportData, diff: WeeklyR
 
   for (const program of data.programs) {
     out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
-    out.push(...renderProgram(program, diff));
+    out.push(...renderProgram(program, diff, data.upcomingDays));
     out.push("");
   }
 
@@ -346,20 +349,20 @@ export function renderWeeklyReportMarkdown(data: WeeklyReportData, diff: WeeklyR
   if (data.departments.length === 0) {
     out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");
   } else {
-    for (const dept of data.departments) {
-      out.push(`### ${dept.discipline}・${dept.boardName} / ${dept.groupName}`);
-      out.push("");
+    const roleLabel: Record<PersonSection["role"], string> = {
+      TEAM_LEADER: "Team Leader",
+      DM: "DM",
+      MEMBER: "成員",
+    };
+    for (const person of data.departments) {
+      out.push(`### [${roleLabel[person.role]}] ${person.userName}・${person.discipline}(${person.boardName} / ${person.groupName})`);
       out.push(
-        `DM:${dept.dmNames.length > 0 ? dept.dmNames.join("、") : "未指定"}・` +
-          `成員:${dept.memberNames.length > 0 ? dept.memberNames.join("、") : "未設定"}`
+        ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
+        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10)),
+        ...section(`**接下來 ${data.upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
       );
-      out.push(
-        ...section(`**逾期(${dept.overdue.length})**`, itemLines(dept.overdue, 10)),
-        ...section(`**未來七天(${dept.upcoming.length})**`, itemLines(dept.upcoming, 10)),
-        ...section(`**進行中(${dept.inProgress.length})**`, itemLines(dept.inProgress, 10))
-      );
-      if (dept.overdue.length + dept.upcoming.length + dept.inProgress.length === 0) {
-        out.push("", "目前沒有進行中、逾期或七天內到期的工作項。");
+      if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
+        out.push("", "目前沒有逾期、這週完成或近期到期的工作項。");
       }
       out.push("");
     }
@@ -375,7 +378,7 @@ export function renderWeeklyReportMarkdown(data: WeeklyReportData, diff: WeeklyR
   return out.join("\n");
 }
 
-function renderProgram(program: ProgramSection, diff: WeeklyReportDiff): string[] {
+function renderProgram(program: ProgramSection, diff: WeeklyReportDiff, upcomingDays: number): string[] {
   const out: string[] = [];
   const name = program.programName;
   const items = program.items;
@@ -423,8 +426,8 @@ function renderProgram(program: ProgramSection, diff: WeeklyReportDiff): string[
   out.push("", `### 目前逾期(${overdue.length})`, "");
   out.push(overdue.length === 0 ? "沒有逾期。" : itemLines(overdue).join("\n"));
 
-  out.push("", `### 未來七天(${upcoming.length})`, "");
-  out.push(upcoming.length === 0 ? "七天內沒有到期的。" : itemLines(upcoming).join("\n"));
+  out.push("", `### 未來 ${upcomingDays} 天(${upcoming.length})`, "");
+  out.push(upcoming.length === 0 ? `${upcomingDays} 天內沒有到期的。` : itemLines(upcoming).join("\n"));
 
   out.push("", `### 里程碑(${milestones.length})`, "");
   out.push(milestones.length === 0 ? "沒有未完成的里程碑。" : itemLines(milestones, 20).join("\n"));
