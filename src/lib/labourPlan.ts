@@ -85,6 +85,12 @@ export function personMonthCost(
   return personMonths * monthly;
 }
 
+/** 人月算到小數兩位,金額算到整數 —— 加總一長串浮點數常常會冒出
+ *  44.999999999999999 這種二進位小數誤差,不修的話會直接顯示在畫面上。 */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 /** rowId 是「這一格屬於哪一列」—— 現在那是預算階段的 id。刻意不叫 itemId:
  *  它曾經是看板工作項,改掛階段之後那個名字會騙人。 */
 export type PlanCell = { rowId: string; discipline: Discipline; personMonths: number };
@@ -136,8 +142,8 @@ export function summariseLabourPlan(
       rowId: phase.id,
       itemName: phase.name,
       cells: rowCells,
-      personMonths: rowCells.reduce((t, c) => t + c.personMonths, 0),
-      amount: rowCells.reduce((t, c) => t + c.amount, 0),
+      personMonths: round2(rowCells.reduce((t, c) => t + c.personMonths, 0)),
+      amount: Math.round(rowCells.reduce((t, c) => t + c.amount, 0)),
     };
   });
 
@@ -145,16 +151,16 @@ export function summariseLabourPlan(
     const column = rows.flatMap((r) => r.cells.filter((c) => c.discipline === discipline));
     return {
       discipline,
-      personMonths: column.reduce((t, c) => t + c.personMonths, 0),
-      amount: column.reduce((t, c) => t + c.amount, 0),
+      personMonths: round2(column.reduce((t, c) => t + c.personMonths, 0)),
+      amount: Math.round(column.reduce((t, c) => t + c.amount, 0)),
     };
   });
 
   return {
     rows,
     byDiscipline,
-    totalPersonMonths: byDiscipline.reduce((t, d) => t + d.personMonths, 0),
-    totalAmount: byDiscipline.reduce((t, d) => t + d.amount, 0),
+    totalPersonMonths: round2(byDiscipline.reduce((t, d) => t + d.personMonths, 0)),
+    totalAmount: Math.round(byDiscipline.reduce((t, d) => t + d.amount, 0)),
     unpricedDisciplines: DISCIPLINES.filter((d) => unpriced.has(d)),
   };
 }

@@ -131,6 +131,22 @@ describe("summariseLabourPlan", () => {
     expect(summary.totalPersonMonths).toBe(0);
     expect(summary.unpricedDisciplines).toEqual([]);
   });
+
+  it("加總不會冒出二進位小數誤差(例如 44.999999999999999)", () => {
+    // 8 + 9.4 + 20.4 + 4.8 + 2.4 在浮點數裡加總會得到
+    // 44.99999999999999,不是乾淨的 45。
+    const driftPhases = [{ id: "dvt1", name: "DVT1" }];
+    const driftCells = [
+      { rowId: "dvt1", discipline: "EE" as const, personMonths: 8 },
+      { rowId: "dvt1", discipline: "SW" as const, personMonths: 9.4 },
+      { rowId: "dvt1", discipline: "ME" as const, personMonths: 20.4 },
+      { rowId: "dvt1", discipline: "QA" as const, personMonths: 4.8 },
+      { rowId: "dvt1", discipline: "PM" as const, personMonths: 2.4 },
+    ];
+    const summary = summariseLabourPlan(driftPhases, driftCells, rates, UNITS);
+    expect(summary.rows[0].personMonths).toBe(45);
+    expect(summary.totalPersonMonths).toBe(45);
+  });
 });
 
 describe("personMonthsToHours", () => {
