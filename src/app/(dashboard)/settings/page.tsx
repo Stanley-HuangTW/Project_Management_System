@@ -4,6 +4,7 @@ import { getSystemSettings, listDefaultBoardColumns } from "@/lib/actions/system
 import { listHolidays } from "@/lib/holidays";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import { listPrograms, type ProgramRow } from "@/lib/actions/program";
+import { listProgramReportSubscriptions } from "@/lib/actions/programReportSubscription";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { SystemSettingsForm } from "@/components/settings/SystemSettingsForm";
 
@@ -52,9 +53,10 @@ export default async function SettingsPage() {
     }),
   ]);
 
-  // listPrograms is admin-only and throws otherwise; the card is not rendered
-  // for a non-admin anyway.
+  // listPrograms/listProgramReportSubscriptions are admin-only and throw
+  // otherwise; the cards are not rendered for a non-admin anyway.
   const programs: ProgramRow[] = isAdmin ? await listPrograms() : [];
+  const programReportSubscriptions = isAdmin ? await listProgramReportSubscriptions() : [];
   const defaults = await listDefaultBoardColumns();
 
   const sharingBoards = isAdmin ? boards : boards.filter((b) => b.ownerId === session.userId);
@@ -86,6 +88,13 @@ export default async function SettingsPage() {
         baselineBoards={boards}
         programs={programs}
         programBoards={boards.map((b) => ({ id: b.id, name: b.name, programId: b.programId }))}
+        programReportSubscriptions={programReportSubscriptions}
+        weeklyReportSchedule={{
+          enabled: settings.weeklyReportEnabled,
+          dow: settings.weeklyReportDow,
+          hour: settings.weeklyReportHour,
+          minute: settings.weeklyReportMinute,
+        }}
         reportSettingsBoards={boards}
         defaultColumnsBoards={boards.map((b) => ({
           id: b.id,

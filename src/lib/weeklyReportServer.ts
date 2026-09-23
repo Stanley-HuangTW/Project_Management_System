@@ -23,6 +23,7 @@ import {
   type ReportItem,
   type WeeklyReportData,
   type WeeklyReportDiff,
+  type WeeklyReportSections,
 } from "@/lib/weeklyReport";
 
 /**
@@ -557,4 +558,117 @@ export async function generateAndStoreWeeklyReport(session: SessionPayload, week
     update: { weekEnd: snapshot.weekEnd, data: snapshot as unknown as object, markdown },
   });
   return { snapshot, diff, markdown };
+}
+
+/** 上一週分發出去的那份快照,拿來跟這週比——不是給人回看的,只是給 diff 用。 */
+async function loadProgramSnapshot(programId: string, weekStart: string): Promise<WeeklyReportSnapshot | null> {
+  const row = await prisma.programReportSnapshot.findUnique({
+    where: { programId_weekStart: { programId, weekStart } },
+    select: { data: true },
+  });
+  if (!row) return null;
+  const data = row.data as unknown as Partial<WeeklyReportSnapshot>;
+  return Array.isArray(data.programs) ? (data as WeeklyReportSnapshot) : null;
+}
+
+async function saveProgramSnapshot(programId: string, weekStart: string, snapshot: WeeklyReportSnapshot) {
+  await prisma.programReportSnapshot.upsert({
+    where: { programId_weekStart: { programId, weekStart } },
+    create: { programId, weekStart, data: snapshot as unknown as object },
+    update: { data: snapshot as unknown as object },
+  });
+}
+
+/**
+ * 一個專案群組分發用的週報——跟 buildWeeklyReport 是同一套底層邏輯
+ * (getProgramView/gatherBudgets/gatherDelays/gatherPersonSections/
+ * gatherActivity),差別在兩個地方:
+ *
+ *   1. 看的是「這個專案群組底下所有看板」,不是「這個人看得到哪些看板」
+ *      ——收件人可能是外部信箱,根本沒有帳號可以問權限。用一個角色是
+ *      ADMIN 的假 session 走現有那幾支函式,canAccessBoard/applyVisibility
+ *      對 ADMIN 本來就全放行,不用另外寫一套「不看權限」的版本。
+ *   2. 上一週的比較對象是 ProgramReportSnapshot,不是 WeeklyReport——
+ *      那張表是「一人一份、可以回看」的,這裡分發出去的報告不掛在任何
+ *      使用者身上。
+ */
+export async function buildProgramWeeklyReportData(
+  programId: string,
+  weekStartIso: string,
+  options: { upcomingDays: number; include: WeeklyReportSections }
+): Promise<{ programName: string; snapshot: WeeklyReportSnapshot; markdown: string } | null> {
+  const program = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, name: true } });
+  if (!program) return null;
+
+  const { weekStart, weekEnd } = weekRangeOf(weekStartIso);
+  const systemSession: SessionPayload = {
+    userId: "system-weekly-report",
+    email: "",
+    name: "系統排程",
+    role: "ADMIN",
+  };
+
+  const [boards, holidayRows] = await Promise.all([
+    prisma.board.findMany({ where: { programId, deletedAt: null }, ...boardWithDataArgs }),
+    listHolidays(),
+  ]);
+  if (boards.length === 0) return null;
+  const holidays = toHolidaySet(holidayRows);
+
+  const { overdue, upcoming } = computeOverdueUpcoming(boards, undefined, holidays, options.upcomingDays);
+  const bucketOf = new Map<string, ItemBucket>();
+  for (const e of overdue) bucketOf.set(e.itemId, "overdue");
+  for (const e of upcoming) bucketOf.set(e.itemId, "upcoming");
+
+  const view = await getProgramView(programId, systemSession);
+  if (!view) return null;
+
+  const sections: ProgramSection[] = [
+    {
+      programName: program.name,
+      boards: boardLinesOf(boards, program.name, holidays),
+      items: view.tasks.map((task) => ({
+        id: task.id,
+        wbsCode: task.wbsCode,
+        name: task.name,
+        boardName: task.boardName,
+        groupName: task.groupName,
+        programName: program.name,
+        start: task.start,
+        end: task.end,
+        status: task.status,
+        ownerIds: task.assigneeIds,
+        ownerNames: task.assigneeNames,
+        isMilestone: task.isMilestone,
+        isCritical: task.isCritical,
+        bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(boards, holidays)),
+      })),
+      budgets: await gatherBudgets(boards),
+      delays: await gatherDelays(boards, systemSession),
+    },
+  ];
+
+  const previous = await loadProgramSnapshot(programId, previousWeekOf(weekStart).weekStart);
+  const diff = diffWeeks({ programs: sections }, previous);
+
+  const snapshot: WeeklyReportSnapshot = {
+    weekStart,
+    weekEnd,
+    generatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+    viewerName: "系統排程",
+    programs: sections,
+    departments: await gatherPersonSections(boards, sections, diff.completed),
+    upcomingDays: options.upcomingDays,
+    activity: await gatherActivity(boards, weekStart, weekEnd),
+  };
+  await saveProgramSnapshot(programId, weekStart, snapshot);
+
+  const markdown = renderWeeklyReportMarkdown(snapshot, diff, {
+    summary: options.include.summary,
+    programs: options.include.programs,
+    departments: options.include.departments,
+    activity: options.include.activity,
+  });
+
+  return { programName: program.name, snapshot, markdown };
 }

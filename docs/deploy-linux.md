@@ -89,6 +89,11 @@ nano .env.production   # 或你熟悉的編輯器
   之後如果有網域/HTTPS 再改成正式網址。
 - `SMTP_*`、`GOOGLE_CLIENT_*`：直接照抄 Windows 那邊 `.env.production` 裡的值
   （這些是外部服務的憑證，兩邊要一樣才能正常運作）。
+- `INTERNAL_CRON_SECRET`：用 `openssl rand -base64 32` 產生一組新的，不需要跟
+  Windows 那邊一樣——這是 `server.js` 用來觸發「專案週報分發」排程心跳的內部
+  密鑰，不會給任何使用者看到，只要有值就好。沒填的話專案週報排程不會自動
+  觸發（系統設定裡的「啟用排程」開關仍然可以打開，但不會真的寄出去），log
+  裡會看到一行警告。
 
 `.env.production` 不會被 git 追蹤（已經在 `.gitignore` 裡），所以之後
 `git pull`/GitHub Actions 更新程式碼都不會動到它，改一次設定就會一直留著。

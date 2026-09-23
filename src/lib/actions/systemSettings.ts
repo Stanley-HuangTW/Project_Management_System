@@ -29,6 +29,11 @@ export async function getSystemSettings() {
     hoursPerDay: 8,
     workingDaysPerMonth: 21,
     defaultColumns: null as Prisma.JsonValue,
+    weeklyReportEnabled: false,
+    weeklyReportDow: 1,
+    weeklyReportHour: 6,
+    weeklyReportMinute: 0,
+    weeklyReportLastRunWeek: null as string | null,
     updatedAt: new Date(),
   };
 }
@@ -158,6 +163,49 @@ export async function setEmailNotificationsEnabled(enabled: boolean) {
   await logAudit("SETTINGS", session.userId, `Email 通知${enabled ? "開啟" : "關閉"}`);
 
   revalidatePath("/settings");
+}
+
+const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+
+/** 專案週報分發的排程時間——星期幾、幾點幾分,見 weeklyReportTick 那條路。 */
+export async function setWeeklyReportSchedule(schedule: {
+  enabled: boolean;
+  dow: number;
+  hour: number;
+  minute: number;
+}): Promise<{ error?: string }> {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+
+  if (schedule.dow < 0 || schedule.dow > 6) return { error: "星期幾不合法" };
+  if (schedule.hour < 0 || schedule.hour > 23) return { error: "小時不合法" };
+  if (schedule.minute < 0 || schedule.minute > 59) return { error: "分鐘不合法" };
+
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: {
+      id: "global",
+      weeklyReportEnabled: schedule.enabled,
+      weeklyReportDow: schedule.dow,
+      weeklyReportHour: schedule.hour,
+      weeklyReportMinute: schedule.minute,
+    },
+    update: {
+      weeklyReportEnabled: schedule.enabled,
+      weeklyReportDow: schedule.dow,
+      weeklyReportHour: schedule.hour,
+      weeklyReportMinute: schedule.minute,
+    },
+  });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    schedule.enabled
+      ? `專案週報排程設定為每${DOW_LABELS[schedule.dow]} ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
+      : "專案週報排程關閉"
+  );
+  revalidatePath("/settings");
+  return {};
 }
 
 /**

@@ -132,6 +132,7 @@ model User {
   decidedLeaves        Leave[]               @relation("LeaveDecider")
   reserveDraws         ReserveDraw[]         @relation("ReserveDrawDecider")
   gateDecisions        Gate[]                @relation("GateDecidedBy")
+  reportRecipientFor   ProgramReportRecipient[]
 }
 
 // A non-login entity (tool, equipment, external vendor/supplier) that can be
@@ -866,6 +867,15 @@ model SystemSettings {
   /// Null means nobody has set one, and a new board falls back to the built-in
   /// list — the same one this used to be, hardcoded.
   defaultColumns            Json?
+  /// 專案週報分發的排程時間。enabled 是總開關;dow 是星期幾(0=週日,
+  /// 沿用 JS Date.getDay() 的編號,1=週一)。
+  weeklyReportEnabled       Boolean           @default(false)
+  weeklyReportDow           Int               @default(1)
+  weeklyReportHour          Int               @default(6)
+  weeklyReportMinute        Int               @default(0)
+  /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
+  /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
+  weeklyReportLastRunWeek   String?
   updatedAt                 DateTime          @updatedAt
 }
 
@@ -1472,15 +1482,66 @@ model ReserveDraw {
 }
 
 model Program {
-  id          String    @id @default(cuid())
-  name        String
+  id                  String                     @id @default(cuid())
+  name                String
   /// 誰建立的。預算編輯權要認「專案建立者」,群組層得有個對象可以認。
   /// 這個欄位之前建立的群組是 null,那些就只有管理者能編。
-  createdById String?
-  createdAt   DateTime  @default(now())
-  boards      Board[]
-  budgets     Budget[]
-  reserves    Reserve[]
+  createdById         String?
+  createdAt           DateTime                   @default(now())
+  boards              Board[]
+  budgets             Budget[]
+  reserves            Reserve[]
+  reportSubscription  ProgramReportSubscription?
+  reportSnapshots     ProgramReportSnapshot[]
+}
+
+/// 一個專案群組的週報分發訂閱:多久寄一次(排程設定在 SystemSettings,
+/// 是全域的,這裡只有內容範圍)、寄給誰、寄哪些區塊。
+///
+/// 跟 WeeklyReport 是兩回事:WeeklyReport 是「一人一份、可以在週報頁面
+/// 回看」的個人視角報告;這裡分發出去的報告不看任何人的權限(收件人可能
+/// 是外部信箱,本來就沒有帳號),只寄信、不建可回看的紀錄。
+model ProgramReportSubscription {
+  id                 String                   @id @default(cuid())
+  programId          String                   @unique
+  program            Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  /// 「接下來幾天」的視窗長度——每個專案群組自己設,不是全域一個值。
+  upcomingDays       Int                      @default(7)
+  includeSummary     Boolean                  @default(true)
+  includeProgramDiff Boolean                  @default(true)
+  includeDepartments Boolean                  @default(true)
+  includeActivity    Boolean                  @default(true)
+  recipients         ProgramReportRecipient[]
+  updatedAt          DateTime                 @updatedAt
+}
+
+/// 一個收件人。現有帳號填 userId(信箱跟著帳號走,改帳號信箱不用回來改
+/// 這裡);系統外的人填 email。兩者互斥,不會同時有值。
+model ProgramReportRecipient {
+  id             String                    @id @default(cuid())
+  subscriptionId String
+  subscription   ProgramReportSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 自由填的外部信箱,userId 是 null 時才有值。
+  email          String?
+
+  @@unique([subscriptionId, userId])
+}
+
+/// 分發出去的專案週報,拿來跟下一週比對用的快照——跟 WeeklyReport 是同一個
+///概念,但這份不是給人在「週報」頁面回看的,只是給「這一週 vs 上一週」的
+/// diffWeeks 找上一份用,所以不掛使用者、不存 markdown、欄位比 WeeklyReport
+/// 精簡。
+model ProgramReportSnapshot {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  weekStart String
+  data      Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([programId, weekStart])
 }
 
 /// 一份存下來的週報。

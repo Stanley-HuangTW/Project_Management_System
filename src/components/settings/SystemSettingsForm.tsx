@@ -22,8 +22,11 @@ import { GanttColumnMappingCard, type GanttMappingBoard } from "./GanttColumnMap
 import { ReportSettingsCard, type ReportSettingsBoardWithName } from "./ReportSettingsCard";
 import { BaselineCard, type BaselineBoard } from "./BaselineCard";
 import { ProgramCard, type ProgramBoard } from "./ProgramCard";
+import { ProgramReportSubscriptionCard } from "./ProgramReportSubscriptionCard";
+import { WeeklyReportScheduleCard } from "./WeeklyReportScheduleCard";
 import { ExchangeRateCard } from "./ExchangeRateCard";
 import type { ProgramRow } from "@/lib/actions/program";
+import type { ProgramReportSubscriptionRow } from "@/lib/actions/programReportSubscription";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 import { IntegrationCard } from "./IntegrationCard";
 import { StatusColorCard, type StatusColorBoard } from "./StatusColorCard";
@@ -422,6 +425,8 @@ export function SystemSettingsForm({
   baselineBoards,
   programs,
   programBoards,
+  programReportSubscriptions,
+  weeklyReportSchedule,
   reportSettingsBoards,
   statusColorBoards,
   defaultColumnsBoards,
@@ -445,6 +450,8 @@ export function SystemSettingsForm({
   baselineBoards: BaselineBoard[];
   programs: ProgramRow[];
   programBoards: ProgramBoard[];
+  programReportSubscriptions: ProgramReportSubscriptionRow[];
+  weeklyReportSchedule: { enabled: boolean; dow: number; hour: number; minute: number };
   reportSettingsBoards: ReportSettingsBoardWithName[];
   statusColorBoards: StatusColorBoard[];
   defaultColumnsBoards: DefaultColumnsBoard[];
@@ -475,6 +482,8 @@ export function SystemSettingsForm({
           <WorkloadThresholdCard threshold={workloadThreshold} />
           <BaselineCard boards={baselineBoards} />
           <ProgramCard programs={programs} boards={programBoards} />
+          <WeeklyReportScheduleCard initial={weeklyReportSchedule} />
+          <ProgramReportSubscriptionCard subscriptions={programReportSubscriptions} users={users} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <DefaultColumnsCard
             boards={defaultColumnsBoards}

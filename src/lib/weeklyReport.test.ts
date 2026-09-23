@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   weekRangeOf,
   previousWeekOf,
+  isPastWeeklyTrigger,
   isoWeekLabel,
   diffWeeks,
   renderWeeklyReportMarkdown,
@@ -95,6 +96,31 @@ describe("一週的邊界", () => {
 
   it("跨年的上一週不會跳掉", () => {
     expect(previousWeekOf("2027-01-04").weekStart).toBe("2026-12-28");
+  });
+});
+
+describe("isPastWeeklyTrigger", () => {
+  const trigger = { dow: 1, hour: 6, minute: 0 }; // 每週一 06:00
+
+  it("還沒到那一天", () => {
+    expect(isPastWeeklyTrigger({ dow: 0, hour: 23, minute: 59 }, trigger)).toBe(false);
+  });
+
+  it("過了那一天", () => {
+    expect(isPastWeeklyTrigger({ dow: 2, hour: 0, minute: 0 }, trigger)).toBe(true);
+  });
+
+  it("同一天,時間還沒到", () => {
+    expect(isPastWeeklyTrigger({ dow: 1, hour: 5, minute: 59 }, trigger)).toBe(false);
+  });
+
+  it("同一天,剛好是那一分鐘算已經到", () => {
+    expect(isPastWeeklyTrigger({ dow: 1, hour: 6, minute: 0 }, trigger)).toBe(true);
+  });
+
+  it("同一天,時間已經過了", () => {
+    expect(isPastWeeklyTrigger({ dow: 1, hour: 6, minute: 1 }, trigger)).toBe(true);
+    expect(isPastWeeklyTrigger({ dow: 1, hour: 23, minute: 0 }, trigger)).toBe(true);
   });
 });
 
@@ -421,6 +447,43 @@ describe("Markdown", () => {
   it("沒有部門名冊時說得出原因,而不是一段空白", () => {
     const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
     expect(md).toContain("沒有設定分組角色與部門名冊");
+  });
+
+  it("區塊可以個別關掉——專案週報分發用的內容範圍設定", () => {
+    const data = snapshot([item({ id: "a", bucket: "overdue" })]);
+    data.departments = [
+      {
+        userId: "u1",
+        userName: "Henry Chen",
+        role: "DM",
+        discipline: "SW 軟體",
+        groupName: "M3",
+        boardName: "M3專案",
+        overdue: [],
+        completedThisWeek: [],
+        upcoming: [],
+      },
+    ];
+    data.activity = [{ boardName: "M3專案", count: 3 }];
+
+    const full = renderWeeklyReportMarkdown(data, noDiff);
+    expect(full).toContain("## 本週摘要");
+    expect(full).toContain("## 專案:M3");
+    expect(full).toContain("## 各部門工作事項");
+    expect(full).toContain("## 本週異動筆數");
+
+    const minimal = renderWeeklyReportMarkdown(data, noDiff, {
+      summary: false,
+      programs: false,
+      departments: false,
+      activity: false,
+    });
+    expect(minimal).not.toContain("## 本週摘要");
+    expect(minimal).not.toContain("## 專案:M3");
+    expect(minimal).not.toContain("## 各部門工作事項");
+    expect(minimal).not.toContain("## 本週異動筆數");
+    // 標題跟視角那兩行不受影響,不是整份都被關掉了。
+    expect(minimal).toContain("# 週報");
   });
 
   it("清單太長會收尾,不會把幾百項全部貼進信裡", () => {

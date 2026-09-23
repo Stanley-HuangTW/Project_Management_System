@@ -154,6 +154,19 @@ export function weekRangeOf(dayIso: string): { weekStart: string; weekEnd: strin
   return { weekStart: iso(start), weekEnd: iso(new Date(start.getTime() + 6 * DAY_MS)) };
 }
 
+/**
+ * 現在(星期幾、幾點幾分)有沒有過了設定的觸發時刻——星期幾優先比,同一天
+ * 才比時分。0=週日,沿用 JS Date.getDay() 的編號。
+ */
+export function isPastWeeklyTrigger(
+  now: { dow: number; hour: number; minute: number },
+  trigger: { dow: number; hour: number; minute: number }
+): boolean {
+  if (now.dow !== trigger.dow) return now.dow > trigger.dow;
+  if (now.hour !== trigger.hour) return now.hour > trigger.hour;
+  return now.minute >= trigger.minute;
+}
+
 /** 上一個 ISO 週。週一早上跑的排程要的是這個,不是它自己那一週。 */
 export function previousWeekOf(weekStartIso: string): { weekStart: string; weekEnd: string } {
   return weekRangeOf(iso(new Date(utc(weekStartIso).getTime() - 7 * DAY_MS)));
@@ -311,7 +324,24 @@ function section(title: string, body: string[]): string[] {
  * 差異的部分才是「這一週」發生的事 —— 兩者混在一起講,讀的人會把快照當成
  * 本週新增。
  */
-export function renderWeeklyReportMarkdown(data: WeeklyReportData, diff: WeeklyReportDiff): string {
+export type WeeklyReportSections = {
+  summary?: boolean;
+  programs?: boolean;
+  departments?: boolean;
+  activity?: boolean;
+};
+
+export function renderWeeklyReportMarkdown(
+  data: WeeklyReportData,
+  diff: WeeklyReportDiff,
+  include: WeeklyReportSections = {}
+): string {
+  const {
+    summary: includeSummary = true,
+    programs: includePrograms = true,
+    departments: includeDepartments = true,
+    activity: includeActivity = true,
+  } = include;
   const out: string[] = [];
   const label = isoWeekLabel(data.weekStart);
 
@@ -320,55 +350,61 @@ export function renderWeeklyReportMarkdown(data: WeeklyReportData, diff: WeeklyR
   out.push(`視角:${data.viewerName}・產出時間:${data.generatedAt}`);
   out.push("");
 
-  out.push("## 本週摘要");
-  out.push("");
-  if (diff.firstEver) {
-    out.push("這是第一份週報,沒有上一週可以比,所以下面只有目前的狀態。");
-  } else {
-    out.push(
-      `完成 ${diff.completed.length}・新逾期 ${diff.newlyOverdue.length}・` +
-        `脫離逾期 ${diff.recovered.length}・改期 ${diff.scheduleChanged.length}・` +
-        `狀態更新 ${diff.statusChanged.length}・預算異動 ${diff.budgetChanged.length}`
-    );
-    const newlyOver = diff.budgetChanged.filter((b) => b.newlyOver);
-    if (newlyOver.length > 0) {
-      out.push("");
-      out.push(`⚠ 這週有 ${newlyOver.length} 個階段從沒超支變成超支。`);
+  if (includeSummary) {
+    out.push("## 本週摘要");
+    out.push("");
+    if (diff.firstEver) {
+      out.push("這是第一份週報,沒有上一週可以比,所以下面只有目前的狀態。");
+    } else {
+      out.push(
+        `完成 ${diff.completed.length}・新逾期 ${diff.newlyOverdue.length}・` +
+          `脫離逾期 ${diff.recovered.length}・改期 ${diff.scheduleChanged.length}・` +
+          `狀態更新 ${diff.statusChanged.length}・預算異動 ${diff.budgetChanged.length}`
+      );
+      const newlyOver = diff.budgetChanged.filter((b) => b.newlyOver);
+      if (newlyOver.length > 0) {
+        out.push("");
+        out.push(`⚠ 這週有 ${newlyOver.length} 個階段從沒超支變成超支。`);
+      }
     }
-  }
-  out.push("");
-
-  for (const program of data.programs) {
-    out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
-    out.push(...renderProgram(program, diff, data.upcomingDays));
     out.push("");
   }
 
-  out.push("## 各部門工作事項");
-  out.push("");
-  if (data.departments.length === 0) {
-    out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");
-  } else {
-    const roleLabel: Record<PersonSection["role"], string> = {
-      TEAM_LEADER: "Team Leader",
-      DM: "DM",
-      MEMBER: "成員",
-    };
-    for (const person of data.departments) {
-      out.push(`### [${roleLabel[person.role]}] ${person.userName}・${person.discipline}(${person.boardName} / ${person.groupName})`);
-      out.push(
-        ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
-        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10)),
-        ...section(`**接下來 ${data.upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
-      );
-      if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
-        out.push("", "目前沒有逾期、這週完成或近期到期的工作項。");
-      }
+  if (includePrograms) {
+    for (const program of data.programs) {
+      out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
+      out.push(...renderProgram(program, diff, data.upcomingDays));
       out.push("");
     }
   }
 
-  if (data.activity.length > 0) {
+  if (includeDepartments) {
+    out.push("## 各部門工作事項");
+    out.push("");
+    if (data.departments.length === 0) {
+      out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");
+    } else {
+      const roleLabel: Record<PersonSection["role"], string> = {
+        TEAM_LEADER: "Team Leader",
+        DM: "DM",
+        MEMBER: "成員",
+      };
+      for (const person of data.departments) {
+        out.push(`### [${roleLabel[person.role]}] ${person.userName}・${person.discipline}(${person.boardName} / ${person.groupName})`);
+        out.push(
+          ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
+          ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10)),
+          ...section(`**接下來 ${data.upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
+        );
+        if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
+          out.push("", "目前沒有逾期、這週完成或近期到期的工作項。");
+        }
+        out.push("");
+      }
+    }
+  }
+
+  if (includeActivity && data.activity.length > 0) {
     out.push("## 本週異動筆數");
     out.push("");
     out.push(...data.activity.map((a) => `- ${a.boardName}:${a.count} 筆`));

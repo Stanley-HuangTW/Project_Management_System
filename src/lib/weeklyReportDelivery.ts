@@ -70,3 +70,33 @@ async function mailReport(
   const result = await sendMailChecked(session.email, subject, markdown);
   return { ok: result.ok, to: session.email, reason: result.reason };
 }
+
+export type ProgramDeliveryResult = {
+  file: { ok: boolean; path?: string; reason?: string };
+  /** 每個收件人各自的結果——一個信箱寄失敗不該讓呼叫端以為整批都沒寄出去。 */
+  mail: { to: string; ok: boolean; reason?: string }[];
+};
+
+/**
+ * 專案週報分發:落一份檔案(用專案名字當檔名,不是人名),再逐一寄給每個
+ * 收件人。跟 deliverWeeklyReport 不寫進 WeeklyReport 表是同一件事的另一面
+ * ——這裡也不掛在任何一個使用者身上,分開一支函式。
+ */
+export async function deliverProgramReport(
+  programName: string,
+  snapshot: WeeklyReportSnapshot,
+  markdown: string,
+  recipientEmails: string[]
+): Promise<ProgramDeliveryResult> {
+  const label = isoWeekLabel(snapshot.weekStart).replace(" ", "-");
+  const base = `${snapshot.weekStart}_${label}_${safeName(programName)}`;
+  const file = await writeReportFiles(base, snapshot, markdown);
+
+  const subject = `【${programName}】週報 ${isoWeekLabel(snapshot.weekStart)}(${snapshot.weekStart} ~ ${snapshot.weekEnd})`;
+  const mail: ProgramDeliveryResult["mail"] = [];
+  for (const to of recipientEmails) {
+    const result = await sendMailChecked(to, subject, markdown);
+    mail.push({ to, ok: result.ok, reason: result.reason });
+  }
+  return { file, mail };
+}
