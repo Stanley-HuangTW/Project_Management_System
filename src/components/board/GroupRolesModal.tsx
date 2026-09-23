@@ -27,9 +27,13 @@ const ROLE_LABELS: Record<GroupRole, string> = {
   QA: "QA DM",
   PMM: "PMM(行銷 PM)",
   PMD: "PMD(專案 PM)",
+  // 刻意跟上面兩個「PM」開頭的角色分開措辭——PMD/PMM 管的是整個分組/整個
+  // 看板,PM_DM 是「PM 這個職能」的 DM,是完全不同的概念,標籤要一眼看得
+  // 出差異,不然容易被當成同一種角色。
+  PM_DM: "PM DM(專案管理)",
 };
-const ROLES: GroupRole[] = ["TEAM_LEADER", "SW_DM", "HW_DM", "ME_DM", "QA", "PMM", "PMD"];
-const DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA"];
+const ROLES: GroupRole[] = ["TEAM_LEADER", "SW_DM", "HW_DM", "ME_DM", "QA", "PM_DM", "PMM", "PMD"];
+const DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA", "PM"];
 
 /** 畫面上的部門名稱。HW 這個列舉值對外一律叫 EE。 */
 const DISCIPLINE_LABELS: Record<GroupDiscipline, string> = {
@@ -37,6 +41,7 @@ const DISCIPLINE_LABELS: Record<GroupDiscipline, string> = {
   HW: "EE",
   ME: "ME",
   QA: "QA",
+  PM: "PM",
 };
 
 /**
@@ -51,6 +56,7 @@ const ROLE_DISCIPLINE: Record<GroupRole, GroupDiscipline | null> = {
   HW_DM: "HW",
   ME_DM: "ME",
   QA: "QA",
+  PM_DM: "PM",
   PMM: null,
   PMD: null,
 };
@@ -58,7 +64,7 @@ const ROLE_DISCIPLINE: Record<GroupRole, GroupDiscipline | null> = {
 /**
  * 部門代號可能對不上使用者身上的單位。
  *
- * 分組職能的列舉值是固定的 SW/HW/ME/QA,而「公司組織單位」是設定出來的
+ * 分組職能的列舉值是固定的 SW/HW/ME/QA/PM,而「公司組織單位」是設定出來的
  * (預設 EE/ME/SW/QA/FAE/PM)。HW 這一支對外叫 EE,所以先比 EE;舊資料裡
  * 如果真的有人的單位是 HW,也一併收,不然那些人會突然從清單上消失。
  */
@@ -67,6 +73,7 @@ const UNIT_ALIASES: Record<GroupDiscipline, string[]> = {
   HW: ["EE", "HW"],
   ME: ["ME"],
   QA: ["QA"],
+  PM: ["PM"],
 };
 
 function inDiscipline(user: UserOption, discipline: GroupDiscipline): boolean {

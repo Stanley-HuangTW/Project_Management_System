@@ -5,6 +5,7 @@ const DM_ROLE_DISCIPLINE: Partial<Record<GroupRole, GroupDiscipline>> = {
   HW_DM: "HW",
   ME_DM: "ME",
   QA: "QA",
+  PM_DM: "PM",
 };
 
 export type GroupRoleAccess = {
@@ -34,6 +35,7 @@ export function resolveGroupRoleAccess(
     disciplines.add("HW");
     disciplines.add("ME");
     disciplines.add("QA");
+    disciplines.add("PM");
   }
   for (const [role, discipline] of Object.entries(DM_ROLE_DISCIPLINE) as [GroupRole, GroupDiscipline][]) {
     if (roles.has(role)) disciplines.add(discipline);
@@ -71,6 +73,7 @@ const ORG_UNIT_TO_DISCIPLINE: Record<string, GroupDiscipline> = {
   SW: "SW",
   ME: "ME",
   QA: "QA",
+  PM: "PM",
 };
 
 export function orgUnitToGroupDiscipline(orgUnitCode: string): GroupDiscipline | null {

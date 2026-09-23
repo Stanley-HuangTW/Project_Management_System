@@ -20,7 +20,7 @@ describe("resolveGroupRoleAccess", () => {
   it("TEAM_LEADER gets schedule rights plus every discipline", () => {
     const access = resolveGroupRoleAccess(roles("TEAM_LEADER"));
     expect(access.hasScheduleRole).toBe(true);
-    expect([...access.disciplines].sort()).toEqual(["HW", "ME", "QA", "SW"]);
+    expect([...access.disciplines].sort()).toEqual(["HW", "ME", "PM", "QA", "SW"]);
   });
 
   it("PMD gets schedule rights but no discipline roster of its own", () => {
@@ -41,6 +41,7 @@ describe("resolveGroupRoleAccess", () => {
     expect([...resolveGroupRoleAccess(roles("HW_DM")).disciplines]).toEqual(["HW"]);
     expect([...resolveGroupRoleAccess(roles("ME_DM")).disciplines]).toEqual(["ME"]);
     expect([...resolveGroupRoleAccess(roles("QA")).disciplines]).toEqual(["QA"]);
+    expect([...resolveGroupRoleAccess(roles("PM_DM")).disciplines]).toEqual(["PM"]);
   });
 
   it("multiple DM roles union their disciplines", () => {
@@ -52,7 +53,7 @@ describe("resolveGroupRoleAccess", () => {
   it("holding both TEAM_LEADER and a DM role is redundant but harmless", () => {
     const access = resolveGroupRoleAccess(roles("TEAM_LEADER", "SW_DM"));
     expect(access.hasScheduleRole).toBe(true);
-    expect([...access.disciplines].sort()).toEqual(["HW", "ME", "QA", "SW"]);
+    expect([...access.disciplines].sort()).toEqual(["HW", "ME", "PM", "QA", "SW"]);
   });
 });
 
@@ -99,19 +100,19 @@ describe("orgUnitToGroupDiscipline", () => {
     expect(orgUnitToGroupDiscipline("EE")).toBe("HW");
   });
 
-  it("SW/ME/QA map to themselves", () => {
+  it("SW/ME/QA/PM map to themselves", () => {
     expect(orgUnitToGroupDiscipline("SW")).toBe("SW");
     expect(orgUnitToGroupDiscipline("ME")).toBe("ME");
     expect(orgUnitToGroupDiscipline("QA")).toBe("QA");
+    expect(orgUnitToGroupDiscipline("PM")).toBe("PM");
   });
 
   it("is case-insensitive", () => {
     expect(orgUnitToGroupDiscipline("ee")).toBe("HW");
   });
 
-  it("an org unit with no DM role (FAE, PM, custom units...) maps to null", () => {
+  it("an org unit with no DM role (FAE, custom units...) maps to null", () => {
     expect(orgUnitToGroupDiscipline("FAE")).toBeNull();
-    expect(orgUnitToGroupDiscipline("PM")).toBeNull();
     expect(orgUnitToGroupDiscipline("MARKETING-PM")).toBeNull();
   });
 });
@@ -123,12 +124,19 @@ describe("canEditLabourSlot", () => {
     expect(canEditLabourSlot(access, "SW")).toBe(false);
   });
 
+  it("PM_DM can edit PM slots but nothing else", () => {
+    const access = resolveGroupRoleAccess(roles("PM_DM"));
+    expect(canEditLabourSlot(access, "PM")).toBe(true);
+    expect(canEditLabourSlot(access, "SW")).toBe(false);
+  });
+
   it("TEAM_LEADER (DM of every discipline) can edit every mapped unit's slots", () => {
     const access = resolveGroupRoleAccess(roles("TEAM_LEADER"));
     expect(canEditLabourSlot(access, "EE")).toBe(true);
     expect(canEditLabourSlot(access, "SW")).toBe(true);
     expect(canEditLabourSlot(access, "ME")).toBe(true);
     expect(canEditLabourSlot(access, "QA")).toBe(true);
+    expect(canEditLabourSlot(access, "PM")).toBe(true);
   });
 
   it("PMD alone cannot edit a mapped discipline's slots — schedule rights aren't DM rights", () => {

@@ -59,6 +59,7 @@ enum GroupRole {
   QA
   PMM
   PMD
+  PM_DM
 }
 
 enum GroupDiscipline {
@@ -66,6 +67,7 @@ enum GroupDiscipline {
   HW
   ME
   QA
+  PM
 }
 
 model User {
