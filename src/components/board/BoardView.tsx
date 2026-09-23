@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen, FileDiff, Wallet } from "lucide-react";
 import type { BoardWithData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
@@ -31,6 +32,7 @@ export function BoardView({
   userRole,
   currentUserId,
   highlightItemId,
+  openAction,
   holidays,
   externalPreds,
 }: {
@@ -39,6 +41,9 @@ export function BoardView({
   userRole: UserRole;
   currentUserId: string;
   highlightItemId?: string | null;
+  /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
+   *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
+  openAction?: string | null;
   holidays: Holiday[];
   /** 已經被指到的外部前置,甘特圖用來畫那一列。 */
   externalPreds: ExternalPredecessor[];
@@ -99,6 +104,26 @@ export function BoardView({
     else setAutomationOpen(true);
   }, []);
   useRegisterBoardAdminActions(board.id, adminActions, openAdminAction);
+
+  const router = useRouter();
+  // 側邊欄在別的頁面點「更多操作」時,這塊看板還沒掛載、還沒 register,
+  // 只能先導航到這裡、帶著要開的動作,掛載完再由這裡自己打開——跟上面
+  // highlightItemId 同一個做法:比對 prop 有沒有變,渲染當下直接處理。
+  // prevOpenAction 的初始值故意跟 openAction 錯開(而不是拿 openAction 自己
+  // 當初始值)——不然「打開這塊看板時 openAction 就已經有值」這個最常見的
+  // 情況,第一次 render 就會判斷成「沒有變」,動作永遠不會被打開。
+  const [prevOpenAction, setPrevOpenAction] = useState<string | null>(null);
+  if ((openAction ?? null) !== prevOpenAction) {
+    setPrevOpenAction(openAction ?? null);
+    if (openAction && adminActions.includes(openAction as BoardAdminAction)) {
+      openAdminAction(openAction as BoardAdminAction);
+    }
+  }
+  // 網址上的查詢參數只是拿來觸發一次性的動作,開完就拿掉,不然重新整理這頁
+  // 又會再彈一次。
+  useEffect(() => {
+    if (openAction) router.replace(`/boards/${board.id}`);
+  }, [openAction, router, board.id]);
 
   return (
     <div className="flex h-full flex-col">

@@ -28,7 +28,7 @@ import {
   DatabaseBackup,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
-import { canManageBoard } from "@/lib/permissions";
+import { canManageBoard, canManageStructure } from "@/lib/permissions";
 import { Modal } from "@/components/ui/Modal";
 import { SearchBox } from "@/components/search/SearchBox";
 import { Avatar } from "@/components/ui/Avatar";
@@ -81,6 +81,13 @@ export function BoardSidebar({
   avatarUrl?: string | null;
 }) {
   const canManage = canManageBoard(userRole);
+  // 這個人的角色允許做哪些「更多操作」——跟 BoardView 裡 adminActions 那份
+  // 算的是同一條規則,但這裡不能等那個看板真的打開才知道:側邊欄列出的是
+  // 每一塊看板,使用者點的常常不是正在看的那一塊。
+  const allowedAdminActions = new Set<BoardAdminAction>([
+    ...(canManage ? (["import", "export", "resources"] as const) : []),
+    ...(canManageStructure(userRole) ? (["automation", "templates", "trash"] as const) : []),
+  ]);
   const openBoardAdmin = useBoardAdminActions();
   const { confirm } = useDialogs();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -419,11 +426,22 @@ export function BoardSidebar({
                 <LayoutGrid size={14} className="shrink-0" />
                 <span className="truncate">{board.name}</span>
               </Link>
-              {(canManage || admin) && (
+              {(canManage || allowedAdminActions.size > 0) && (
                 <RowMenu>
-                  {ADMIN_ACTIONS.filter((a) => admin?.actions.includes(a.id)).map(
+                  {ADMIN_ACTIONS.filter((a) => allowedAdminActions.has(a.id)).map(
                     ({ id, label, Icon }) => (
-                      <RowMenuItem key={id} onSelect={() => admin?.open(id)}>
+                      <RowMenuItem
+                        key={id}
+                        onSelect={() => {
+                          // 這塊看板剛好正在開著,直接觸發就好,不用整頁導航。
+                          // 不是的話(常見:在別的看板或儀表板點這裡),先導去
+                          // 那塊看板,它掛載之後自己讀 openAction 開對話框——
+                          // 不然這個選項會因為看板沒開著而在畫面上直接消失,
+                          // 看起來像沒有權限,其實只是還沒打開那塊看板。
+                          if (admin?.boardId === board.id) admin.open(id);
+                          else router.push(`/boards/${board.id}?openAction=${id}`);
+                        }}
+                      >
                         <span className="flex items-center gap-2">
                           <Icon size={14} /> {label}
                         </span>

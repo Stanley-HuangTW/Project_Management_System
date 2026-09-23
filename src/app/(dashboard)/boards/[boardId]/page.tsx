@@ -13,10 +13,10 @@ export default async function BoardPage({
   searchParams,
 }: {
   params: Promise<{ boardId: string }>;
-  searchParams: Promise<{ highlight?: string }>;
+  searchParams: Promise<{ highlight?: string; openAction?: string }>;
 }) {
   const { boardId } = await params;
-  const { highlight } = await searchParams;
+  const { highlight, openAction } = await searchParams;
 
   const [session, board, users, resources, holidays] = await Promise.all([
     requireSession(),
@@ -63,6 +63,7 @@ export default async function BoardPage({
       userRole={session.role}
       currentUserId={session.userId}
       highlightItemId={highlight ?? null}
+      openAction={openAction ?? null}
       holidays={holidays}
       externalPreds={externalPreds}
     />
