@@ -9,7 +9,11 @@ import {
   listBoardMembers,
   addBoardMember,
   removeBoardMember,
+  listBoardGroupRoles,
+  addBoardMembersFromGroupRole,
+  type BoardGroupRoleOption,
 } from "@/lib/actions/board";
+import { ROLE_LABELS } from "./GroupRolesModal";
 
 type BoardMemberRow = Awaited<ReturnType<typeof listBoardMembers>>[number];
 
@@ -30,6 +34,9 @@ export function BoardSharingModal({
   const [loading, setLoading] = useState(false);
   const [addUserId, setAddUserId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [groupRoleOptions, setGroupRoleOptions] = useState<BoardGroupRoleOption[]>([]);
+  const [groupRoleKey, setGroupRoleKey] = useState("");
+  const [addingByRole, setAddingByRole] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -37,8 +44,14 @@ export function BoardSharingModal({
     (async () => {
       setLoading(true);
       try {
-        const rows = await listBoardMembers(boardId);
-        if (!cancelled) setMembers(rows);
+        const [rows, roleOptions] = await Promise.all([
+          listBoardMembers(boardId),
+          listBoardGroupRoles(boardId),
+        ]);
+        if (!cancelled) {
+          setMembers(rows);
+          setGroupRoleOptions(roleOptions);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -79,6 +92,26 @@ export function BoardSharingModal({
     }
   }
 
+  async function handleAddByRole() {
+    if (!groupRoleKey) return;
+    const [groupId, role] = groupRoleKey.split("|");
+    setAddingByRole(true);
+    setError(null);
+    try {
+      const result = await addBoardMembersFromGroupRole(boardId, groupId, role as BoardGroupRoleOption["role"]);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setMembers(await listBoardMembers(boardId));
+      setGroupRoleKey("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "新增失敗");
+    } finally {
+      setAddingByRole(false);
+    }
+  }
+
   const memberIds = new Set(members.map((m) => m.user.id));
   const nonMembers = users.filter((u) => !u.isResource && !memberIds.has(u.id));
 
@@ -111,6 +144,9 @@ export function BoardSharingModal({
 
       {visibility === "RESTRICTED" && (
         <div>
+          <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+            這個看板底下任何分組有角色(Team Leader/DM/QA...)的人,不用加進下面的名單也一律看得到——這裡只管理額外再加的人。
+          </p>
           <div className="mb-2 flex items-center gap-2">
             <select
               value={addUserId}
@@ -133,6 +169,31 @@ export function BoardSharingModal({
               新增
             </button>
           </div>
+
+          {groupRoleOptions.length > 0 && (
+            <div className="mb-3 flex items-center gap-2">
+              <select
+                value={groupRoleKey}
+                onChange={(e) => setGroupRoleKey(e.target.value)}
+                className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">依分組角色批次加入...</option>
+                {groupRoleOptions.map((o) => (
+                  <option key={`${o.groupId}|${o.role}`} value={`${o.groupId}|${o.role}`}>
+                    {o.groupName} - {ROLE_LABELS[o.role]}({o.userIds.length} 人)
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddByRole}
+                disabled={!groupRoleKey || addingByRole}
+                className="rounded-md border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
+              >
+                {addingByRole ? "加入中..." : "加入"}
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>

@@ -19,7 +19,7 @@ export type GroupRolesData = {
   resourceMembers: { resourceId: string }[];
 };
 
-const ROLE_LABELS: Record<GroupRole, string> = {
+export const ROLE_LABELS: Record<GroupRole, string> = {
   TEAM_LEADER: "Team Leader",
   SW_DM: "SW DM",
   HW_DM: "EE DM",

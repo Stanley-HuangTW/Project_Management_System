@@ -29,7 +29,15 @@ async function boardAccessState(
   const member = await prisma.boardMember.findUnique({
     where: { boardId_userId: { boardId, userId: session.userId } },
   });
-  return member ? "ok" : "denied";
+  if (member) return "ok";
+
+  // 在這個看板底下任何一個分組有角色(Team Leader/DM/QA...)的人,本來就
+  // 在幫這個看板做事,不該因為擁有者忘記把他加進成員名單就看不到看板。
+  const groupRole = await prisma.groupRoleAssignment.findFirst({
+    where: { userId: session.userId, group: { boardId } },
+    select: { id: true },
+  });
+  return groupRole ? "ok" : "denied";
 }
 
 /**
@@ -99,6 +107,7 @@ export function accessibleBoardWhere(session: SessionPayload): Prisma.BoardWhere
       { visibility: "PUBLIC" },
       { ownerId: session.userId },
       { members: { some: { userId: session.userId } } },
+      { groups: { some: { roleAssignments: { some: { userId: session.userId } } } } },
     ],
   };
 }

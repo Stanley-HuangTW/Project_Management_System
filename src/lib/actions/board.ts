@@ -8,7 +8,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import type { SessionPayload } from "@/lib/jwt";
-import type { BoardVisibility, Prisma } from "@prisma/client";
+import type { BoardVisibility, GroupRole, Prisma } from "@prisma/client";
 import { STATUS_OPTIONS } from "@/lib/statusDefaults";
 import { parseDefaultColumns } from "@/lib/defaultColumns";
 import { getStatusOptions } from "@/types/column";
@@ -270,4 +270,84 @@ export async function removeBoardMember(boardId: string, userId: string) {
   await prisma.boardMember.deleteMany({ where: { boardId, userId } });
   await logAudit("ACCESS", session.userId, `移除看板成員:${removed?.name ?? userId}`, boardId);
   revalidatePath(`/boards/${boardId}`);
+}
+
+export type BoardGroupRoleOption = {
+  groupId: string;
+  groupName: string;
+  role: GroupRole;
+  userIds: string[];
+};
+
+/**
+ * 這個看板底下,每個分組已經指派了誰的角色——分享設定畫面拿這個組出
+ * 「哪個分組的哪個角色」下拉,一次把那個角色目前的所有人整批加進看板成員,
+ * 不用一個一個挑。純讀取,不會動到 GroupRoleAssignment 本身。
+ */
+export async function listBoardGroupRoles(boardId: string): Promise<BoardGroupRoleOption[]> {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+
+  const groups = await prisma.group.findMany({
+    where: { boardId },
+    orderBy: { order: "asc" },
+    select: {
+      id: true,
+      name: true,
+      roleAssignments: { select: { role: true, userId: true } },
+    },
+  });
+
+  const options: BoardGroupRoleOption[] = [];
+  for (const group of groups) {
+    const byRole = new Map<GroupRole, string[]>();
+    for (const a of group.roleAssignments) {
+      byRole.set(a.role, [...(byRole.get(a.role) ?? []), a.userId]);
+    }
+    for (const [role, userIds] of byRole) {
+      options.push({ groupId: group.id, groupName: group.name, role, userIds });
+    }
+  }
+  return options;
+}
+
+/**
+ * 把某個分組、某個角色「現在」的所有人一次加進看板成員名單——是一次性
+ * 展開成 BoardMember,不是動態規則(那個是 boardAccess.ts 已經自動處理的
+ * 部分)。之後這個角色換了人,不會跟著自動更新,要重新按一次。
+ */
+export async function addBoardMembersFromGroupRole(
+  boardId: string,
+  groupId: string,
+  role: GroupRole
+): Promise<{ error?: string; added?: number }> {
+  const session = await requireSession();
+  await requireBoardOwnerOrAdmin(boardId, session);
+
+  const group = await prisma.group.findUnique({ where: { id: groupId }, select: { boardId: true, name: true } });
+  if (!group || group.boardId !== boardId) return { error: "找不到這個分組" };
+
+  const assignments = await prisma.groupRoleAssignment.findMany({
+    where: { groupId, role },
+    select: { userId: true },
+  });
+  if (assignments.length === 0) return { error: "這個分組的這個角色目前還沒有人" };
+
+  await prisma.$transaction(
+    assignments.map((a) =>
+      prisma.boardMember.upsert({
+        where: { boardId_userId: { boardId, userId: a.userId } },
+        create: { boardId, userId: a.userId },
+        update: {},
+      })
+    )
+  );
+  await logAudit(
+    "ACCESS",
+    session.userId,
+    `依分組角色批次加入看板成員:「${group.name}」的 ${role}(${assignments.length} 人)`,
+    boardId
+  );
+  revalidatePath(`/boards/${boardId}`);
+  return { added: assignments.length };
 }
