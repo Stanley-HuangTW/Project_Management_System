@@ -20,17 +20,31 @@ export function HolidaySettingsModal({
   onOpenChange: (open: boolean) => void;
 }) {
   const [date, setDate] = useState(todayIso());
+  const [endDate, setEndDate] = useState(todayIso());
+  // 使用者自己改過結束日期之後,起始日期再變就不要跟著蓋掉它——不然連假
+  // 範圍會被單日輸入的預設行為打斷。
+  const [endTouched, setEndTouched] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
+  function handleStartChange(next: string) {
+    setDate(next);
+    if (!endTouched) setEndDate(next);
+  }
+
   async function handleAdd() {
     setSubmitting(true);
     setError(null);
     try {
-      await addHoliday(date, name);
+      const result = await addHoliday(date, name, endDate);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
       setName("");
+      setEndTouched(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "新增失敗");
     } finally {
@@ -78,28 +92,44 @@ export function HolidaySettingsModal({
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-neutral-100 dark:border-neutral-700 pt-3">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-        />
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="假日名稱(例如:中秋節)"
-          maxLength={30}
-          className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-        />
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={handleAdd}
-          className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {submitting ? "新增中..." : "新增"}
-        </button>
+      <div className="space-y-2 border-t border-neutral-100 dark:border-neutral-700 pt-3">
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => handleStartChange(e.target.value)}
+            className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+          />
+          <span className="shrink-0 text-neutral-400 dark:text-neutral-500">~</span>
+          <input
+            type="date"
+            value={endDate}
+            min={date}
+            onChange={(e) => {
+              setEndTouched(true);
+              setEndDate(e.target.value);
+            }}
+            title="結束日期——連續好幾天的假期(例如春節)不用一天一天新增"
+            className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="假日名稱(例如:中秋節、春節)"
+            maxLength={30}
+            className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+          />
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleAdd}
+            className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {submitting ? "新增中..." : "新增"}
+          </button>
+        </div>
       </div>
     </Modal>
   );
