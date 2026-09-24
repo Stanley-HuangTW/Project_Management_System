@@ -17,6 +17,7 @@ function indented(over: Partial<IndentedBomLine> & { depth: number; name: string
     currency: "TWD",
     fxRate: 1,
     note: "",
+    deliveryDate: null,
     ...over,
   };
 }
@@ -32,6 +33,7 @@ function line(over: Partial<BomLineInput> & { id: string }): BomLineInput {
     currency: "TWD",
     fxRate: 1,
     note: "",
+    deliveryDate: null,
     order: 0,
     ...over,
   };
@@ -254,6 +256,7 @@ describe("reconstructBomTree", () => {
       currency: r.currency,
       fxRate: r.fxRate,
       note: r.note,
+      deliveryDate: r.deliveryDate,
       order: i,
     }));
     // leaf: 3*10=30 一組;mod 用兩組 = 60。

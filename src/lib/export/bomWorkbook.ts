@@ -33,8 +33,9 @@ const COLUMN_HEADERS = [
   "單價(台幣)",
   "小計(台幣)",
   "備註",
+  "交期",
 ];
-const [DEPTH_COL, NAME_COL, VENDOR_COL, PART_COL, QTY_COL, PRICE_COL, CCY_COL, FX_COL, , , NOTE_COL] =
+const [DEPTH_COL, NAME_COL, VENDOR_COL, PART_COL, QTY_COL, PRICE_COL, CCY_COL, FX_COL, , , NOTE_COL, DELIVERY_COL] =
   COLUMN_HEADERS.map((_, i) => i + 1);
 
 export type BomWorkbookBlock = { product: string; phaseName: string; nodes: BomNode[] };
@@ -106,6 +107,7 @@ function writeNode(
   r.getCell(QTY_COL).value = node.qty;
   r.getCell(CCY_COL).value = node.currency;
   r.getCell(NOTE_COL).value = node.note;
+  r.getCell(DELIVERY_COL).value = node.deliveryDate ?? "";
   if (!node.isAssembly) {
     r.getCell(PRICE_COL).value = node.unitPrice;
     r.getCell(FX_COL).value = node.fxRate;
@@ -143,6 +145,7 @@ export async function buildBomWorkbook(input: BomWorkbookInput): Promise<Buffer>
   ws.getColumn(9).width = 12;
   ws.getColumn(10).width = 12;
   ws.getColumn(NOTE_COL).width = 20;
+  ws.getColumn(DELIVERY_COL).width = 12;
 
   let r = 1;
   for (const block of input.blocks) {
@@ -267,6 +270,7 @@ export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkboo
       currency,
       fxRate,
       note: textOf(row.getCell(NOTE_COL).value),
+      deliveryDate: textOf(row.getCell(DELIVERY_COL).value) || null,
     });
   }
   closeBlock();

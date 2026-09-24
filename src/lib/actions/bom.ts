@@ -118,6 +118,7 @@ export async function getBomView(
       currency: true,
       fxRate: true,
       note: true,
+      deliveryDate: true,
       order: true,
     },
   });
@@ -133,6 +134,7 @@ export async function getBomView(
     currency: r.currency,
     fxRate: Number(r.fxRate),
     note: r.note,
+    deliveryDate: r.deliveryDate,
     order: r.order,
   }));
   const summary = summariseBom(input);
@@ -172,7 +174,12 @@ export type BomLineDraft = {
   currency: string;
   fxRate: number;
   note: string;
+  deliveryDate: string | null;
 };
+
+function isValidDeliveryDate(raw: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(new Date(raw).getTime());
+}
 
 /** 從某個節點往上一路走到根,回傳沿途的 id(含自己)。找不到就在半路停下。 */
 async function ancestorChain(id: string): Promise<string[]> {
@@ -205,6 +212,8 @@ export async function upsertBomLine(
   const currency = draft.currency.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) return { error: "幣別請填三個英文字母,例如 USD" };
   if (!Number.isFinite(draft.fxRate) || draft.fxRate <= 0) return { error: "匯率必須大於 0" };
+  const deliveryDate = draft.deliveryDate?.trim() || null;
+  if (deliveryDate && !isValidDeliveryDate(deliveryDate)) return { error: "交期日期格式錯誤" };
 
   if (draft.parentId) {
     if (draft.id && draft.parentId === draft.id) return { error: "上層不能是自己" };
@@ -242,6 +251,7 @@ export async function upsertBomLine(
         currency,
         fxRate: currency === "TWD" ? 1 : draft.fxRate,
         note: draft.note.trim(),
+        deliveryDate,
       },
     });
   } else {
@@ -263,6 +273,7 @@ export async function upsertBomLine(
         currency,
         fxRate: currency === "TWD" ? 1 : draft.fxRate,
         note: draft.note.trim(),
+        deliveryDate,
         order: (maxOrder._max.order ?? 0) + 1,
         createdById: session.userId,
       },
@@ -339,6 +350,7 @@ export async function copyBomLines(
             currency: r.currency,
             fxRate: r.fxRate,
             note: r.note,
+            deliveryDate: r.deliveryDate,
             order: r.order,
             createdById: session.userId,
           },
@@ -384,6 +396,7 @@ export async function resyncBomMaterial(boardId: string, phaseId: string): Promi
       currency: true,
       fxRate: true,
       note: true,
+      deliveryDate: true,
       order: true,
       id: true,
     },
@@ -412,6 +425,7 @@ export async function resyncBomMaterial(boardId: string, phaseId: string): Promi
       currency: line.currency,
       fxRate: Number(line.fxRate),
       note: line.note,
+      deliveryDate: line.deliveryDate,
       order: line.order,
     });
     byProduct.set(line.product, list);

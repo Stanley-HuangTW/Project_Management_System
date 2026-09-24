@@ -785,6 +785,8 @@ model BomLine {
   /// 讓半年前談好的那顆零件變貴。
   fxRate     Decimal @db.Decimal(12, 6)
   note       String  @default("")
+  /// 預估交期,不影響金額計算,只是排期用。沒填就是還不知道。
+  deliveryDate String? // "YYYY-MM-DD"
   order      Int
 
   createdById String?

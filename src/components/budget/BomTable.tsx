@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronRight, Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
@@ -14,9 +14,9 @@ import {
   type BomContext,
   type BomView,
   type BomLineRow,
+  type BomLineDraft,
 } from "@/lib/actions/bom";
-import { BomLineDialog, type BomLineOption } from "./BomLineDialog";
-import type { BomLineDraft } from "@/lib/actions/bom";
+import { BomRow } from "./BomRow";
 import { BomExcelButtons } from "./BomExcelButtons";
 
 /** 這一列自己與它底下所有子孫的 id —— flattenBom 是先序走訪,子孫剛好是
@@ -30,14 +30,132 @@ function subtreeIds(lines: BomLineRow[], rootIndex: number): Set<string> {
   return ids;
 }
 
-/** 編輯既有列時,自己跟自己的子孫都不能選成自己的上層——選了會繞成一圈。 */
-function parentOptionsFor(lines: BomLineRow[], editingId?: string): BomLineOption[] {
-  const excluded = editingId
-    ? subtreeIds(lines, lines.findIndex((l) => l.id === editingId))
-    : new Set<string>();
-  return lines
-    .filter((l) => !excluded.has(l.id))
-    .map((l) => ({ id: l.id, name: l.name, depth: l.depth }));
+const NEW_ROW_BLANK = {
+  name: "",
+  vendor: "",
+  partNumber: "",
+  qty: 1,
+  unitPrice: 0,
+  currency: "TWD",
+  fxRate: 1,
+  deliveryDate: null,
+  note: "",
+};
+
+/**
+ * 一個節點自己那一列,展開後是它的子項目,子項目底下(展開的話)接著一列
+ * 空白列讓使用者直接打字新增下一個子項目——子集底下永遠有這一列在等,不
+ * 用另外按按鈕。還沒有子項目的列,按旁邊的「+」才會冒出這一列,免得每個
+ * 零件底下都掛一列沒人會用到的空白子項目輸入框。
+ */
+function BomNodeRows({
+  node,
+  canEdit,
+  collapsedIds,
+  childEntryIds,
+  toggleCollapse,
+  revealChildEntry,
+  onCommit,
+  onDelete,
+}: {
+  node: BomLineRow;
+  canEdit: boolean;
+  collapsedIds: Set<string>;
+  childEntryIds: Set<string>;
+  toggleCollapse: (id: string) => void;
+  revealChildEntry: (id: string) => void;
+  onCommit: (draft: BomLineDraft) => Promise<boolean>;
+  onDelete: (node: BomLineRow) => void;
+}) {
+  const collapsed = collapsedIds.has(node.id);
+  const showNewChildRow = canEdit && !collapsed && (node.isAssembly || childEntryIds.has(node.id));
+
+  return (
+    <>
+      <BomRow
+        depth={node.depth}
+        initial={{
+          id: node.id,
+          parentId: node.parentId,
+          name: node.name,
+          vendor: node.vendor,
+          partNumber: node.partNumber,
+          qty: node.qty,
+          unitPrice: node.unitPrice,
+          currency: node.currency,
+          fxRate: node.fxRate,
+          deliveryDate: node.deliveryDate,
+          note: node.note,
+        }}
+        disablePrice={node.isAssembly}
+        extendedTwd={node.extendedTwd}
+        canEdit={canEdit}
+        onCommit={onCommit}
+        leading={
+          node.isAssembly ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => toggleCollapse(node.id)}
+              className="shrink-0 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            >
+              {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+            </button>
+          ) : (
+            <span className="inline-block w-[18px] shrink-0" />
+          )
+        }
+        actions={
+          canEdit && (
+            <>
+              <button
+                type="button"
+                title="新增子項目"
+                onClick={() => revealChildEntry(node.id)}
+                className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800"
+              >
+                <Plus size={13} />
+              </button>
+              <button
+                type="button"
+                title="刪除"
+                onClick={() => onDelete(node)}
+                className="rounded p-1 text-neutral-300 hover:text-red-600 dark:text-neutral-600"
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
+          )
+        }
+      />
+      {!collapsed &&
+        node.children.map((child) => (
+          <BomNodeRows
+            key={child.id}
+            node={child}
+            canEdit={canEdit}
+            collapsedIds={collapsedIds}
+            childEntryIds={childEntryIds}
+            toggleCollapse={toggleCollapse}
+            revealChildEntry={revealChildEntry}
+            onCommit={onCommit}
+            onDelete={onDelete}
+          />
+        ))}
+      {showNewChildRow && (
+        <BomRow
+          key={`new-${node.id}`}
+          depth={node.depth + 1}
+          initial={{ parentId: node.id, ...NEW_ROW_BLANK }}
+          disablePrice={false}
+          extendedTwd={null}
+          canEdit={canEdit}
+          onCommit={onCommit}
+          leading={<span className="inline-block w-[18px] shrink-0" />}
+        />
+      )}
+    </>
+  );
 }
 
 /**
@@ -46,6 +164,10 @@ function parentOptionsFor(lines: BomLineRow[], editingId?: string): BomLineOptio
  *
  * 產品跟階段用同一組下拉,跟樣機計畫共用同一組階段 —— EVT 兩台給 SW 做
  * mock up,料號要對的也是那個 EVT 的 BOM。
+ *
+ * 編輯是 Excel 式的:直接在欄位裡打資訊,焦點離開那一列就送出,沒有另外
+ * 的新增/編輯彈窗,也沒有「新增最上層項目」按鈕——最下面永遠有一列空白
+ * 列在等,打了名稱就變成一筆新項目。
  */
 export function BomTable({ boardId }: { boardId: string }) {
   const { notify, confirm } = useDialogs();
@@ -55,8 +177,9 @@ export function BomTable({ boardId }: { boardId: string }) {
   const [view, setView] = useState<BomView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [dialog, setDialog] = useState<{ initial?: BomLineDraft; hasChildren: boolean } | null>(null);
   const [copyFrom, setCopyFrom] = useState("");
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [childEntryIds, setChildEntryIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -95,64 +218,50 @@ export function BomTable({ boardId }: { boardId: string }) {
     };
   }, [boardId, product, phaseId]);
 
-  async function run(work: () => Promise<{ error?: string }>, failTitle: string) {
+  async function run(work: () => Promise<{ error?: string }>, failTitle: string): Promise<boolean> {
     setBusy(true);
     try {
       const result = await work();
       if (result.error) {
         await notify(result.error, { title: failTitle });
-        return;
+        return false;
       }
       await reload();
       // 產品/階段的候選清單可能因為這次操作多了一個新名字,一併重讀。
       setCtx(await getBomContext(boardId));
+      return true;
     } catch (err) {
       await notify(
         isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
         { title: isStaleBuildError(err) ? "需要重新整理" : failTitle }
       );
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  function openAdd(parentId: string | null) {
-    setDialog({
-      initial: {
-        parentId,
-        name: "",
-        vendor: "",
-        partNumber: "",
-        qty: 1,
-        unitPrice: 0,
-        currency: "TWD",
-        fxRate: 1,
-        note: "",
-      },
-      hasChildren: false,
+  function commit(draft: BomLineDraft): Promise<boolean> {
+    return run(() => upsertBomLine(boardId, product, phaseId, draft), draft.id ? "無法儲存" : "無法新增");
+  }
+
+  function toggleCollapse(id: string) {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   }
 
-  function openEdit(line: BomLineRow) {
-    setDialog({
-      initial: {
-        id: line.id,
-        parentId: line.parentId,
-        name: line.name,
-        vendor: line.vendor,
-        partNumber: line.partNumber,
-        qty: line.qty,
-        unitPrice: line.unitPrice,
-        currency: line.currency,
-        fxRate: line.fxRate,
-        note: line.note,
-      },
-      hasChildren: line.isAssembly,
+  function revealChildEntry(id: string) {
+    setChildEntryIds((prev) => new Set(prev).add(id));
+    setCollapsedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
     });
-  }
-
-  async function submitDialog(draft: BomLineDraft) {
-    await run(() => upsertBomLine(boardId, product, phaseId, draft), draft.id ? "無法儲存" : "無法新增");
   }
 
   async function removeLine(line: BomLineRow) {
@@ -196,11 +305,13 @@ export function BomTable({ boardId }: { boardId: string }) {
     setCtx(await getBomContext(boardId));
   }
 
+  const roots = view?.lines.filter((l) => l.depth === 0) ?? [];
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         某個產品、某個階段要用的料:廠商、型號、名稱,可以往下分子集(電池模組底下再掛零件)。算出來
-        的單台價格會自動回寫這個階段的材料預算。
+        的單台價格會自動回寫這個階段的材料預算。直接在欄位裡打資訊,離開那一列就存檔。
       </p>
 
       <BomExcelButtons boardId={boardId} canEdit={ctx.canEdit} onImported={onBomImported} />
@@ -296,122 +407,63 @@ export function BomTable({ boardId }: { boardId: string }) {
                   <th className="px-3 py-2 text-left font-medium">型號/料號</th>
                   <th className="px-3 py-2 text-right font-medium">數量</th>
                   <th className="px-3 py-2 text-right font-medium">單價</th>
+                  <th className="px-3 py-2 text-center font-medium">幣別</th>
+                  <th className="px-3 py-2 text-right font-medium">匯率</th>
+                  <th className="px-3 py-2 text-left font-medium">交期</th>
                   <th className="px-3 py-2 text-right font-medium">小計(台幣)</th>
+                  <th className="px-3 py-2 text-left font-medium">備註</th>
                   {view.canEdit && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {view.lines.length === 0 ? (
+                {roots.length === 0 && !view.canEdit && (
                   <tr>
-                    <td colSpan={view.canEdit ? 7 : 6} className="px-3 py-8 text-center text-neutral-400 dark:text-neutral-500">
+                    <td colSpan={10} className="px-3 py-8 text-center text-neutral-400 dark:text-neutral-500">
                       這個產品在這個階段還沒有 BOM。
                     </td>
                   </tr>
-                ) : (
-                  view.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="px-3 py-1.5" style={{ paddingLeft: 12 + line.depth * 20 }}>
-                        <span className="inline-flex items-center gap-1 text-neutral-800 dark:text-neutral-100">
-                          {line.depth > 0 && <ChevronRight size={12} className="shrink-0 text-neutral-300" />}
-                          {line.name}
-                        </span>
-                      </td>
-                      <td className="px-3 py-1.5 text-neutral-600 dark:text-neutral-300">{line.vendor || "—"}</td>
-                      <td className="px-3 py-1.5 text-neutral-600 dark:text-neutral-300">{line.partNumber || "—"}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
-                        {line.qty}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
-                        {line.isAssembly ? (
-                          <span className="text-neutral-400 dark:text-neutral-500">(子項目加總)</span>
-                        ) : line.currency === "TWD" ? (
-                          formatMoney(line.unitPrice)
-                        ) : (
-                          `${line.currency} ${line.unitPrice.toLocaleString("zh-TW")}`
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100">
-                        {formatMoney(line.extendedTwd)}
-                      </td>
-                      {view.canEdit && (
-                        <td className="px-3 py-1.5">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              title="在這一項底下新增子項目"
-                              onClick={() => openAdd(line.id)}
-                              className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40 dark:text-neutral-500 dark:hover:bg-neutral-800"
-                            >
-                              <Plus size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              title="編輯"
-                              onClick={() => openEdit(line)}
-                              className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40 dark:text-neutral-500 dark:hover:bg-neutral-800"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              title="刪除"
-                              onClick={() => removeLine(line)}
-                              className="rounded p-1 text-neutral-300 hover:text-red-600 disabled:opacity-40 dark:text-neutral-600"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))
+                )}
+                {roots.map((root) => (
+                  <BomNodeRows
+                    key={root.id}
+                    node={root}
+                    canEdit={view.canEdit}
+                    collapsedIds={collapsedIds}
+                    childEntryIds={childEntryIds}
+                    toggleCollapse={toggleCollapse}
+                    revealChildEntry={revealChildEntry}
+                    onCommit={commit}
+                    onDelete={removeLine}
+                  />
+                ))}
+                {view.canEdit && (
+                  <BomRow
+                    key="new-root"
+                    depth={0}
+                    initial={{ parentId: null, ...NEW_ROW_BLANK }}
+                    disablePrice={false}
+                    extendedTwd={null}
+                    canEdit={view.canEdit}
+                    onCommit={commit}
+                    leading={<span className="inline-block w-[18px] shrink-0" />}
+                  />
                 )}
               </tbody>
               <tfoot className="border-t-2 border-neutral-300 dark:border-neutral-600">
                 <tr>
-                  <td colSpan={5} className="px-3 py-2 text-right font-semibold text-neutral-800 dark:text-neutral-100">
+                  <td colSpan={8} className="px-3 py-2 text-right font-semibold text-neutral-800 dark:text-neutral-100">
                     單台成本
                   </td>
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-neutral-900 dark:text-neutral-50">
                     {formatMoney(view.unitCostTwd)}
                   </td>
+                  <td />
                   {view.canEdit && <td />}
                 </tr>
               </tfoot>
             </table>
           </div>
-
-          {view.canEdit && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => openAdd(null)}
-              className="flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
-            >
-              <Plus size={13} /> 新增最上層項目
-            </button>
-          )}
         </>
-      )}
-
-      {view && (
-        <BomLineDialog
-          open={dialog !== null}
-          onOpenChange={(next) => !next && setDialog(null)}
-          title={dialog?.initial?.id ? "編輯 BOM 項目" : "新增 BOM 項目"}
-          initial={dialog?.initial}
-          hasChildren={dialog?.hasChildren ?? false}
-          parentOptions={parentOptionsFor(view.lines, dialog?.initial?.id)}
-          onDelete={
-            dialog?.initial?.id
-              ? () => removeLine(view.lines.find((l) => l.id === dialog.initial!.id)!)
-              : undefined
-          }
-          onSubmit={submitDialog}
-        />
       )}
     </div>
   );

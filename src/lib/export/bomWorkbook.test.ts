@@ -24,6 +24,7 @@ const m3EfsLines: BomLineInput[] = [
     currency: "TWD",
     fxRate: 1,
     note: "",
+    deliveryDate: null,
     order: 1,
   },
   {
@@ -37,6 +38,7 @@ const m3EfsLines: BomLineInput[] = [
     currency: "USD",
     fxRate: 32,
     note: "長供期",
+    deliveryDate: "2026-11-01",
     order: 1,
   },
   {
@@ -50,6 +52,7 @@ const m3EfsLines: BomLineInput[] = [
     currency: "TWD",
     fxRate: 1,
     note: "",
+    deliveryDate: null,
     order: 2,
   },
 ];
@@ -85,6 +88,7 @@ describe("樣機 BOM Excel 往返", () => {
       currency: "USD",
       fxRate: 32,
       note: "長供期",
+      deliveryDate: "2026-11-01",
     });
     expect(rows[2].parentIndex).toBeNull();
   });
@@ -113,6 +117,7 @@ describe("樣機 BOM Excel 往返", () => {
       currency: r.currency,
       fxRate: r.fxRate,
       note: r.note,
+      deliveryDate: r.deliveryDate,
       order: i,
     }));
     // 原本:MCU 2*5*32=320,主機板(子集)=320;螺絲 4*0.5=2。單台 = 322。
@@ -135,6 +140,7 @@ describe("樣機 BOM Excel 往返", () => {
             currency: "TWD",
             fxRate: 1,
             note: "",
+            deliveryDate: null,
             order: 1,
           },
         ]),

@@ -25,6 +25,8 @@ export type BomLineInput = {
   /** 換算台幣的匯率,凍結在填的當下。 */
   fxRate: number;
   note: string;
+  /** 預估交期,不影響金額計算,只是排期用。null = 還不知道。 */
+  deliveryDate: string | null;
   order: number;
 };
 
@@ -178,6 +180,7 @@ export type IndentedBomLine = {
   currency: string;
   fxRate: number;
   note: string;
+  deliveryDate: string | null;
 };
 
 export type RootedBomLine = IndentedBomLine & {
