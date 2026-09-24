@@ -28,14 +28,32 @@ services:
       # here so a handful of workers can't collectively exceed Postgres's
       # own max_connections under load.
       DATABASE_URL: postgresql://${POSTGRES_USER:-hrapp}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-hrapp_db}?schema=public&connection_limit=10
-    ports:
-      - "3000:3000"
+    #ports:
+    #  - "3000:3000"
+    #  原始設定
+    expose:
+      - "3000"
     volumes:
       - uploads_data:/app/public/uploads
       # 週報落在專案資料夾底下,直接用檔案總管打得開。不放 public/uploads:
       # 那個目錄對外服務,週報裡有預算與人力。
       - ./weekly-reports:/app/weekly-reports
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./certs:/etc/caddy/certs
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
 
 volumes:
   db_data:
   uploads_data:
+  caddy_data:
+  caddy_config:

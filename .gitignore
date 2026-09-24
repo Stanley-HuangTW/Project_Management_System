@@ -52,3 +52,6 @@ next-env.d.ts
 
 # 週報產出物 —— 裡面有預算與人力,不進版控。
 weekly-reports/
+
+# TLS 私鑰材料(server.key、server.pfx 等)—— 只留在本機,不進 git 歷史。
+/certs/
