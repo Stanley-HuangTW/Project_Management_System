@@ -30,24 +30,31 @@ const ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
 
 export async function parseImportFile(
   formData: FormData
-): Promise<ParsedWorkbook> {
+): Promise<ParsedWorkbook | { error: string }> {
   const session = await requireSession();
   requireBoardAdmin(session.role);
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    throw new Error("請選擇檔案");
+    return { error: "請選擇檔案" };
   }
   if (file.size > MAX_FILE_SIZE) {
-    throw new Error("檔案大小不可超過 10MB");
+    return { error: "檔案大小不可超過 10MB" };
   }
   const ext = file.name.toLowerCase().split(".").pop() ?? "";
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    throw new Error("僅支援 .csv、.xlsx、.xls 檔案");
+    return { error: "僅支援 .csv、.xlsx、.xls 檔案" };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  return parseWorkbookBuffer(buffer, file.name);
+  try {
+    return await parseWorkbookBuffer(buffer, file.name);
+  } catch (err) {
+    // 解析失敗的原因(檔案損毀、格式跟副檔名對不起來……)在正式環境下,
+    // Next.js 會把 Server Action 丟出的錯誤訊息整個抹掉,使用者只會看到
+    // 一句不知所云的 React 錯誤代碼——用回傳值講,才看得到真正的原因。
+    return { error: err instanceof Error ? `檔案讀不懂:${err.message}` : "檔案讀不懂,請確認格式是否正確" };
+  }
 }
 
 type SheetsApiResponse = {
@@ -89,7 +96,7 @@ async function fetchViaSheetsApi(spreadsheetId: string, token: string): Promise<
   return { sheets };
 }
 
-export async function parseImportFromUrl(url: string): Promise<ParsedWorkbook> {
+export async function parseImportFromUrl(url: string): Promise<ParsedWorkbook | { error: string }> {
   const session = await requireSession();
   requireBoardAdmin(session.role);
 
@@ -97,41 +104,48 @@ export async function parseImportFromUrl(url: string): Promise<ParsedWorkbook> {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error("請輸入有效的網址");
+    return { error: "請輸入有效的網址" };
   }
 
   if (parsed.hostname !== "docs.google.com") {
-    throw new Error("僅支援 docs.google.com 的 Google Sheet 連結");
+    return { error: "僅支援 docs.google.com 的 Google Sheet 連結" };
   }
 
   const match = parsed.pathname.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
   if (!match) {
-    throw new Error("無法從網址取得 Google Sheet ID,請確認網址格式");
+    return { error: "無法從網址取得 Google Sheet ID,請確認網址格式" };
   }
   const spreadsheetId = match[1];
 
   const cookieStore = await cookies();
   const googleToken = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
-  if (googleToken) {
-    const result = await fetchViaSheetsApi(spreadsheetId, googleToken);
-    cookieStore.delete(GOOGLE_TOKEN_COOKIE);
-    return result;
-  }
-
-  const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=xlsx`;
-  const res = await fetch(exportUrl);
-  if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        "無法存取此 Google Sheet(需要登入)。請將分享設定改為「知道連結的使用者」皆可檢視,點擊下方「使用 Google 帳號登入」以你自己的帳號讀取,或改用「上傳檔案」方式匯入。"
-      );
+  try {
+    if (googleToken) {
+      const result = await fetchViaSheetsApi(spreadsheetId, googleToken);
+      cookieStore.delete(GOOGLE_TOKEN_COOKIE);
+      return result;
     }
-    throw new Error(`無法讀取此 Google Sheet(HTTP ${res.status})`);
-  }
 
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return parseWorkbookBuffer(buffer, "sheet.xlsx");
+    const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=xlsx`;
+    const res = await fetch(exportUrl);
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return {
+          error:
+            "無法存取此 Google Sheet(需要登入)。請將分享設定改為「知道連結的使用者」皆可檢視,點擊下方「使用 Google 帳號登入」以你自己的帳號讀取,或改用「上傳檔案」方式匯入。",
+        };
+      }
+      return { error: `無法讀取此 Google Sheet(HTTP ${res.status})` };
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return await parseWorkbookBuffer(buffer, "sheet.xlsx");
+  } catch (err) {
+    // 見 parseImportFile 同樣的註解——正式環境下 throw 出去的訊息會被
+    // Next.js 整個抹掉,這裡一律用回傳值講。
+    return { error: err instanceof Error ? `讀取失敗:${err.message}` : "讀取失敗,請改用「上傳檔案」方式匯入" };
+  }
 }
 
 const LEVEL_NAME_PATTERN = /^(lvl|level|層級|階層)$/i;
@@ -223,14 +237,14 @@ async function coerceValue(
 
 export async function importRows(
   input: ImportRowsInput
-): Promise<ImportResult> {
+): Promise<ImportResult | { error: string }> {
   const session = await requireSession();
   requireBoardAdmin(session.role);
   const { boardId, groupId, dataRows, mappings } = input;
 
   const nameMappings = mappings.filter((m) => m.target.kind === "name");
   if (nameMappings.length !== 1) {
-    throw new Error("請指定剛好一欄作為「項目名稱」");
+    return { error: "請指定剛好一欄作為「項目名稱」" };
   }
   const nameColIndex = nameMappings[0].sourceColIndex;
 

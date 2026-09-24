@@ -132,6 +132,10 @@ export function ImportWizard({
       const fd = new FormData();
       fd.append("file", file);
       const parsedResult = await parseImportFile(fd);
+      if ("error" in parsedResult) {
+        setError(parsedResult.error);
+        return;
+      }
       setParsed(parsedResult);
       setSheetIndex(0);
       setHeaderRowIndex(0);
@@ -151,6 +155,10 @@ export function ImportWizard({
     setError(null);
     try {
       const parsedResult = await parseImportFromUrl(target);
+      if ("error" in parsedResult) {
+        setError(parsedResult.error);
+        return;
+      }
       setParsed(parsedResult);
       setSheetIndex(0);
       setHeaderRowIndex(0);
@@ -249,6 +257,10 @@ export function ImportWizard({
         dataRows: dataRowsAfterHeader,
         mappings,
       });
+      if ("error" in res) {
+        setError(res.error);
+        return;
+      }
       setResult(res);
       setStep("confirm");
     } catch (err) {
