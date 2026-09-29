@@ -8,7 +8,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import type { SessionPayload } from "@/lib/jwt";
-import type { BoardVisibility, GroupRole, Prisma } from "@prisma/client";
+import type { BoardVisibility, GroupDiscipline, GroupRole, Prisma } from "@prisma/client";
 import { STATUS_OPTIONS } from "@/lib/statusDefaults";
 import { parseDefaultColumns } from "@/lib/defaultColumns";
 import { getStatusOptions } from "@/types/column";
@@ -350,4 +350,78 @@ export async function addBoardMembersFromGroupRole(
   );
   revalidatePath(`/boards/${boardId}`);
   return { added: assignments.length };
+}
+
+export type BoardGroupMemberOption = {
+  groupId: string;
+  groupName: string;
+  discipline: GroupDiscipline;
+  userIds: string[];
+};
+
+/** 跟 listBoardGroupRoles 同一個道理,只是換成分組底下 SW/EE/ME/QA 的實作
+ *  成員名單,不是 DM/Team Leader 這些角色。 */
+export async function listBoardGroupMembers(boardId: string): Promise<BoardGroupMemberOption[]> {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+
+  const groups = await prisma.group.findMany({
+    where: { boardId },
+    orderBy: { order: "asc" },
+    select: {
+      id: true,
+      name: true,
+      members: { select: { discipline: true, userId: true } },
+    },
+  });
+
+  const options: BoardGroupMemberOption[] = [];
+  for (const group of groups) {
+    const byDiscipline = new Map<GroupDiscipline, string[]>();
+    for (const m of group.members) {
+      byDiscipline.set(m.discipline, [...(byDiscipline.get(m.discipline) ?? []), m.userId]);
+    }
+    for (const [discipline, userIds] of byDiscipline) {
+      options.push({ groupId: group.id, groupName: group.name, discipline, userIds });
+    }
+  }
+  return options;
+}
+
+/** 跟 addBoardMembersFromGroupRole 同一個道理,只是來源是分組的實作成員
+ *  名單,不是角色指派。 */
+export async function addBoardMembersFromGroupMembers(
+  boardId: string,
+  groupId: string,
+  discipline: GroupDiscipline
+): Promise<{ error?: string; added?: number }> {
+  const session = await requireSession();
+  await requireBoardOwnerOrAdmin(boardId, session);
+
+  const group = await prisma.group.findUnique({ where: { id: groupId }, select: { boardId: true, name: true } });
+  if (!group || group.boardId !== boardId) return { error: "找不到這個分組" };
+
+  const members = await prisma.groupMember.findMany({
+    where: { groupId, discipline },
+    select: { userId: true },
+  });
+  if (members.length === 0) return { error: "這個分組的這個部門目前還沒有成員" };
+
+  await prisma.$transaction(
+    members.map((m) =>
+      prisma.boardMember.upsert({
+        where: { boardId_userId: { boardId, userId: m.userId } },
+        create: { boardId, userId: m.userId },
+        update: {},
+      })
+    )
+  );
+  await logAudit(
+    "ACCESS",
+    session.userId,
+    `依分組實作成員批次加入看板成員:「${group.name}」的 ${discipline}(${members.length} 人)`,
+    boardId
+  );
+  revalidatePath(`/boards/${boardId}`);
+  return { added: members.length };
 }

@@ -11,9 +11,12 @@ import {
   removeBoardMember,
   listBoardGroupRoles,
   addBoardMembersFromGroupRole,
+  listBoardGroupMembers,
+  addBoardMembersFromGroupMembers,
   type BoardGroupRoleOption,
+  type BoardGroupMemberOption,
 } from "@/lib/actions/board";
-import { ROLE_LABELS } from "./GroupRolesModal";
+import { ROLE_LABELS, DISCIPLINE_LABELS } from "./GroupRolesModal";
 
 type BoardMemberRow = Awaited<ReturnType<typeof listBoardMembers>>[number];
 
@@ -37,6 +40,9 @@ export function BoardSharingModal({
   const [groupRoleOptions, setGroupRoleOptions] = useState<BoardGroupRoleOption[]>([]);
   const [groupRoleKey, setGroupRoleKey] = useState("");
   const [addingByRole, setAddingByRole] = useState(false);
+  const [groupMemberOptions, setGroupMemberOptions] = useState<BoardGroupMemberOption[]>([]);
+  const [groupMemberKey, setGroupMemberKey] = useState("");
+  const [addingByMember, setAddingByMember] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -44,13 +50,15 @@ export function BoardSharingModal({
     (async () => {
       setLoading(true);
       try {
-        const [rows, roleOptions] = await Promise.all([
+        const [rows, roleOptions, memberOptions] = await Promise.all([
           listBoardMembers(boardId),
           listBoardGroupRoles(boardId),
+          listBoardGroupMembers(boardId),
         ]);
         if (!cancelled) {
           setMembers(rows);
           setGroupRoleOptions(roleOptions);
+          setGroupMemberOptions(memberOptions);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -112,6 +120,30 @@ export function BoardSharingModal({
     }
   }
 
+  async function handleAddByMember() {
+    if (!groupMemberKey) return;
+    const [groupId, discipline] = groupMemberKey.split("|");
+    setAddingByMember(true);
+    setError(null);
+    try {
+      const result = await addBoardMembersFromGroupMembers(
+        boardId,
+        groupId,
+        discipline as BoardGroupMemberOption["discipline"]
+      );
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setMembers(await listBoardMembers(boardId));
+      setGroupMemberKey("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "新增失敗");
+    } finally {
+      setAddingByMember(false);
+    }
+  }
+
   const memberIds = new Set(members.map((m) => m.user.id));
   const nonMembers = users.filter((u) => !u.isResource && !memberIds.has(u.id));
 
@@ -145,7 +177,7 @@ export function BoardSharingModal({
       {visibility === "RESTRICTED" && (
         <div>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
-            這個看板底下任何分組有角色(Team Leader/DM/QA...)的人,不用加進下面的名單也一律看得到——這裡只管理額外再加的人。
+            這個看板底下任何分組有角色(Team Leader/DM/QA...)或是 SW/EE/ME/QA 實作成員的人,不用加進下面的名單也一律看得到——這裡只管理額外再加的人。
           </p>
           <div className="mb-2 flex items-center gap-2">
             <select
@@ -191,6 +223,31 @@ export function BoardSharingModal({
                 className="rounded-md border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
               >
                 {addingByRole ? "加入中..." : "加入"}
+              </button>
+            </div>
+          )}
+
+          {groupMemberOptions.length > 0 && (
+            <div className="mb-3 flex items-center gap-2">
+              <select
+                value={groupMemberKey}
+                onChange={(e) => setGroupMemberKey(e.target.value)}
+                className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+              >
+                <option value="">依分組實作成員批次加入...</option>
+                {groupMemberOptions.map((o) => (
+                  <option key={`${o.groupId}|${o.discipline}`} value={`${o.groupId}|${o.discipline}`}>
+                    {o.groupName} - {DISCIPLINE_LABELS[o.discipline]} 實作成員({o.userIds.length} 人)
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddByMember}
+                disabled={!groupMemberKey || addingByMember}
+                className="rounded-md border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
+              >
+                {addingByMember ? "加入中..." : "加入"}
               </button>
             </div>
           )}

@@ -56,3 +56,6 @@ weekly-reports/
 
 # TLS 私鑰材料(server.key、server.pfx 等)—— 只留在本機,不進 git 歷史。
 /certs/
+
+# 本機測試用的 port 覆蓋設定,每台機器自己決定要不要有——不進版控。
+docker-compose.override.yml

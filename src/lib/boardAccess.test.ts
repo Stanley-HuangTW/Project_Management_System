@@ -25,6 +25,7 @@ describe("accessibleBoardWhere", () => {
       { ownerId: "u1" },
       { members: { some: { userId: "u1" } } },
       { groups: { some: { roleAssignments: { some: { userId: "u1" } } } } },
+      { groups: { some: { members: { some: { userId: "u1" } } } } },
     ]);
   });
 });

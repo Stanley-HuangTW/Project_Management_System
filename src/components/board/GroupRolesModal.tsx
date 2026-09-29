@@ -36,7 +36,7 @@ const ROLES: GroupRole[] = ["TEAM_LEADER", "SW_DM", "HW_DM", "ME_DM", "QA", "PM_
 const DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA", "PM"];
 
 /** 畫面上的部門名稱。HW 這個列舉值對外一律叫 EE。 */
-const DISCIPLINE_LABELS: Record<GroupDiscipline, string> = {
+export const DISCIPLINE_LABELS: Record<GroupDiscipline, string> = {
   SW: "SW",
   HW: "EE",
   ME: "ME",

@@ -37,7 +37,15 @@ async function boardAccessState(
     where: { userId: session.userId, group: { boardId } },
     select: { id: true },
   });
-  return groupRole ? "ok" : "denied";
+  if (groupRole) return "ok";
+
+  // 同樣道理:分組底下 SW/EE/ME/QA 的實作成員(不只是 DM/Team Leader),
+  // 也是在幫這個看板做事的人。
+  const groupMember = await prisma.groupMember.findFirst({
+    where: { userId: session.userId, group: { boardId } },
+    select: { id: true },
+  });
+  return groupMember ? "ok" : "denied";
 }
 
 /**
@@ -108,6 +116,7 @@ export function accessibleBoardWhere(session: SessionPayload): Prisma.BoardWhere
       { ownerId: session.userId },
       { members: { some: { userId: session.userId } } },
       { groups: { some: { roleAssignments: { some: { userId: session.userId } } } } },
+      { groups: { some: { members: { some: { userId: session.userId } } } } },
     ],
   };
 }
