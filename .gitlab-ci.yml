@@ -1,0 +1,12 @@
+stages:
+  - deploy
+
+auto-deploy:
+  stage: deploy
+  only:
+    - main  # 僅在 main 分支有更新時觸發 (若您是用 master 請改為 master)
+  script:
+    - cd /home/projectadmin/apps/ursrobot_project
+    - git pull origin main
+    - docker compose down
+    - docker compose up -d --build
