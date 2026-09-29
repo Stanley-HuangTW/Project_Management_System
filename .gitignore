@@ -22,6 +22,7 @@
 
 # database backups (scripts/backup-db.sh) — real data, never commit
 /backups/
+/backup.sql
 
 # production
 /build
