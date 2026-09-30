@@ -17,9 +17,12 @@ import {
 export function BoardTrashModal({
   open,
   onOpenChange,
+  canPurge,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 永久刪除僅 ADMIN——SUPERVISOR 只能還原自己建立的看板。 */
+  canPurge: boolean;
 }) {
   const router = useRouter();
   const { confirm, notify } = useDialogs();
@@ -116,14 +119,16 @@ export function BoardTrashModal({
             >
               <RotateCcw size={13} /> 還原
             </button>
-            <button
-              type="button"
-              disabled={busyId === board.id}
-              onClick={() => handlePurge(board)}
-              className="flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
-            >
-              <Trash2 size={13} /> 永久刪除
-            </button>
+            {canPurge && (
+              <button
+                type="button"
+                disabled={busyId === board.id}
+                onClick={() => handlePurge(board)}
+                className="flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50"
+              >
+                <Trash2 size={13} /> 永久刪除
+              </button>
+            )}
           </li>
         ))}
       </ul>

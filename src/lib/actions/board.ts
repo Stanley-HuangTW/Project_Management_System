@@ -13,11 +13,16 @@ import { STATUS_OPTIONS } from "@/lib/statusDefaults";
 import { parseDefaultColumns } from "@/lib/defaultColumns";
 import { getStatusOptions } from "@/types/column";
 
+/**
+ * ADMIN 一律可以;其他人只有在自己是這塊看板的擁有者(建立者,見
+ * createBoard 的 ownerId)時才行。createBoard 本身要求 ADMIN 或
+ * SUPERVISOR,所以能通過這裡的非 ADMIN 一定是當初建立看板的 SUPERVISOR。
+ */
 async function requireBoardOwnerOrAdmin(boardId: string, session: SessionPayload) {
   if (session.role === "ADMIN") return;
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { ownerId: true } });
   if (board?.ownerId !== session.userId) {
-    throw new Error("權限不足:僅看板擁有者或管理者可以管理分享設定");
+    throw new Error("權限不足:僅看板擁有者或管理者可以執行此操作");
   }
 }
 
@@ -104,7 +109,7 @@ export async function createBoard(name: string) {
 
 export async function renameBoard(boardId: string, name: string) {
   const session = await requireSession();
-  requireBoardAdmin(session.role);
+  await requireBoardOwnerOrAdmin(boardId, session);
   const trimmed = name.trim();
   if (!trimmed) throw new Error("看板名稱不可為空");
 
@@ -128,7 +133,7 @@ export async function renameBoard(boardId: string, name: string) {
  */
 export async function deleteBoard(boardId: string) {
   const session = await requireSession();
-  requireBoardAdmin(session.role);
+  await requireBoardOwnerOrAdmin(boardId, session);
   const doomed = await prisma.board.findUnique({
     where: { id: boardId },
     select: { name: true, deletedAt: true, _count: { select: { items: true } } },
@@ -159,12 +164,15 @@ export type TrashedBoard = {
   deletedBy: string | null;
 };
 
-/** 看板垃圾桶。管理者才看得到,因為只有管理者刪得掉看板。 */
+/** 看板垃圾桶。ADMIN 看得到全部;SUPERVISOR 只看得到自己建立的看板。 */
 export async function listTrashedBoards(): Promise<TrashedBoard[]> {
   const session = await requireSession();
-  requireBoardAdmin(session.role);
+  requireStructureAccess(session.role);
   const boards = await prisma.board.findMany({
-    where: { deletedAt: { not: null } },
+    where: {
+      deletedAt: { not: null },
+      ...(session.role === "ADMIN" ? {} : { ownerId: session.userId }),
+    },
     orderBy: { deletedAt: "desc" },
     select: {
       id: true,
@@ -187,7 +195,7 @@ export async function listTrashedBoards(): Promise<TrashedBoard[]> {
 
 export async function restoreBoard(boardId: string): Promise<{ error?: string }> {
   const session = await requireSession();
-  requireBoardAdmin(session.role);
+  await requireBoardOwnerOrAdmin(boardId, session);
   const board = await prisma.board.findUnique({
     where: { id: boardId },
     select: { name: true, deletedAt: true },

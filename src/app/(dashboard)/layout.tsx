@@ -17,7 +17,7 @@ export default async function DashboardLayout({
     prisma.board.findMany({
       where: accessibleBoardWhere(session),
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, programId: true },
+      select: { id: true, name: true, programId: true, ownerId: true },
     }),
     prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true } }),
   ]);
@@ -46,6 +46,7 @@ export default async function DashboardLayout({
           isApprover={isApprover}
           userName={session.name}
           userRole={session.role}
+          currentUserId={session.userId}
           avatarUrl={currentUser?.avatarUrl}
         />
         {/* pt-12 clears the fixed mobile bar the sidebar renders below md. */}

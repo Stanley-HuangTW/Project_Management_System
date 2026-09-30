@@ -41,7 +41,7 @@ import { BoardTrashModal } from "./BoardTrashModal";
 import { createBoard, renameBoard, deleteBoard } from "@/lib/actions/board";
 import { logout } from "@/lib/actions/auth";
 
-type Board = { id: string; name: string };
+type Board = { id: string; name: string; ownerId: string };
 /** A 專案群組 and how many of its boards this person can open — a group whose
  *  boards are all closed to them is not listed at all. */
 type Program = { id: string; name: string; boardCount: number };
@@ -69,6 +69,7 @@ export function BoardSidebar({
   isApprover,
   userName,
   userRole,
+  currentUserId,
   avatarUrl,
 }: {
   boards: Board[];
@@ -78,9 +79,14 @@ export function BoardSidebar({
   isApprover: boolean;
   userName: string;
   userRole: UserRole;
+  currentUserId: string;
   avatarUrl?: string | null;
 }) {
   const canManage = canManageBoard(userRole);
+  /** 重新命名/刪除:ADMIN 一律可以;SUPERVISOR 限自己建立的看板。 */
+  function canManageThisBoard(board: Board): boolean {
+    return canManage || (userRole === "SUPERVISOR" && board.ownerId === currentUserId);
+  }
   // 這個人的角色允許做哪些「更多操作」——跟 BoardView 裡 adminActions 那份
   // 算的是同一條規則,但這裡不能等那個看板真的打開才知道:側邊欄列出的是
   // 每一塊看板,使用者點的常常不是正在看的那一塊。
@@ -357,7 +363,7 @@ export function BoardSidebar({
             稽核軌跡
           </Link>
         )}
-        {canManage && (
+        {canManageStructure(userRole) && (
           <button
             type="button"
             onClick={() => setBoardTrashOpen(true)}
@@ -410,6 +416,7 @@ export function BoardSidebar({
         {boards.map((board) => {
           const active = pathname === `/boards/${board.id}`;
           const admin = openBoardAdmin?.boardId === board.id ? openBoardAdmin : null;
+          const canManageBoardRow = canManageThisBoard(board);
           return (
             <div
               key={board.id}
@@ -426,7 +433,7 @@ export function BoardSidebar({
                 <LayoutGrid size={14} className="shrink-0" />
                 <span className="truncate">{board.name}</span>
               </Link>
-              {(canManage || allowedAdminActions.size > 0) && (
+              {(canManageBoardRow || allowedAdminActions.size > 0) && (
                 <RowMenu>
                   {ADMIN_ACTIONS.filter((a) => allowedAdminActions.has(a.id)).map(
                     ({ id, label, Icon }) => (
@@ -448,7 +455,7 @@ export function BoardSidebar({
                       </RowMenuItem>
                     )
                   )}
-                  {canManage && (
+                  {canManageBoardRow && (
                     <RowMenuItem
                       onSelect={() => {
                         setRenameTarget(board);
@@ -460,7 +467,7 @@ export function BoardSidebar({
                       </span>
                     </RowMenuItem>
                   )}
-                  {canManage && (
+                  {canManageBoardRow && (
                     <RowMenuItem danger onSelect={() => handleDelete(board)}>
                       <span className="flex items-center gap-2">
                         <Trash2 size={14} /> 刪除
@@ -505,7 +512,11 @@ export function BoardSidebar({
         open={profileOpen}
         onOpenChange={setProfileOpen}
       />
-      <BoardTrashModal open={boardTrashOpen} onOpenChange={setBoardTrashOpen} />
+      <BoardTrashModal
+        open={boardTrashOpen}
+        onOpenChange={setBoardTrashOpen}
+        canPurge={userRole === "ADMIN"}
+      />
 
       <div
         onPointerDown={startResize}
