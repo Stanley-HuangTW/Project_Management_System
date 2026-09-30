@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Search } from "lucide-react";
 import type { ItemData } from "@/types/board";
 
 /**
@@ -31,6 +31,17 @@ export function ItemTreePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+
+  // 打字找的時候直接列出符合的項目,不管它在樹的哪一層 —— 樹狀反而礙事,
+  // 使用者要的是直接找到那一個。
+  const matches = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return null;
+    return items.filter((i) =>
+      `${wbsByItemId.get(i.id) ?? ""} ${i.name}`.toLowerCase().includes(needle)
+    );
+  }, [items, wbsByItemId, query]);
 
   const childrenOf = useMemo(() => {
     const map = new Map<string, ItemData[]>();
@@ -62,7 +73,10 @@ export function ItemTreePicker({
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) return;
+    if (!next) {
+      setQuery("");
+      return;
+    }
     // 展開目前選中那一項的祖先鏈,其餘全部收起來。
     const chain = new Set<string>();
     if (value) {
@@ -83,6 +97,11 @@ export function ItemTreePicker({
 
   const selected = value ? items.find((i) => i.id === value) : undefined;
 
+  const displayRows = useMemo(
+    () => (matches !== null ? matches.map((item) => ({ item, depth: 0, hasChildren: false })) : rows),
+    [matches, rows]
+  );
+
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger
@@ -102,64 +121,78 @@ export function ItemTreePicker({
         <Popover.Content
           align="start"
           sideOffset={4}
-          className="z-50 max-h-72 w-80 overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-1 shadow-md"
+          className="z-50 flex max-h-80 w-80 flex-col overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-md"
         >
-          <button
-            type="button"
-            onClick={() => {
-              onChange("");
-              setOpen(false);
-            }}
-            className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          >
-            {placeholder}
-          </button>
-          {rows.map(({ item, depth, hasChildren }) => (
-            <div key={item.id} className="flex items-center">
-              <span style={{ width: depth * 12 }} className="shrink-0" />
-              {hasChildren ? (
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-100 dark:border-neutral-700 px-2 py-1.5">
+            <Search size={13} className="shrink-0 text-neutral-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜尋 WBS 或名稱..."
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-neutral-400"
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+              className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            >
+              {placeholder}
+            </button>
+            {displayRows.map(({ item, depth, hasChildren }) => (
+              <div key={item.id} className="flex items-center">
+                <span style={{ width: depth * 12 }} className="shrink-0" />
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCollapsed((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.id)) next.delete(item.id);
+                        else next.add(item.id);
+                        return next;
+                      });
+                    }}
+                    aria-label={collapsed.has(item.id) ? "展開" : "收合"}
+                    className="shrink-0 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                  >
+                    {collapsed.has(item.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                  </button>
+                ) : (
+                  <span className="w-[18px] shrink-0" />
+                )}
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCollapsed((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(item.id)) next.delete(item.id);
-                      else next.add(item.id);
-                      return next;
-                    });
+                  onClick={() => {
+                    onChange(item.id);
+                    setOpen(false);
                   }}
-                  aria-label={collapsed.has(item.id) ? "展開" : "收合"}
-                  className="shrink-0 rounded p-0.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                  className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                    item.id === value ? "text-blue-600" : "text-neutral-700 dark:text-neutral-100"
+                  }`}
                 >
-                  {collapsed.has(item.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                </button>
-              ) : (
-                <span className="w-[18px] shrink-0" />
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(item.id);
-                  setOpen(false);
-                }}
-                className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
-                  item.id === value ? "text-blue-600" : "text-neutral-700 dark:text-neutral-100"
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="mr-1 text-neutral-400 dark:text-neutral-500">
-                    {wbsByItemId.get(item.id) ?? ""}
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="mr-1 text-neutral-400 dark:text-neutral-500">
+                      {wbsByItemId.get(item.id) ?? ""}
+                    </span>
+                    {item.name}
                   </span>
-                  {item.name}
-                </span>
-                {item.id === value && <Check size={14} className="shrink-0" />}
-              </button>
-            </div>
-          ))}
-          {rows.length === 0 && (
-            <p className="px-2 py-3 text-center text-sm text-neutral-400 dark:text-neutral-500">沒有可選的工作項</p>
-          )}
+                  {item.id === value && <Check size={14} className="shrink-0" />}
+                </button>
+              </div>
+            ))}
+            {displayRows.length === 0 && (
+              <p className="px-2 py-3 text-center text-sm text-neutral-400 dark:text-neutral-500">
+                {matches !== null ? "找不到符合的工作項" : "沒有可選的工作項"}
+              </p>
+            )}
+          </div>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
