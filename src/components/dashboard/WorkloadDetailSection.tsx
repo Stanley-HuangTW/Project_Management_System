@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import {
   colorForPct,
@@ -12,8 +11,14 @@ import {
   type WeekColumn,
 } from "@/lib/workload";
 import { createTeamSubtask } from "@/lib/actions/teamTask";
-import { loadItemScheduleContext, type ItemScheduleContext } from "@/lib/actions/itemSchedule";
+import {
+  loadItemScheduleContext,
+  loadItemDetailContext,
+  type ItemScheduleContext,
+  type ItemDetailContext,
+} from "@/lib/actions/itemSchedule";
 import { AssignmentModal } from "@/components/board/AssignmentModal";
+import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
@@ -107,6 +112,27 @@ export function WorkloadDetailSection({
     if (!itemId) return;
     const context = await loadItemScheduleContext(itemId);
     if (context) setScheduleContext(context);
+  }
+
+  // 點任務名稱直接跳項目卡片彈窗,不像原本用 <Link> 跳轉到看板的表格畫面
+  // ——關掉彈窗畫面留在儀表板,不用再按上一頁。
+  const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
+  const [openingDetailItemId, setOpeningDetailItemId] = useState<string | null>(null);
+
+  async function openItemDetail(itemId: string) {
+    setOpeningDetailItemId(itemId);
+    try {
+      const context = await loadItemDetailContext(itemId);
+      if (!context) {
+        await notify("找不到這個項目,或者沒有存取權限");
+        return;
+      }
+      setItemDetail(context);
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningDetailItemId(null);
+    }
   }
 
   function startLabelResize(e: React.PointerEvent) {
@@ -318,7 +344,7 @@ export function WorkloadDetailSection({
               <div className="flex border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
                 <div
                   style={{ width: labelWidth }}
-                  className="relative shrink-0 border-r border-neutral-100 dark:border-neutral-700 px-2 py-1"
+                  className="sticky left-0 z-20 shrink-0 border-r border-neutral-100 bg-neutral-50 px-2 py-1 dark:border-neutral-700 dark:bg-neutral-800"
                 >
                   成員
                   <div
@@ -341,7 +367,10 @@ export function WorkloadDetailSection({
                 </div>
               </div>
               <div className="flex bg-neutral-50 dark:bg-neutral-800 text-[9px] text-neutral-400 dark:text-neutral-500">
-                <div style={{ width: labelWidth }} className="shrink-0 border-r border-neutral-100 dark:border-neutral-700" />
+                <div
+                  style={{ width: labelWidth }}
+                  className="sticky left-0 z-20 shrink-0 border-r border-neutral-100 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800"
+                />
                 <div className="flex">
                   {weeks.map((w, i) => (
                     <div
@@ -397,7 +426,7 @@ export function WorkloadDetailSection({
                     >
                       <div
                         style={{ width: labelWidth }}
-                        className="flex shrink-0 items-center gap-1 border-r border-neutral-100 dark:border-neutral-700 px-2 py-2"
+                        className="sticky left-0 z-10 flex shrink-0 items-center gap-1 border-r border-neutral-100 bg-white px-2 py-2 dark:border-neutral-700 dark:bg-neutral-900"
                       >
                         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-100">
@@ -431,7 +460,7 @@ export function WorkloadDetailSection({
                             <div
                               key={`board-${b.boardId}`}
                               style={{ width: labelWidth }}
-                              className="truncate px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400"
+                              className="sticky left-0 z-10 truncate bg-neutral-50/95 px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:bg-neutral-800/95 dark:text-neutral-400"
                               title={b.boardName}
                             >
                               {b.boardName}
@@ -440,7 +469,7 @@ export function WorkloadDetailSection({
                               <div
                                 key={`group-${b.boardId}-${g.groupId}`}
                                 style={{ width: labelWidth }}
-                                className="truncate px-2 pl-4 py-0.5 text-[10px] text-neutral-400 dark:text-neutral-500"
+                                className="sticky left-0 z-10 truncate bg-neutral-50/95 px-2 pl-4 py-0.5 text-[10px] text-neutral-400 dark:bg-neutral-800/95 dark:text-neutral-500"
                                 title={g.groupName}
                               >
                                 {g.groupName || "(未分組)"}
@@ -453,15 +482,22 @@ export function WorkloadDetailSection({
                               <div key={`${t.boardId}-${t.itemId}`} className="flex items-center">
                                 <div
                                   style={{ width: labelWidth }}
-                                  className="shrink-0 truncate border-r border-neutral-100 dark:border-neutral-700 py-1 pl-6 pr-2 text-xs text-neutral-600 dark:text-neutral-400"
+                                  className="sticky left-0 z-10 shrink-0 truncate border-r border-neutral-100 bg-white py-1 pl-6 pr-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
                                   title={t.itemName}
                                 >
-                                  <Link
-                                    href={`/boards/${t.boardId}?highlight=${t.itemId}`}
-                                    className="hover:text-blue-600"
+                                  <button
+                                    type="button"
+                                    disabled={openingDetailItemId === t.itemId}
+                                    onClick={() => openItemDetail(t.itemId)}
+                                    className="hover:text-blue-600 disabled:opacity-60"
                                   >
+                                    {t.wbsCode && (
+                                      <span className="mr-1.5 tabular-nums text-neutral-400 dark:text-neutral-500">
+                                        {t.wbsCode}
+                                      </span>
+                                    )}
                                     {t.itemName}
-                                  </Link>
+                                  </button>
                                 </div>
                                 <div className="relative flex items-center" style={{ width: timelineWidth, height: 18 }}>
                                   {canCreateSubtask ? (
@@ -510,7 +546,7 @@ export function WorkloadDetailSection({
                               <div className="flex items-center">
                                 <div
                                   style={{ width: labelWidth }}
-                                  className="shrink-0 border-r border-neutral-100 dark:border-neutral-700 px-2 py-1 text-[10px] text-neutral-500 dark:text-neutral-400"
+                                  className="sticky left-0 z-10 shrink-0 border-r border-neutral-100 bg-neutral-50/95 px-2 py-1 text-[10px] text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800/95 dark:text-neutral-400"
                                 >
                                   拖曳或點選,亦可於下方輸入
                                 </div>
@@ -685,6 +721,24 @@ export function WorkloadDetailSection({
         canEditSchedule={scheduleContext?.canEditSchedule ?? false}
         groupItems={scheduleContext?.groupItems}
         onScheduleApplied={reloadOpenTask}
+      />
+
+      <ItemDetailModal
+        boardId={itemDetail?.boardId ?? ""}
+        item={itemDetail?.item ?? null}
+        columns={itemDetail?.columns ?? []}
+        users={allUsers}
+        progressColumnId={itemDetail?.progressColumnId ?? null}
+        ganttStartColumnId={itemDetail?.ganttStartColumnId}
+        ganttDurationColumnId={itemDetail?.ganttDurationColumnId}
+        ganttEndColumnId={itemDetail?.ganttEndColumnId}
+        predColumnId={itemDetail?.predColumnId}
+        linkColumnId={itemDetail?.linkColumnId}
+        groupItems={itemDetail?.groupItems}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        open={itemDetail !== null}
+        onOpenChange={(open) => !open && setItemDetail(null)}
       />
     </section>
   );

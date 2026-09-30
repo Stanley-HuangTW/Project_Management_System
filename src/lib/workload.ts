@@ -2,6 +2,7 @@ import type { BoardWithData, ItemData } from "@/types/board";
 import { getPersonIds } from "@/types/column";
 import { getItemDateRange, computeDailyLoadByUser } from "@/lib/gantt";
 import { groupByBoardAndGroup } from "@/lib/boardGrouping";
+import { computeWbsCodes, compareWbsCodes } from "@/lib/wbs";
 
 export type WorkloadThresholdSettings = {
   greenMax: number;
@@ -34,6 +35,9 @@ export type MemberTask = {
   groupName: string;
   itemId: string;
   itemName: string;
+  /** 這個項目在它自己分組樹裡的位置("1"、"1.1"、"1.1.2"...),給清單排序
+   *  跟顯示用 —— 跟儀表板逾期/即將到期清單同一套。 */
+  wbsCode: string;
   allocationPct: number;
   startDate: Date | null;
   endDate: Date | null;
@@ -59,7 +63,14 @@ export function computeMemberTaskBreakdown(
   const idSet = new Set(userIds);
   const byUser = new Map<string, MemberTask[]>();
 
-  function addTask(userId: string, board: BoardWithData, item: ItemData, allocationPct: number, hasRange: boolean) {
+  function addTask(
+    userId: string,
+    board: BoardWithData,
+    item: ItemData,
+    wbs: Map<string, string>,
+    allocationPct: number,
+    hasRange: boolean
+  ) {
     const group = board.groups.find((g) => g.id === item.groupId);
     const range = hasRange
       ? getItemDateRange(
@@ -78,6 +89,7 @@ export function computeMemberTaskBreakdown(
       groupName: group?.name ?? "",
       itemId: item.id,
       itemName: item.name,
+      wbsCode: wbs.get(item.id) ?? "",
       allocationPct,
       startDate: range?.start ?? null,
       endDate: range?.end ?? null,
@@ -88,12 +100,18 @@ export function computeMemberTaskBreakdown(
   for (const board of boards) {
     const hasRange = !!(board.ganttStartColumnId && board.ganttDurationColumnId);
     const personColumnIds = board.columns.filter((c) => c.type === "PERSON").map((c) => c.id);
+    // WBS 是項目在它自己分組樹裡的位置,一個分組算一次。
+    const wbs = new Map<string, string>();
+    for (const group of board.groups) {
+      const groupItems = board.items.filter((i) => i.groupId === group.id);
+      for (const [id, code] of computeWbsCodes(groupItems)) wbs.set(id, code);
+    }
 
     for (const item of board.items) {
       const coveredByAssignment = new Set<string>();
       for (const assignment of item.assignments) {
         if (!idSet.has(assignment.userId)) continue;
-        addTask(assignment.userId, board, item, assignment.allocationPct, hasRange);
+        addTask(assignment.userId, board, item, wbs, assignment.allocationPct, hasRange);
         coveredByAssignment.add(assignment.userId);
       }
 
@@ -102,9 +120,18 @@ export function computeMemberTaskBreakdown(
         .flatMap((cv) => getPersonIds(cv.value));
       for (const userId of personIds) {
         if (!idSet.has(userId) || coveredByAssignment.has(userId)) continue;
-        addTask(userId, board, item, 100, hasRange);
+        addTask(userId, board, item, wbs, 100, hasRange);
       }
     }
+  }
+
+  // 依看板、分組、WBS 代號排序,讓成員工作量明細跟看板本身的階層順序一致。
+  for (const list of byUser.values()) {
+    list.sort((a, b) => {
+      if (a.boardId !== b.boardId) return a.boardName.localeCompare(b.boardName);
+      if (a.groupId !== b.groupId) return a.groupName.localeCompare(b.groupName);
+      return compareWbsCodes(a.wbsCode, b.wbsCode);
+    });
   }
 
   return byUser;

@@ -9,6 +9,7 @@ describe("groupTasksByBoardAndGroup", () => {
     groupName,
     itemId,
     itemName: itemId,
+    wbsCode: "1",
     allocationPct: 50,
     startDate: null,
     endDate: null,

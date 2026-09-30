@@ -15,6 +15,7 @@ function task(
     groupName: "分組",
     itemId,
     itemName: itemId,
+    wbsCode: "1",
     allocationPct,
     startDate: new Date(start),
     endDate: new Date(end),

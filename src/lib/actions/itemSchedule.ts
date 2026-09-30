@@ -104,3 +104,63 @@ export async function loadItemScheduleContext(itemId: string): Promise<ItemSched
     canEditSchedule: canModifyItemSchedule(session.role, item.createdById, session.userId, hasScheduleRole),
   };
 }
+
+export type ItemDetailContext = {
+  boardId: string;
+  item: ItemData;
+  columns: ColumnData[];
+  groupItems: ItemData[];
+  progressColumnId: string | null;
+  predColumnId: string | null;
+  linkColumnId: string | null;
+  ganttStartColumnId: string | null;
+  ganttDurationColumnId: string | null;
+  ganttEndColumnId: string | null;
+};
+
+/**
+ * 給儀表板的成員工作量明細用——點一個任務直接跳出項目卡片彈窗,不用跳轉
+ * 到那個看板的表格畫面。只要求一般的看板存取權,不是 loadItemScheduleContext
+ * 那個「能不能改時程」的窄權限(儀表板上看得到這個任務的人,不代表也能拖
+ * 甘特圖,但還是該看得到卡片內容、能留言)。
+ */
+export async function loadItemDetailContext(itemId: string): Promise<ItemDetailContext | null> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+
+  const [item, board] = await Promise.all([
+    prisma.item.findUnique({ where: { id: itemId }, include: itemInclude }),
+    prisma.board.findUnique({
+      where: { id: boardId },
+      select: {
+        progressColumnId: true,
+        predColumnId: true,
+        linkColumnId: true,
+        ganttStartColumnId: true,
+        ganttDurationColumnId: true,
+        ganttEndColumnId: true,
+        columns: { orderBy: { order: "asc" } },
+      },
+    }),
+  ]);
+  if (!item || !board) return null;
+
+  const groupItems = await prisma.item.findMany({
+    where: { boardId: item.boardId, deletedAt: null },
+    orderBy: { order: "asc" },
+    include: itemInclude,
+  });
+
+  return {
+    boardId,
+    item,
+    columns: board.columns,
+    groupItems,
+    progressColumnId: board.progressColumnId,
+    predColumnId: board.predColumnId,
+    linkColumnId: board.linkColumnId,
+    ganttStartColumnId: board.ganttStartColumnId,
+    ganttDurationColumnId: board.ganttDurationColumnId,
+    ganttEndColumnId: board.ganttEndColumnId,
+  };
+}
