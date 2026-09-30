@@ -7,6 +7,8 @@ import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData } from "@/types/board";
 import { canManageStructure } from "@/lib/permissions";
+import { computeWbsCodes } from "@/lib/wbs";
+import { ItemTreePicker } from "./ItemTreePicker";
 import { listBaselines, type BaselineVersion } from "@/lib/actions/baseline";
 import {
   listChangeRequests,
@@ -165,6 +167,13 @@ ${options || "(這個看板還沒有基準線)"}`,
     "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500";
   const smallButton =
     "rounded border border-neutral-200 dark:border-neutral-700 px-2 py-0.5 text-xs text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40";
+
+  // WBS 只在自己的分組樹裡唯一,所以一個分組算一次。
+  const wbsByItemId = new Map<string, string>();
+  for (const group of board.groups) {
+    const groupItems = board.items.filter((i) => i.groupId === group.id);
+    for (const [id, code] of computeWbsCodes(groupItems)) wbsByItemId.set(id, code);
+  }
 
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
 
@@ -444,24 +453,20 @@ ${options || "(這個看板還沒有基準線)"}`,
               <label className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
                 受影響的工作項
               </label>
-              <select
+              <ItemTreePicker
+                items={board.items}
+                wbsByItemId={wbsByItemId}
                 value=""
-                onChange={(e) => {
-                  if (!e.target.value || editing.input.itemIds.includes(e.target.value)) return;
+                onChange={(id) => {
+                  if (!id || editing.input.itemIds.includes(id)) return;
                   setEditing({
                     ...editing,
-                    input: { ...editing.input, itemIds: [...editing.input.itemIds, e.target.value] },
+                    input: { ...editing.input, itemIds: [...editing.input.itemIds, id] },
                   });
                 }}
-                className={fieldClass}
-              >
-                <option value="">加入工作項…</option>
-                {board.items.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="加入工作項…"
+                className={`${fieldClass} flex items-center justify-between gap-1`}
+              />
               {editing.input.itemIds.length > 0 && (
                 <ul className="mt-1.5 flex flex-wrap gap-1">
                   {editing.input.itemIds.map((id) => {
@@ -471,7 +476,7 @@ ${options || "(這個看板還沒有基準線)"}`,
                         key={id}
                         className="flex items-center gap-1 rounded bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-700 dark:text-neutral-200"
                       >
-                        {item?.name ?? id}
+                        {item ? `${wbsByItemId.get(item.id) ?? ""} ${item.name}` : id}
                         <button
                           type="button"
                           onClick={() =>

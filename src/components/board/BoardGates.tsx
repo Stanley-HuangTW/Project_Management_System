@@ -6,6 +6,8 @@ import { AlertTriangle, Check, Plus, Trash2, X, ChevronRight, ChevronDown } from
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData, UserOption } from "@/types/board";
 import { canManageStructure } from "@/lib/permissions";
+import { computeWbsCodes } from "@/lib/wbs";
+import { ItemTreePicker } from "./ItemTreePicker";
 import type { UserRole } from "@prisma/client";
 import {
   listGates,
@@ -128,6 +130,13 @@ export function BoardGates({
   const parentIds = new Set(board.items.map((i) => i.parentId).filter(Boolean));
   const phaseChoices = board.items.filter((i) => parentIds.has(i.id));
 
+  // WBS 只在自己的分組樹裡唯一,所以一個分組算一次。
+  const wbsByItemId = new Map<string, string>();
+  for (const group of board.groups) {
+    const groupItems = board.items.filter((i) => i.groupId === group.id);
+    for (const [id, code] of computeWbsCodes(groupItems)) wbsByItemId.set(id, code);
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -173,14 +182,14 @@ export function BoardGates({
             placeholder="閘門名稱,例如 EVT 出口審查"
             className={`${fieldClass} min-w-0 flex-1`}
           />
-          <select value={newItemId} onChange={(e) => setNewItemId(e.target.value)} className={fieldClass}>
-            <option value="">(不綁階段)</option>
-            {phaseChoices.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+          <ItemTreePicker
+            items={phaseChoices}
+            wbsByItemId={wbsByItemId}
+            value={newItemId}
+            onChange={setNewItemId}
+            placeholder="(不綁階段)"
+            className={`${fieldClass} flex items-center justify-between gap-1`}
+          />
           <input
             type="date"
             value={newDate}

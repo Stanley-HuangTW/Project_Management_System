@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { RiskKind, RiskStatus } from "@prisma/client";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData, UserOption } from "@/types/board";
+import { computeWbsCodes } from "@/lib/wbs";
+import { ItemTreePicker } from "./ItemTreePicker";
 import {
   riskScore,
   riskBand,
@@ -130,6 +132,16 @@ export function BoardRisks({
   ).length;
 
   const emv = summarizeEmv(risks);
+
+  // WBS 只在自己的分組樹裡唯一,所以一個分組算一次。
+  const wbsByItemId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const group of board.groups) {
+      const groupItems = board.items.filter((i) => i.groupId === group.id);
+      for (const [id, code] of computeWbsCodes(groupItems)) map.set(id, code);
+    }
+    return map;
+  }, [board]);
 
   const fieldClass =
     "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500";
@@ -494,20 +506,15 @@ export function BoardRisks({
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">相關工作項</span>
-                <select
+                <ItemTreePicker
+                  items={board.items}
+                  wbsByItemId={wbsByItemId}
                   value={editing.input.itemId ?? ""}
-                  onChange={(e) =>
-                    setEditing({ ...editing, input: { ...editing.input, itemId: e.target.value || null } })
+                  onChange={(id) =>
+                    setEditing({ ...editing, input: { ...editing.input, itemId: id || null } })
                   }
-                  className={fieldClass}
-                >
-                  <option value="">未指定</option>
-                  {board.items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
+                  className={`${fieldClass} flex items-center justify-between gap-1`}
+                />
               </label>
             </div>
 
