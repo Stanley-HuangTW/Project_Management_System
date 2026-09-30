@@ -255,7 +255,7 @@ export function BoardSidebar({
           </button>
           <span className="ml-7 text-sm font-semibold text-neutral-900 dark:text-neutral-100 md:ml-0">看板</span>
         </div>
-        {canManage && (
+        {canManageStructure(userRole) && (
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
