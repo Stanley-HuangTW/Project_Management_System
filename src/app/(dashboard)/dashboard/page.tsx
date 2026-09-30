@@ -10,7 +10,7 @@ import {
   computeTeamWorkload,
   computeMemberItemWorkload,
   computeBoardProgressOverview,
-  computeOverdueUpcoming,
+  computeDashboardDueLists,
   computePersonalItems,
   type WorkloadPeriod,
   type MemberItemWorkloadEntry,
@@ -103,7 +103,7 @@ export default async function DashboardPage({
   const teamWorkloadWeek = computeTeamWorkload(boards, workloadScope, "week", holidays);
   const teamWorkloadMonth = computeTeamWorkload(boards, workloadScope, "month", holidays);
   const boardProgress = computeBoardProgressOverview(boards);
-  const { overdue, upcoming, completed } = computeOverdueUpcoming(
+  const { overdue, completedThisWeek, upcoming7, upcoming30 } = computeDashboardDueLists(
     boards,
     isSupervisor
       ? withManagedResourceIds([session.userId, ...teamMembers.map((m) => m.id)])
@@ -275,7 +275,15 @@ export default async function DashboardPage({
         </div>
       </section>
 
-      <DueListsSection overdue={overdue} upcoming={upcoming} completed={completed} />
+      <DueListsSection
+        overdue={overdue}
+        completedThisWeek={completedThisWeek}
+        upcoming7={upcoming7}
+        upcoming30={upcoming30}
+        allUsers={users}
+        currentUserId={session.userId}
+        userRole={session.role}
+      />
 
       {isSupervisor && (
         <section>

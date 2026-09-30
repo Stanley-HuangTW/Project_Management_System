@@ -1,10 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Minus, Plus, Maximize2, Minimize2 } from "lucide-react";
 import { groupByBoardAndGroup } from "@/lib/boardGrouping";
 import type { DueItemEntry } from "@/lib/dashboard";
+import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
+import { ItemDetailModal } from "@/components/board/ItemDetailModal";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import type { UserOption } from "@/types/board";
+import type { UserRole } from "@prisma/client";
 
 const STORAGE_KEY = "dashboard-due-lists-view";
 
@@ -28,30 +32,62 @@ function formatDate(date: Date) {
 }
 
 /**
- * 逾期 / 即將到期 / 已完成。
+ * 逾期 / 本週完成 / 未來 7 天 / 未來 30 天,四段各自獨立、按時間排序
+ * (computeDashboardDueLists 保證每一筆只會落在其中一類)。
  *
- * 三份清單加起來兩百多筆,預設的字級一次只看得到十來條。縮放用的是 CSS
- * `zoom` 而不是 transform:scale —— zoom 會讓版面跟著重排,縮小就真的多塞
- * 得下幾條;scale 只是把同樣大小的東西畫小,旁邊留一片空白。
+ * 四份清單加起來可能有兩百多筆,預設的字級一次只看得到十來條。縮放用的是
+ * CSS `zoom` 而不是 transform:scale —— zoom 會讓版面跟著重排,縮小就真的
+ * 多塞得下幾條;scale 只是把同樣大小的東西畫小,旁邊留一片空白。
  *
  * 縮放與高度記在瀏覽器裡,因為那是「這台機器這個螢幕」的偏好,不是專案
  * 設定 —— 同一個人換一台筆電看,合適的大小本來就不一樣。
+ *
+ * 點項目名稱直接跳出項目卡片彈窗(跟看板裡點項目同一個元件),不用跳轉到
+ * 那個看板的表格畫面——關掉彈窗畫面留在儀表板。彈窗狀態放在這一層,四份
+ * 清單共用同一個,不用各開各的。
  */
 export function DueListsSection({
   overdue,
-  upcoming,
-  completed,
+  completedThisWeek,
+  upcoming7,
+  upcoming30,
+  allUsers,
+  currentUserId,
+  userRole,
 }: {
   overdue: DueItemEntry[];
-  upcoming: DueItemEntry[];
-  completed: DueItemEntry[];
+  completedThisWeek: DueItemEntry[];
+  upcoming7: DueItemEntry[];
+  upcoming30: DueItemEntry[];
+  allUsers: UserOption[];
+  currentUserId: string;
+  userRole: UserRole;
 }) {
+  const { notify } = useDialogs();
   const [zoom, setZoom] = useState(() => {
     const stored = loadStoredView()?.zoom;
     return stored && ZOOM_STEPS.includes(stored) ? stored : 100;
   });
   const [height, setHeight] = useState(() => loadStoredView()?.height || 480);
   const [expanded, setExpanded] = useState(false);
+  const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
+  const [openingItemId, setOpeningItemId] = useState<string | null>(null);
+
+  async function openItemDetail(itemId: string) {
+    setOpeningItemId(itemId);
+    try {
+      const context = await loadItemDetailContext(itemId);
+      if (!context) {
+        await notify("找不到這個項目,或者沒有存取權限");
+        return;
+      }
+      setItemDetail(context);
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningItemId(null);
+    }
+  }
 
   function persist(next: Partial<StoredView>) {
     const value = { zoom, height, ...next };
@@ -74,7 +110,7 @@ export function DueListsSection({
     <section>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-100">
-          逾期 / 即將到期項目
+          待辦事項到期清單
         </h2>
 
         <div className="ml-auto flex items-center gap-1">
@@ -134,7 +170,7 @@ export function DueListsSection({
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <DueList
           title={`逾期(${overdue.length})`}
           titleClass="text-red-600"
@@ -143,26 +179,61 @@ export function DueListsSection({
           entries={overdue}
           zoom={zoom}
           height={expanded ? null : height}
+          openingItemId={openingItemId}
+          onOpenItem={openItemDetail}
         />
         <DueList
-          title={`即將到期,7 天內(${upcoming.length})`}
-          titleClass="text-neutral-500 dark:text-neutral-400"
-          dateClass="text-neutral-500 dark:text-neutral-400"
-          empty="7 天內沒有到期項目"
-          entries={upcoming}
-          zoom={zoom}
-          height={expanded ? null : height}
-        />
-        <DueList
-          title={`已完成項目(${completed.length})`}
+          title={`本週完成(${completedThisWeek.length})`}
           titleClass="text-green-600"
           dateClass="text-green-600"
-          empty="沒有已完成項目"
-          entries={completed}
+          empty="本週沒有完成項目"
+          entries={completedThisWeek}
           zoom={zoom}
           height={expanded ? null : height}
+          openingItemId={openingItemId}
+          onOpenItem={openItemDetail}
+        />
+        <DueList
+          title={`未來 7 天(${upcoming7.length})`}
+          titleClass="text-neutral-500 dark:text-neutral-400"
+          dateClass="text-neutral-500 dark:text-neutral-400"
+          empty="未來 7 天沒有到期項目"
+          entries={upcoming7}
+          zoom={zoom}
+          height={expanded ? null : height}
+          openingItemId={openingItemId}
+          onOpenItem={openItemDetail}
+        />
+        <DueList
+          title={`未來 30 天(${upcoming30.length})`}
+          titleClass="text-neutral-500 dark:text-neutral-400"
+          dateClass="text-neutral-500 dark:text-neutral-400"
+          empty="未來 30 天沒有到期項目"
+          entries={upcoming30}
+          zoom={zoom}
+          height={expanded ? null : height}
+          openingItemId={openingItemId}
+          onOpenItem={openItemDetail}
         />
       </div>
+
+      <ItemDetailModal
+        boardId={itemDetail?.boardId ?? ""}
+        item={itemDetail?.item ?? null}
+        columns={itemDetail?.columns ?? []}
+        users={allUsers}
+        progressColumnId={itemDetail?.progressColumnId ?? null}
+        ganttStartColumnId={itemDetail?.ganttStartColumnId}
+        ganttDurationColumnId={itemDetail?.ganttDurationColumnId}
+        ganttEndColumnId={itemDetail?.ganttEndColumnId}
+        predColumnId={itemDetail?.predColumnId}
+        linkColumnId={itemDetail?.linkColumnId}
+        groupItems={itemDetail?.groupItems}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        open={itemDetail !== null}
+        onOpenChange={(open) => !open && setItemDetail(null)}
+      />
     </section>
   );
 }
@@ -181,6 +252,8 @@ function DueList({
   entries,
   zoom,
   height,
+  openingItemId,
+  onOpenItem,
 }: {
   title: string;
   titleClass: string;
@@ -190,6 +263,8 @@ function DueList({
   zoom: number;
   /** null = 展開,不限制高度。 */
   height: number | null;
+  openingItemId: string | null;
+  onOpenItem: (itemId: string) => void;
 }) {
   const boards = groupByBoardAndGroup(entries);
 
@@ -224,10 +299,12 @@ function DueList({
                           key={`${e.boardId}-${e.itemId}`}
                           className="flex items-center justify-between gap-2 pl-3 text-sm"
                         >
-                          <Link
-                            href={`/boards/${e.boardId}?highlight=${e.itemId}`}
+                          <button
+                            type="button"
+                            disabled={openingItemId === e.itemId}
+                            onClick={() => onOpenItem(e.itemId)}
                             title={e.itemName}
-                            className="min-w-0 truncate text-neutral-700 hover:text-blue-600 dark:text-neutral-100"
+                            className="min-w-0 truncate text-left text-neutral-700 hover:text-blue-600 hover:underline disabled:opacity-60 dark:text-neutral-100"
                           >
                             {e.wbsCode && (
                               <span className="mr-1.5 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
@@ -235,7 +312,7 @@ function DueList({
                               </span>
                             )}
                             {e.itemName}
-                          </Link>
+                          </button>
                           <span className={`shrink-0 text-xs ${dateClass}`}>{formatDate(e.end)}</span>
                         </li>
                       ))}

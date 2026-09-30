@@ -4,6 +4,7 @@ import { getItemDateRange, computeDailyLoadByUser, manualScheduleHint } from "@/
 import { computeItemProgress } from "@/lib/progress";
 import { resolveLockedScheduleFields, type ScheduleLock } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
+import { weekRangeOf } from "@/lib/weeklyReport";
 
 export type WorkloadPeriod = "day" | "week" | "month";
 
@@ -375,6 +376,97 @@ export function computeOverdueUpcoming(
   upcoming.sort((a, b) => a.end.getTime() - b.end.getTime());
   completed.sort((a, b) => a.end.getTime() - b.end.getTime());
   return { overdue, upcoming, completed };
+}
+
+export type DashboardDueLists = {
+  overdue: DueItemEntry[];
+  completedThisWeek: DueItemEntry[];
+  upcoming7: DueItemEntry[];
+  upcoming30: DueItemEntry[];
+};
+
+/**
+ * 儀表板「待辦事項到期清單」專用的四個分類:已逾期、本週完成、未來 7 天、
+ * 未來 30 天 —— 每一筆只會落在其中一類,不像 computeOverdueUpcoming 那樣
+ * 「完成的」跟「還沒完成的」各自獨立判斷、範圍也只有一種。故意另外寫一份,
+ * 不去改 computeOverdueUpcoming 本身——那個函式週報、MCP 工具都在用,語意
+ * 是「這個時間範圍內,完成的跟還沒完成的」,跟這裡「依照時間分成四段」是
+ * 不同的需求。
+ */
+export function computeDashboardDueLists(
+  boards: BoardWithData[],
+  userIds?: string[],
+  holidays: Set<string> = new Set()
+): DashboardDueLists {
+  const today = todayUtc();
+  const { weekStart } = weekRangeOf(toIsoDate(today));
+  const weekStartDate = new Date(weekStart);
+  const in7 = addDays(today, 7);
+  const in30 = addDays(today, 30);
+  const idSet = userIds ? new Set(userIds) : null;
+
+  const overdue: DueItemEntry[] = [];
+  const completedThisWeek: DueItemEntry[] = [];
+  const upcoming7: DueItemEntry[] = [];
+  const upcoming30: DueItemEntry[] = [];
+
+  for (const board of boards) {
+    if (!board.ganttStartColumnId || !board.ganttDurationColumnId) continue;
+    const statusColumn = resolveStatusColumn(board);
+    const groupName = new Map(board.groups.map((g) => [g.id, g.name]));
+    const wbs = new Map<string, string>();
+    for (const group of board.groups) {
+      const groupItems = board.items.filter((i) => i.groupId === group.id);
+      for (const [id, code] of computeWbsCodes(groupItems)) wbs.set(id, code);
+    }
+
+    for (const item of board.items) {
+      if (idSet) {
+        const personIds = item.cellValues
+          .filter((cv) => board.columns.find((c) => c.id === cv.columnId)?.type === "PERSON")
+          .flatMap((cv) => getPersonIds(cv.value));
+        const isOwnedByScope =
+          personIds.some((id) => idSet.has(id)) || item.assignments.some((a) => idSet.has(a.userId));
+        if (!isOwnedByScope) continue;
+      }
+
+      const range = getItemDateRange(
+        item,
+        board.ganttStartColumnId,
+        board.ganttDurationColumnId,
+        board.ganttDurationMode,
+        holidays
+      );
+      if (!range) continue;
+
+      const entry = {
+        boardId: board.id,
+        boardName: board.name,
+        groupId: item.groupId,
+        groupName: groupName.get(item.groupId) ?? "",
+        itemId: item.id,
+        itemName: item.name,
+        wbsCode: wbs.get(item.id) ?? "",
+        end: range.end,
+      };
+
+      if (isItemComplete(item, board, statusColumn)) {
+        if (range.end >= weekStartDate && range.end <= today) completedThisWeek.push(entry);
+      } else if (range.end < today) {
+        overdue.push(entry);
+      } else if (range.end <= in7) {
+        upcoming7.push(entry);
+      } else if (range.end <= in30) {
+        upcoming30.push(entry);
+      }
+    }
+  }
+
+  overdue.sort((a, b) => a.end.getTime() - b.end.getTime());
+  completedThisWeek.sort((a, b) => a.end.getTime() - b.end.getTime());
+  upcoming7.sort((a, b) => a.end.getTime() - b.end.getTime());
+  upcoming30.sort((a, b) => a.end.getTime() - b.end.getTime());
+  return { overdue, completedThisWeek, upcoming7, upcoming30 };
 }
 
 export type PersonalItemAssignee = { name: string; allocationPct: number | null };
