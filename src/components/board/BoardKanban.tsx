@@ -14,11 +14,21 @@ import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/bo
 import type { Holiday, UserRole } from "@prisma/client";
 import { getStatusOptions } from "@/types/column";
 import { itemOwnerIds } from "@/lib/boardReport";
-import { classifyItemStatus, resolveStatusColumn, type ItemStatusKind } from "@/lib/dashboard";
+import {
+  classifyItemStatus,
+  computeDashboardDueLists,
+  resolveStatusColumn,
+  type DashboardDueLists,
+  type DueItemEntry,
+  type ItemStatusKind,
+} from "@/lib/dashboard";
 import { computeRolledUpDateRange } from "@/lib/gantt";
 import { KanbanLane } from "./KanbanLane";
+import { ItemDetailModal } from "./ItemDetailModal";
+import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
 import { upsertCellValue } from "@/lib/actions/cell";
 import { subordinateIds } from "@/lib/orgChart";
+import { useDialogs } from "@/components/ui/DialogProvider";
 
 // 逾期 first, then 未處理, then 實作中, then 已完成 last — same status
 // precedence as the Gantt/table/dashboard name-color rule, repurposed as a
@@ -35,6 +45,102 @@ function personColumnIdsOf(columns: ColumnData[]): string[] {
 }
 
 const UNSET_LANE = "unset";
+
+// 「依欄位分組」下拉選單裡的特殊選項——不對應任何實際欄位,選了之後改成
+// 依到期時間分成已逾期/本週完成/未來 7 天/未來 30 天四欄,取代原本依狀態
+// 欄位分組的邏輯。
+const DUE_MODE = "__due__";
+
+const DUE_LANES: {
+  key: keyof DashboardDueLists;
+  label: string;
+  color: string;
+  dateClass: string;
+}[] = [
+  { key: "overdue", label: "已逾期", color: "#e2445c", dateClass: "text-red-600 dark:text-red-400" },
+  { key: "completedThisWeek", label: "本週完成", color: "#00c875", dateClass: "text-green-600 dark:text-green-400" },
+  { key: "upcoming7", label: "未來 7 天", color: "#579bfc", dateClass: "text-neutral-500 dark:text-neutral-400" },
+  { key: "upcoming30", label: "未來 30 天", color: "#9aa0a6", dateClass: "text-neutral-500 dark:text-neutral-400" },
+];
+
+function formatDueDate(date: Date) {
+  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+}
+
+function DueCard({
+  entry,
+  isOpening,
+  onOpen,
+  dateClass,
+}: {
+  entry: DueItemEntry;
+  isOpening: boolean;
+  onOpen: (itemId: string) => void;
+  dateClass: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm shadow-sm">
+      <button
+        type="button"
+        disabled={isOpening}
+        onClick={() => onOpen(entry.itemId)}
+        title={entry.itemName}
+        className="min-w-0 truncate text-left text-neutral-800 hover:text-blue-600 hover:underline disabled:opacity-60 dark:text-neutral-100"
+      >
+        {entry.wbsCode && (
+          <span className="mr-1.5 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+            {entry.wbsCode}
+          </span>
+        )}
+        {entry.itemName}
+      </button>
+      <span className={`shrink-0 text-xs ${dateClass}`}>{formatDueDate(entry.end)}</span>
+    </div>
+  );
+}
+
+function DueLane({
+  label,
+  color,
+  entries,
+  dateClass,
+  openingItemId,
+  onOpenItem,
+}: {
+  label: string;
+  color: string;
+  entries: DueItemEntry[];
+  dateClass: string;
+  openingItemId: string | null;
+  onOpenItem: (itemId: string) => void;
+}) {
+  return (
+    <div className="flex w-72 shrink-0 flex-col rounded-lg bg-neutral-100 dark:bg-neutral-800">
+      <div
+        className="flex items-center gap-2 rounded-t-lg px-3 py-2 text-sm font-medium text-white"
+        style={{ backgroundColor: color }}
+      >
+        {label}
+        <span className="ml-auto text-xs opacity-80">{entries.length}</span>
+      </div>
+      <div className="flex min-h-[60px] flex-col gap-2 p-2">
+        {entries.length === 0 ? (
+          <p className="px-1 py-2 text-xs text-neutral-400 dark:text-neutral-500">沒有項目</p>
+        ) : (
+          entries.map((entry) => (
+            <DueCard
+              key={entry.itemId}
+              entry={entry}
+              isOpening={openingItemId === entry.itemId}
+              onOpen={onOpenItem}
+              dateClass={dateClass}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function BoardKanban({
   board,
@@ -55,7 +161,8 @@ export function BoardKanban({
   currentUserId: string;
   holidays: Holiday[];
 }) {
-  const column = statusColumns.find((c) => c.id === columnId) ?? statusColumns[0];
+  const isDueMode = columnId === DUE_MODE;
+  const column = isDueMode ? undefined : statusColumns.find((c) => c.id === columnId) ?? statusColumns[0];
   const personColumnIds = personColumnIdsOf(board.columns);
   const statuses = useMemo(
     () => (column ? getStatusOptions(column.options) : []),
@@ -71,11 +178,17 @@ export function BoardKanban({
 
   const isSupervisor = userRole === "SUPERVISOR";
   const isMember = userRole === "MEMBER";
-  const teamIds = isSupervisor ? [...subordinateIds(users, currentUserId)] : null;
+  const teamIds = useMemo(
+    () => (isSupervisor ? [...subordinateIds(users, currentUserId)] : null),
+    [isSupervisor, users, currentUserId]
+  );
   const [scope, setScope] = useState<"team" | "all">(isSupervisor ? "team" : "all");
   // Members only ever see their own items — there's no "all" toggle for them,
   // unlike supervisors who can widen to the whole board.
-  const effectiveTeamIds = isMember ? [currentUserId] : scope === "team" ? teamIds : null;
+  const effectiveTeamIds = useMemo(
+    () => (isMember ? [currentUserId] : scope === "team" ? teamIds : null),
+    [isMember, currentUserId, scope, teamIds]
+  );
   const scopedItems = effectiveTeamIds
     ? items.filter((item) => itemOwnerIds(item, board).some((id) => effectiveTeamIds.includes(id)))
     : items;
@@ -141,6 +254,30 @@ export function BoardKanban({
   }
 
   const holidaySet = useMemo(() => new Set(holidays.map((h) => h.date)), [holidays]);
+  const dueLists = useMemo(
+    () => (isDueMode ? computeDashboardDueLists([board], effectiveTeamIds ?? undefined, holidaySet) : null),
+    [isDueMode, board, effectiveTeamIds, holidaySet]
+  );
+  const { notify } = useDialogs();
+  const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
+  const [openingDetailItemId, setOpeningDetailItemId] = useState<string | null>(null);
+
+  async function openItemDetail(itemId: string) {
+    setOpeningDetailItemId(itemId);
+    try {
+      const context = await loadItemDetailContext(itemId);
+      if (!context) {
+        await notify("找不到這個項目,或者沒有存取權限");
+        return;
+      }
+      setItemDetail(context);
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningDetailItemId(null);
+    }
+  }
+
   const sortStatusColumn = useMemo(() => resolveStatusColumn(board), [board]);
   const rangesById = useMemo(() => {
     const map = new Map<string, { start: Date; end: Date } | null>();
@@ -247,7 +384,7 @@ export function BoardKanban({
     upsertCellValue(board.id, activeId, column.id, finalValue);
   }
 
-  if (!column) {
+  if (!isDueMode && !column) {
     return (
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
         看板檢視需要至少一個「狀態」欄位,請先新增一個狀態欄位。
@@ -261,10 +398,11 @@ export function BoardKanban({
         <div className="flex items-center gap-2">
           <span className="text-sm text-neutral-500 dark:text-neutral-400">依欄位分組:</span>
           <select
-            value={column.id}
+            value={isDueMode ? DUE_MODE : column?.id ?? ""}
             onChange={(e) => onChangeColumn(e.target.value)}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
           >
+            <option value={DUE_MODE}>到期時間</option>
             {statusColumns.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -301,13 +439,7 @@ export function BoardKanban({
         <div style={{ width: contentWidth, height: 1 }} />
       </div>
 
-      <DndContext
-        id="board-kanban-dnd"
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-      >
+      {isDueMode ? (
         <div
           ref={scrollRef}
           onScroll={syncFromMainScroll}
@@ -317,29 +449,77 @@ export function BoardKanban({
           onPointerLeave={handlePointerUp}
           className={`flex gap-4 overflow-x-auto pb-4 ${isPanning ? "cursor-grabbing select-none" : "cursor-grab"}`}
         >
-          <KanbanLane
-            laneId={UNSET_LANE}
-            label="未設定"
-            color="#9aa0a6"
-            items={lanes.get(UNSET_LANE) ?? []}
-            userRole={userRole}
-            currentUserId={currentUserId}
-            personColumnIds={personColumnIds}
-          />
-          {statuses.map((s) => (
+          {DUE_LANES.map((lane) => (
+            <DueLane
+              key={lane.key}
+              label={lane.label}
+              color={lane.color}
+              dateClass={lane.dateClass}
+              entries={dueLists?.[lane.key] ?? []}
+              openingItemId={openingDetailItemId}
+              onOpenItem={openItemDetail}
+            />
+          ))}
+        </div>
+      ) : (
+        <DndContext
+          id="board-kanban-dnd"
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div
+            ref={scrollRef}
+            onScroll={syncFromMainScroll}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            className={`flex gap-4 overflow-x-auto pb-4 ${isPanning ? "cursor-grabbing select-none" : "cursor-grab"}`}
+          >
             <KanbanLane
-              key={s.id}
-              laneId={s.id}
-              label={s.label}
-              color={s.color}
-              items={lanes.get(s.id) ?? []}
+              laneId={UNSET_LANE}
+              label="未設定"
+              color="#9aa0a6"
+              items={lanes.get(UNSET_LANE) ?? []}
               userRole={userRole}
               currentUserId={currentUserId}
               personColumnIds={personColumnIds}
             />
-          ))}
-        </div>
-      </DndContext>
+            {statuses.map((s) => (
+              <KanbanLane
+                key={s.id}
+                laneId={s.id}
+                label={s.label}
+                color={s.color}
+                items={lanes.get(s.id) ?? []}
+                userRole={userRole}
+                currentUserId={currentUserId}
+                personColumnIds={personColumnIds}
+              />
+            ))}
+          </div>
+        </DndContext>
+      )}
+
+      <ItemDetailModal
+        boardId={itemDetail?.boardId ?? ""}
+        item={itemDetail?.item ?? null}
+        columns={itemDetail?.columns ?? []}
+        users={users}
+        progressColumnId={itemDetail?.progressColumnId ?? null}
+        ganttStartColumnId={itemDetail?.ganttStartColumnId}
+        ganttDurationColumnId={itemDetail?.ganttDurationColumnId}
+        ganttEndColumnId={itemDetail?.ganttEndColumnId}
+        predColumnId={itemDetail?.predColumnId}
+        linkColumnId={itemDetail?.linkColumnId}
+        groupItems={itemDetail?.groupItems}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        open={itemDetail !== null}
+        onOpenChange={(open) => !open && setItemDetail(null)}
+      />
     </div>
   );
 }
