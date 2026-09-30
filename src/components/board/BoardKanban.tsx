@@ -23,6 +23,7 @@ import {
   type ItemStatusKind,
 } from "@/lib/dashboard";
 import { computeRolledUpDateRange } from "@/lib/gantt";
+import { computeWbsCodes } from "@/lib/wbs";
 import { KanbanLane } from "./KanbanLane";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
@@ -63,6 +64,10 @@ const DUE_LANES: {
   { key: "upcoming30", label: "未來 30 天", color: "#9aa0a6", dateClass: "text-neutral-500 dark:text-neutral-400" },
 ];
 
+// One past the four due-time buckets above — everything else (done outside
+// this week, no schedule, or due more than 30 days out).
+const OTHER_BUCKET = 4;
+
 function formatDueDate(date: Date) {
   return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
 }
@@ -79,7 +84,10 @@ function DueCard({
   dateClass: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm shadow-sm">
+    <div
+      data-kanban-card
+      className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm shadow-sm"
+    >
       <button
         type="button"
         disabled={isOpening}
@@ -254,10 +262,30 @@ export function BoardKanban({
   }
 
   const holidaySet = useMemo(() => new Set(holidays.map((h) => h.date)), [holidays]);
+  // Always computed (not just in due mode) — the status-column lanes also use
+  // this to divide each lane's cards into the same 已逾期/本週完成/未來 7
+  // 天/未來 30 天 sections, so both views agree on the same classification.
   const dueLists = useMemo(
-    () => (isDueMode ? computeDashboardDueLists([board], effectiveTeamIds ?? undefined, holidaySet) : null),
-    [isDueMode, board, effectiveTeamIds, holidaySet]
+    () => computeDashboardDueLists([board], effectiveTeamIds ?? undefined, holidaySet),
+    [board, effectiveTeamIds, holidaySet]
   );
+  const dueBucketByItemId = useMemo(() => {
+    const map = new Map<string, number>();
+    [dueLists.overdue, dueLists.completedThisWeek, dueLists.upcoming7, dueLists.upcoming30].forEach(
+      (list, bucket) => {
+        for (const entry of list) map.set(entry.itemId, bucket);
+      }
+    );
+    return map;
+  }, [dueLists]);
+  const wbsByItemId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const group of board.groups) {
+      const groupItems = board.items.filter((i) => i.groupId === group.id);
+      for (const [id, code] of computeWbsCodes(groupItems)) map.set(id, code);
+    }
+    return map;
+  }, [board]);
   const { notify } = useDialogs();
   const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
   const [openingDetailItemId, setOpeningDetailItemId] = useState<string | null>(null);
@@ -309,17 +337,28 @@ export function BoardKanban({
       list.push(item);
       map.set(laneId, list);
     }
-    // 逾期 first, then 未處理, 實作中, 已完成 last — see STATUS_SORT_RANK.
+    // 已逾期/本週完成/未來 7 天/未來 30 天 first (in that order, by end date
+    // within each), same classification as the due-time grouping — anything
+    // outside those four windows falls into "其他", ordered the old way:
+    // 逾期 first, then 未處理, 實作中, 已完成 last (STATUS_SORT_RANK).
     for (const list of map.values()) {
       list.sort((a, b) => {
-        const rankA = STATUS_SORT_RANK[classifyItemStatus(a, board, sortStatusColumn, rangesById.get(a.id) ?? null)];
-        const rankB = STATUS_SORT_RANK[classifyItemStatus(b, board, sortStatusColumn, rangesById.get(b.id) ?? null)];
-        return rankA - rankB;
+        const bucketA = dueBucketByItemId.get(a.id) ?? OTHER_BUCKET;
+        const bucketB = dueBucketByItemId.get(b.id) ?? OTHER_BUCKET;
+        if (bucketA !== bucketB) return bucketA - bucketB;
+        if (bucketA === OTHER_BUCKET) {
+          const rankA = STATUS_SORT_RANK[classifyItemStatus(a, board, sortStatusColumn, rangesById.get(a.id) ?? null)];
+          const rankB = STATUS_SORT_RANK[classifyItemStatus(b, board, sortStatusColumn, rangesById.get(b.id) ?? null)];
+          return rankA - rankB;
+        }
+        const endA = rangesById.get(a.id)?.end.getTime() ?? 0;
+        const endB = rangesById.get(b.id)?.end.getTime() ?? 0;
+        return endA - endB;
       });
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopedItems, column, statuses, board, sortStatusColumn, rangesById]);
+  }, [scopedItems, column, statuses, board, sortStatusColumn, rangesById, dueBucketByItemId]);
 
   function findLaneOfCard(cardId: string): string | undefined {
     for (const [laneId, laneItems] of lanes) {
@@ -455,7 +494,7 @@ export function BoardKanban({
               label={lane.label}
               color={lane.color}
               dateClass={lane.dateClass}
-              entries={dueLists?.[lane.key] ?? []}
+              entries={dueLists[lane.key]}
               openingItemId={openingDetailItemId}
               onOpenItem={openItemDetail}
             />
@@ -486,6 +525,10 @@ export function BoardKanban({
               userRole={userRole}
               currentUserId={currentUserId}
               personColumnIds={personColumnIds}
+              wbsByItemId={wbsByItemId}
+              bucketByItemId={dueBucketByItemId}
+              openingItemId={openingDetailItemId}
+              onOpenDetail={openItemDetail}
             />
             {statuses.map((s) => (
               <KanbanLane
@@ -497,6 +540,10 @@ export function BoardKanban({
                 userRole={userRole}
                 currentUserId={currentUserId}
                 personColumnIds={personColumnIds}
+                wbsByItemId={wbsByItemId}
+                bucketByItemId={dueBucketByItemId}
+                openingItemId={openingDetailItemId}
+                onOpenDetail={openItemDetail}
               />
             ))}
           </div>
