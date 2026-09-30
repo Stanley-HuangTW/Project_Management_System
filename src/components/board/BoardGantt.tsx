@@ -380,6 +380,12 @@ export function BoardGantt({
     const container = contentRef.current;
     if (!container) return;
     const origin = container.getBoundingClientRect();
+    // getBoundingClientRect reports already-zoomed viewport pixels, but the
+    // arrows SVG lives inside the same `zoom: scalePct/100` wrapper as the
+    // bars — so it re-scales whatever we draw by that same factor again.
+    // Dividing back out here keeps BarBox in the wrapper's own (pre-zoom)
+    // coordinate space, which is what the SVG paths are actually drawn in.
+    const zoomFactor = scalePct / 100;
     const next = new Map<string, BarBox>();
     for (const cell of container.querySelectorAll<HTMLElement>("[data-gantt-row]")) {
       const id = cell.dataset.ganttRow;
@@ -387,13 +393,13 @@ export function BoardGantt({
       if (!id || !bar) continue;
       const rect = bar.getBoundingClientRect();
       next.set(id, {
-        left: rect.left - origin.left,
-        right: rect.right - origin.left,
-        centerY: rect.top + rect.height / 2 - origin.top,
+        left: (rect.left - origin.left) / zoomFactor,
+        right: (rect.right - origin.left) / zoomFactor,
+        centerY: (rect.top + rect.height / 2 - origin.top) / zoomFactor,
       });
     }
     setBarBoxes((prev) => (sameBoxes(prev, next) ? prev : next));
-  }, []);
+  }, [scalePct]);
 
   // No dependency list: any render can move a row (a collapse, a filter, a
   // drag that lands). Re-measuring is cheap and setBarBoxes bails when nothing
