@@ -8,6 +8,8 @@ import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { canModifyItemSchedule } from "@/lib/permissions";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
+import { logActivity } from "@/lib/activityLog";
+import { CONSTRAINT_LABELS } from "@/lib/constraints";
 
 /**
  * Sets (or clears) the date an item's schedule has to respect. Gated by the
@@ -27,7 +29,7 @@ export async function setItemConstraint(
 
   const item = await prisma.item.findUnique({
     where: { id: itemId },
-    select: { createdById: true, groupId: true },
+    select: { createdById: true, groupId: true, constraintType: true, constraintDate: true },
   });
   if (!item) return { error: "找不到項目" };
 
@@ -42,6 +44,12 @@ export async function setItemConstraint(
     where: { id: itemId },
     data: { constraintType: type, constraintDate: type ? date : null },
   });
+
+  const oldLabel = item.constraintType ? `${CONSTRAINT_LABELS[item.constraintType]} ${item.constraintDate}` : "無";
+  const newLabel = type ? `${CONSTRAINT_LABELS[type]} ${date}` : "無";
+  if (oldLabel !== newLabel) {
+    await logActivity(itemId, session.userId, `日期約束已更新:${oldLabel} → ${newLabel}`);
+  }
 
   // The constraint changes where this item lands, so everything downstream of
   // it has to be recomputed — same as editing its Pred would.
