@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { listHolidays } from "@/lib/holidays";
 import { getProgramView } from "@/lib/programView";
@@ -12,7 +13,14 @@ export default async function ProgramPage({
   const { programId } = await params;
   const session = await requireSession();
 
-  const [view, holidays] = await Promise.all([getProgramView(programId, session), listHolidays()]);
+  const [view, holidays, users] = await Promise.all([
+    getProgramView(programId, session),
+    listHolidays(),
+    prisma.user.findMany({
+      select: { id: true, name: true, supervisorId: true, avatarUrl: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
   if (!view) notFound();
   // A group whose boards are ALL closed to this session does not exist as far
   // as this session is concerned — saying "you may not see this" would still
@@ -21,5 +29,13 @@ export default async function ProgramPage({
   // is the whole job.
   if (view.boards.length === 0 && view.hiddenBoardCount > 0) notFound();
 
-  return <ProgramView view={view} holidays={holidays.map((h) => h.date)} />;
+  return (
+    <ProgramView
+      view={view}
+      holidays={holidays.map((h) => h.date)}
+      users={users}
+      currentUserId={session.userId}
+      userRole={session.role}
+    />
+  );
 }

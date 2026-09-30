@@ -1,10 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
+import type { UserRole } from "@prisma/client";
 import type { MemberTask } from "@/lib/workload";
+import type { UserOption } from "@/types/board";
 import { findOverAllocations, movableTasks } from "@/lib/overAllocation";
+import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
+import { ItemDetailModal } from "@/components/board/ItemDetailModal";
+import { useDialogs } from "@/components/ui/DialogProvider";
 
 const DAY_MS = 86_400_000;
 /** 工作 loading 門檻的預設值 — 超過這個百分比才算過度配置。 */
@@ -48,6 +52,9 @@ export function OverAllocationCard({
   floatByItemId,
   leaveDays,
   thresholdPct = DEFAULT_THRESHOLD_PCT,
+  allUsers,
+  currentUserId,
+  userRole,
 }: {
   users: { id: string; name: string }[];
   tasksByUser: Record<string, MemberTask[]>;
@@ -59,6 +66,11 @@ export function OverAllocationCard({
   leaveDays: Record<string, string[]>;
   /** Starting value for the threshold control. */
   thresholdPct?: number;
+  /** For the item-card modal a task name opens — not the overload candidates
+   *  above, which is a narrower, different list. */
+  allUsers: UserOption[];
+  currentUserId: string;
+  userRole: UserRole;
 }) {
   const [unit, setUnit] = useState<Unit>("week");
   const [offset, setOffset] = useState(0);
@@ -69,6 +81,25 @@ export function OverAllocationCard({
   const [thresholdInput, setThresholdInput] = useState(String(thresholdPct));
   const [threshold, setThreshold] = useState(thresholdPct);
   const [appliedCustom, setAppliedCustom] = useState<{ from: string; to: string } | null>(null);
+  const { notify } = useDialogs();
+  const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
+  const [openingItemId, setOpeningItemId] = useState<string | null>(null);
+
+  async function openItemDetail(itemId: string) {
+    setOpeningItemId(itemId);
+    try {
+      const context = await loadItemDetailContext(itemId);
+      if (!context) {
+        await notify("找不到這個項目,或者沒有存取權限");
+        return;
+      }
+      setItemDetail(context);
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningItemId(null);
+    }
+  }
 
   const window = useMemo(() => {
     const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
@@ -271,12 +302,15 @@ export function OverAllocationCard({
                       <span className="w-12 shrink-0 text-right tabular-nums text-neutral-600 dark:text-neutral-300">
                         {task.allocationPct}%
                       </span>
-                      <Link
-                        href={`/boards/${task.boardId}?highlight=${task.itemId}`}
-                        className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100 hover:text-blue-600"
+                      <button
+                        type="button"
+                        disabled={openingItemId === task.itemId}
+                        onClick={() => openItemDetail(task.itemId)}
+                        title={task.itemName}
+                        className="min-w-0 flex-1 truncate text-left text-neutral-700 dark:text-neutral-100 hover:text-blue-600 hover:underline disabled:opacity-60"
                       >
                         {task.itemName}
-                      </Link>
+                      </button>
                       <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{task.boardName}</span>
                       {task.totalFloat !== null && (
                         <span
@@ -315,6 +349,24 @@ export function OverAllocationCard({
           })}
         </ul>
       )}
+
+      <ItemDetailModal
+        boardId={itemDetail?.boardId ?? ""}
+        item={itemDetail?.item ?? null}
+        columns={itemDetail?.columns ?? []}
+        users={allUsers}
+        progressColumnId={itemDetail?.progressColumnId ?? null}
+        ganttStartColumnId={itemDetail?.ganttStartColumnId}
+        ganttDurationColumnId={itemDetail?.ganttDurationColumnId}
+        ganttEndColumnId={itemDetail?.ganttEndColumnId}
+        predColumnId={itemDetail?.predColumnId}
+        linkColumnId={itemDetail?.linkColumnId}
+        groupItems={itemDetail?.groupItems}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        open={itemDetail !== null}
+        onOpenChange={(open) => !open && setItemDetail(null)}
+      />
     </section>
   );
 }

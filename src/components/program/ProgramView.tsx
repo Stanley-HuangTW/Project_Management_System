@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { BarChart3, GanttChartSquare, Clock, Wallet } from "lucide-react";
+import type { UserRole } from "@prisma/client";
 import type { ProgramView as ProgramViewData } from "@/lib/programView";
+import type { UserOption } from "@/types/board";
 import { ProgramGantt } from "./ProgramGantt";
 import { CostReport } from "@/components/board/CostReport";
 import { DelayReport } from "@/components/board/DelayReport";
@@ -17,7 +19,19 @@ type Tab = "gantt" | "budget" | "cost" | "delay";
  * boards deliver one thing, and until now nothing could say when that thing
  * finishes — each board could only answer for its own part.
  */
-export function ProgramView({ view, holidays }: { view: ProgramViewData; holidays: string[] }) {
+export function ProgramView({
+  view,
+  holidays,
+  users,
+  currentUserId,
+  userRole,
+}: {
+  view: ProgramViewData;
+  holidays: string[];
+  users: UserOption[];
+  currentUserId: string;
+  userRole: UserRole;
+}) {
   const [tab, setTab] = useState<Tab>("gantt");
 
   const tabs: { id: Tab; label: string; Icon: typeof BarChart3 }[] = [
@@ -82,7 +96,9 @@ export function ProgramView({ view, holidays }: { view: ProgramViewData; holiday
         </p>
       ) : (
         <>
-          {tab === "gantt" && <ProgramGantt view={view} holidays={holidays} />}
+          {tab === "gantt" && (
+            <ProgramGantt view={view} holidays={holidays} users={users} currentUserId={currentUserId} userRole={userRole} />
+          )}
           {tab === "budget" && <BudgetPanel scope={{ kind: "program", id: view.id }} />}
           {tab === "cost" && <CostReport programId={view.id} />}
           {tab === "delay" && <DelayReport programId={view.id} />}

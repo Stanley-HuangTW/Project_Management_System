@@ -11,9 +11,14 @@ import {
   Maximize2,
   Minimize2,
 } from "lucide-react";
+import type { UserRole } from "@prisma/client";
 import type { ProgramTask, ProgramView } from "@/lib/programView";
+import type { UserOption } from "@/types/board";
 import { buildDependencyArrows, type BarBox } from "@/lib/ganttArrows";
 import type { RelationshipType } from "@/lib/predecessorLink";
+import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
+import { ItemDetailModal } from "@/components/board/ItemDetailModal";
+import { useDialogs } from "@/components/ui/DialogProvider";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 9, month: 3 };
@@ -57,7 +62,19 @@ type Row =
  * the dependency that leaves one board and lands in another, and a critical
  * path that runs through all of them.
  */
-export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: string[] }) {
+export function ProgramGantt({
+  view,
+  holidays,
+  users,
+  currentUserId,
+  userRole,
+}: {
+  view: ProgramView;
+  holidays: string[];
+  users: UserOption[];
+  currentUserId: string;
+  userRole: UserRole;
+}) {
   const [zoom, setZoom] = useState<Zoom>("week");
   const [showCritical, setShowCritical] = useState(true);
   const [showArrows, setShowArrows] = useState(true);
@@ -68,6 +85,25 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
   const [boardFilterId, setBoardFilterId] = useState("");
   const [groupFilterId, setGroupFilterId] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const { notify } = useDialogs();
+  const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
+  const [openingItemId, setOpeningItemId] = useState<string | null>(null);
+
+  async function openItemDetail(itemId: string) {
+    setOpeningItemId(itemId);
+    try {
+      const context = await loadItemDetailContext(itemId);
+      if (!context) {
+        await notify("找不到這個項目,或者沒有存取權限");
+        return;
+      }
+      setItemDetail(context);
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningItemId(null);
+    }
+  }
 
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
   const dayWidth = ZOOM_DAY_WIDTH[zoom];
@@ -614,6 +650,8 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
                     canCollapse={hasChildren.has(row.task.id)}
                     isCollapsed={collapsed.has(row.task.id)}
                     onToggleCollapsed={toggleCollapsed}
+                    isOpeningDetail={openingItemId === row.task.id}
+                    onOpenDetail={openItemDetail}
                   />
                 )
               )}
@@ -621,6 +659,24 @@ export function ProgramGantt({ view, holidays }: { view: ProgramView; holidays: 
           </div>
         </div>
       </div>
+
+      <ItemDetailModal
+        boardId={itemDetail?.boardId ?? ""}
+        item={itemDetail?.item ?? null}
+        columns={itemDetail?.columns ?? []}
+        users={users}
+        progressColumnId={itemDetail?.progressColumnId ?? null}
+        ganttStartColumnId={itemDetail?.ganttStartColumnId}
+        ganttDurationColumnId={itemDetail?.ganttDurationColumnId}
+        ganttEndColumnId={itemDetail?.ganttEndColumnId}
+        predColumnId={itemDetail?.predColumnId}
+        linkColumnId={itemDetail?.linkColumnId}
+        groupItems={itemDetail?.groupItems}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        open={itemDetail !== null}
+        onOpenChange={(open) => !open && setItemDetail(null)}
+      />
     </div>
   );
 }
@@ -637,6 +693,8 @@ function TaskRow({
   canCollapse,
   isCollapsed,
   onToggleCollapsed,
+  isOpeningDetail,
+  onOpenDetail,
 }: {
   task: ProgramTask;
   color: string;
@@ -650,6 +708,8 @@ function TaskRow({
   canCollapse: boolean;
   isCollapsed: boolean;
   onToggleCollapsed: (id: string) => void;
+  isOpeningDetail: boolean;
+  onOpenDetail: (itemId: string) => void;
 }) {
   const startIndex = task.start ? dayIndexByIso.get(task.start) : undefined;
   const endIndex = task.end ? dayIndexByIso.get(task.end) : undefined;
@@ -681,9 +741,11 @@ function TaskRow({
         <span className="shrink-0 text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
           {task.wbsCode}
         </span>
-        <Link
-          href={`/boards/${task.boardId}?highlight=${task.id}`}
-          className={`min-w-0 flex-1 truncate text-xs hover:text-blue-600 ${
+        <button
+          type="button"
+          disabled={isOpeningDetail}
+          onClick={() => onOpenDetail(task.id)}
+          className={`min-w-0 flex-1 truncate text-left text-xs hover:text-blue-600 hover:underline disabled:opacity-60 ${
             task.isSummary
               ? "font-semibold text-neutral-800 dark:text-neutral-100"
               : "text-neutral-700 dark:text-neutral-200"
@@ -693,7 +755,7 @@ function TaskRow({
           }`}
         >
           {task.name}
-        </Link>
+        </button>
         {task.preds.some((p) => p.crossBoard) && (
           <ArrowRightLeft size={11} className="shrink-0 text-blue-500" aria-label="有跨看板前置" />
         )}

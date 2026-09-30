@@ -216,6 +216,9 @@ export default async function DashboardPage({
         tasksByUser={tasksByUser}
         floatByItemId={floatByItemId}
         leaveDays={await leaveDaysByUser()}
+        allUsers={users}
+        currentUserId={session.userId}
+        userRole={session.role}
       />
 
       <WorkloadDetailSection
