@@ -338,9 +338,14 @@ export function WorkloadDetailSection({
               />
             )}
             {/* Stays put while the member rows scroll under it, so a bar
-                further down the list still has its weeks labelled. */}
+                further down the list still has its weeks labelled.
+                No overflow-hidden here (only rounded-md + border) — a
+                sticky left-0 descendant loses its lock the moment an
+                overflow:hidden ancestor sits between it and the actual
+                scrolling parent, since that ancestor becomes the (never
+                scrolling) box sticky measures against instead. */}
             <div className="sticky top-0 z-10 mb-2 bg-white pb-2 dark:bg-neutral-900">
-            <div className="overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700">
+            <div className="rounded-md border border-neutral-200 dark:border-neutral-700">
               <div className="flex border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
                 <div
                   style={{ width: labelWidth }}
@@ -417,7 +422,8 @@ export function WorkloadDetailSection({
                 return (
                   <div
                     key={user.id}
-                    className="overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900"
+                    // 沒有 overflow-hidden(理由跟表頭那個包裝 div 同一則註解)。
+                    className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900"
                   >
                     <button
                       type="button"
