@@ -133,7 +133,16 @@ export function ItemTreePicker({
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-neutral-400"
             />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto p-1"
+            // 這個選單常常是從一個 Modal 裡面開出來的——Modal 自己會鎖住背景
+            // 捲動,連帶把這裡的滾輪事件也一起擋掉,滑鼠滾輪在清單上完全沒
+            // 反應。直接手動搬 scrollTop,不依賴瀏覽器原生的捲動行為。
+            onWheel={(e) => {
+              e.stopPropagation();
+              e.currentTarget.scrollTop += e.deltaY;
+            }}
+          >
             <button
               type="button"
               onClick={() => {

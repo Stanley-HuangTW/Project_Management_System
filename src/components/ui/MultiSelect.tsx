@@ -117,7 +117,13 @@ export function MultiSelect({
             )}
           </div>
 
-          <div className="max-h-56 overflow-y-auto py-1">
+          <div
+            className="max-h-56 overflow-y-auto py-1"
+            onWheel={(e) => {
+              e.stopPropagation();
+              e.currentTarget.scrollTop += e.deltaY;
+            }}
+          >
             {matched.length === 0 ? (
               <p className="px-3 py-2 text-xs text-neutral-400 dark:text-neutral-500">
                 {query.trim() ? "找不到符合的人" : emptyText}

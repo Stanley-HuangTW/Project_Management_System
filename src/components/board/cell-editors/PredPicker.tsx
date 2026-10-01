@@ -375,7 +375,13 @@ export function PredPicker({
             </div>
           }
           {selected.length > 0 && (
-            <div className="max-h-40 shrink-0 overflow-y-auto border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-1">
+            <div
+              className="max-h-40 shrink-0 overflow-y-auto border-b border-neutral-100 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-1"
+              onWheel={(e) => {
+                e.stopPropagation();
+                e.currentTarget.scrollTop += e.deltaY;
+              }}
+            >
               {selected.map((s) => (
                 <div key={s.id} className="flex items-center gap-1 px-1 py-1 text-xs">
                   <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100" title={`${s.code} ${s.name}`}>
@@ -422,7 +428,14 @@ export function PredPicker({
               ))}
             </div>
           )}
-          <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto p-1">
+          <div
+            ref={viewportRef}
+            className="min-h-0 flex-1 overflow-y-auto p-1"
+            onWheel={(e) => {
+              e.stopPropagation();
+              e.currentTarget.scrollTop += e.deltaY;
+            }}
+          >
             {/* 搜尋時攤平:打了字就是要直接找到那一個,樹狀反而礙事。 */}
             {(query.trim()
               ? visible.map((o) => ({ option: o, depth: 0, hasChildren: false }))

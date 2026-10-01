@@ -147,6 +147,10 @@ export function ParentTaskPicker({
             <div
               className="fixed z-20 max-h-96 w-96 overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 py-1 shadow-lg"
               style={{ top: menuPos.top, left: menuPos.left }}
+              onWheel={(e) => {
+                e.stopPropagation();
+                e.currentTarget.scrollTop += e.deltaY;
+              }}
             >
               {tree.map((node) => (
                 <TreeRow

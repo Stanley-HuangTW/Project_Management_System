@@ -42,6 +42,10 @@ export function PersonPicker({
         <DropdownMenu.Content
           align="start"
           className="z-50 max-h-64 min-w-[160px] overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-1 shadow-md"
+          onWheel={(e) => {
+            e.stopPropagation();
+            e.currentTarget.scrollTop += e.deltaY;
+          }}
         >
           {unassignedLabel && (
             <DropdownMenu.Item
