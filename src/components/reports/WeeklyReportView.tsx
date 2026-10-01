@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isoWeekLabel } from "@/lib/weeklyReport";
+import { isoWeekLabel, type WeeklyReportData, type WeeklyReportDiff } from "@/lib/weeklyReport";
+import { WeeklyProgramPanel } from "@/components/reports/WeeklyProgramPanel";
 
 export type WeeklyReportRow = {
   weekStart: string;
   weekEnd: string;
   markdown: string;
   createdAt: string;
+  /** 結構化內容——分頁籤是靠這個畫的,不是重新解析 markdown。舊版格式/壞資料是 null。 */
+  data: WeeklyReportData | null;
+  diff: WeeklyReportDiff | null;
 };
 
 /**
@@ -19,13 +23,24 @@ export type WeeklyReportRow = {
  * 顯示的是「當初存下來的 Markdown」而不是現在重算一次 —— 週報是那一週的
  * 快照,事後重算會得到今天的數字,那就不是週報了。要最新的就按重新產生。
  */
+/** 沒有歸屬專案群組的看板那一段,分頁籤的 key 不能是 null。 */
+const NO_PROGRAM_TAB = "__none__";
+
 export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
   const { notify } = useDialogs();
   const router = useRouter();
   const [selected, setSelected] = useState(reports[0]?.weekStart ?? null);
   const [busy, setBusy] = useState(false);
+  const [activeProgramTab, setActiveProgramTab] = useState<string>(NO_PROGRAM_TAB);
 
   const current = reports.find((r) => r.weekStart === selected) ?? null;
+  const programs = useMemo(() => current?.data?.programs ?? [], [current]);
+  // 切換週次後,原本選的分頁籤這一週不一定還在(專案群組可能才剛成立)——
+  // 不在就退回第一個,而不是顯示一個空畫面。
+  const activeTabKey = programs.some((p) => (p.programName ?? NO_PROGRAM_TAB) === activeProgramTab)
+    ? activeProgramTab
+    : (programs[0]?.programName ?? NO_PROGRAM_TAB);
+  const activeProgram = programs.find((p) => (p.programName ?? NO_PROGRAM_TAB) === activeTabKey) ?? null;
 
   async function generate(week: "last" | "this") {
     setBusy(true);
@@ -120,11 +135,42 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
               <p className="mb-3 text-[11px] text-neutral-400 dark:text-neutral-500">
                 產出時間 {current.createdAt}
               </p>
-              {/* 原樣顯示當初存下來的 Markdown —— 不另外渲染成 HTML,因為這份
-                  文字就是寄出去的那一份,看到的要跟收到的一樣。 */}
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-neutral-800 dark:text-neutral-100">
-                {current.markdown}
-              </pre>
+              {current.data && current.diff ? (
+                <>
+                  <div className="mb-4 flex w-fit flex-wrap overflow-hidden rounded-md border border-neutral-200 text-sm dark:border-neutral-700">
+                    {programs.map((p) => {
+                      const key = p.programName ?? NO_PROGRAM_TAB;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setActiveProgramTab(key)}
+                          className={`px-3 py-1.5 ${
+                            key === activeTabKey
+                              ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                              : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                          }`}
+                        >
+                          {p.programName ?? "未歸屬專案群組"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {activeProgram && (
+                    <WeeklyProgramPanel
+                      program={activeProgram}
+                      departments={current.data.departments}
+                      diff={current.diff}
+                      upcomingDays={current.data.upcomingDays}
+                    />
+                  )}
+                </>
+              ) : (
+                // 舊版格式沒有結構化內容可以拆分頁籤,退回原樣顯示當初存下來的 Markdown。
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-neutral-800 dark:text-neutral-100">
+                  {current.markdown}
+                </pre>
+              )}
             </div>
           )}
         </div>

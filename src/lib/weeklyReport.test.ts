@@ -9,6 +9,7 @@ import {
   type BudgetLine,
   type ProgramSection,
   type ReportItem,
+  type RiskLine,
   type WeeklyReportData,
 } from "@/lib/weeklyReport";
 
@@ -26,6 +27,7 @@ function item(overrides: Partial<ReportItem> & { id: string }): ReportItem {
     ownerNames: ["Henry"],
     isMilestone: false,
     isCritical: false,
+    priority: null,
     bucket: "other",
     ...overrides,
   };
@@ -42,7 +44,21 @@ const budget = (overrides: Partial<BudgetLine> & { itemId: string }): BudgetLine
   ...overrides,
 });
 
-const program = (items: ReportItem[], budgets: BudgetLine[] = []): ProgramSection => ({
+const risk = (overrides: Partial<RiskLine> & { id: string }): RiskLine => ({
+  boardName: "M3專案",
+  programName: "M3",
+  kind: "RISK",
+  status: "OPEN",
+  title: overrides.id,
+  probability: 3,
+  impact: 3,
+  ownerName: null,
+  dueDate: null,
+  updatedAt: "2026-09-21T00:00:00.000Z",
+  ...overrides,
+});
+
+const program = (items: ReportItem[], budgets: BudgetLine[] = [], risks: RiskLine[] = []): ProgramSection => ({
   programName: "M3",
   boards: [
     {
@@ -59,14 +75,15 @@ const program = (items: ReportItem[], budgets: BudgetLine[] = []): ProgramSectio
   items,
   budgets,
   delays: [],
+  risks,
 });
 
-const snapshot = (items: ReportItem[], budgets: BudgetLine[] = []): WeeklyReportData => ({
+const snapshot = (items: ReportItem[], budgets: BudgetLine[] = [], risks: RiskLine[] = []): WeeklyReportData => ({
   weekStart: "2026-09-14",
   weekEnd: "2026-09-20",
   generatedAt: "2026-09-21 08:00",
   viewerName: "Stanley Huang",
-  programs: [program(items, budgets)],
+  programs: [program(items, budgets, risks)],
   departments: [],
   upcomingDays: 7,
   activity: [],
@@ -307,6 +324,73 @@ describe("預算變化", () => {
   });
 });
 
+describe("里程碑/要徑標記的變化", () => {
+  it("上週不是里程碑、這週是 = 新增標記", () => {
+    const diff = diffWeeks(
+      snapshot([item({ id: "a", isMilestone: true })]),
+      snapshot([item({ id: "a", isMilestone: false })])
+    );
+    expect(diff.milestoneFlagged.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("上週就是里程碑的不會再算一次", () => {
+    const diff = diffWeeks(
+      snapshot([item({ id: "a", isMilestone: true })]),
+      snapshot([item({ id: "a", isMilestone: true })])
+    );
+    expect(diff.milestoneFlagged).toEqual([]);
+  });
+
+  it("要徑也是同一套規則", () => {
+    const diff = diffWeeks(
+      snapshot([item({ id: "a", isCritical: true })]),
+      snapshot([item({ id: "a", isCritical: false })])
+    );
+    expect(diff.criticalFlagged.map((i) => i.id)).toEqual(["a"]);
+  });
+});
+
+describe("風險/議題變化", () => {
+  it("上週名單裡沒有這個 id = 新增", () => {
+    const diff = diffWeeks(snapshot([], [], [risk({ id: "r1" })]), snapshot([], [], []));
+    expect(diff.riskAdded.map((r) => r.id)).toEqual(["r1"]);
+  });
+
+  it("狀態換了就記,前後都留著", () => {
+    const diff = diffWeeks(
+      snapshot([], [], [risk({ id: "r1", status: "MITIGATING" })]),
+      snapshot([], [], [risk({ id: "r1", status: "OPEN" })])
+    );
+    expect(diff.riskStatusChanged).toEqual([
+      { line: expect.objectContaining({ id: "r1" }), from: "OPEN", to: "MITIGATING" },
+    ]);
+  });
+
+  it("狀態沒變,但內容動過(updatedAt 變新)算更新", () => {
+    const diff = diffWeeks(
+      snapshot([], [], [risk({ id: "r1", updatedAt: "2026-09-22T00:00:00.000Z" })]),
+      snapshot([], [], [risk({ id: "r1", updatedAt: "2026-09-10T00:00:00.000Z" })])
+    );
+    expect(diff.riskUpdated.map((r) => r.id)).toEqual(["r1"]);
+  });
+
+  it("狀態改變的不會又被算成更新", () => {
+    const diff = diffWeeks(
+      snapshot([], [], [risk({ id: "r1", status: "CLOSED", updatedAt: "2026-09-22T00:00:00.000Z" })]),
+      snapshot([], [], [risk({ id: "r1", status: "OPEN", updatedAt: "2026-09-10T00:00:00.000Z" })])
+    );
+    expect(diff.riskStatusChanged).toHaveLength(1);
+    expect(diff.riskUpdated).toEqual([]);
+  });
+
+  it("什麼都沒變就不記", () => {
+    const diff = diffWeeks(snapshot([], [], [risk({ id: "r1" })]), snapshot([], [], [risk({ id: "r1" })]));
+    expect(diff.riskAdded).toEqual([]);
+    expect(diff.riskStatusChanged).toEqual([]);
+    expect(diff.riskUpdated).toEqual([]);
+  });
+});
+
 describe("Markdown", () => {
   const noDiff = diffWeeks(snapshot([]), null);
 
@@ -345,6 +429,36 @@ describe("Markdown", () => {
     expect(md).toContain("### 要徑(1)");
     expect(md).toContain("🚩里程碑");
     expect(md).toContain("⚡要徑");
+  });
+
+  it("工作項依 Priority 排序,CRITICAL 排最前、沒設定的排最後", () => {
+    const md = renderWeeklyReportMarkdown(
+      snapshot([
+        item({ id: "n", name: "普通件", bucket: "overdue", priority: "NORMAL" }),
+        item({ id: "u", name: "沒設定", bucket: "overdue", priority: null }),
+        item({ id: "c", name: "急件", bucket: "overdue", priority: "CRITICAL" }),
+        item({ id: "h", name: "高優先", bucket: "overdue", priority: "HIGH" }),
+      ]),
+      noDiff
+    );
+    const order = ["急件", "高優先", "普通件", "沒設定"].map((name) => md.indexOf(name));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(md).toContain("🔴CRITICAL");
+    expect(md).toContain("🟣HIGH");
+  });
+
+  it("風險/議題:有登記的會報目前狀態,也列這週的異動", () => {
+    const now = snapshot([], [], [risk({ id: "r1", kind: "ISSUE", status: "MITIGATING", title: "供應商延遲交貨" })]);
+    const diff = diffWeeks(now, snapshot([], [], [risk({ id: "r1", kind: "ISSUE", status: "OPEN", title: "供應商延遲交貨" })]));
+    const md = renderWeeklyReportMarkdown(now, diff);
+    expect(md).toContain("### 風險與議題");
+    expect(md).toContain("供應商延遲交貨");
+    expect(md).toContain("未處理 → 處理中");
+  });
+
+  it("沒有登記風險/議題時說清楚,不是留白", () => {
+    const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
+    expect(md).toContain("沒有登記風險或議題");
   });
 
   it("已完成的里程碑不再列 —— 那一段問的是還沒到的", () => {
@@ -392,7 +506,7 @@ describe("Markdown", () => {
     expect(md).toContain("從沒超支變成超支");
   });
 
-  it("部門那一段照人分列,DM 跟成員各自一份", () => {
+  it("依職能的工作項掛在對應的專案群組底下,DM 跟成員各自一份", () => {
     const data = snapshot([]);
     data.departments = [
       {
@@ -400,6 +514,7 @@ describe("Markdown", () => {
         userName: "Henry Chen",
         role: "DM",
         discipline: "SW 軟體",
+        programName: "M3",
         groupName: "M3",
         boardName: "M3專案",
         overdue: [item({ id: "o", bucket: "overdue" })],
@@ -411,6 +526,7 @@ describe("Markdown", () => {
         userName: "Ezra Li",
         role: "MEMBER",
         discipline: "SW 軟體",
+        programName: "M3",
         groupName: "M3",
         boardName: "M3專案",
         overdue: [],
@@ -419,9 +535,32 @@ describe("Markdown", () => {
       },
     ];
     const md = renderWeeklyReportMarkdown(data, noDiff);
-    expect(md).toContain("### [DM] Henry Chen・SW 軟體(M3專案 / M3)");
-    expect(md).toContain("### [成員] Ezra Li・SW 軟體(M3專案 / M3)");
+    expect(md).toContain("## 專案:M3");
+    expect(md).toContain("#### SW 軟體");
+    expect(md).toContain("**[DM] Henry Chen**");
+    expect(md).toContain("**[成員] Ezra Li**");
     expect(md).toContain("**逾期(1)**");
+  });
+
+  it("不屬於這個專案群組的人不會混進來", () => {
+    const data = snapshot([]);
+    data.departments = [
+      {
+        userId: "u-other",
+        userName: "Other Program",
+        role: "MEMBER",
+        discipline: "SW 軟體",
+        programName: "AMR BOX",
+        groupName: "AMR",
+        boardName: "AMR 專案",
+        overdue: [],
+        completedThisWeek: [],
+        upcoming: [],
+      },
+    ];
+    const md = renderWeeklyReportMarkdown(data, noDiff);
+    expect(md).toContain("## 專案:M3");
+    expect(md).not.toContain("Other Program");
   });
 
   it("Team Leader 自己的工作項獨立列出,不掛在任何職能底下", () => {
@@ -432,6 +571,7 @@ describe("Markdown", () => {
         userName: "Jason Huang",
         role: "TEAM_LEADER",
         discipline: "Team Leader",
+        programName: "M3",
         groupName: "M3",
         boardName: "M3專案",
         overdue: [],
@@ -440,7 +580,8 @@ describe("Markdown", () => {
       },
     ];
     const md = renderWeeklyReportMarkdown(data, noDiff);
-    expect(md).toContain("### [Team Leader] Jason Huang・Team Leader(M3專案 / M3)");
+    expect(md).toContain("#### Team Leader");
+    expect(md).toContain("**[Team Leader] Jason Huang**");
     expect(md).toContain("**這週已完成(1)**");
   });
 
@@ -457,6 +598,7 @@ describe("Markdown", () => {
         userName: "Henry Chen",
         role: "DM",
         discipline: "SW 軟體",
+        programName: "M3",
         groupName: "M3",
         boardName: "M3專案",
         overdue: [],
@@ -469,7 +611,7 @@ describe("Markdown", () => {
     const full = renderWeeklyReportMarkdown(data, noDiff);
     expect(full).toContain("## 本週摘要");
     expect(full).toContain("## 專案:M3");
-    expect(full).toContain("## 各部門工作事項");
+    expect(full).toContain("### 依職能的工作項");
     expect(full).toContain("## 本週異動筆數");
 
     const minimal = renderWeeklyReportMarkdown(data, noDiff, {
@@ -480,7 +622,7 @@ describe("Markdown", () => {
     });
     expect(minimal).not.toContain("## 本週摘要");
     expect(minimal).not.toContain("## 專案:M3");
-    expect(minimal).not.toContain("## 各部門工作事項");
+    expect(minimal).not.toContain("### 依職能的工作項");
     expect(minimal).not.toContain("## 本週異動筆數");
     // 標題跟視角那兩行不受影響,不是整份都被關掉了。
     expect(minimal).toContain("# 週報");

@@ -10,6 +10,8 @@
  * 不假裝比得出來,直接說這是第一份。
  */
 
+import { RISK_KIND_LABELS, RISK_STATUS_LABELS } from "@/lib/riskRegister";
+
 /** 一個工作項在快照裡的樣子。存得下整份名單,差異才算得出來。 */
 export type ReportItem = {
   id: string;
@@ -27,6 +29,8 @@ export type ReportItem = {
   ownerNames: string[];
   isMilestone: boolean;
   isCritical: boolean;
+  /** Priority 欄目前的選項標籤(CRITICAL/HIGH/NORMAL)。沒設定就是 null。 */
+  priority: string | null;
   /** 產出當下落在哪一桶 —— 差異就是拿它跟上週比。 */
   bucket: ItemBucket;
 };
@@ -70,6 +74,9 @@ export type PersonSection = {
   role: "TEAM_LEADER" | "DM" | "MEMBER";
   /** Team Leader 不屬於單一職能,這裡放「Team Leader」本身。 */
   discipline: string;
+  /** 所屬專案群組;沒有歸屬的看板是 null —— 跟 ReportItem.programName 同一個概念,
+   *  渲染時要靠它把這個人歸進對的專案群組分頁。 */
+  programName: string | null;
   groupName: string;
   boardName: string;
   overdue: ReportItem[];
@@ -78,12 +85,29 @@ export type PersonSection = {
   upcoming: ReportItem[];
 };
 
+/** 風險/議題登記簿(RiskEntry)在快照裡的樣子。 */
+export type RiskLine = {
+  id: string;
+  boardName: string;
+  programName: string | null;
+  kind: "RISK" | "ISSUE";
+  status: "OPEN" | "MITIGATING" | "CLOSED";
+  title: string;
+  probability: number;
+  impact: number;
+  ownerName: string | null;
+  dueDate: string | null;
+  /** ISO 字串——拿來判斷「狀態沒變,但其他欄位這週動過」。 */
+  updatedAt: string;
+};
+
 export type ProgramSection = {
   programName: string | null;
   boards: BoardLine[];
   items: ReportItem[];
   budgets: BudgetLine[];
   delays: DelayLine[];
+  risks: RiskLine[];
 };
 
 export type WeeklyReportData = {
@@ -120,6 +144,8 @@ export type BudgetChange = {
   newlyOver: boolean;
 };
 
+export type RiskStatusChange = { line: RiskLine; from: RiskLine["status"]; to: RiskLine["status"] };
+
 export type WeeklyReportDiff = {
   firstEver: boolean;
   completed: ReportItem[];
@@ -128,6 +154,14 @@ export type WeeklyReportDiff = {
   statusChanged: StatusChange[];
   scheduleChanged: ScheduleChange[];
   budgetChanged: BudgetChange[];
+  /** 這週才被標成里程碑/要徑的項目——上週還不是。 */
+  milestoneFlagged: ReportItem[];
+  criticalFlagged: ReportItem[];
+  /** 上週名單裡沒有這個 id。 */
+  riskAdded: RiskLine[];
+  riskStatusChanged: RiskStatusChange[];
+  /** 狀態沒變,但 updatedAt 比上次存的新——其他欄位動過。 */
+  riskUpdated: RiskLine[];
 };
 
 const DAY_MS = 86_400_000;
@@ -191,6 +225,10 @@ function allBudgets(data: { programs: ProgramSection[] }): BudgetLine[] {
   return data.programs.flatMap((p) => p.budgets);
 }
 
+function allRisks(data: { programs: ProgramSection[] }): RiskLine[] {
+  return data.programs.flatMap((p) => p.risks ?? []);
+}
+
 function daysBetween(from: string, to: string): number {
   return Math.round((utc(to).getTime() - utc(from).getTime()) / DAY_MS);
 }
@@ -216,6 +254,11 @@ export function diffWeeks(
     statusChanged: [],
     scheduleChanged: [],
     budgetChanged: [],
+    milestoneFlagged: [],
+    criticalFlagged: [],
+    riskAdded: [],
+    riskStatusChanged: [],
+    riskUpdated: [],
   };
   if (!previous) return empty;
 
@@ -231,6 +274,8 @@ export function diffWeeks(
   const newlyOverdue: ReportItem[] = [];
   const statusChanged: StatusChange[] = [];
   const scheduleChanged: ScheduleChange[] = [];
+  const milestoneFlagged: ReportItem[] = [];
+  const criticalFlagged: ReportItem[] = [];
 
   for (const item of now) {
     const old = was.get(item.id);
@@ -254,6 +299,9 @@ export function diffWeeks(
         slipDays: old.end && item.end ? daysBetween(old.end, item.end) : null,
       });
     }
+
+    if (item.isMilestone && !old.isMilestone) milestoneFlagged.push(item);
+    if (item.isCritical && !old.isCritical) criticalFlagged.push(item);
   }
 
   // 比的是「現在完成了沒」而不是「上週完成了沒」:一個上週逾期、這週做完
@@ -278,6 +326,23 @@ export function diffWeeks(
     });
   }
 
+  const oldRisks = new Map(allRisks(previous).map((r) => [r.id, r]));
+  const riskAdded: RiskLine[] = [];
+  const riskStatusChanged: RiskStatusChange[] = [];
+  const riskUpdated: RiskLine[] = [];
+  for (const line of allRisks(current)) {
+    const old = oldRisks.get(line.id);
+    if (!old) {
+      riskAdded.push(line);
+      continue;
+    }
+    if (line.status !== old.status) {
+      riskStatusChanged.push({ line, from: old.status, to: line.status });
+      continue;
+    }
+    if (line.updatedAt !== old.updatedAt) riskUpdated.push(line);
+  }
+
   return {
     firstEver: false,
     completed,
@@ -286,6 +351,11 @@ export function diffWeeks(
     statusChanged,
     scheduleChanged,
     budgetChanged,
+    milestoneFlagged,
+    criticalFlagged,
+    riskAdded,
+    riskStatusChanged,
+    riskUpdated,
   };
 }
 
@@ -293,15 +363,30 @@ function money(value: number): string {
   return value.toLocaleString("zh-TW");
 }
 
+/** CRITICAL 排最前、NORMAL 其次,沒設定的排最後——不會因為漏填而噴錯。 */
+const PRIORITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, NORMAL: 2 };
+function priorityRank(p: string | null): number {
+  return p ? (PRIORITY_RANK[p.toUpperCase()] ?? 3) : 3;
+}
+/** 匯出給畫面用——分頁籤裡的清單要跟 Markdown 版用同一套排序規則。 */
+export function byPriority(items: ReportItem[]): ReportItem[] {
+  return [...items].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+}
+
 function itemLine(i: ReportItem): string {
-  const tags = [i.isMilestone ? "🚩里程碑" : "", i.isCritical ? "⚡要徑" : ""].filter(Boolean).join(" ");
+  const priorityTag = i.priority === "CRITICAL" ? "🔴CRITICAL" : i.priority === "HIGH" ? "🟣HIGH" : "";
+  const tags = [i.isMilestone ? "🚩里程碑" : "", i.isCritical ? "⚡要徑" : "", priorityTag]
+    .filter(Boolean)
+    .join(" ");
   const owner = i.ownerNames.length > 0 ? `・${i.ownerNames.join("、")}` : "";
   const due = i.end ? `(${i.end})` : "";
   return `- ${i.boardName} / ${i.groupName} · ${i.wbsCode} ${i.name}${due}${owner}${tags ? ` ${tags}` : ""}`;
 }
 
+/** 依 Priority 排序後再截斷——CRITICAL/HIGH 的項目優先被看到,不會被排序前面但
+ *  不重要的項目擠出清單。 */
 function itemLines(items: ReportItem[], limit = 15): string[] {
-  const shown = items.slice(0, limit);
+  const shown = byPriority(items).slice(0, limit);
   const lines = shown.map(itemLine);
   if (items.length > shown.length) lines.push(`- ……另外還有 ${items.length - shown.length} 項`);
   return lines;
@@ -373,34 +458,8 @@ export function renderWeeklyReportMarkdown(
   if (includePrograms) {
     for (const program of data.programs) {
       out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
-      out.push(...renderProgram(program, diff, data.upcomingDays));
+      out.push(...renderProgram(program, diff, data.upcomingDays, data.departments, includeDepartments));
       out.push("");
-    }
-  }
-
-  if (includeDepartments) {
-    out.push("## 各部門工作事項");
-    out.push("");
-    if (data.departments.length === 0) {
-      out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");
-    } else {
-      const roleLabel: Record<PersonSection["role"], string> = {
-        TEAM_LEADER: "Team Leader",
-        DM: "DM",
-        MEMBER: "成員",
-      };
-      for (const person of data.departments) {
-        out.push(`### [${roleLabel[person.role]}] ${person.userName}・${person.discipline}(${person.boardName} / ${person.groupName})`);
-        out.push(
-          ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
-          ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10)),
-          ...section(`**接下來 ${data.upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
-        );
-        if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
-          out.push("", "目前沒有逾期、這週完成或近期到期的工作項。");
-        }
-        out.push("");
-      }
     }
   }
 
@@ -414,7 +473,50 @@ export function renderWeeklyReportMarkdown(
   return out.join("\n");
 }
 
-function renderProgram(program: ProgramSection, diff: WeeklyReportDiff, upcomingDays: number): string[] {
+const ROLE_LABEL: Record<PersonSection["role"], string> = {
+  TEAM_LEADER: "Team Leader",
+  DM: "DM",
+  MEMBER: "成員",
+};
+
+/** 屬於這個專案群組的人,依職能分組——組內保留原本的排序(DM/成員/Team Leader
+ *  的排法是 gatherPersonSections 那邊決定的,這裡不重排,只是分組)。 */
+function renderDepartments(people: PersonSection[], upcomingDays: number): string[] {
+  const out: string[] = [];
+  if (people.length === 0) {
+    out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");
+    return out;
+  }
+
+  const byDiscipline = new Map<string, PersonSection[]>();
+  for (const person of people) {
+    byDiscipline.set(person.discipline, [...(byDiscipline.get(person.discipline) ?? []), person]);
+  }
+
+  for (const [discipline, group] of byDiscipline) {
+    out.push("", `#### ${discipline}`);
+    for (const person of group) {
+      out.push("", `**[${ROLE_LABEL[person.role]}] ${person.userName}**`);
+      out.push(
+        ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
+        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10)),
+        ...section(`**接下來 ${upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
+      );
+      if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
+        out.push("", "目前沒有逾期、這週完成或近期到期的工作項。");
+      }
+    }
+  }
+  return out;
+}
+
+function renderProgram(
+  program: ProgramSection,
+  diff: WeeklyReportDiff,
+  upcomingDays: number,
+  departments: PersonSection[],
+  includeDepartments: boolean
+): string[] {
   const out: string[] = [];
   const name = program.programName;
   const items = program.items;
@@ -459,6 +561,11 @@ function renderProgram(program: ProgramSection, diff: WeeklyReportDiff, upcoming
     out.push(body.length === 0 ? "\n這個專案這一週沒有變化。" : body.join("\n"));
   }
 
+  if (includeDepartments) {
+    out.push("", "### 依職能的工作項");
+    out.push(...renderDepartments(departments.filter((p) => p.programName === name), upcomingDays));
+  }
+
   out.push("", `### 目前逾期(${overdue.length})`, "");
   out.push(overdue.length === 0 ? "沒有逾期。" : itemLines(overdue).join("\n"));
 
@@ -468,12 +575,83 @@ function renderProgram(program: ProgramSection, diff: WeeklyReportDiff, upcoming
   out.push("", `### 里程碑(${milestones.length})`, "");
   out.push(milestones.length === 0 ? "沒有未完成的里程碑。" : itemLines(milestones, 20).join("\n"));
 
+  if (!diff.firstEver) {
+    const flagged = diff.milestoneFlagged.filter((i) => i.programName === name);
+    const changed = inProgram(diff.statusChanged, name).filter((c) => c.item.isMilestone);
+    const rescheduled = inProgram(diff.scheduleChanged, name).filter((c) => c.item.isMilestone);
+    out.push(
+      ...section(`**這週新增標記(${flagged.length})**`, itemLines(flagged)),
+      ...section(
+        `**這週狀態改變(${changed.length})**`,
+        changed.map((c) => `- ${c.item.wbsCode} ${c.item.name}:${c.from ?? "未設定"} → ${c.to ?? "未設定"}`)
+      ),
+      ...section(
+        `**這週時程改變(${rescheduled.length})**`,
+        rescheduled.map((c) => `- ${c.item.wbsCode} ${c.item.name}:${c.fromStart ?? "—"}~${c.fromEnd ?? "—"} → ${c.toStart ?? "—"}~${c.toEnd ?? "—"}`)
+      )
+    );
+    if (flagged.length + changed.length + rescheduled.length === 0) out.push("", "這週里程碑沒有變化。");
+  }
+
   out.push("", `### 要徑(${critical.length})`, "");
   out.push(
     critical.length === 0
       ? "沒有要徑工作項,或這個專案還沒設好前置依賴。"
       : itemLines(critical, 20).join("\n")
   );
+
+  if (!diff.firstEver) {
+    const flagged = diff.criticalFlagged.filter((i) => i.programName === name);
+    const changed = inProgram(diff.statusChanged, name).filter((c) => c.item.isCritical);
+    const rescheduled = inProgram(diff.scheduleChanged, name).filter((c) => c.item.isCritical);
+    out.push(
+      ...section(`**這週新增標記(${flagged.length})**`, itemLines(flagged)),
+      ...section(
+        `**這週狀態改變(${changed.length})**`,
+        changed.map((c) => `- ${c.item.wbsCode} ${c.item.name}:${c.from ?? "未設定"} → ${c.to ?? "未設定"}`)
+      ),
+      ...section(
+        `**這週時程改變(${rescheduled.length})**`,
+        rescheduled.map((c) => `- ${c.item.wbsCode} ${c.item.name}:${c.fromStart ?? "—"}~${c.fromEnd ?? "—"} → ${c.toStart ?? "—"}~${c.toEnd ?? "—"}`)
+      )
+    );
+    if (flagged.length + changed.length + rescheduled.length === 0) out.push("", "這週要徑沒有變化。");
+  }
+
+  out.push("", `### 風險與議題`, "");
+  const risks = program.risks ?? [];
+  if (risks.length === 0) {
+    out.push("沒有登記風險或議題。");
+  } else {
+    const open = risks.filter((r) => r.status !== "CLOSED");
+    out.push(
+      `${RISK_KIND_LABELS.RISK} ${risks.filter((r) => r.kind === "RISK").length} 項、` +
+        `${RISK_KIND_LABELS.ISSUE} ${risks.filter((r) => r.kind === "ISSUE").length} 項,` +
+        `尚未結案 ${open.length} 項。`
+    );
+  }
+  if (!diff.firstEver) {
+    const added = diff.riskAdded.filter((r) => r.programName === name);
+    const statusChanged = diff.riskStatusChanged.filter((r) => r.line.programName === name);
+    const updated = diff.riskUpdated.filter((r) => r.programName === name);
+    out.push(
+      ...section(
+        `**這週新增(${added.length})**`,
+        added.map((r) => `- [${RISK_KIND_LABELS[r.kind]}] ${r.title}(${RISK_STATUS_LABELS[r.status]})`)
+      ),
+      ...section(
+        `**這週狀態改變(${statusChanged.length})**`,
+        statusChanged.map(
+          (c) => `- [${RISK_KIND_LABELS[c.line.kind]}] ${c.line.title}:${RISK_STATUS_LABELS[c.from]} → ${RISK_STATUS_LABELS[c.to]}`
+        )
+      ),
+      ...section(
+        `**這週更新(${updated.length})**`,
+        updated.map((r) => `- [${RISK_KIND_LABELS[r.kind]}] ${r.title}`)
+      )
+    );
+    if (added.length + statusChanged.length + updated.length === 0) out.push("", "這週風險/議題登記沒有變化。");
+  }
 
   if (program.delays.length > 0) {
     out.push("", "### 對比基準線的延誤", "");

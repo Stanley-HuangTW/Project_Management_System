@@ -21,6 +21,7 @@ import {
   type ItemBucket,
   type ProgramSection,
   type ReportItem,
+  type RiskLine,
   type WeeklyReportData,
   type WeeklyReportDiff,
   type WeeklyReportSections,
@@ -107,10 +108,12 @@ export async function buildWeeklyReport(
         ownerNames: task.assigneeNames,
         isMilestone: task.isMilestone,
         isCritical: task.isCritical,
+        priority: task.priority,
         bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(mine, holidays)),
       })),
       budgets: await gatherBudgets(mine),
       delays: await gatherDelays(mine, session),
+      risks: await gatherRisks(mine, program.name),
     });
   }
 
@@ -123,6 +126,7 @@ export async function buildWeeklyReport(
       items: orphanItems(orphans, holidays, bucketOf),
       budgets: await gatherBudgets(orphans),
       delays: await gatherDelays(orphans, session),
+      risks: await gatherRisks(orphans, null),
     });
   }
 
@@ -223,6 +227,7 @@ function orphanItems(
         ownerNames: item.assignments.map((a) => a.user.name),
         isMilestone: false,
         isCritical: false,
+        priority: null,
         bucket: done.has(item.id) ? "done" : (bucketOf.get(item.id) ?? "other"),
       });
     }
@@ -274,10 +279,16 @@ async function gatherPersonSections(
     }
   }
 
-  const groupInfo = new Map<string, { groupName: string; boardName: string }>();
+  // 每個看板屬於哪個專案群組,直接從 sections 的 BoardLine 借來用——那裡已經
+  // 查過 Program 的名字了,不用再查一次資料庫。
+  const programNameByBoardId = new Map(
+    sections.flatMap((s) => s.boards).map((b) => [b.boardId, b.programName])
+  );
+  const groupInfo = new Map<string, { groupName: string; boardName: string; programName: string | null }>();
   for (const board of boards) {
+    const programName = programNameByBoardId.get(board.id) ?? null;
     for (const group of board.groups) {
-      groupInfo.set(group.id, { groupName: group.name, boardName: board.name });
+      groupInfo.set(group.id, { groupName: group.name, boardName: board.name, programName });
     }
   }
 
@@ -286,7 +297,7 @@ async function gatherPersonSections(
     userName: string,
     role: PersonSection["role"],
     discipline: string,
-    info: { groupName: string; boardName: string }
+    info: { groupName: string; boardName: string; programName: string | null }
   ): PersonSection {
     const mine = itemsByOwner.get(userId) ?? [];
     return {
@@ -294,6 +305,7 @@ async function gatherPersonSections(
       userName,
       role,
       discipline,
+      programName: info.programName,
       groupName: info.groupName,
       boardName: info.boardName,
       overdue: mine.filter((i) => i.bucket === "overdue"),
@@ -378,6 +390,32 @@ async function gatherDelays(boards: BoardWithData[], session: SessionPayload): P
       })),
     },
   ];
+}
+
+/** 這個專案群組底下所有看板的風險/議題登記。 */
+async function gatherRisks(boards: BoardWithData[], programName: string | null): Promise<RiskLine[]> {
+  const boardIds = boards.map((b) => b.id);
+  if (boardIds.length === 0) return [];
+  const boardName = new Map(boards.map((b) => [b.id, b.name]));
+
+  const risks = await prisma.riskEntry.findMany({
+    where: { boardId: { in: boardIds } },
+    include: { owner: { select: { name: true } } },
+  });
+
+  return risks.map((r) => ({
+    id: r.id,
+    boardName: boardName.get(r.boardId) ?? "",
+    programName,
+    kind: r.kind,
+    status: r.status,
+    title: r.title,
+    probability: r.probability,
+    impact: r.impact,
+    ownerName: r.owner?.name ?? null,
+    dueDate: r.dueDate,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
 }
 
 /**
@@ -641,10 +679,12 @@ export async function buildProgramWeeklyReportData(
         ownerNames: task.assigneeNames,
         isMilestone: task.isMilestone,
         isCritical: task.isCritical,
+        priority: task.priority,
         bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(boards, holidays)),
       })),
       budgets: await gatherBudgets(boards),
       delays: await gatherDelays(boards, systemSession),
+      risks: await gatherRisks(boards, program.name),
     },
   ];
 

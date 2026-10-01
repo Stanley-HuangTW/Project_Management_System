@@ -50,6 +50,8 @@ export type ProgramTask = {
   preds: { predId: string; relationship: RelationshipType | null; crossBoard: boolean }[];
   totalFloat: number | null;
   isCritical: boolean;
+  /** Priority 欄目前的選項標籤(CRITICAL/HIGH/NORMAL)。沒綁定欄位或沒選值是 null。 */
+  priority: string | null;
 };
 
 export type ProgramView = {
@@ -193,6 +195,9 @@ export async function getProgramView(
     const groupNameById = new Map(board.groups.map((g) => [g.id, g.name]));
     const typeOptions = getStatusOptions(board.columns.find((c) => c.id === board.typeColumnId)?.options);
     const linkOptions = getStatusOptions(board.columns.find((c) => c.id === board.linkColumnId)?.options);
+    const priorityOptions = getStatusOptions(
+      board.columns.find((c) => c.id === board.priorityColumnId)?.options
+    );
 
     for (const item of board.items) {
       const range =
@@ -215,6 +220,11 @@ export async function getProgramView(
         ? item.cellValues.find((cv) => cv.columnId === board.typeColumnId)?.value
         : undefined;
       const isMilestone = typeOptions.find((o) => o.id === typeValue)?.label === "Milestone";
+
+      const priorityValue = board.priorityColumnId
+        ? item.cellValues.find((cv) => cv.columnId === board.priorityColumnId)?.value
+        : undefined;
+      const priority = priorityOptions.find((o) => o.id === priorityValue)?.label ?? null;
 
       const fallbackRelationship = board.linkColumnId
         ? linkOptions.find(
@@ -258,6 +268,7 @@ export async function getProgramView(
         preds,
         totalFloat: float?.totalFloat ?? null,
         isCritical: float?.isCritical ?? false,
+        priority,
       });
     }
   }

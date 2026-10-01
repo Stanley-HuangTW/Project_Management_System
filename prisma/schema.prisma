@@ -183,6 +183,8 @@ model Board {
   lagColumn    Column? @relation("BoardLagColumn", fields: [lagColumnId], references: [id], onDelete: SetNull)
   typeColumnId String?
   typeColumn   Column? @relation("BoardTypeColumn", fields: [typeColumnId], references: [id], onDelete: SetNull)
+  priorityColumnId String?
+  priorityColumn   Column? @relation("BoardPriorityColumn", fields: [priorityColumnId], references: [id], onDelete: SetNull)
 
   // When both are set, Start/Days/Finish become read-only and are always
   // computed from these + Pred/Link/Lag — see resolveLockedScheduleFields.
@@ -350,6 +352,7 @@ model Column {
   linkForBoards           Board[]          @relation("BoardLinkColumn")
   lagForBoards            Board[]          @relation("BoardLagColumn")
   typeForBoards           Board[]          @relation("BoardTypeColumn")
+  priorityForBoards       Board[]          @relation("BoardPriorityColumn")
   reportStatusForBoards   Board[]          @relation("BoardReportStatusColumn")
   manualStartForBoards    Board[]          @relation("BoardManualStartColumn")
   manualDurationForBoards Board[]          @relation("BoardManualDurationColumn")
