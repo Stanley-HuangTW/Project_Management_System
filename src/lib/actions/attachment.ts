@@ -8,7 +8,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 export async function listAttachments(itemId: string) {
   const session = await requireSession();
@@ -37,7 +37,7 @@ export async function uploadAttachment(
     throw new Error("請選擇檔案");
   }
   if (file.size > MAX_FILE_SIZE) {
-    throw new Error("檔案過大,請使用小於 20MB 的檔案");
+    throw new Error("檔案過大,請使用小於 100MB 的檔案");
   }
 
   const safeName = file.name.replace(/[/\\]/g, "_");
