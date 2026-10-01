@@ -160,7 +160,6 @@ export function BoardGantt({
   userRole,
   currentUserId,
   holidays,
-  onNavigateToItem,
   active = true,
   externalPreds,
 }: {
@@ -169,7 +168,6 @@ export function BoardGantt({
   userRole: UserRole;
   currentUserId: string;
   holidays: Holiday[];
-  onNavigateToItem?: (itemId: string) => void;
   /** False while another view is showing. BoardView keeps this mounted so the
    *  zoom, scale, filters and collapsed rows survive a trip to the table;
    *  hiding it is display:none, which drops the scroll offsets, so those are
@@ -842,27 +840,21 @@ export function BoardGantt({
             ) : (
               <span className="w-3.5" />
             )}
-            {onNavigateToItem ? (
-              <button
-                type="button"
-                onClick={() => onNavigateToItem(item.id)}
-                title="在表格中查看此項目"
-                className="min-w-0 flex-1 truncate text-left hover:text-blue-600 hover:underline"
-                style={nameColor ? { color: nameColor } : undefined}
-              >
-                {wbsCodes.get(item.id) && (
-                  <span className="mr-1 text-neutral-400 dark:text-neutral-500">{wbsCodes.get(item.id)}</span>
-                )}
-                {item.name}
-              </button>
-            ) : (
-              <span className="min-w-0 flex-1 truncate" style={nameColor ? { color: nameColor } : undefined}>
-                {wbsCodes.get(item.id) && (
-                  <span className="mr-1 text-neutral-400 dark:text-neutral-500">{wbsCodes.get(item.id)}</span>
-                )}
-                {item.name}
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDetailInitialTab("card");
+                setDetailItem(item);
+              }}
+              title={item.name}
+              className="min-w-0 flex-1 truncate text-left hover:text-blue-600 hover:underline"
+              style={nameColor ? { color: nameColor } : undefined}
+            >
+              {wbsCodes.get(item.id) && (
+                <span className="mr-1 text-neutral-400 dark:text-neutral-500">{wbsCodes.get(item.id)}</span>
+              )}
+              {item.name}
+            </button>
             <ConstraintBadge item={item} />
             <button
               type="button"

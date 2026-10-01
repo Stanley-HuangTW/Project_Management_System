@@ -49,11 +49,6 @@ export function BoardView({
   externalPreds: ExternalPredecessor[];
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes" | "budget">("table");
-  const [ganttNavigateHighlight, setGanttNavigateHighlight] = useState<string | null>(null);
-  function goToItemInTable(itemId: string) {
-    setGanttNavigateHighlight(itemId);
-    setView("table");
-  }
   // A ?highlight= link (notifications, overdue tasks, workload detail) can
   // be clicked from any tab — jump to the table view so BoardTable actually
   // mounts and opens the item's card, instead of silently updating the URL
@@ -245,7 +240,7 @@ export function BoardView({
             userRole={userRole}
             currentUserId={currentUserId}
             onAddColumn={() => setAddColumnOpen(true)}
-            highlightItemId={ganttNavigateHighlight ?? highlightItemId}
+            highlightItemId={highlightItemId}
             holidays={holidays}
           />
         )}
@@ -268,7 +263,6 @@ export function BoardView({
             userRole={userRole}
             currentUserId={currentUserId}
             holidays={holidays}
-            onNavigateToItem={goToItemInTable}
             active={view === "gantt"}
             externalPreds={externalPreds}
           />
