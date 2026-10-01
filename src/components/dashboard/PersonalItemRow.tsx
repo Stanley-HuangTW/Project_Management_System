@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { MessageSquare, Plus, Trash2, UserPlus } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageStructure, canModifyItemSchedule } from "@/lib/permissions";
@@ -37,6 +36,7 @@ export function PersonalItemRow({
   const canManage = canManageStructure(userRole);
   const canDelete = canModifyItemSchedule(userRole, item.createdById, currentUserId);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState<"updates" | "card">("card");
   const requestDelete = useDeleteItem();
   const [assignOpen, setAssignOpen] = useState(false);
   const [addSubtaskOpen, setAddSubtaskOpen] = useState(false);
@@ -54,16 +54,24 @@ export function PersonalItemRow({
       style={{ gridTemplateColumns: gridTemplate }}
     >
       <div className="flex min-w-0 items-center gap-1">
-        <Link
-          href={`/boards/${item.boardId}?highlight=${item.itemId}`}
-          className="min-w-0 flex-1 truncate text-sm text-neutral-800 dark:text-neutral-100 hover:text-blue-600"
+        <button
+          type="button"
+          onClick={() => {
+            setDetailTab("card");
+            setDetailOpen(true);
+          }}
+          title={item.itemName}
+          className="min-w-0 flex-1 truncate text-left text-sm text-neutral-800 dark:text-neutral-100 hover:text-blue-600 hover:underline"
           style={item.nameColor ? { color: item.nameColor } : undefined}
         >
           {item.itemName}
-        </Link>
+        </button>
         <button
           type="button"
-          onClick={() => setDetailOpen(true)}
+          onClick={() => {
+            setDetailTab("updates");
+            setDetailOpen(true);
+          }}
           className={`flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-400 ${
             commentCount > 0 ? "text-blue-600" : "text-neutral-300 dark:text-neutral-600"
           }`}
@@ -162,6 +170,7 @@ export function PersonalItemRow({
         currentUserId={currentUserId}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        initialTab={detailTab}
       />
       {canManage && (
         <AssignmentModal

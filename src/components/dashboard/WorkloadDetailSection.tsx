@@ -745,6 +745,7 @@ export function WorkloadDetailSection({
         currentUserId={currentUserId}
         open={itemDetail !== null}
         onOpenChange={(open) => !open && setItemDetail(null)}
+        initialTab="card"
       />
     </section>
   );

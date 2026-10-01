@@ -676,6 +676,7 @@ export function ProgramGantt({
         currentUserId={currentUserId}
         open={itemDetail !== null}
         onOpenChange={(open) => !open && setItemDetail(null)}
+        initialTab="card"
       />
     </div>
   );

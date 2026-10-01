@@ -233,6 +233,7 @@ export function DueListsSection({
         currentUserId={currentUserId}
         open={itemDetail !== null}
         onOpenChange={(open) => !open && setItemDetail(null)}
+        initialTab="card"
       />
     </section>
   );
