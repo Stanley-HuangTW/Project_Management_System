@@ -1,8 +1,11 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import type { NotificationType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { computeWbsCodes } from "@/lib/wbs";
+import { ALL_NOTIFICATION_TYPES, DEFAULT_NOTIFICATION_PREFERENCE } from "@/lib/notificationTypes";
 
 export async function listNotifications() {
   const session = await requireSession();
@@ -85,4 +88,51 @@ export async function markAllNotificationsRead() {
     where: { userId: session.userId, read: false },
     data: { read: true },
   });
+}
+
+export type NotificationPreferenceRow = {
+  type: NotificationType;
+  inApp: boolean;
+  email: boolean;
+};
+
+/** 全部 6 種類型都回傳一列——沒特別設定過的就用預設值補上,呼叫端不用
+ *  自己管「這個類型有沒有存過」。 */
+export async function getMyNotificationPreferences(): Promise<NotificationPreferenceRow[]> {
+  const session = await requireSession();
+  const rows = await prisma.notificationPreference.findMany({
+    where: { userId: session.userId },
+  });
+  const byType = new Map(rows.map((r) => [r.type, r]));
+  return ALL_NOTIFICATION_TYPES.map((type) => {
+    const row = byType.get(type);
+    return row
+      ? { type, inApp: row.inApp, email: row.email }
+      : { type, ...DEFAULT_NOTIFICATION_PREFERENCE[type] };
+  });
+}
+
+export async function setMyNotificationPreference(
+  type: NotificationType,
+  patch: { inApp?: boolean; email?: boolean }
+) {
+  const session = await requireSession();
+  const existing = await prisma.notificationPreference.findUnique({
+    where: { userId_type: { userId: session.userId, type } },
+  });
+  const base = existing ?? { ...DEFAULT_NOTIFICATION_PREFERENCE[type] };
+  await prisma.notificationPreference.upsert({
+    where: { userId_type: { userId: session.userId, type } },
+    create: {
+      userId: session.userId,
+      type,
+      inApp: patch.inApp ?? base.inApp,
+      email: patch.email ?? base.email,
+    },
+    update: {
+      inApp: patch.inApp ?? base.inApp,
+      email: patch.email ?? base.email,
+    },
+  });
+  revalidatePath("/", "layout");
 }

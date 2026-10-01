@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { canEditGanttItem } from "@/lib/permissions";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
-import { notifyEmailIfNeeded } from "@/lib/notify";
+import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 import { logActivity } from "@/lib/activityLog";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
@@ -100,15 +100,18 @@ export async function upsertAssignment(
 
   if (!existing && item && userId !== session.userId) {
     const message = `指派給你,配置 ${pct}%`;
-    await prisma.notification.create({
-      data: {
-        userId,
-        actorId: session.userId,
-        type: "ASSIGNED",
-        itemId,
-        message,
-      },
-    });
+    const [notifiableId] = await filterInAppRecipients(prisma, "ASSIGNED", [userId]);
+    if (notifiableId) {
+      await prisma.notification.create({
+        data: {
+          userId,
+          actorId: session.userId,
+          type: "ASSIGNED",
+          itemId,
+          message,
+        },
+      });
+    }
     await notifyEmailIfNeeded(userId, "ASSIGNED", message);
   }
 

@@ -5,7 +5,7 @@ import { dispatchWebhooks } from "@/lib/webhooks";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { notifyItemAssignees, notifyEmailIfNeeded } from "@/lib/notify";
+import { filterInAppRecipients, notifyItemAssignees, notifyEmailIfNeeded } from "@/lib/notify";
 import { executeAutomationRules } from "@/lib/automation";
 import { syncGanttDates } from "@/lib/ganttSync";
 import {
@@ -184,15 +184,18 @@ export async function upsertCellValue(
         await logActivity(itemId, session.userId, `「${column.name}」指派給 ${assignee.name}`);
         if (userId === session.userId) continue;
         const message = `「${column.name}」指派給你`;
-        await prisma.notification.create({
-          data: {
-            userId,
-            actorId: session.userId,
-            type: "ASSIGNED",
-            itemId,
-            message,
-          },
-        });
+        const [notifiableId] = await filterInAppRecipients(prisma, "ASSIGNED", [userId]);
+        if (notifiableId) {
+          await prisma.notification.create({
+            data: {
+              userId,
+              actorId: session.userId,
+              type: "ASSIGNED",
+              itemId,
+              message,
+            },
+          });
+        }
         await notifyEmailIfNeeded(userId, "ASSIGNED", message);
       }
     } else {

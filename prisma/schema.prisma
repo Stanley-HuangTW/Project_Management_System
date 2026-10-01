@@ -102,37 +102,38 @@ model User {
   supervisor    User?          @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
   teamMembers   User[]         @relation("Supervision")
 
-  ownedBoards          Board[]
-  comments             Comment[]
-  notifications        Notification[]
-  assignments          Assignment[]
-  automationNotifyFor  AutomationRule[]      @relation("RuleNotifyUser")
-  boardMemberships     BoardMember[]
-  attachments          Attachment[]
-  activityLogEntries   ActivityLogEntry[]
-  createdItems         Item[]                @relation("ItemCreatedBy")
-  deletedItems         Item[]                @relation("ItemDeletedBy")
-  deletedBoards        Board[]               @relation("BoardDeletedBy")
-  labourSlots          LabourSlot[]          @relation("LabourSlotOwner")
-  savedViews           SavedView[]           @relation("SavedViewOwner")
-  projectTemplates     ProjectTemplate[]     @relation("ProjectTemplateCreatedBy")
-  timeEntries          TimeEntry[]
-  ownedRisks           RiskEntry[]           @relation("RiskOwner")
-  visibleItems         ItemViewer[]
-  leaves               Leave[]
-  visibleGroups        GroupViewer[]
-  apiKeys              ApiKey[]              @relation("ApiKeyOwner")
-  managedResources     Resource[]            @relation("ResourceManager")
-  groupRoleAssignments GroupRoleAssignment[] @relation("GroupRoleAssignments")
-  groupMemberships     GroupMember[]         @relation("GroupMembers")
-  gateApprovals        GateApprover[]
-  requestedChanges     ChangeRequest[]       @relation("ChangeRequester")
-  decidedChanges       ChangeRequest[]       @relation("ChangeDecider")
-  decidedTimeEntries   TimeEntry[]           @relation("TimeEntryDecider")
-  decidedLeaves        Leave[]               @relation("LeaveDecider")
-  reserveDraws         ReserveDraw[]         @relation("ReserveDrawDecider")
-  gateDecisions        Gate[]                @relation("GateDecidedBy")
-  reportRecipientFor   ProgramReportRecipient[]
+  ownedBoards             Board[]
+  comments                Comment[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  assignments             Assignment[]
+  automationNotifyFor     AutomationRule[]         @relation("RuleNotifyUser")
+  boardMemberships        BoardMember[]
+  attachments             Attachment[]
+  activityLogEntries      ActivityLogEntry[]
+  createdItems            Item[]                   @relation("ItemCreatedBy")
+  deletedItems            Item[]                   @relation("ItemDeletedBy")
+  deletedBoards           Board[]                  @relation("BoardDeletedBy")
+  labourSlots             LabourSlot[]             @relation("LabourSlotOwner")
+  savedViews              SavedView[]              @relation("SavedViewOwner")
+  projectTemplates        ProjectTemplate[]        @relation("ProjectTemplateCreatedBy")
+  timeEntries             TimeEntry[]
+  ownedRisks              RiskEntry[]              @relation("RiskOwner")
+  visibleItems            ItemViewer[]
+  leaves                  Leave[]
+  visibleGroups           GroupViewer[]
+  apiKeys                 ApiKey[]                 @relation("ApiKeyOwner")
+  managedResources        Resource[]               @relation("ResourceManager")
+  groupRoleAssignments    GroupRoleAssignment[]    @relation("GroupRoleAssignments")
+  groupMemberships        GroupMember[]            @relation("GroupMembers")
+  gateApprovals           GateApprover[]
+  requestedChanges        ChangeRequest[]          @relation("ChangeRequester")
+  decidedChanges          ChangeRequest[]          @relation("ChangeDecider")
+  decidedTimeEntries      TimeEntry[]              @relation("TimeEntryDecider")
+  decidedLeaves           Leave[]                  @relation("LeaveDecider")
+  reserveDraws            ReserveDraw[]            @relation("ReserveDrawDecider")
+  gateDecisions           Gate[]                   @relation("GateDecidedBy")
+  reportRecipientFor      ProgramReportRecipient[]
 }
 
 // A non-login entity (tool, equipment, external vendor/supplier) that can be
@@ -583,6 +584,21 @@ model Notification {
   @@index([itemId])
 }
 
+/// 一個人對某一種通知類型的偏好——站內要不要收、email 要不要寄。沒有這筆
+/// 紀錄代表還沒特別設定過,各類型各自的預設值在 notify.ts 的
+/// DEFAULT_IN_APP / DEFAULT_EMAIL 裡,跟改這個功能之前的既有行為一致。
+model NotificationPreference {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  inApp     Boolean          @default(true)
+  email     Boolean          @default(false)
+  updatedAt DateTime         @updatedAt
+
+  @@unique([userId, type])
+}
+
 model WorkloadThreshold {
   id          String   @id @default("global")
   greenMax    Int      @default(30)
@@ -771,23 +787,23 @@ model BomLine {
   children BomLine[] @relation("BomTree")
 
   /// 品名。
-  name       String
+  name         String
   /// 廠商。
-  vendor     String  @default("")
+  vendor       String  @default("")
   /// 型號 / 料號。
-  partNumber String  @default("")
+  partNumber   String  @default("")
   /// 上一層要用幾個。最上層就是一台裝置要幾個;在子集底下就是那個子集裡要幾個。
-  qty        Decimal @db.Decimal(12, 3)
+  qty          Decimal @db.Decimal(12, 3)
   /// 單價,幣別由 currency 決定。有子項目的列填了也不算 —— 價錢從底下加上來。
-  unitPrice  Decimal @db.Decimal(14, 4)
-  currency   String  @default("TWD")
+  unitPrice    Decimal @db.Decimal(14, 4)
+  currency     String  @default("TWD")
   /// 換算台幣的匯率,凍結在填的當下 —— 跟訂單同一個道理,事後匯率變了不該
   /// 讓半年前談好的那顆零件變貴。
-  fxRate     Decimal @db.Decimal(12, 6)
-  note       String  @default("")
+  fxRate       Decimal @db.Decimal(12, 6)
+  note         String  @default("")
   /// 預估交期,不影響金額計算,只是排期用。沒填就是還不知道。
   deliveryDate String? // "YYYY-MM-DD"
-  order      Int
+  order        Int
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -851,34 +867,37 @@ model LabourPlan {
 }
 
 model SystemSettings {
-  id                        String            @id @default("global")
-  emailNotificationsEnabled Boolean           @default(false)
-  levelColors               String[]          @default([])
-  ganttDurationMode         GanttDurationMode @default(BUSINESS)
-  ganttOverdueColor         String            @default("#e2445c")
-  ganttCompletedColor       String            @default("#9ca3af")
-  ganttInProgressColor      String            @default("#00c875")
-  predReadyColor            String            @default("#00c875")
-  predWaitingColor          String            @default("#fdab3d")
-  predBlockedColor          String            @default("#e2445c")
+  id                        String             @id @default("global")
+  emailNotificationsEnabled Boolean            @default(false)
+  /// 這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼選,
+  /// 那個類型的通知(站內與 email)都不會產生。
+  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED])
+  levelColors               String[]           @default([])
+  ganttDurationMode         GanttDurationMode  @default(BUSINESS)
+  ganttOverdueColor         String             @default("#e2445c")
+  ganttCompletedColor       String             @default("#9ca3af")
+  ganttInProgressColor      String             @default("#00c875")
+  predReadyColor            String             @default("#00c875")
+  predWaitingColor          String             @default("#fdab3d")
+  predBlockedColor          String             @default("#e2445c")
   /// 一天算幾小時 — 把「配置 50%、做 10 天」換算成工時與成本的那個係數。
-  hoursPerDay               Int               @default(8)
+  hoursPerDay               Int                @default(8)
   /// 一個人月算幾個工作天 — 把月薪換算成時薪、把人月換算成工時的係數。
-  workingDaysPerMonth       Int               @default(21)
+  workingDaysPerMonth       Int                @default(21)
   /// 新看板要帶哪些欄位:[{ name, type, options }],順序就是欄位順序。
   /// Null means nobody has set one, and a new board falls back to the built-in
   /// list — the same one this used to be, hardcoded.
   defaultColumns            Json?
   /// 專案週報分發的排程時間。enabled 是總開關;dow 是星期幾(0=週日,
   /// 沿用 JS Date.getDay() 的編號,1=週一)。
-  weeklyReportEnabled       Boolean           @default(false)
-  weeklyReportDow           Int               @default(1)
-  weeklyReportHour          Int               @default(6)
-  weeklyReportMinute        Int               @default(0)
+  weeklyReportEnabled       Boolean            @default(false)
+  weeklyReportDow           Int                @default(1)
+  weeklyReportHour          Int                @default(6)
+  weeklyReportMinute        Int                @default(0)
   /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
   /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
   weeklyReportLastRunWeek   String?
-  updatedAt                 DateTime          @updatedAt
+  updatedAt                 DateTime           @updatedAt
 }
 
 // Company-wide (not per-board) list of dates that business-day duration
@@ -1484,17 +1503,17 @@ model ReserveDraw {
 }
 
 model Program {
-  id                  String                     @id @default(cuid())
-  name                String
+  id                 String                     @id @default(cuid())
+  name               String
   /// 誰建立的。預算編輯權要認「專案建立者」,群組層得有個對象可以認。
   /// 這個欄位之前建立的群組是 null,那些就只有管理者能編。
-  createdById         String?
-  createdAt           DateTime                   @default(now())
-  boards              Board[]
-  budgets             Budget[]
-  reserves            Reserve[]
-  reportSubscription  ProgramReportSubscription?
-  reportSnapshots     ProgramReportSnapshot[]
+  createdById        String?
+  createdAt          DateTime                   @default(now())
+  boards             Board[]
+  budgets            Budget[]
+  reserves           Reserve[]
+  reportSubscription ProgramReportSubscription?
+  reportSnapshots    ProgramReportSnapshot[]
 }
 
 /// 一個專案群組的週報分發訂閱:多久寄一次(排程設定在 SystemSettings,

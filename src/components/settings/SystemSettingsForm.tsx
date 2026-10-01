@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CalendarOff, Settings } from "lucide-react";
-import type { GanttDurationMode, Holiday } from "@prisma/client";
+import type { GanttDurationMode, Holiday, NotificationType } from "@prisma/client";
 import {
   setEmailNotificationsEnabled,
   setGanttDurationMode,
@@ -10,7 +10,9 @@ import {
   setLevelColors,
   setGanttStatusColors,
   setPredLampColors,
+  setEnabledNotificationTypes,
 } from "@/lib/actions/systemSettings";
+import { ALL_NOTIFICATION_TYPES, NOTIFICATION_TYPE_LABELS } from "@/lib/notificationTypes";
 import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModal";
 import { DisciplineRateCard } from "./DisciplineRateCard";
 import { OrgUnitCard } from "./OrgUnitCard";
@@ -77,6 +79,50 @@ function EmailNotificationsCard({ initial }: { initial: boolean }) {
       <p className="border-t border-neutral-100 dark:border-neutral-700 px-4 py-2 text-xs text-neutral-400 dark:text-neutral-500">
         目前狀態:{enabled ? "已開啟,將寄送 Email 通知" : "已關閉,不會寄送任何 Email 通知"}
       </p>
+    </div>
+  );
+}
+
+/** 決定這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼
+ *  選,那個類型的通知(站內與 email)都不會產生。 */
+function NotificationTypesCard({ initial }: { initial: NotificationType[] }) {
+  const [enabled, setEnabled] = useState<Set<NotificationType>>(new Set(initial));
+  const [isPending, startTransition] = useTransition();
+
+  function toggle(type: NotificationType) {
+    const next = new Set(enabled);
+    if (next.has(type)) next.delete(type);
+    else next.add(type);
+    setEnabled(next);
+    startTransition(async () => {
+      await setEnabledNotificationTypes(Array.from(next));
+    });
+  }
+
+  return (
+    <div className="max-w-xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+      <div className="px-4 py-3">
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">通知類型</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          關掉的類型,全公司都不會再收到——不管每個人自己的通知設定怎麼選。
+        </p>
+      </div>
+      <ul className="divide-y divide-neutral-100 dark:divide-neutral-700 border-t border-neutral-100 dark:border-neutral-700">
+        {ALL_NOTIFICATION_TYPES.map((type) => (
+          <li key={type} className="flex items-center justify-between gap-4 px-4 py-2">
+            <span className="text-sm text-neutral-700 dark:text-neutral-100">
+              {NOTIFICATION_TYPE_LABELS[type]}
+            </span>
+            <input
+              type="checkbox"
+              checked={enabled.has(type)}
+              disabled={isPending}
+              onChange={() => toggle(type)}
+              className="h-4 w-4 accent-blue-600 disabled:opacity-50"
+            />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -413,6 +459,7 @@ export function SystemSettingsForm({
   isAdmin,
   orgUnits,
   emailNotificationsEnabled,
+  enabledNotificationTypes,
   ganttDurationMode,
   hoursPerDay,
   workingDaysPerMonth,
@@ -438,6 +485,7 @@ export function SystemSettingsForm({
   isAdmin: boolean;
   orgUnits: OrgUnit[];
   emailNotificationsEnabled: boolean;
+  enabledNotificationTypes: NotificationType[];
   ganttDurationMode: GanttDurationMode;
   hoursPerDay: number;
   workingDaysPerMonth: number;
@@ -465,6 +513,7 @@ export function SystemSettingsForm({
       {isAdmin && (
         <>
           <EmailNotificationsCard initial={emailNotificationsEnabled} />
+          <NotificationTypesCard initial={enabledNotificationTypes} />
           <GanttModeCard initial={ganttDurationMode} />
           <HoursPerDayCard initial={hoursPerDay} />
           <OrgUnitCard units={orgUnits} />

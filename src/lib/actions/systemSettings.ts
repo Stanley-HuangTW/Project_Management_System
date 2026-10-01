@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Prisma, type GanttDurationMode } from "@prisma/client";
+import { Prisma, type GanttDurationMode, type NotificationType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
+import { ALL_NOTIFICATION_TYPES } from "@/lib/notificationTypes";
 import {
   BUILT_IN_DEFAULT_COLUMNS,
   parseDefaultColumns,
@@ -18,6 +19,7 @@ export async function getSystemSettings() {
   return {
     id: "global",
     emailNotificationsEnabled: false,
+    enabledNotificationTypes: ALL_NOTIFICATION_TYPES,
     levelColors: [] as string[],
     ganttDurationMode: "BUSINESS" as GanttDurationMode,
     ganttOverdueColor: "#e2445c",
@@ -161,6 +163,24 @@ export async function setEmailNotificationsEnabled(enabled: boolean) {
     update: { emailNotificationsEnabled: enabled },
   });
   await logAudit("SETTINGS", session.userId, `Email 通知${enabled ? "開啟" : "關閉"}`);
+
+  revalidatePath("/settings");
+}
+
+/** 管理者決定這套系統要啟用哪些通知類型——關掉的類型不管使用者個人怎麼
+ *  設定,站內與 email 都不會再產生(見 notify.ts 的 filterInAppRecipients/
+ *  notifyEmailIfNeeded)。 */
+export async function setEnabledNotificationTypes(types: NotificationType[]) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+
+  const unique = ALL_NOTIFICATION_TYPES.filter((t) => types.includes(t));
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", enabledNotificationTypes: unique },
+    update: { enabledNotificationTypes: unique },
+  });
+  await logAudit("SETTINGS", session.userId, `通知類型設定已更新:啟用 ${unique.join("、")}`);
 
   revalidatePath("/settings");
 }

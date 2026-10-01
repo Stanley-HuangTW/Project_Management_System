@@ -68,6 +68,7 @@ export default async function SettingsPage() {
         orgUnits={await loadOrgUnits()}
         isAdmin={isAdmin}
         emailNotificationsEnabled={settings.emailNotificationsEnabled}
+        enabledNotificationTypes={settings.enabledNotificationTypes}
         ganttDurationMode={settings.ganttDurationMode}
         hoursPerDay={settings.hoursPerDay}
         workingDaysPerMonth={settings.workingDaysPerMonth}

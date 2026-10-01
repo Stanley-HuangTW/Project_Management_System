@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { notifyEmailIfNeeded } from "@/lib/notify";
+import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 import { getPersonIds } from "@/types/column";
 import { buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
 
@@ -132,14 +132,19 @@ export async function notifyDependentsWhenDone(
     if (recipients.size === 0) continue;
 
     const message = `前置「${finished.name}」已完成,「${dependent.name}」可以開始執行`;
+    const notifiableIds = new Set(
+      await filterInAppRecipients(prisma, "UPDATED", Array.from(recipients))
+    );
     for (const userId of recipients) {
       // A PERSON cell can name a Resource (a tool or vendor), which has no
       // account to notify — the FK would reject it.
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
       if (!user) continue;
-      await prisma.notification.create({
-        data: { userId, actorId, type: "UPDATED", itemId: dependent.id, message },
-      });
+      if (notifiableIds.has(userId)) {
+        await prisma.notification.create({
+          data: { userId, actorId, type: "UPDATED", itemId: dependent.id, message },
+        });
+      }
       await notifyEmailIfNeeded(userId, "UPDATED", message);
     }
   }

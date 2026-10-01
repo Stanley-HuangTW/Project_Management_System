@@ -2,26 +2,61 @@ import type { Prisma, NotificationType } from "@prisma/client";
 import { getPersonIds } from "@/types/column";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mail";
+import { DEFAULT_NOTIFICATION_PREFERENCE } from "@/lib/notificationTypes";
 
-const EMAIL_NOTIFICATION_TYPES: NotificationType[] = ["ASSIGNED", "AUTOMATION"];
+const DEFAULT_IN_APP: Record<NotificationType, boolean> = Object.fromEntries(
+  Object.entries(DEFAULT_NOTIFICATION_PREFERENCE).map(([t, p]) => [t, p.inApp])
+) as Record<NotificationType, boolean>;
+const DEFAULT_EMAIL: Record<NotificationType, boolean> = Object.fromEntries(
+  Object.entries(DEFAULT_NOTIFICATION_PREFERENCE).map(([t, p]) => [t, p.email])
+) as Record<NotificationType, boolean>;
 
 /**
- * Sends an email for notification types the user opted into (指派與自動化規則) —
- * but only if an ADMIN has turned email notifications on in /settings
- * (SystemSettings.emailNotificationsEnabled, off by default). Doesn't apply
- * to transactional mail like password resets, which go through sendMail
- * directly. Runs outside any DB transaction since it makes a network call.
+ * Sends an email for this notification type, if every gate allows it:
+ * an ADMIN has turned email notifications on at all
+ * (SystemSettings.emailNotificationsEnabled, off by default), the ADMIN
+ * hasn't disabled this type system-wide (enabledNotificationTypes), and the
+ * user themselves hasn't turned email off for this type (defaults above when
+ * they've never set a preference). Doesn't apply to transactional mail like
+ * password resets, which go through sendMail directly. Runs outside any DB
+ * transaction since it makes a network call.
  */
 export async function notifyEmailIfNeeded(
   userId: string,
   type: NotificationType,
   message: string
 ) {
-  if (!EMAIL_NOTIFICATION_TYPES.includes(type)) return;
   const settings = await prisma.systemSettings.findUnique({ where: { id: "global" } });
   if (!settings?.emailNotificationsEnabled) return;
+  if (!settings.enabledNotificationTypes.includes(type)) return;
+  const pref = await prisma.notificationPreference.findUnique({
+    where: { userId_type: { userId, type } },
+  });
+  const wantsEmail = pref ? pref.email : DEFAULT_EMAIL[type];
+  if (!wantsEmail) return;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   if (user) await sendMail(user.email, "工作管理平台通知", message);
+}
+
+/**
+ * 從一串候選收件人裡,篩出「這個類型真的要顯示在站內通知」的人——先看
+ * 管理者有沒有把這個類型整個關掉(關了的話誰都不會收到),再看每個人自己
+ * 有沒有關掉這個類型的站內通知(沒設定過就用 DEFAULT_IN_APP)。
+ */
+export async function filterInAppRecipients(
+  tx: Prisma.TransactionClient | typeof prisma,
+  type: NotificationType,
+  userIds: string[]
+): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const settings = await tx.systemSettings.findUnique({ where: { id: "global" } });
+  if (settings && !settings.enabledNotificationTypes.includes(type)) return [];
+  const prefs = await tx.notificationPreference.findMany({
+    where: { userId: { in: userIds }, type },
+    select: { userId: true, inApp: true },
+  });
+  const prefByUserId = new Map(prefs.map((p) => [p.userId, p.inApp]));
+  return userIds.filter((id) => prefByUserId.get(id) ?? DEFAULT_IN_APP[type]);
 }
 
 /**
@@ -72,8 +107,15 @@ export async function notifyStructuralChange(
   });
   if (realUsers.length === 0) return;
 
+  const notifiableIds = await filterInAppRecipients(
+    tx,
+    type,
+    realUsers.map((u) => u.id)
+  );
+  if (notifiableIds.length === 0) return;
+
   await tx.notification.createMany({
-    data: realUsers.map((u) => ({ userId: u.id, actorId, type, itemId, message })),
+    data: notifiableIds.map((userId) => ({ userId, actorId, type, itemId, message })),
   });
 }
 
@@ -122,8 +164,9 @@ export async function notifyItemAssignees(
     select: { id: true },
   });
   const realUserIds = new Set(realUsers.map((u) => u.id));
-  const notifiableIds = Array.from(recipientIds).filter((id) => realUserIds.has(id));
+  const realRecipientIds = Array.from(recipientIds).filter((id) => realUserIds.has(id));
 
+  const notifiableIds = await filterInAppRecipients(tx, type, realRecipientIds);
   if (notifiableIds.length === 0) return;
 
   await tx.notification.createMany({

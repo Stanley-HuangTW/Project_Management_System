@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
-import { notifyEmailIfNeeded } from "@/lib/notify";
+import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 
 export async function getDistinctTextValues(boardId: string, columnId: string) {
   const session = await requireSession();
@@ -145,7 +145,17 @@ export async function applyResourceMapping(
       }
 
       if (notifications.length > 0) {
-        await tx.notification.createMany({ data: notifications });
+        const inAppUserIds = new Set(
+          await filterInAppRecipients(
+            tx,
+            "ASSIGNED",
+            notifications.map((n) => n.userId)
+          )
+        );
+        const inAppNotifications = notifications.filter((n) => inAppUserIds.has(n.userId));
+        if (inAppNotifications.length > 0) {
+          await tx.notification.createMany({ data: inAppNotifications });
+        }
       }
 
       revalidatePath(`/boards/${boardId}`);

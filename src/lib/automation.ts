@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { notifyEmailIfNeeded } from "@/lib/notify";
+import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 
 /**
  * Runs board automation rules whose trigger (STATUS column -> value) matches
@@ -27,15 +27,18 @@ export async function executeAutomationRules(
   for (const rule of rules) {
     if (rule.notifyUserId && rule.notifyUserId !== actorId) {
       const message = `自動化規則「${rule.name}」已觸發:「${item.name}」`;
-      await prisma.notification.create({
-        data: {
-          userId: rule.notifyUserId,
-          actorId,
-          type: "AUTOMATION",
-          itemId,
-          message,
-        },
-      });
+      const [notifiableId] = await filterInAppRecipients(prisma, "AUTOMATION", [rule.notifyUserId]);
+      if (notifiableId) {
+        await prisma.notification.create({
+          data: {
+            userId: rule.notifyUserId,
+            actorId,
+            type: "AUTOMATION",
+            itemId,
+            message,
+          },
+        });
+      }
       await notifyEmailIfNeeded(rule.notifyUserId, "AUTOMATION", message);
     }
 

@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Bell } from "lucide-react";
+import { Bell, Settings } from "lucide-react";
 import {
   listNotifications,
   getUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
 } from "@/lib/actions/notification";
+import { NotificationPreferencesModal } from "./NotificationPreferencesModal";
 
 /** 標籤與顏色一起,新增/刪除要能一眼從一排更新裡挑出來。 */
 const NOTIFICATION_TYPE: Record<string, { label: string; className: string }> = {
@@ -39,6 +40,7 @@ export function NotificationBell() {
     Awaited<ReturnType<typeof listNotifications>>
   >([]);
   const [open, setOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
 
   useEffect(() => {
     getUnreadCount().then(setUnreadCount);
@@ -97,19 +99,38 @@ export function NotificationBell() {
         <DropdownMenu.Content
           align="start"
           className="z-50 max-h-96 w-96 overflow-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-1 shadow-md"
+          onWheel={(e) => {
+            e.stopPropagation();
+            e.currentTarget.scrollTop += e.deltaY;
+          }}
         >
-          {unreadCount > 0 && (
-            <div className="flex items-center justify-between px-2 py-1">
-              <span className="text-xs text-neutral-400 dark:text-neutral-500">通知</span>
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-xs text-neutral-400 dark:text-neutral-500">通知</span>
+            <span className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMarkAllRead}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  全部標為已讀
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handleMarkAllRead}
-                className="text-xs text-blue-600 hover:text-blue-700"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setOpen(false);
+                  setPreferencesOpen(true);
+                }}
+                title="通知設定"
+                aria-label="通知設定"
+                className="rounded p-0.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-100"
               >
-                全部標為已讀
+                <Settings size={13} />
               </button>
-            </div>
-          )}
+            </span>
+          </div>
           {notifications.length === 0 && (
             <p className="px-3 py-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
               沒有通知
@@ -165,6 +186,7 @@ export function NotificationBell() {
           })}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
+      <NotificationPreferencesModal open={preferencesOpen} onOpenChange={setPreferencesOpen} />
     </DropdownMenu.Root>
   );
 }

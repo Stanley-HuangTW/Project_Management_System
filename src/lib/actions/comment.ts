@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
-import { notifyItemAssignees, notifyEmailIfNeeded } from "@/lib/notify";
+import { filterInAppRecipients, notifyItemAssignees, notifyEmailIfNeeded } from "@/lib/notify";
 import { findMentionedUserIds } from "@/lib/mentions";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
@@ -64,10 +64,14 @@ async function notifyMentions(
   if (mentioned.length === 0) return [];
 
   const message = `${actorName} 在「${itemName ?? "項目"}」的留言中提到你`;
+  const notifiableIds = await filterInAppRecipients(prisma, "COMMENTED", mentioned);
+  const notifiableSet = new Set(notifiableIds);
   for (const userId of mentioned) {
-    await prisma.notification.create({
-      data: { userId, actorId, type: "COMMENTED", itemId, message },
-    });
+    if (notifiableSet.has(userId)) {
+      await prisma.notification.create({
+        data: { userId, actorId, type: "COMMENTED", itemId, message },
+      });
+    }
     await notifyEmailIfNeeded(userId, "COMMENTED", message);
   }
   return mentioned;
