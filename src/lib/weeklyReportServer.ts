@@ -299,7 +299,10 @@ async function gatherPersonSections(
     discipline: string,
     info: { groupName: string; boardName: string; programName: string | null }
   ): PersonSection {
-    const mine = itemsByOwner.get(userId) ?? [];
+    // 一個人可能同時在好幾個專案群組都有工作項——這一份是掛在 info.programName
+    // 底下的分頁,只該算這個專案群組自己的份,不是這個人全部的工作量。
+    const mine = (itemsByOwner.get(userId) ?? []).filter((i) => i.programName === info.programName);
+    const completed = (completedByOwner.get(userId) ?? []).filter((i) => i.programName === info.programName);
     return {
       userId,
       userName,
@@ -309,7 +312,7 @@ async function gatherPersonSections(
       groupName: info.groupName,
       boardName: info.boardName,
       overdue: mine.filter((i) => i.bucket === "overdue"),
-      completedThisWeek: completedByOwner.get(userId) ?? [],
+      completedThisWeek: completed,
       upcoming: mine.filter((i) => i.bucket === "upcoming"),
     };
   }
