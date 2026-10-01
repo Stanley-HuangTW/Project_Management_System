@@ -37,7 +37,10 @@ export async function sendMailChecked(
 
   try {
     await t.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: {
+        name: process.env.SMTP_FROM_NAME || "Project Management System",
+        address: process.env.SMTP_FROM || process.env.SMTP_USER || "",
+      },
       to,
       subject,
       text,
