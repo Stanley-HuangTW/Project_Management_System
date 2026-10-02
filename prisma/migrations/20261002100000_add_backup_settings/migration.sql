@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "SystemSettings" ADD COLUMN     "backupEnabled" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "backupFrequency" TEXT NOT NULL DEFAULT 'DAILY',
+ADD COLUMN     "backupDow" INTEGER NOT NULL DEFAULT 1,
+ADD COLUMN     "backupHour" INTEGER NOT NULL DEFAULT 3,
+ADD COLUMN     "backupMinute" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "backupRetentionDays" INTEGER NOT NULL DEFAULT 60,
+ADD COLUMN     "backupLastRunDate" TEXT;

@@ -26,6 +26,8 @@ import { BaselineCard, type BaselineBoard } from "./BaselineCard";
 import { ProgramCard, type ProgramBoard } from "./ProgramCard";
 import { ProgramReportSubscriptionCard } from "./ProgramReportSubscriptionCard";
 import { WeeklyReportScheduleCard } from "./WeeklyReportScheduleCard";
+import { BackupSettingsCard } from "./BackupSettingsCard";
+import type { BackupScheduleInput } from "@/lib/actions/backup";
 import { ExchangeRateCard } from "./ExchangeRateCard";
 import type { ProgramRow } from "@/lib/actions/program";
 import type { ProgramReportSubscriptionRow } from "@/lib/actions/programReportSubscription";
@@ -474,6 +476,7 @@ export function SystemSettingsForm({
   programBoards,
   programReportSubscriptions,
   weeklyReportSchedule,
+  backupSchedule,
   reportSettingsBoards,
   statusColorBoards,
   defaultColumnsBoards,
@@ -500,6 +503,7 @@ export function SystemSettingsForm({
   programBoards: ProgramBoard[];
   programReportSubscriptions: ProgramReportSubscriptionRow[];
   weeklyReportSchedule: { enabled: boolean; dow: number; hour: number; minute: number };
+  backupSchedule: BackupScheduleInput;
   reportSettingsBoards: ReportSettingsBoardWithName[];
   statusColorBoards: StatusColorBoard[];
   defaultColumnsBoards: DefaultColumnsBoard[];
@@ -532,6 +536,7 @@ export function SystemSettingsForm({
           <BaselineCard boards={baselineBoards} />
           <ProgramCard programs={programs} boards={programBoards} />
           <WeeklyReportScheduleCard initial={weeklyReportSchedule} />
+          <BackupSettingsCard initial={backupSchedule} />
           <ProgramReportSubscriptionCard subscriptions={programReportSubscriptions} users={users} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <DefaultColumnsCard

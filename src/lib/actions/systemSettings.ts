@@ -36,6 +36,13 @@ export async function getSystemSettings() {
     weeklyReportHour: 6,
     weeklyReportMinute: 0,
     weeklyReportLastRunWeek: null as string | null,
+    backupEnabled: false,
+    backupFrequency: "DAILY",
+    backupDow: 1,
+    backupHour: 3,
+    backupMinute: 0,
+    backupRetentionDays: 60,
+    backupLastRunDate: null as string | null,
     updatedAt: new Date(),
   };
 }

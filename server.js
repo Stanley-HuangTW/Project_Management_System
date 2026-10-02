@@ -27,21 +27,25 @@ if (cluster.isPrimary && !dev) {
     cluster.fork();
   });
 
-  // 專案週報分發的排程心跳。Primary process 從不接請求、整個部署裡天然
-  // 只有一份,是放這種「一定只能跑一次」的計時器最乾淨的地方——不用另外
-  // 裝 cron 套件,也不用在多個 worker 之間搶鎖。實際「現在該不該寄」的
-  // 判斷都在 /api/internal/weekly-report-tick 那支路由裡,這裡只是每五
-  // 分鐘戳它一下。
+  // 專案週報分發、資料庫備份的排程心跳。Primary process 從不接請求、整個
+  // 部署裡天然只有一份,是放這種「一定只能跑一次」的計時器最乾淨的地方——
+  // 不用另外裝 cron 套件,也不用在多個 worker 之間搶鎖。實際「現在該不該
+  // 動作」的判斷都在各自那支 /api/internal/*-tick 路由裡,這裡只是每五
+  // 分鐘戳它們一下。
   const cronSecret = process.env.INTERNAL_CRON_SECRET;
   if (cronSecret) {
-    setInterval(() => {
-      fetch(`http://127.0.0.1:${port}/api/internal/weekly-report-tick`, {
+    const tick = (name) => {
+      fetch(`http://127.0.0.1:${port}/api/internal/${name}`, {
         method: "POST",
         headers: { "x-internal-key": cronSecret },
-      }).catch((err) => console.error("weekly-report-tick failed:", err.message));
+      }).catch((err) => console.error(`${name} failed:`, err.message));
+    };
+    setInterval(() => {
+      tick("weekly-report-tick");
+      tick("backup-tick");
     }, 5 * 60 * 1000);
   } else {
-    console.warn("INTERNAL_CRON_SECRET not set — 專案週報排程不會自動觸發。");
+    console.warn("INTERNAL_CRON_SECRET not set — 專案週報排程、資料庫備份排程都不會自動觸發。");
   }
 } else {
   const app = next({ dev });

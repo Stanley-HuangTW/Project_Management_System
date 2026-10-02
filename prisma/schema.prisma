@@ -918,6 +918,19 @@ model SystemSettings {
   /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
   /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
   weeklyReportLastRunWeek   String?
+  /// 資料庫備份的排程時間——同一套設計:enabled 總開關,frequency 決定
+  /// dow 要不要比對("DAILY" 不比對,"WEEKLY" 才比對)。
+  backupEnabled             Boolean            @default(false)
+  backupFrequency           String             @default("DAILY")
+  backupDow                 Int                @default(1)
+  backupHour                Int                @default(3)
+  backupMinute              Int                @default(0)
+  /// 超過幾天的備份自動清除——預設值跟 scripts/backup-db.sh 的
+  /// RETENTION_DAYS 預設一致。
+  backupRetentionDays       Int                @default(60)
+  /// 上次成功備份的日期("YYYY-MM-DD")——跟 weeklyReportLastRunWeek 同一個
+  /// 判斷邏輯,只是改成「今天跑過了沒」,DAILY/WEEKLY 共用同一個欄位。
+  backupLastRunDate         String?
   updatedAt                 DateTime           @updatedAt
 }
 

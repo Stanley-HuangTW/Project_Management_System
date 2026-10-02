@@ -16,6 +16,11 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# 資料庫備份/還原直接對 db:5432 跑 pg_dump/psql(版本對應 docker-compose.yml
+# 的 postgres:16-alpine),不掛 Docker socket——那等於給這個 container
+# 接近 host root 的權限,能避免就避免。
+RUN apk add --no-cache postgresql16-client
+
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public

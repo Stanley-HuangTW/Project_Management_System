@@ -38,6 +38,9 @@ services:
       # 週報落在專案資料夾底下,直接用檔案總管打得開。不放 public/uploads:
       # 那個目錄對外服務,週報裡有預算與人力。
       - ./weekly-reports:/app/weekly-reports
+      # 跟 scripts/backup-db.sh 寫入的是同一個資料夾——不管是那支腳本排程
+      # 產生的、還是系統設定裡新的備份功能產生的,都在同一份清單裡看得到。
+      - ./backups:/app/backups
   proxy:
     image: caddy:2-alpine
     restart: unless-stopped

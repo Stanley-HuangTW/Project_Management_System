@@ -96,6 +96,14 @@ export default async function SettingsPage() {
           hour: settings.weeklyReportHour,
           minute: settings.weeklyReportMinute,
         }}
+        backupSchedule={{
+          enabled: settings.backupEnabled,
+          frequency: settings.backupFrequency === "WEEKLY" ? "WEEKLY" : "DAILY",
+          dow: settings.backupDow,
+          hour: settings.backupHour,
+          minute: settings.backupMinute,
+          retentionDays: settings.backupRetentionDays,
+        }}
         reportSettingsBoards={boards}
         defaultColumnsBoards={boards.map((b) => ({
           id: b.id,
