@@ -309,6 +309,11 @@ export function OverAllocationCard({
                         title={task.itemName}
                         className="min-w-0 flex-1 truncate text-left text-neutral-700 dark:text-neutral-100 hover:text-blue-600 hover:underline disabled:opacity-60"
                       >
+                        {task.wbsCode && (
+                          <span className="mr-1 tabular-nums text-neutral-400 dark:text-neutral-500">
+                            {task.wbsCode}
+                          </span>
+                        )}
                         {task.itemName}
                       </button>
                       <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{task.boardName}</span>

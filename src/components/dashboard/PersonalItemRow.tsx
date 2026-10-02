@@ -64,6 +64,11 @@ export function PersonalItemRow({
           className="min-w-0 flex-1 truncate text-left text-sm text-neutral-800 dark:text-neutral-100 hover:text-blue-600 hover:underline"
           style={item.nameColor ? { color: item.nameColor } : undefined}
         >
+          {item.wbsCode && (
+            <span className="mr-1.5 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+              {item.wbsCode}
+            </span>
+          )}
           {item.itemName}
         </button>
         <button

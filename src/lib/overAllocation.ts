@@ -11,6 +11,7 @@ export type OverloadedDay = {
 export type TaskShare = {
   itemId: string;
   itemName: string;
+  wbsCode: string;
   boardId: string;
   boardName: string;
   allocationPct: number;
@@ -102,6 +103,7 @@ export function findOverAllocations(
       shares.push({
         itemId: task.itemId,
         itemName: task.itemName,
+        wbsCode: task.wbsCode,
         boardId: task.boardId,
         boardName: task.boardName,
         allocationPct: task.allocationPct,

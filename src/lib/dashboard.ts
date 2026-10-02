@@ -476,6 +476,7 @@ export type PersonalItemEntry = {
   boardName: string;
   itemId: string;
   itemName: string;
+  wbsCode: string;
   groupId: string;
   groupName: string;
   createdById: string | null;
@@ -558,6 +559,11 @@ export function computePersonalItems(
       list.push(i);
       itemsByGroup.set(i.groupId, list);
     }
+    // WBS 碼只在自己的分組樹裡有意義,逐組算。
+    const wbsByItemId = new Map<string, string>();
+    for (const groupItems of itemsByGroup.values()) {
+      for (const [id, code] of computeWbsCodes(groupItems)) wbsByItemId.set(id, code);
+    }
 
     for (const item of board.items) {
       const personIds = item.cellValues
@@ -598,6 +604,7 @@ export function computePersonalItems(
         boardName: board.name,
         itemId: item.id,
         itemName: item.name,
+        wbsCode: wbsByItemId.get(item.id) ?? "",
         groupId: item.groupId,
         groupName: groupNameById.get(item.groupId) ?? "",
         createdById: item.createdById,
