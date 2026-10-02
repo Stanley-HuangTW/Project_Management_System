@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -32,6 +33,8 @@ import { ConstraintBadge } from "./ConstraintBadge";
 import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
+import type { DropZone } from "@/lib/dragReorder";
+import { DropIndicator } from "./DropIndicator";
 
 export function ItemRow({
   pane,
@@ -71,6 +74,7 @@ export function ItemRow({
   hasGroupScheduleRole = false,
   hasGroupStructureRole = false,
   groupTeamUserIds,
+  dragOverTarget,
 }: {
   pane: "frozen" | "data";
   boardId: string;
@@ -124,6 +128,9 @@ export function ItemRow({
   hasGroupScheduleRole?: boolean;
   hasGroupStructureRole?: boolean;
   groupTeamUserIds?: Set<string>;
+  /** 目前拖曳中、懸停在哪一列/哪個放置區——由 GroupSection 的 DndContext 算出,
+   *  往下傳給每一列判斷要不要畫 DropIndicator。 */
+  dragOverTarget?: { id: string; zone: DropZone } | null;
 }) {
   const canEditStructure = canManageGroupStructure(userRole, hasGroupStructureRole);
   const canModifySchedule = canModifyItemSchedule(userRole, item.createdById, currentUserId, hasGroupScheduleRole);
@@ -157,6 +164,22 @@ export function ItemRow({
   const [flash, setFlash] = useState(false);
   const levelColor = levelColors?.[depth]?.trim() || undefined;
   const rowBackground = flash ? "#fecaca" : levelColor;
+
+  // 拖曳重新排列/改階層——只有 frozen pane(名稱/WBS 那一側)需要,data pane
+  // (純格子)不用。兩個 hook 都無條件呼叫以符合 hook 規則,用 disabled 關掉。
+  const dragDisabled = pane !== "frozen" || !canEditStructure;
+  const { attributes: dragAttributes, listeners: dragListeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: item.id,
+    data: { groupId },
+    disabled: dragDisabled,
+  });
+  const { setNodeRef: setDropRef } = useDroppable({ id: item.id, data: { groupId } });
+  const setRowRef = (node: HTMLDivElement | null) => {
+    rowRef.current = node;
+    setDragRef(node);
+    setDropRef(node);
+  };
+  const isDropTarget = dragOverTarget?.id === item.id;
 
   useEffect(() => {
     if (!isHighlighted || !rowRef.current) return;
@@ -249,6 +272,7 @@ export function ItemRow({
           manualScheduleHint={manualScheduleHint}
           collapsedIds={collapsedIds}
           onToggleCollapse={onToggleCollapse}
+          dragOverTarget={dragOverTarget}
         />
       ))
     : null;
@@ -257,14 +281,32 @@ export function ItemRow({
     return (
       <>
         <div
-          ref={rowRef}
-          className="group flex h-9 items-center border-b border-neutral-100 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          ref={setRowRef}
+          {...dragAttributes}
+          onPointerDown={(e) => {
+            // 點名稱/留言/指派/選單/勾選框還是原本的點擊行為,不會被拖曳搶走。
+            if ((e.target as HTMLElement).closest("button, input")) return;
+            dragListeners?.onPointerDown?.(e);
+          }}
+          className={`group relative flex h-9 items-center border-b border-neutral-100 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 ${
+            dragDisabled ? "" : isDragging ? "cursor-grabbing" : "cursor-grab"
+          }`}
           style={{
             width: frozenPaneWidth(nameWidth),
             backgroundColor: rowBackground,
             transition: "background-color 1.5s ease",
+            opacity: isDragging ? 0.5 : 1,
           }}
         >
+          {isDropTarget &&
+            dragOverTarget &&
+            (() => {
+              // 跟 GroupSection 的 handleItemDragMove 同一套「勾選框+展開箭頭」
+              // 固定寬度算法,視覺提示線才會跟縮排實際對齊。
+              const rowLeftOffset = (onToggleSelected ? 24 : 0) + 32;
+              const indentLevel = dragOverTarget.zone === "outdent" ? Math.max(0, depth - 1) : depth;
+              return <DropIndicator zone={dragOverTarget.zone} indentPx={rowLeftOffset + indentLevel * 20} />;
+            })()}
           {onToggleSelected && (
             <div className="flex h-8 w-6 shrink-0 items-center justify-center">
               <input

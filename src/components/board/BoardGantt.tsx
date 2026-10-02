@@ -2,6 +2,17 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragStartEvent,
+  type DragMoveEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
   ChevronDown,
   ChevronRight,
   Star,
@@ -43,7 +54,7 @@ import { buildDependencyArrows, type BarBox } from "@/lib/ganttArrows";
 import type { RelationshipType } from "@/lib/predecessorLink";
 
 const RELATIONSHIP_LABELS = ["FS", "FF", "SS", "SF"];
-import { computeWbsCodes } from "@/lib/wbs";
+import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
 import type { CascadedItem } from "@/lib/predecessorLink";
@@ -56,8 +67,11 @@ import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
 import { ConstraintBadge } from "./ConstraintBadge";
-import { createItem, insertItem } from "@/lib/actions/item";
+import { createItem, insertItem, moveItemWithinGroup } from "@/lib/actions/item";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
+import { classifyDropZone, type DropZone } from "@/lib/dragReorder";
+import { DropIndicator } from "./DropIndicator";
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useDeleteItem } from "./useDeleteItem";
 import { subordinateIds } from "@/lib/orgChart";
 
@@ -179,6 +193,7 @@ export function BoardGantt({
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestDelete = useDeleteItem();
+  const { notify } = useDialogs();
   const [assignmentItem, setAssignmentItem] = useState<ItemData | null>(null);
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<"updates" | "card">("updates");
@@ -278,6 +293,74 @@ export function BoardGantt({
     dragState.current = null;
     setIsPanning(false);
     scrollRef.current?.releasePointerCapture(e.pointerId);
+  }
+
+  // 拖曳重新排列/改階層——跟上面「拖拉平移視圖」是不同的手勢,靠
+  // GanttDraggableLabel 裡的 onPointerDown stopPropagation() 彼此不搶。
+  const itemDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [dragOverTarget, setDragOverTarget] = useState<{ id: string; zone: DropZone } | null>(null);
+  const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
+
+  function handleItemDragStart(event: DragStartEvent) {
+    const activator = event.activatorEvent as PointerEvent;
+    dragActivatorRef.current = { x: activator.clientX, y: activator.clientY };
+  }
+
+  /** 兩邊(拖曳中的視覺提示、放開時實際執行)都要用同一套算法算出 zone——不能
+   *  在 onDragMove 算一次存進 state,onDragEnd 再讀那個 state:React state 更新
+   *  是非同步的,onDragEnd 緊接著 onDragMove 觸發時可能讀到還沒更新的舊值。 */
+  function computeGanttDropZone(
+    over: { id: string | number; rect: { top: number; height: number; left: number } },
+    delta: { x: number; y: number }
+  ): { id: string; zone: DropZone } | null {
+    const activator = dragActivatorRef.current;
+    if (!activator) return null;
+    const targetItem = board.items.find((i) => i.id === over.id);
+    if (!targetItem) return null;
+    const depth = computeAncestorIds(board.items, targetItem.id).size;
+    // 甘特圖的縮排單位是 depth*16(renderRows 的 paddingLeft),外加 chevron
+    // 圖示+間距的固定寬度——跟表格視圖的 depth*20 不是同一套,各自換算。
+    const rowLeftOffset = 8 + 20;
+    const zone = classifyDropZone({
+      rowTop: over.rect.top,
+      rowHeight: over.rect.height,
+      pointerY: activator.y + delta.y,
+      targetIndentPx: rowLeftOffset + depth * 16,
+      pointerX: activator.x + delta.x - over.rect.left,
+      indentUnitPx: 16,
+      targetIsTopLevel: targetItem.parentId === null,
+    });
+    return { id: targetItem.id, zone };
+  }
+
+  function handleItemDragMove(event: DragMoveEvent) {
+    const { over, delta } = event;
+    setDragOverTarget(over ? computeGanttDropZone(over, delta) : null);
+  }
+
+  async function handleItemDragEnd(event: DragEndEvent) {
+    const { active, over, delta } = event;
+    const result = over ? computeGanttDropZone(over, delta) : null;
+    const zone = result?.zone;
+    setDragOverTarget(null);
+    dragActivatorRef.current = null;
+    if (!over || !zone || active.id === over.id) return;
+    const activeItem = board.items.find((i) => i.id === active.id);
+    const overItem = board.items.find((i) => i.id === over.id);
+    if (!activeItem || !overItem || activeItem.groupId !== overItem.groupId) return;
+    try {
+      await moveItemWithinGroup(board.id, activeItem.groupId, String(active.id), String(over.id), zone);
+    } catch (err) {
+      await notify(
+        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",
+        { title: isStaleBuildError(err) ? "需要重新整理" : "無法搬移項目" }
+      );
+    }
+  }
+
+  function handleItemDragCancel() {
+    setDragOverTarget(null);
+    dragActivatorRef.current = null;
   }
 
   const startColumnId = board.ganttStartColumnId;
@@ -825,9 +908,13 @@ export function BoardGantt({
 
       const row = (
         <div key={item.id} className="flex items-stretch border-b border-neutral-100 dark:border-neutral-700">
-          <div
-            className="sticky left-0 z-10 flex shrink-0 items-center gap-1 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm"
-            style={{ width: labelWidth, paddingLeft: 8 + depth * 16 }}
+          <GanttDraggableLabel
+            itemId={item.id}
+            groupId={item.groupId}
+            depth={depth}
+            disabled={!canEditItemStructure(item)}
+            dragOverTarget={dragOverTarget}
+            labelWidth={labelWidth}
           >
             {hasChildren ? (
               <button
@@ -918,7 +1005,7 @@ export function BoardGantt({
                 )}
               </RowMenu>
             )}
-          </div>
+          </GanttDraggableLabel>
           <div
             className="relative shrink-0"
             data-gantt-row={item.id}
@@ -1198,27 +1285,36 @@ export function BoardGantt({
               </div>
             </div>
 
-            {groupSections.flatMap(({ group, roots, visibleCount }) => [
-              <div
-                key={`group:${group.id}`}
-                className="flex items-stretch border-b border-neutral-200 dark:border-neutral-700"
-              >
+            <DndContext
+              id="board-item-rows-dnd"
+              sensors={itemDragSensors}
+              onDragStart={handleItemDragStart}
+              onDragMove={handleItemDragMove}
+              onDragEnd={handleItemDragEnd}
+              onDragCancel={handleItemDragCancel}
+            >
+              {groupSections.flatMap(({ group, roots, visibleCount }) => [
                 <div
-                  className="sticky left-0 z-10 flex shrink-0 items-center gap-2 bg-neutral-50 dark:bg-neutral-800 px-2 py-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-100"
-                  style={{ width: labelWidth, borderLeft: `4px solid ${group.color}` }}
+                  key={`group:${group.id}`}
+                  className="flex items-stretch border-b border-neutral-200 dark:border-neutral-700"
                 >
-                  <span className="min-w-0 flex-1 truncate">{group.name}</span>
-                  <span className="shrink-0 text-xs font-normal text-neutral-400 dark:text-neutral-500">
-                    {visibleCount} 項目
-                  </span>
-                </div>
-                <div
-                  className="shrink-0 bg-neutral-50 dark:bg-neutral-800"
-                  style={{ width: days.length * dayWidth, height: 34 }}
-                />
-              </div>,
-              ...renderRows(renderRootParentId, 0, roots),
-            ])}
+                  <div
+                    className="sticky left-0 z-10 flex shrink-0 items-center gap-2 bg-neutral-50 dark:bg-neutral-800 px-2 py-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-100"
+                    style={{ width: labelWidth, borderLeft: `4px solid ${group.color}` }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                    <span className="shrink-0 text-xs font-normal text-neutral-400 dark:text-neutral-500">
+                      {visibleCount} 項目
+                    </span>
+                  </div>
+                  <div
+                    className="shrink-0 bg-neutral-50 dark:bg-neutral-800"
+                    style={{ width: days.length * dayWidth, height: 34 }}
+                  />
+                </div>,
+                ...renderRows(renderRootParentId, 0, roots),
+              ])}
+            </DndContext>
 
           {externalPreds.length > 0 && (
             <div>
@@ -1378,6 +1474,73 @@ export function BoardGantt({
         }}
         initialTab={detailInitialTab}
       />
+    </div>
+  );
+}
+
+/**
+ * 甘特圖項目列左側 sticky 標籤欄的拖曳包裝——renderRows 不是元件(遞迴
+ * function、用 flatMap 回傳扁平陣列),useDraggable/useDroppable 這類 hook
+ * 不能直接塞進去依資料筆數變動地呼叫不定次數,所以只把這塊標籤欄抽成獨立元件,
+ * 其餘的列內容(收合按鈕、名稱、留言、指派、選單)原封不動當 children 傳進來。
+ */
+function GanttDraggableLabel({
+  itemId,
+  groupId,
+  depth,
+  disabled,
+  dragOverTarget,
+  labelWidth,
+  children,
+}: {
+  itemId: string;
+  groupId: string;
+  depth: number;
+  disabled: boolean;
+  dragOverTarget: { id: string; zone: DropZone } | null;
+  labelWidth: number;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: itemId,
+    data: { groupId },
+    disabled,
+  });
+  const { setNodeRef: setDropRef } = useDroppable({ id: itemId, data: { groupId } });
+  const setRef = (node: HTMLDivElement | null) => {
+    setDragRef(node);
+    setDropRef(node);
+  };
+  const isDropTarget = dragOverTarget?.id === itemId;
+
+  return (
+    <div
+      ref={setRef}
+      {...attributes}
+      onPointerDown={(e) => {
+        // 點收合箭頭/名稱/留言/指派/選單還是原本的點擊行為;空白處才是拖曳。
+        if ((e.target as HTMLElement).closest("button")) return;
+        // 這個 sticky 容器同時也是甘特圖「拖拉平移視圖」的手勢範圍——蓋掉冒泡,
+        // 讓從這裡拖曳變成拖動這一列,平移改成只能從右側時間軸拖動。
+        e.stopPropagation();
+        listeners?.onPointerDown?.(e);
+      }}
+      className={`sticky left-0 z-10 flex shrink-0 items-center gap-1 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm relative ${
+        disabled ? "" : isDragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+      style={{ width: labelWidth, paddingLeft: 8 + depth * 16, opacity: isDragging ? 0.5 : 1 }}
+    >
+      {isDropTarget && dragOverTarget && (
+        <DropIndicator
+          zone={dragOverTarget.zone}
+          indentPx={
+            dragOverTarget.zone === "outdent"
+              ? Math.max(0, 8 + 20 + (depth - 1) * 16)
+              : 8 + 20 + depth * 16
+          }
+        />
+      )}
+      {children}
     </div>
   );
 }

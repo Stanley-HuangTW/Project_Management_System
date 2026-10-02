@@ -1,6 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragMoveEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, GripVertical, Lock, Trash2 } from "lucide-react";
@@ -13,10 +22,11 @@ import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { renameGroup, deleteGroup } from "@/lib/actions/group";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
-import { createItem } from "@/lib/actions/item";
+import { createItem, moveItemWithinGroup } from "@/lib/actions/item";
 import { VisibilityModal } from "./VisibilityModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
-import { computeWbsCodes } from "@/lib/wbs";
+import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
+import { classifyDropZone, type DropZone } from "@/lib/dragReorder";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
 
@@ -171,6 +181,74 @@ export function GroupSection({
     }
   }
 
+  // 拖曳重新排列/改階層——只套用在 frozen pane 的項目列,跟上面「拖 Group 標題」
+  // 的 useSortable 是不同的 DndContext,彼此拖曳來源是不同的 DOM 節點,不會互搶。
+  const itemDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [dragOverTarget, setDragOverTarget] = useState<{ id: string; zone: DropZone } | null>(null);
+  const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
+
+  function handleItemDragStart(event: DragStartEvent) {
+    const activator = event.activatorEvent as PointerEvent;
+    dragActivatorRef.current = { x: activator.clientX, y: activator.clientY };
+  }
+
+  /** 兩邊(拖曳中的視覺提示、放開時實際執行)都要用同一套算法算出 zone——不能
+   *  在 onDragMove 算一次存進 state,onDragEnd 再讀那個 state:React state 更新
+   *  是非同步的,onDragEnd 緊接著 onDragMove 觸發時可能讀到還沒更新的舊值,放開
+   *  當下判斷用的 zone 就會跟剛剛畫面上顯示的提示線不一致。兩邊都直接從自己收到
+   *  的 event 重新算一次。 */
+  function computeDropZone(
+    over: { id: string | number; rect: { top: number; height: number; left: number } },
+    delta: { x: number; y: number }
+  ): { id: string; zone: DropZone } | null {
+    const activator = dragActivatorRef.current;
+    if (!activator) return null;
+    const targetItem = items.find((i) => i.id === over.id);
+    if (!targetItem) return null;
+    const depth = computeAncestorIds(items, targetItem.id).size;
+    // pointerX 跟 targetIndentPx 要在同一個座標系——都換算成「離這一列左邊界多遠」,
+    // 再加上勾選框(24px,只有開啟批次編輯時才有)+ 展開箭頭(32px)這段固定寬度,
+    // 縮排的 paddingLeft 才是從這之後才開始算。
+    const rowLeftOffset = (onToggleSelected ? 24 : 0) + 32;
+    const zone = classifyDropZone({
+      rowTop: over.rect.top,
+      rowHeight: over.rect.height,
+      pointerY: activator.y + delta.y,
+      targetIndentPx: rowLeftOffset + depth * 20,
+      pointerX: activator.x + delta.x - over.rect.left,
+      indentUnitPx: 20,
+      targetIsTopLevel: targetItem.parentId === null,
+    });
+    return { id: targetItem.id, zone };
+  }
+
+  function handleItemDragMove(event: DragMoveEvent) {
+    const { over, delta } = event;
+    setDragOverTarget(over ? computeDropZone(over, delta) : null);
+  }
+
+  async function handleItemDragEnd(event: DragEndEvent) {
+    const { active, over, delta } = event;
+    const result = over ? computeDropZone(over, delta) : null;
+    const zone = result?.zone;
+    setDragOverTarget(null);
+    dragActivatorRef.current = null;
+    if (!over || !zone || active.id === over.id) return;
+    try {
+      await moveItemWithinGroup(boardId, group.id, String(active.id), String(over.id), zone);
+    } catch (err) {
+      await notify(
+        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",
+        { title: isStaleBuildError(err) ? "需要重新整理" : "無法搬移項目" }
+      );
+    }
+  }
+
+  function handleItemDragCancel() {
+    setDragOverTarget(null);
+    dragActivatorRef.current = null;
+  }
+
   const topLevelItems = items
     .filter((item) => item.parentId === null)
     .filter((item) => visibleIds === null || visibleIds.has(item.id))
@@ -255,47 +333,57 @@ export function GroupSection({
       {!collapsed && (
         <div className="flex items-start">
           <div className="shrink-0" style={{ width: frozenPaneWidth(nameWidth) }}>
-            {topLevelItems.map((item) => (
-              <ItemRow
-                key={item.id}
-                pane="frozen"
-                boardId={boardId}
-                groupId={group.id}
-                item={item}
-                allGroupItems={items}
-                columns={columns}
-                users={users}
-                progressColumnId={progressColumnId}
-                ganttStartColumnId={ganttStartColumnId}
-                ganttDurationColumnId={ganttDurationColumnId}
-                ganttEndColumnId={ganttEndColumnId}
-                predColumnId={predColumnId}
-                linkColumnId={linkColumnId}
-                lagColumnId={lagColumnId}
-                manualStartColumnId={manualStartColumnId}
-                manualDurationColumnId={manualDurationColumnId}
-                lockedScheduleFields={lockedScheduleFields}
-                userRole={userRole}
-                currentUserId={currentUserId}
-                visibleIds={visibleIds}
-                nameWidth={nameWidth}
-                wbsCodes={wbsCodes}
-                crossGroupPredOptions={crossGroupPredOptions}
-                highlightItemId={highlightItemId}
-                expandIds={expandIds}
-                levelColors={levelColors}
-                nameColors={nameColors}
-                predLamps={predLamps}
-                selectedIds={selectedIds}
-                onToggleSelected={onToggleSelected}
-                manualScheduleHint={manualScheduleHint}
-                collapsedIds={collapsedIds}
-                onToggleCollapse={onToggleCollapse}
-                hasGroupScheduleRole={myGroupAccess.hasScheduleRole}
-                hasGroupStructureRole={myGroupAccess.disciplines.size > 0}
-                groupTeamUserIds={groupTeamUserIds}
-              />
-            ))}
+            <DndContext
+              id={`item-rows-dnd:${group.id}`}
+              sensors={itemDragSensors}
+              onDragStart={handleItemDragStart}
+              onDragMove={handleItemDragMove}
+              onDragEnd={handleItemDragEnd}
+              onDragCancel={handleItemDragCancel}
+            >
+              {topLevelItems.map((item) => (
+                <ItemRow
+                  key={item.id}
+                  pane="frozen"
+                  boardId={boardId}
+                  groupId={group.id}
+                  item={item}
+                  allGroupItems={items}
+                  columns={columns}
+                  users={users}
+                  progressColumnId={progressColumnId}
+                  ganttStartColumnId={ganttStartColumnId}
+                  ganttDurationColumnId={ganttDurationColumnId}
+                  ganttEndColumnId={ganttEndColumnId}
+                  predColumnId={predColumnId}
+                  linkColumnId={linkColumnId}
+                  lagColumnId={lagColumnId}
+                  manualStartColumnId={manualStartColumnId}
+                  manualDurationColumnId={manualDurationColumnId}
+                  lockedScheduleFields={lockedScheduleFields}
+                  userRole={userRole}
+                  currentUserId={currentUserId}
+                  visibleIds={visibleIds}
+                  nameWidth={nameWidth}
+                  wbsCodes={wbsCodes}
+                  crossGroupPredOptions={crossGroupPredOptions}
+                  highlightItemId={highlightItemId}
+                  expandIds={expandIds}
+                  levelColors={levelColors}
+                  nameColors={nameColors}
+                  predLamps={predLamps}
+                  selectedIds={selectedIds}
+                  onToggleSelected={onToggleSelected}
+                  manualScheduleHint={manualScheduleHint}
+                  collapsedIds={collapsedIds}
+                  onToggleCollapse={onToggleCollapse}
+                  hasGroupScheduleRole={myGroupAccess.hasScheduleRole}
+                  hasGroupStructureRole={myGroupAccess.disciplines.size > 0}
+                  groupTeamUserIds={groupTeamUserIds}
+                  dragOverTarget={dragOverTarget}
+                />
+              ))}
+            </DndContext>
             {canCreateItems && (
               <div className="flex h-9 items-center">
                 <input
