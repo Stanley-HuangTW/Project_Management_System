@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   byPriority,
   type ProgramSection,
@@ -42,9 +42,14 @@ function ItemRow({ item }: { item: ReportItem }) {
   return (
     <li className="flex flex-wrap items-center gap-1.5 py-1 text-sm text-neutral-700 dark:text-neutral-100">
       <span className="text-neutral-400 dark:text-neutral-500">
-        {item.boardName} / {item.groupName} · {item.wbsCode}
+        {item.boardName} / {item.groupName}
       </span>
-      <span>{item.name}</span>
+      <span>
+        {item.wbsCode && (
+          <span className="mr-1 tabular-nums text-neutral-400 dark:text-neutral-500">{item.wbsCode}</span>
+        )}
+        {item.name}
+      </span>
       {item.end && <span className="text-xs text-neutral-400 dark:text-neutral-500">({item.end})</span>}
       {item.ownerNames.length > 0 && (
         <span className="text-xs text-neutral-400 dark:text-neutral-500">{item.ownerNames.join("、")}</span>
@@ -57,16 +62,24 @@ function ItemRow({ item }: { item: ReportItem }) {
 }
 
 function ItemList({ items, limit = 15 }: { items: ReportItem[]; limit?: number }) {
-  const shown = byPriority(items).slice(0, limit);
+  const [expanded, setExpanded] = useState(false);
+  const sorted = byPriority(items);
+  const shown = expanded ? sorted : sorted.slice(0, limit);
   if (shown.length === 0) return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">沒有項目。</p>;
   return (
     <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
       {shown.map((i) => (
         <ItemRow key={i.id} item={i} />
       ))}
-      {items.length > shown.length && (
-        <li className="py-1 text-xs text-neutral-400 dark:text-neutral-500">
-          ……另外還有 {items.length - shown.length} 項
+      {!expanded && sorted.length > shown.length && (
+        <li className="py-1">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+          >
+            ……另外還有 {sorted.length - shown.length} 項(點擊展開)
+          </button>
         </li>
       )}
     </ul>
@@ -179,28 +192,34 @@ function DepartmentBlock({ people, upcomingDays }: { people: PersonSection[]; up
     byDiscipline.set(person.discipline, [...(byDiscipline.get(person.discipline) ?? []), person]);
   }
   return (
-    <div className="space-y-4">
-      {[...byDiscipline.entries()].map(([discipline, group]) => (
-        <div key={discipline}>
+    <div className="rounded-md border border-neutral-200 dark:border-neutral-700">
+      {[...byDiscipline.entries()].map(([discipline, group], groupIdx) => (
+        <div
+          key={discipline}
+          className={`px-2 py-2 ${groupIdx > 0 ? "border-t border-neutral-300 dark:border-neutral-600" : ""}`}
+        >
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
             {discipline}
           </p>
-          <div className="space-y-2.5 pl-2">
-            {group.map((person) => (
-              <div key={person.userId}>
+          <div className="pl-2">
+            {group.map((person, personIdx) => (
+              <div
+                key={person.userId}
+                className={`py-2 ${personIdx > 0 ? "border-t border-neutral-100 dark:border-neutral-800" : ""}`}
+              >
                 <p className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
                   [{ROLE_LABEL[person.role]}] {person.userName}
                 </p>
-                <div className="grid grid-cols-1 gap-x-4 gap-y-1 pl-2 sm:grid-cols-3">
-                  <div>
+                <div className="grid grid-cols-1 gap-y-1 pl-2 sm:grid-cols-3">
+                  <div className="sm:pr-3">
                     <p className="text-[11px] text-neutral-400">逾期({person.overdue.length})</p>
                     <ItemList items={person.overdue} limit={5} />
                   </div>
-                  <div>
+                  <div className="sm:border-l sm:border-neutral-200 sm:px-3 dark:sm:border-neutral-800">
                     <p className="text-[11px] text-neutral-400">這週已完成({person.completedThisWeek.length})</p>
                     <ItemList items={person.completedThisWeek} limit={5} />
                   </div>
-                  <div>
+                  <div className="sm:border-l sm:border-neutral-200 sm:pl-3 dark:sm:border-neutral-800">
                     <p className="text-[11px] text-neutral-400">
                       接下來 {upcomingDays} 天({person.upcoming.length})
                     </p>
