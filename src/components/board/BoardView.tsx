@@ -32,6 +32,7 @@ export function BoardView({
   userRole,
   currentUserId,
   highlightItemId,
+  highlightNonce,
   openAction,
   holidays,
   externalPreds,
@@ -41,6 +42,9 @@ export function BoardView({
   userRole: UserRole;
   currentUserId: string;
   highlightItemId?: string | null;
+  /** 隨每次點擊都不同的值(時間戳記)——同一個項目被連點兩次,highlightItemId
+   *  本身不會變,得靠這個才分得出「又點了一次」跟「沒事」。 */
+  highlightNonce?: string | null;
   /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
    *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
   openAction?: string | null;
@@ -53,9 +57,10 @@ export function BoardView({
   // be clicked from any tab — jump to the table view so BoardTable actually
   // mounts and opens the item's card, instead of silently updating the URL
   // behind whichever tab (e.g. 報表) happens to be showing.
-  const [prevHighlightItemId, setPrevHighlightItemId] = useState(highlightItemId);
-  if (highlightItemId !== prevHighlightItemId) {
-    setPrevHighlightItemId(highlightItemId);
+  const highlightKey = highlightItemId ? `${highlightItemId}#${highlightNonce ?? ""}` : null;
+  const [prevHighlightKey, setPrevHighlightKey] = useState(highlightKey);
+  if (highlightKey !== prevHighlightKey) {
+    setPrevHighlightKey(highlightKey);
     if (highlightItemId) setView("table");
   }
   // Once the Gantt has been opened it stays mounted, so switching to the table
@@ -241,6 +246,7 @@ export function BoardView({
             currentUserId={currentUserId}
             onAddColumn={() => setAddColumnOpen(true)}
             highlightItemId={highlightItemId}
+            highlightNonce={highlightNonce}
             holidays={holidays}
           />
         )}

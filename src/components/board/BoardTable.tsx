@@ -127,12 +127,14 @@ export function BoardTable({
   currentUserId,
   onAddColumn,
   highlightItemId,
+  highlightNonce,
   holidays,
 }: {
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
+  highlightNonce?: string | null;
   onAddColumn: () => void;
   highlightItemId?: string | null;
   holidays: Holiday[];
@@ -275,12 +277,16 @@ export function BoardTable({
   // item's card directly, not just scroll the row into view — re-arms on
   // every new highlightItemId so a second, different notification click
   // reopens it even if the user already closed the modal from the first one.
+  // Keyed on highlightNonce too: re-clicking the SAME notification sends the
+  // same itemId both times, so the nonce (a timestamp, set fresh per click by
+  // the sender) is what tells this apart from "nothing happened".
   // "Adjust state during render" (not an effect) so it fires exactly once
   // per prop change, same pattern as ItemDetailModal's own tab reset.
+  const highlightKey = highlightItemId ? `${highlightItemId}#${highlightNonce ?? ""}` : null;
   const [autoOpenItemId, setAutoOpenItemId] = useState<string | null>(highlightItemId ?? null);
-  const [prevHighlightItemId, setPrevHighlightItemId] = useState(highlightItemId);
-  if (highlightItemId !== prevHighlightItemId) {
-    setPrevHighlightItemId(highlightItemId);
+  const [prevHighlightKey, setPrevHighlightKey] = useState(highlightKey);
+  if (highlightKey !== prevHighlightKey) {
+    setPrevHighlightKey(highlightKey);
     if (highlightItemId) setAutoOpenItemId(highlightItemId);
   }
   const autoOpenItem = autoOpenItemId ? (board.items.find((i) => i.id === autoOpenItemId) ?? null) : null;

@@ -33,6 +33,14 @@ function formatWhen(value: Date | string): string {
 
 const POLL_INTERVAL_MS = 30000;
 
+/** A value that's different on every click, even for the same notification
+ *  clicked twice in a row — see handleClickNotification's use of it. Pulled
+ *  out of the component body because Date.now() is an impure call the
+ *  react-hooks/purity rule flags anywhere inside render-reachable code. */
+function nonce(): string {
+  return String(Date.now());
+}
+
 export function NotificationBell() {
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -71,7 +79,11 @@ export function NotificationBell() {
       setUnreadCount((c) => Math.max(0, c - 1));
     }
     setOpen(false);
-    router.push(`/boards/${n.item.boardId}?highlight=${n.item.id}`);
+    // highlightAt changes on every click, even re-clicking the same
+    // notification twice — the board page's "open the item card" logic keys
+    // off it rather than just the item id, since the id alone is identical
+    // both times and wouldn't look like a new click at all.
+    router.push(`/boards/${n.item.boardId}?highlight=${n.item.id}&highlightAt=${nonce()}`);
     // A search-param-only navigation to a route you're already on can be
     // served from the client Router Cache without re-running the page's
     // searchParams-dependent data fetch — force it, or clicking a second
