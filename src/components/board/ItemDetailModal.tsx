@@ -9,6 +9,7 @@ import type { ScheduleFloat } from "@/lib/criticalPath";
 import type { UserRole } from "@prisma/client";
 import { UpdatesTab } from "./item-detail/UpdatesTab";
 import { FilesTab } from "./item-detail/FilesTab";
+import { LinksTab } from "./item-detail/LinksTab";
 import { ActivityLogTab } from "./item-detail/ActivityLogTab";
 import { ItemCardTab } from "./item-detail/ItemCardTab";
 import { ChecklistTab } from "./item-detail/ChecklistTab";
@@ -17,6 +18,7 @@ import { CostTab } from "./item-detail/CostTab";
 const TABS = [
   { id: "updates", label: "更新" },
   { id: "files", label: "檔案" },
+  { id: "links", label: "連結" },
   { id: "activity", label: "活動紀錄" },
   { id: "card", label: "項目卡片" },
   { id: "checklist", label: "待辦事項" },
@@ -122,6 +124,7 @@ export function ItemDetailModal({
         />
       )}
       {tab === "files" && <FilesTab boardId={boardId} itemId={item.id} />}
+      {tab === "links" && <LinksTab boardId={boardId} itemId={item.id} />}
       {tab === "activity" && <ActivityLogTab itemId={item.id} />}
       {tab === "card" && (
         <ItemCardTab

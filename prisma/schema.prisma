@@ -110,6 +110,7 @@ model User {
   automationNotifyFor     AutomationRule[]         @relation("RuleNotifyUser")
   boardMemberships        BoardMember[]
   attachments             Attachment[]
+  itemLinks               ItemLink[]
   activityLogEntries      ActivityLogEntry[]
   createdItems            Item[]                   @relation("ItemCreatedBy")
   deletedItems            Item[]                   @relation("ItemDeletedBy")
@@ -422,6 +423,7 @@ model Item {
   notifications Notification[]
   assignments   Assignment[]
   attachments   Attachment[]
+  links         ItemLink[]
   activityLog   ActivityLogEntry[]
   todoItems     TodoItem[]
   timeEntries   TimeEntry[]
@@ -459,6 +461,22 @@ model Attachment {
   @@index([itemId])
   @@index([expenseId])
   @@index([commitmentId])
+}
+
+/// 工作項底下的外部連結(雲端硬碟、Google Sheet、外部文件……)——跟附件是
+/// 兩回事:附件是上傳進系統的檔案本體,這裡存的只是網址,不佔儲存空間。
+model ItemLink {
+  id          String   @id @default(cuid())
+  itemId      String
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  url         String
+  /// 使用者自己取的顯示名稱。沒填就顯示網址本身。
+  label       String?
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([itemId])
 }
 
 /// 稽核事件的分類。工作項的改動是原本就有的那一類;其餘是這次補上的——

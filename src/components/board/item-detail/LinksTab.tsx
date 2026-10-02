@@ -1,0 +1,120 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Link2, Plus, Trash2 } from "lucide-react";
+import { addItemLink, deleteItemLink, listItemLinks } from "@/lib/actions/itemLink";
+
+export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string }) {
+  const [links, setLinks] = useState<Awaited<ReturnType<typeof listItemLinks>>>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [url, setUrl] = useState("");
+  const [label, setLabel] = useState("");
+
+  async function refresh() {
+    setLinks(await listItemLinks(itemId));
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const result = await listItemLinks(itemId);
+        if (!cancelled) setLinks(result);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await addItemLink(boardId, itemId, url, label);
+      setUrl("");
+      setLabel("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "新增失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(linkId: string) {
+    await deleteItemLink(boardId, itemId, linkId);
+    await refresh();
+  }
+
+  return (
+    <div>
+      <form onSubmit={handleAdd} className="mb-4 flex flex-wrap items-center gap-2">
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://..."
+          className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+        />
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="顯示名稱(選填)"
+          className="w-40 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+        />
+        <button
+          type="submit"
+          disabled={saving || !url.trim()}
+          className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          <Plus size={14} /> 新增
+        </button>
+      </form>
+      {error && (
+        <div className="mb-3 rounded-md bg-red-50 dark:bg-red-950 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading && <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>}
+      {!loading && links.length === 0 && (
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">尚無連結</p>
+      )}
+      <ul className="space-y-2">
+        {links.map((l) => (
+          <li
+            key={l.id}
+            className="flex items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 px-3 py-2"
+          >
+            <Link2 size={16} className="shrink-0 text-neutral-400 dark:text-neutral-500" />
+            <a
+              href={l.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={l.url}
+              className="min-w-0 flex-1 truncate text-sm text-blue-600 hover:underline"
+            >
+              {l.label || l.url}
+            </a>
+            <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{l.createdBy.name}</span>
+            <button
+              type="button"
+              onClick={() => handleDelete(l.id)}
+              className="shrink-0 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
+              aria-label="刪除"
+            >
+              <Trash2 size={14} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
