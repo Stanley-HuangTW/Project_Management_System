@@ -1,8 +1,11 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import type { ColumnData, UserOption } from "@/types/board";
 import { getStatusOptions } from "@/types/column";
+import { orgUnitToGroupDiscipline } from "@/lib/groupRoles";
 import {
   CREATED_BY_FILTER_COLUMN_ID,
   CREATED_AT_FILTER_COLUMN_ID,
@@ -10,6 +13,45 @@ import {
   type ActiveFilter,
   type FilterValue,
 } from "@/lib/filter";
+
+/** 跟 GroupRolesModal 同一套對外說法——HW 這個列舉值一律叫 EE。 */
+const DISCIPLINE_LABEL: Record<string, string> = { SW: "SW", HW: "EE", ME: "ME", QA: "QA", PM: "PM" };
+const DISCIPLINE_ORDER = ["SW", "HW", "ME", "QA", "PM"];
+
+type PersonGroup = { key: string; label: string; users: UserOption[] };
+
+/**
+ * 負責人篩選的巢狀分組——依組織單位(軟體/硬體/PM……)分,單位對不到職能
+ * 的人歸「其他」,Resource(工具/廠商,沒有單位可言)另外自成一組,不跟
+ * 真人混在一起。
+ */
+function groupUsersByDiscipline(users: UserOption[]): PersonGroup[] {
+  const byDiscipline = new Map<string, UserOption[]>();
+  const other: UserOption[] = [];
+  const resources: UserOption[] = [];
+
+  for (const u of users) {
+    if (u.isResource) {
+      resources.push(u);
+      continue;
+    }
+    const discipline = u.discipline ? orgUnitToGroupDiscipline(u.discipline) : null;
+    if (discipline) {
+      byDiscipline.set(discipline, [...(byDiscipline.get(discipline) ?? []), u]);
+    } else {
+      other.push(u);
+    }
+  }
+
+  const groups: PersonGroup[] = DISCIPLINE_ORDER.filter((d) => byDiscipline.has(d)).map((d) => ({
+    key: d,
+    label: DISCIPLINE_LABEL[d],
+    users: byDiscipline.get(d)!,
+  }));
+  if (other.length > 0) groups.push({ key: "OTHER", label: "其他", users: other });
+  if (resources.length > 0) groups.push({ key: "RESOURCE", label: "資源", users: resources });
+  return groups;
+}
 
 // Synthetic entries appended to the real board columns so "任務分派者"/
 // "任務新增時間" (Item.createdById/createdAt) are filterable without being
@@ -168,32 +210,11 @@ function FilterValueControl({
 
   if (value.kind === "person") {
     return (
-      <div className="flex max-w-xs flex-wrap gap-1">
-        {users.map((u) => {
-          const active = value.selected.includes(u.id);
-          return (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() =>
-                onChange({
-                  kind: "person",
-                  selected: active
-                    ? value.selected.filter((id) => id !== u.id)
-                    : [...value.selected, u.id],
-                })
-              }
-              className={`rounded-full px-2 py-0.5 text-[11px] ${
-                active
-                  ? "bg-neutral-800 text-white"
-                  : "border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400"
-              }`}
-            >
-              {u.name}
-            </button>
-          );
-        })}
-      </div>
+      <PersonFilterDropdown
+        users={users}
+        selected={value.selected}
+        onChange={(selected) => onChange({ kind: "person", selected })}
+      />
     );
   }
 
@@ -282,5 +303,109 @@ function DateBound({
         今天
       </button>
     </span>
+  );
+}
+
+/**
+ * 負責人篩選——下拉選單取代一長排人名圓角標籤,面板裡依組織單位分組、
+ * 可各自收合展開,組內逐人勾選,支援複選。
+ */
+function PersonFilterDropdown({
+  users,
+  selected,
+  onChange,
+}: {
+  users: UserOption[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+}) {
+  const groups = useMemo(() => groupUsersByDiscipline(users), [users]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleGroup(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleUser(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
+  const selectedNames = users.filter((u) => selected.includes(u.id)).map((u) => u.name);
+  const label =
+    selectedNames.length === 0 ? "全部" : selectedNames.length <= 2 ? selectedNames.join("、") : `${selectedNames.length} 人`;
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="flex max-w-[160px] items-center gap-1 rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300 outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800"
+        >
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          <ChevronDown size={11} className="shrink-0 text-neutral-400 dark:text-neutral-500" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          className="z-50 max-h-80 w-64 overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-1 shadow-md"
+          onWheel={(e) => {
+            e.stopPropagation();
+            e.currentTarget.scrollTop += e.deltaY;
+          }}
+        >
+          {groups.length === 0 && (
+            <p className="px-2 py-2 text-xs text-neutral-400 dark:text-neutral-500">沒有可選的人</p>
+          )}
+          {groups.map((group) => {
+            const isOpen = expanded.has(group.key);
+            const selectedInGroup = group.users.filter((u) => selected.includes(u.id)).length;
+            return (
+              <div key={group.key}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex w-full items-center gap-1 rounded px-2 py-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400 outline-none hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  <ChevronRight
+                    size={11}
+                    className={`shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-left">{group.label}</span>
+                  <span className="shrink-0 text-[10px] font-normal text-neutral-400 dark:text-neutral-500">
+                    {selectedInGroup > 0 ? `${selectedInGroup}/${group.users.length}` : group.users.length}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="pl-4">
+                    {group.users.map((u) => {
+                      const active = selected.includes(u.id);
+                      return (
+                        <DropdownMenu.Item
+                          key={u.id}
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            toggleUser(u.id);
+                          }}
+                          className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-neutral-700 dark:text-neutral-100 outline-none hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                        >
+                          <input type="checkbox" checked={active} readOnly className="h-3 w-3" />
+                          <span className="min-w-0 flex-1 truncate">{u.name}</span>
+                        </DropdownMenu.Item>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
