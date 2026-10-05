@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyDropZone, computeLvlDelta, resolveItemMove, type MoveItemLike } from "./dragReorder";
+import { classifyDropZone, computeLvlDelta, previewDrop, resolveItemMove, type MoveItemLike } from "./dragReorder";
 
 describe("classifyDropZone", () => {
   const base = { rowTop: 100, rowHeight: 40, targetIndentPx: 32, indentUnitPx: 16, targetIsTopLevel: false };
@@ -133,6 +133,50 @@ describe("resolveItemMove", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.writes).toEqual([]);
+  });
+});
+
+describe("previewDrop", () => {
+  // 1 根
+  // ├─ 1.1 甲
+  // └─ 1.2 乙
+  //    └─ 1.2.1 乙之子
+  const items = [
+    { id: "root", parentId: null, order: 0, name: "根" },
+    { id: "a", parentId: "root", order: 0, name: "甲" },
+    { id: "b", parentId: "root", order: 1, name: "乙" },
+    { id: "b1", parentId: "b", order: 0, name: "乙之子" },
+  ];
+
+  it("child:算出放進去之後的新編號,並說明成為誰的子項", () => {
+    // 甲拖進乙 —— 甲離開之後乙往前補成 1.1,甲排在乙現有子項後面是 1.1.2。
+    const preview = previewDrop(items, "a", "b", "child");
+    expect(preview?.newCode).toBe("1.1.2");
+    expect(preview?.label).toBe("1.1.2 · 成為「1.1 乙」的子項");
+  });
+
+  it("after:同一層重新排序,編號跟著位置變", () => {
+    const preview = previewDrop(items, "a", "b", "after");
+    expect(preview?.newCode).toBe("1.2");
+    expect(preview?.label).toBe("1.2 · 與「1.1 乙」同階");
+  });
+
+  it("outdent:外移一層,說明跟目標的父項同階", () => {
+    const preview = previewDrop(items, "a", "b1", "outdent");
+    expect(preview?.newCode).toBe("1.2");
+    expect(preview?.label).toBe("1.2 · 外移一層,與「1.1 乙」同階");
+  });
+
+  it("位置沒變就直接說位置不變", () => {
+    const preview = previewDrop(items, "b", "a", "after");
+    expect(preview?.newCode).toBe("1.2");
+    expect(preview?.label).toBe("位置不變(1.2)");
+  });
+
+  it("不能放的情況回傳 null", () => {
+    expect(previewDrop(items, "a", "a", "child")).toBeNull();
+    expect(previewDrop(items, "b", "b1", "child")).toBeNull();
+    expect(previewDrop(items, "a", "root", "outdent")).toBeNull();
   });
 });
 

@@ -33,7 +33,7 @@ import { ConstraintBadge } from "./ConstraintBadge";
 import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
-import type { DropZone } from "@/lib/dragReorder";
+import type { DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
 
 export function ItemRow({
@@ -130,7 +130,7 @@ export function ItemRow({
   groupTeamUserIds?: Set<string>;
   /** 目前拖曳中、懸停在哪一列/哪個放置區——由 GroupSection 的 DndContext 算出,
    *  往下傳給每一列判斷要不要畫 DropIndicator。 */
-  dragOverTarget?: { id: string; zone: DropZone } | null;
+  dragOverTarget?: DragOverState | null;
 }) {
   const canEditStructure = canManageGroupStructure(userRole, hasGroupStructureRole);
   const canModifySchedule = canModifyItemSchedule(userRole, item.createdById, currentUserId, hasGroupScheduleRole);
@@ -180,6 +180,8 @@ export function ItemRow({
     setDropRef(node);
   };
   const isDropTarget = dragOverTarget?.id === item.id;
+  // 拖曳途中,被拖的這一列顯示「放開後會變成的 WBS 編號」,讓人看得出會落在哪一階。
+  const previewCode = dragOverTarget?.draggedId === item.id ? (dragOverTarget.preview?.newCode ?? null) : null;
 
   useEffect(() => {
     if (!isHighlighted || !rowRef.current) return;
@@ -305,7 +307,13 @@ export function ItemRow({
               // 固定寬度算法,視覺提示線才會跟縮排實際對齊。
               const rowLeftOffset = (onToggleSelected ? 24 : 0) + 32;
               const indentLevel = dragOverTarget.zone === "outdent" ? Math.max(0, depth - 1) : depth;
-              return <DropIndicator zone={dragOverTarget.zone} indentPx={rowLeftOffset + indentLevel * 20} />;
+              return (
+                <DropIndicator
+                  zone={dragOverTarget.zone}
+                  indentPx={rowLeftOffset + indentLevel * 20}
+                  label={dragOverTarget.preview?.label}
+                />
+              );
             })()}
           {onToggleSelected && (
             <div className="flex h-8 w-6 shrink-0 items-center justify-center">
@@ -331,8 +339,12 @@ export function ItemRow({
             )}
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-1" style={{ paddingLeft: depth * 20 }}>
-            {wbsCodes?.get(item.id) && (
-              <span className="shrink-0 text-xs font-bold text-black">{wbsCodes.get(item.id)}</span>
+            {previewCode ? (
+              <span className="shrink-0 rounded bg-blue-600 px-1 text-xs font-bold text-white">{previewCode}</span>
+            ) : (
+              wbsCodes?.get(item.id) && (
+                <span className="shrink-0 text-xs font-bold text-black">{wbsCodes.get(item.id)}</span>
+              )
             )}
             {item.visibility === "PRIVATE" && (
               <span

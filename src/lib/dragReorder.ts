@@ -1,4 +1,5 @@
 import { collectSubtreeIds } from "./trash";
+import { computeWbsCodes } from "./wbs";
 
 /**
  * 拖曳工作項重新排列/改階層——放開的位置決定結果:
@@ -119,6 +120,67 @@ export function resolveItemMove(
   }
 
   return { ok: true, writes };
+}
+
+export type DropPreview = {
+  /** 放開之後被拖項目的 WBS 編號——拖曳途中直接顯示在它那一列上。 */
+  newCode: string | null;
+  /** 一句話說明放在誰底下、跟誰同階,顯示在目標列的放置提示上。 */
+  label: string;
+};
+
+/** 拖曳途中每個視圖都要記的狀態:懸停在哪一列、哪個放置區、拖的是誰、放開後會怎樣。 */
+export type DragOverState = {
+  id: string;
+  zone: DropZone;
+  draggedId: string;
+  preview: DropPreview | null;
+};
+
+/**
+ * 拖曳途中的即時預覽:假設現在放開,被拖項目的 WBS 編號會變成什麼、放在哪裡。
+ *
+ * 直接用 resolveItemMove 算出來的寫入結果套回整份清單、再重算一次 WBS——跟放開
+ * 之後資料庫真正的結果走同一條路,預覽不會跟實際結果對不起來。說明文字裡引用的
+ * 編號用「放開之後」的新編號:往下拖時,被拖項目原本在前面,放開後它前面的項目編號
+ * 會往前補,用舊編號寫的「放在 1.2 底下」就會跟放開後看到的 1.1 對不上。
+ *
+ * 不能放(拖到自己、拖到自己的子孫、最上層無法外移)回傳 null。
+ */
+export function previewDrop<T extends MoveItemLike & { name: string }>(
+  items: T[],
+  draggedId: string,
+  targetId: string,
+  zone: DropZone
+): DropPreview | null {
+  const result = resolveItemMove(items, draggedId, targetId, zone);
+  if (!result.ok) return null;
+
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const writes = new Map(result.writes.map((w) => [w.id, w]));
+  const moved = items.map((i) => {
+    const w = writes.get(i.id);
+    return w ? { ...i, parentId: w.parentId, order: w.order } : i;
+  });
+  const newCodes = computeWbsCodes(moved);
+  const newCode = newCodes.get(draggedId) ?? null;
+
+  if (!writes.has(draggedId)) {
+    return { newCode, label: `位置不變${newCode ? `(${newCode})` : ""}` };
+  }
+
+  const ref = (id: string | null): string => {
+    const item = id ? byId.get(id) : undefined;
+    if (!id || !item) return "最上層";
+    const code = newCodes.get(id);
+    return `${code ? `${code} ` : ""}${item.name}`;
+  };
+  const target = byId.get(targetId)!;
+  const head = newCode ? `${newCode} · ` : "";
+
+  if (zone === "child") return { newCode, label: `${head}成為「${ref(targetId)}」的子項` };
+  if (zone === "after") return { newCode, label: `${head}與「${ref(targetId)}」同階` };
+  return { newCode, label: `${head}外移一層,與「${ref(target.parentId)}」同階` };
 }
 
 /** `newParentLvl` 是 null 代表變成最上層,或新父層沒有數字 Lvl 值(呼叫端應該在這種
