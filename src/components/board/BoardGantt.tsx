@@ -1928,6 +1928,14 @@ function GanttBar({
           isMilestone
             ? `里程碑:${toIsoDate(range.start)}`
             : item.assignments.map((a) => `${a.user.name} ${a.allocationPct}%`).join(", "),
+          // 里程碑那一行已經是日期了,不再重複。
+          ...(isMilestone
+            ? []
+            : [
+                `開始日期:${toIsoDate(range.start)}`,
+                `結束日期:${toIsoDate(range.end)}`,
+                `${durationMode === "BUSINESS" ? "工作天數" : "天數"}:${fixedDurationDays} 天`,
+              ]),
           scheduleFloat ? describeFloat(scheduleFloat) : "",
         ]
           .filter(Boolean)
