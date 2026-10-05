@@ -69,7 +69,7 @@ import { SavedViewBar } from "./SavedViewBar";
 import { ConstraintBadge } from "./ConstraintBadge";
 import { createItem, insertItem, moveItemWithinGroup } from "@/lib/actions/item";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
-import { classifyDropZone, type DropZone } from "@/lib/dragReorder";
+import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useDeleteItem } from "./useDeleteItem";
@@ -298,7 +298,7 @@ export function BoardGantt({
   // 拖曳重新排列/改階層——跟上面「拖拉平移視圖」是不同的手勢,靠
   // GanttDraggableLabel 裡的 onPointerDown stopPropagation() 彼此不搶。
   const itemDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const [dragOverTarget, setDragOverTarget] = useState<{ id: string; zone: DropZone } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<DragOverState | null>(null);
   const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
 
   function handleItemDragStart(event: DragStartEvent) {
@@ -311,12 +311,16 @@ export function BoardGantt({
    *  是非同步的,onDragEnd 緊接著 onDragMove 觸發時可能讀到還沒更新的舊值。 */
   function computeGanttDropZone(
     over: { id: string | number; rect: { top: number; height: number; left: number } },
-    delta: { x: number; y: number }
-  ): { id: string; zone: DropZone } | null {
+    delta: { x: number; y: number },
+    activeId: string | number
+  ): DragOverState | null {
     const activator = dragActivatorRef.current;
-    if (!activator) return null;
+    // 懸停在自己身上(剛開始拖的時候)不是一個放置位置,不畫提示。
+    if (!activator || over.id === activeId) return null;
     const targetItem = board.items.find((i) => i.id === over.id);
-    if (!targetItem) return null;
+    const activeItem = board.items.find((i) => i.id === activeId);
+    // 只能在同一個分組內移動——跨分組的目標不畫提示,免得讓人以為放得下去。
+    if (!targetItem || !activeItem || activeItem.groupId !== targetItem.groupId) return null;
     const depth = computeAncestorIds(board.items, targetItem.id).size;
     // 甘特圖的縮排單位是 depth*16(renderRows 的 paddingLeft),外加 chevron
     // 圖示+間距的固定寬度——跟表格視圖的 depth*20 不是同一套,各自換算。
@@ -330,17 +334,37 @@ export function BoardGantt({
       indentUnitPx: 16,
       targetIsTopLevel: targetItem.parentId === null,
     });
-    return { id: targetItem.id, zone };
+    // WBS 編號是各分組各自從 1 算起,預覽也只拿這個分組的項目來算。
+    const groupItems = board.items.filter((i) => i.groupId === targetItem.groupId);
+    const draggedId = String(activeId);
+    return {
+      id: targetItem.id,
+      zone,
+      draggedId,
+      preview: previewDrop(groupItems, draggedId, targetItem.id, zone),
+    };
   }
 
   function handleItemDragMove(event: DragMoveEvent) {
-    const { over, delta } = event;
-    setDragOverTarget(over ? computeGanttDropZone(over, delta) : null);
+    const { active, over, delta } = event;
+    const next = over ? computeGanttDropZone(over, delta, active.id) : null;
+    // 滑鼠每動一下都會進來——目標列、放置區、預覽都沒變就保留原本的 state,
+    // 不要讓整個甘特圖跟著重畫。
+    setDragOverTarget((prev) =>
+      prev &&
+      next &&
+      prev.id === next.id &&
+      prev.zone === next.zone &&
+      prev.draggedId === next.draggedId &&
+      prev.preview?.label === next.preview?.label
+        ? prev
+        : next
+    );
   }
 
   async function handleItemDragEnd(event: DragEndEvent) {
     const { active, over, delta } = event;
-    const result = over ? computeGanttDropZone(over, delta) : null;
+    const result = over ? computeGanttDropZone(over, delta, active.id) : null;
     const zone = result?.zone;
     setDragOverTarget(null);
     dragActivatorRef.current = null;
@@ -905,6 +929,9 @@ export function BoardGantt({
       const isCollapsed = collapsed.has(item.id);
       const range = ranges.get(item.id);
       const nameColor = ganttStatusColor(item);
+      // 拖曳途中,被拖的這一列顯示「放開後會變成的 WBS 編號」。
+      const previewCode =
+        dragOverTarget?.draggedId === item.id ? (dragOverTarget.preview?.newCode ?? null) : null;
 
       const row = (
         <div key={item.id} className="flex items-stretch border-b border-neutral-100 dark:border-neutral-700">
@@ -937,8 +964,12 @@ export function BoardGantt({
               className="min-w-0 flex-1 truncate text-left hover:text-blue-600 hover:underline"
               style={nameColor ? { color: nameColor } : undefined}
             >
-              {wbsCodes.get(item.id) && (
-                <span className="mr-1 text-neutral-400 dark:text-neutral-500">{wbsCodes.get(item.id)}</span>
+              {previewCode ? (
+                <span className="mr-1 rounded bg-blue-600 px-1 font-medium text-white">{previewCode}</span>
+              ) : (
+                wbsCodes.get(item.id) && (
+                  <span className="mr-1 text-neutral-400 dark:text-neutral-500">{wbsCodes.get(item.id)}</span>
+                )
               )}
               {item.name}
             </button>
@@ -1497,7 +1528,7 @@ function GanttDraggableLabel({
   groupId: string;
   depth: number;
   disabled: boolean;
-  dragOverTarget: { id: string; zone: DropZone } | null;
+  dragOverTarget: DragOverState | null;
   labelWidth: number;
   children: ReactNode;
 }) {
@@ -1538,6 +1569,7 @@ function GanttDraggableLabel({
               ? Math.max(0, 8 + 20 + (depth - 1) * 16)
               : 8 + 20 + depth * 16
           }
+          label={dragOverTarget.preview?.label}
         />
       )}
       {children}

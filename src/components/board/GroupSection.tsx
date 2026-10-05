@@ -26,7 +26,7 @@ import { createItem, moveItemWithinGroup } from "@/lib/actions/item";
 import { VisibilityModal } from "./VisibilityModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
-import { classifyDropZone, type DropZone } from "@/lib/dragReorder";
+import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
 
@@ -184,7 +184,7 @@ export function GroupSection({
   // 拖曳重新排列/改階層——只套用在 frozen pane 的項目列,跟上面「拖 Group 標題」
   // 的 useSortable 是不同的 DndContext,彼此拖曳來源是不同的 DOM 節點,不會互搶。
   const itemDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const [dragOverTarget, setDragOverTarget] = useState<{ id: string; zone: DropZone } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<DragOverState | null>(null);
   const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
 
   function handleItemDragStart(event: DragStartEvent) {
@@ -199,10 +199,12 @@ export function GroupSection({
    *  的 event 重新算一次。 */
   function computeDropZone(
     over: { id: string | number; rect: { top: number; height: number; left: number } },
-    delta: { x: number; y: number }
-  ): { id: string; zone: DropZone } | null {
+    delta: { x: number; y: number },
+    activeId: string | number
+  ): DragOverState | null {
     const activator = dragActivatorRef.current;
-    if (!activator) return null;
+    // 懸停在自己身上(剛開始拖的時候)不是一個放置位置,不畫提示。
+    if (!activator || over.id === activeId) return null;
     const targetItem = items.find((i) => i.id === over.id);
     if (!targetItem) return null;
     const depth = computeAncestorIds(items, targetItem.id).size;
@@ -219,17 +221,30 @@ export function GroupSection({
       indentUnitPx: 20,
       targetIsTopLevel: targetItem.parentId === null,
     });
-    return { id: targetItem.id, zone };
+    const draggedId = String(activeId);
+    return { id: targetItem.id, zone, draggedId, preview: previewDrop(items, draggedId, targetItem.id, zone) };
   }
 
   function handleItemDragMove(event: DragMoveEvent) {
-    const { over, delta } = event;
-    setDragOverTarget(over ? computeDropZone(over, delta) : null);
+    const { active, over, delta } = event;
+    const next = over ? computeDropZone(over, delta, active.id) : null;
+    // 滑鼠每動一下都會進來——目標列、放置區、預覽都沒變就保留原本的 state,
+    // 不要讓整棵項目樹跟著重畫。
+    setDragOverTarget((prev) =>
+      prev &&
+      next &&
+      prev.id === next.id &&
+      prev.zone === next.zone &&
+      prev.draggedId === next.draggedId &&
+      prev.preview?.label === next.preview?.label
+        ? prev
+        : next
+    );
   }
 
   async function handleItemDragEnd(event: DragEndEvent) {
     const { active, over, delta } = event;
-    const result = over ? computeDropZone(over, delta) : null;
+    const result = over ? computeDropZone(over, delta, active.id) : null;
     const zone = result?.zone;
     setDragOverTarget(null);
     dragActivatorRef.current = null;
