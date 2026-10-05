@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   ScrollText,
   FileText,
+  Clock,
   DatabaseBackup,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
@@ -338,6 +339,17 @@ export function BoardSidebar({
         >
           <FileText size={14} className="shrink-0" />
           週報
+        </Link>
+        <Link
+          href="/timesheet"
+          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+            pathname === "/timesheet"
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <Clock size={14} className="shrink-0" />
+          工時
         </Link>
         <Link
           href="/data-export"

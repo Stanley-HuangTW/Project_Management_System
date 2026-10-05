@@ -25,6 +25,7 @@ export async function listUsers() {
       hourlyRate: true,
       discipline: true,
       monthlySalary: true,
+      canViewAllTimesheets: true,
     },
     orderBy: { order: "asc" },
   });
@@ -55,6 +56,27 @@ export async function updateUserDiscipline(userId: string, discipline: Disciplin
     "COST",
     session.userId,
     `${target?.name ?? userId} 的所屬單位:${target?.discipline ?? "(未設定)"} → ${discipline ?? "(未設定)"}`
+  );
+  revalidatePath("/users");
+}
+
+/**
+ * 指定某個人可以檢視全部成員的工時統計。沒勾的主管只看得到直屬部屬,
+ * 見 timesheet.ts 的 canViewTimesheetOf。
+ */
+export async function updateUserTimesheetAccess(userId: string, canViewAll: boolean) {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") {
+    throw new Error("只有管理員可以設定工時檢視權限");
+  }
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  if (!target) throw new Error("找不到使用者");
+
+  await prisma.user.update({ where: { id: userId }, data: { canViewAllTimesheets: canViewAll } });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `${target.name} ${canViewAll ? "可以檢視全部成員的工時" : "不再能檢視全部成員的工時"}`
   );
   revalidatePath("/users");
 }

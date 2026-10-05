@@ -27,6 +27,7 @@ import { ProgramCard, type ProgramBoard } from "./ProgramCard";
 import { ProgramReportSubscriptionCard } from "./ProgramReportSubscriptionCard";
 import { WeeklyReportScheduleCard } from "./WeeklyReportScheduleCard";
 import { BackupSettingsCard } from "./BackupSettingsCard";
+import { TimeCategoryCard } from "./TimeCategoryCard";
 import type { BackupScheduleInput } from "@/lib/actions/backup";
 import { ExchangeRateCard } from "./ExchangeRateCard";
 import type { ProgramRow } from "@/lib/actions/program";
@@ -520,6 +521,7 @@ export function SystemSettingsForm({
           <NotificationTypesCard initial={enabledNotificationTypes} />
           <GanttModeCard initial={ganttDurationMode} />
           <HoursPerDayCard initial={hoursPerDay} />
+          <TimeCategoryCard />
           <OrgUnitCard units={orgUnits} />
           <DisciplineRateCard
             units={orgUnits}

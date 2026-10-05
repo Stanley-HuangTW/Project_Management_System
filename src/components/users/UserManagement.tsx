@@ -32,6 +32,7 @@ import {
   updateUserHourlyRate,
   updateUserDiscipline,
   updateUserMonthlySalary,
+  updateUserTimesheetAccess,
   adminResetUserPassword,
   unlockUser,
 } from "@/lib/actions/user";
@@ -318,6 +319,7 @@ export function UserManagement({
   const [editEmail, setEditEmail] = useState("");
   const [editRole, setEditRole] = useState<UserRole>("MEMBER");
   const [editSupervisorId, setEditSupervisorId] = useState("");
+  const [editCanViewAll, setEditCanViewAll] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -396,6 +398,7 @@ export function UserManagement({
     setEditEmail(user.email);
     setEditRole(user.role);
     setEditSupervisorId(user.supervisorId ?? "");
+    setEditCanViewAll(user.canViewAllTimesheets);
     setEditError(null);
   }
 
@@ -405,6 +408,11 @@ export function UserManagement({
     setEditError(null);
     try {
       await updateUser(editTarget.id, editName, editEmail, editRole, editSupervisorId || null);
+      // 這個權限只在「主管」身上有意思:改成別的角色時順便收回,不留一個沒人看得到的旗標。
+      const nextCanViewAll = editRole === "SUPERVISOR" && editCanViewAll;
+      if (nextCanViewAll !== editTarget.canViewAllTimesheets) {
+        await updateUserTimesheetAccess(editTarget.id, nextCanViewAll);
+      }
       setEditTarget(null);
     } catch (err) {
       setEditError(err instanceof Error ? err.message : "修改失敗");
@@ -662,6 +670,22 @@ export function UserManagement({
               </option>
             ))}
           </select>
+          {editRole === "SUPERVISOR" && (
+            <label className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+              <input
+                type="checkbox"
+                checked={editCanViewAll}
+                onChange={(e) => setEditCanViewAll(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                可以檢視全部成員的工時
+                <span className="block text-xs text-neutral-400 dark:text-neutral-500">
+                  沒勾的主管只看得到直屬部屬的工時統計。
+                </span>
+              </span>
+            </label>
+          )}
           <button
             type="button"
             disabled={editSubmitting || !editName.trim() || !editEmail.trim()}
