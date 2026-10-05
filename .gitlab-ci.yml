@@ -9,4 +9,6 @@ auto-deploy:
     - cd /home/projectadmin/apps/ursrobot_project
     - git pull origin main
     - docker compose down
-    - docker compose up -d --build
+    - docker compose --env-file .env.production up -d db
+    - docker compose --env-file .env.production build app
+    - docker compose up -d proxy 
