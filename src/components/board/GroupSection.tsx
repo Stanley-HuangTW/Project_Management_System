@@ -22,7 +22,8 @@ import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { renameGroup, deleteGroup } from "@/lib/actions/group";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
-import { createItem, moveItemWithinGroup } from "@/lib/actions/item";
+import { createItem } from "@/lib/actions/item";
+import { useRecordedItemMove } from "./useRecordedItemMove";
 import { VisibilityModal } from "./VisibilityModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
@@ -186,6 +187,7 @@ export function GroupSection({
   const itemDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [dragOverTarget, setDragOverTarget] = useState<DragOverState | null>(null);
   const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
+  const moveRecorded = useRecordedItemMove();
 
   function handleItemDragStart(event: DragStartEvent) {
     const activator = event.activatorEvent as PointerEvent;
@@ -250,7 +252,14 @@ export function GroupSection({
     dragActivatorRef.current = null;
     if (!over || !zone || active.id === over.id) return;
     try {
-      await moveItemWithinGroup(boardId, group.id, String(active.id), String(over.id), zone);
+      await moveRecorded({
+        boardId,
+        groupId: group.id,
+        groupItems: items,
+        draggedId: String(active.id),
+        targetId: String(over.id),
+        zone,
+      });
     } catch (err) {
       await notify(
         isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",

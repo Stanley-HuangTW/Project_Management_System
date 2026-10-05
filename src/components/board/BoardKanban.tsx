@@ -27,7 +27,7 @@ import { computeWbsCodes } from "@/lib/wbs";
 import { KanbanLane } from "./KanbanLane";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
-import { upsertCellValue } from "@/lib/actions/cell";
+import { useRecordedCellSave } from "./cell-editors/useCellSave";
 import { subordinateIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
 
@@ -287,6 +287,7 @@ export function BoardKanban({
     return map;
   }, [board]);
   const { notify } = useDialogs();
+  const saveRecorded = useRecordedCellSave();
   const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
   const [openingDetailItemId, setOpeningDetailItemId] = useState<string | null>(null);
 
@@ -420,7 +421,17 @@ export function BoardKanban({
     if (!overLane) return;
 
     const finalValue = overLane === UNSET_LANE ? null : overLane;
-    upsertCellValue(board.id, activeId, column.id, finalValue);
+    // 拖曳途中本地的 items 已經先換成新值,「改之前」要從還沒被改過的 board 讀。
+    const stored = board.items
+      .find((i) => i.id === activeId)
+      ?.cellValues.find((cv) => cv.columnId === column.id)?.value;
+    saveRecorded({
+      boardId: board.id,
+      itemId: activeId,
+      columnId: column.id,
+      before: typeof stored === "string" ? stored : null,
+      after: finalValue,
+    });
   }
 
   if (!isDueMode && !column) {

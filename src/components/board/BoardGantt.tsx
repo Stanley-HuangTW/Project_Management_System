@@ -67,10 +67,14 @@ import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
 import { ConstraintBadge } from "./ConstraintBadge";
-import { createItem, insertItem, moveItemWithinGroup } from "@/lib/actions/item";
+import { createItem, insertItem } from "@/lib/actions/item";
+import { useRecordedItemMove } from "./useRecordedItemMove";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
+import type { UndoResult } from "@/lib/editHistory";
 import { DropIndicator } from "./DropIndicator";
+import { UndoRedoButtons } from "./UndoRedoButtons";
+import { useEditHistory } from "./EditHistoryProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useDeleteItem } from "./useDeleteItem";
 import { subordinateIds } from "@/lib/orgChart";
@@ -300,6 +304,7 @@ export function BoardGantt({
   const itemDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [dragOverTarget, setDragOverTarget] = useState<DragOverState | null>(null);
   const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
+  const moveRecorded = useRecordedItemMove();
 
   function handleItemDragStart(event: DragStartEvent) {
     const activator = event.activatorEvent as PointerEvent;
@@ -373,7 +378,14 @@ export function BoardGantt({
     const overItem = board.items.find((i) => i.id === over.id);
     if (!activeItem || !overItem || activeItem.groupId !== overItem.groupId) return;
     try {
-      await moveItemWithinGroup(board.id, activeItem.groupId, String(active.id), String(over.id), zone);
+      await moveRecorded({
+        boardId: board.id,
+        groupId: activeItem.groupId,
+        groupItems: board.items.filter((i) => i.groupId === activeItem.groupId),
+        draggedId: String(active.id),
+        targetId: String(over.id),
+        zone,
+      });
     } catch (err) {
       await notify(
         isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",
@@ -565,6 +577,12 @@ export function BoardGantt({
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board.items, startColumnId, durationColumnId, durationMode, holidaySet, typeColumnId, typeOptions]);
+
+  // 「上一步」要在還原的那一刻比對日期條現在的位置,登記當下的 closure 已經過期。
+  const rangesRef = useRef(ranges);
+  useEffect(() => {
+    rangesRef.current = ranges;
+  });
 
   // Task-name color by status — 完成 beats 逾期 beats 實作中 (an item that's
   // both done and past its own end date still just reads as done); 尚未處理
@@ -1057,6 +1075,7 @@ export function BoardGantt({
                 boardId={board.id}
                 item={item}
                 range={range}
+                getCurrentRange={() => rangesRef.current.get(item.id)}
                 dayWidth={dayWidth}
                 dayIndexByIso={dayIndexByIso}
                 days={days}
@@ -1189,14 +1208,17 @@ export function BoardGantt({
             清除
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => setIsFullscreen((v) => !v)}
-          className="ml-auto flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-600 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-        >
-          {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          {isFullscreen ? "退出全螢幕" : "全螢幕"}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <UndoRedoButtons />
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-600 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {isFullscreen ? "退出全螢幕" : "全螢幕"}
+          </button>
+        </div>
       </div>
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-2">
         <FilterBar columns={board.columns} users={users} filters={filters} onChange={setFilters} />
@@ -1625,6 +1647,7 @@ function GanttBar({
   boardId,
   item,
   range,
+  getCurrentRange,
   dayWidth,
   dayIndexByIso,
   days,
@@ -1644,6 +1667,8 @@ function GanttBar({
   boardId: string;
   item: ItemData;
   range: DateRange;
+  /** 這根長條「現在」的起訖(讀最新的看板資料)——上一步/下一步執行時用來確認沒被別人改過。 */
+  getCurrentRange: () => DateRange | undefined;
   dayWidth: number;
   dayIndexByIso: Map<string, number>;
   days: Date[];
@@ -1679,6 +1704,7 @@ function GanttBar({
   } | null>(null);
 
   const { confirm, notify } = useDialogs();
+  const history = useEditHistory();
 
   const canResizeStart = canEdit && !startLocked && !daysLocked;
   const canResizeEnd = canEdit && !endLocked && !daysLocked;
@@ -1737,6 +1763,31 @@ function GanttBar({
     }
     const message = [summary, ...describeCascade(cascaded), "", "確定要套用這個時程調整嗎?"].join("\n");
     return confirm(message, { title: "調整時程" });
+  }
+
+  /** 搬移/拉長成功之後登記到「上一步 / 下一步」。還原是用同一個 action 把那一側的日期寫回去,
+   *  Days 與依賴項目的日期由排程連動重新推導。還原前先確認那一側的日期還是當初改完的值。 */
+  function recordScheduleEdit(edge: "start" | "end" | "move", before: string, after: string) {
+    if (!history) return;
+    const label =
+      edge === "move"
+        ? `搬移「${item.name}」的時程`
+        : `調整「${item.name}」的${edge === "start" ? "開始" : "結束"}日期`;
+    const apply = async (expected: string, target: string): Promise<UndoResult> => {
+      const current = getCurrentRange();
+      const currentIso = current ? toIsoDate(edge === "end" ? current.end : current.start) : null;
+      if (currentIso !== expected) {
+        return { ok: false, reason: "這個工作項目的日期已經被改過(可能是其他人、其他分頁或前置依賴連動),為了不蓋掉新的修改,沒有執行。" };
+      }
+      try {
+        if (edge === "move") await moveItemBar(boardId, item.id, target);
+        else await resizeItemBar(boardId, item.id, edge, target);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : "調整失敗" };
+      }
+    };
+    history.record({ label, undo: () => apply(after, before), redo: () => apply(before, after) });
   }
 
   function handleResizeDown(edge: "start" | "end", e: React.PointerEvent<HTMLDivElement>) {
@@ -1804,6 +1855,7 @@ function GanttBar({
       if (!(await confirmScheduleChange(message, newStartDate, newEndDate))) return;
       try {
         await moveItemBar(boardId, item.id, toIsoDate(newStartDate));
+        recordScheduleEdit("move", toIsoDate(range.start), toIsoDate(newStartDate));
       } catch (err) {
         await notify(err instanceof Error ? err.message : "調整失敗", { title: "無法調整時程" });
       }
@@ -1826,6 +1878,11 @@ function GanttBar({
 
     try {
       await resizeItemBar(boardId, item.id, current.edge, toIsoDate(newDate));
+      recordScheduleEdit(
+        current.edge,
+        toIsoDate(current.edge === "start" ? range.start : range.end),
+        toIsoDate(newDate)
+      );
     } catch (err) {
       await notify(err instanceof Error ? err.message : "調整失敗", { title: "無法調整時程" });
     }

@@ -18,6 +18,8 @@ import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
 import { AssignmentEditor } from "../AssignmentEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { useEditHistory } from "../EditHistoryProvider";
+import type { UndoResult } from "@/lib/editHistory";
 import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 
 export function ItemCardTab({
@@ -70,6 +72,7 @@ export function ItemCardTab({
 }) {
   const [todoStats, setTodoStats] = useState<{ done: number; total: number } | null>(null);
   const { notify } = useDialogs();
+  const history = useEditHistory();
   const [name, setName] = useState(item.name);
   // Resync the local draft when a different item's name arrives (switching
   // items, or another user's rename) — adjusted during render, not an
@@ -127,9 +130,35 @@ export function ItemCardTab({
       })
     : [];
 
+  function recordRename(before: string, after: string) {
+    if (!history) return;
+    const apply = async (expected: string, target: string): Promise<UndoResult> => {
+      const current = history.getBoard().items.find((i) => i.id === item.id);
+      if (!current) return { ok: false, reason: "這個項目已經不存在,沒有執行。" };
+      if (current.name !== expected) {
+        return { ok: false, reason: "這個項目的名稱已經被改過,為了不蓋掉新的修改,沒有執行。" };
+      }
+      try {
+        await renameItem(boardId, item.id, target);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : "改名失敗" };
+      }
+    };
+    history.record({
+      label: `重新命名「${before}」`,
+      undo: () => apply(after, before),
+      redo: () => apply(before, after),
+    });
+  }
+
   function saveName() {
     if (name.trim() && name !== item.name) {
-      renameItem(boardId, item.id, name.trim());
+      const before = item.name;
+      const after = name.trim();
+      renameItem(boardId, item.id, after)
+        .then(() => recordRename(before, after))
+        .catch(() => notify("儲存失敗,請重新整理後再試一次。", { title: "無法儲存" }));
     } else {
       setName(item.name);
     }

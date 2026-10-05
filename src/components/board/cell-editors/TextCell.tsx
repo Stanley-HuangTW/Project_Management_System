@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { upsertCellValue } from "@/lib/actions/cell";
 import { normalizeTextInput } from "@/lib/cellValue";
 import { cellFieldClass } from "./cellFieldClass";
+import { useRecordedCellSave } from "./useCellSave";
 
 export function TextCell({
   boardId,
@@ -20,10 +20,17 @@ export function TextCell({
   bordered?: boolean;
 }) {
   const [text, setText] = useState(value);
+  // 儲存的值被別處改掉(上一步/下一步、別人的修改)時,輸入框要跟著變。
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setText(value);
+  }
+  const save = useRecordedCellSave();
 
-  function save() {
+  function commit() {
     if (text !== value) {
-      upsertCellValue(boardId, itemId, columnId, normalizeTextInput(text));
+      save({ boardId, itemId, columnId, before: normalizeTextInput(value), after: normalizeTextInput(text) });
     }
   }
 
@@ -31,7 +38,7 @@ export function TextCell({
     <input
       value={text}
       onChange={(e) => setText(e.target.value)}
-      onBlur={save}
+      onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
       }}

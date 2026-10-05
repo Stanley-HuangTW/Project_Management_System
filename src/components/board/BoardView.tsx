@@ -6,6 +6,7 @@ import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen,
 import type { BoardWithData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
+import { EditHistoryProvider } from "./EditHistoryProvider";
 import { BoardTable } from "./BoardTable";
 import { BoardKanban } from "./BoardKanban";
 import { BoardGantt } from "./BoardGantt";
@@ -237,6 +238,7 @@ export function BoardView({
         </div>
       </div>
 
+      <EditHistoryProvider key={board.id} board={board}>
       <div className={`flex-1 p-3 sm:p-6 ${view === "table" ? "overflow-hidden" : "overflow-auto"}`}>
         {view === "table" && (
           <BoardTable
@@ -296,6 +298,7 @@ export function BoardView({
           />
         )}
       </div>
+      </EditHistoryProvider>
 
       {canManageStructure(userRole) && (
         <AddColumnDialog

@@ -32,6 +32,7 @@ import { BulkEditBar } from "./BulkEditBar";
 import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
+import { UndoRedoButtons } from "./UndoRedoButtons";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import {
@@ -456,6 +457,9 @@ export function BoardTable({
             placeholder="搜尋項目名稱..."
             className="w-48 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 py-1 pl-7 pr-2 text-xs outline-none focus:border-blue-500"
           />
+        </div>
+        <div className="ml-auto">
+          <UndoRedoButtons />
         </div>
       </div>
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">

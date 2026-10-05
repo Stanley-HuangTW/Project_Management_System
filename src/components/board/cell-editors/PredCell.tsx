@@ -1,9 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { upsertCellValue } from "@/lib/actions/cell";
 import { computeWbsCodes } from "@/lib/wbs";
-import { useCellSave } from "./useCellSave";
+import { useRecordedCellSave } from "./useCellSave";
 import { PredPicker } from "./PredPicker";
 import type { ItemData, PredOption } from "@/types/board";
 
@@ -55,7 +54,7 @@ export function PredCell({
 
   const currentItem = groupItems.find((i) => i.id === itemId);
   const parentCode = currentItem?.parentId ? codes.get(currentItem.parentId) : undefined;
-  const save = useCellSave();
+  const save = useRecordedCellSave();
 
   return (
     <PredPicker
@@ -64,7 +63,7 @@ export function PredCell({
       options={options}
       parentCode={parentCode}
       parentItemId={currentItem?.parentId ?? null}
-      onChange={(next) => save(() => upsertCellValue(boardId, itemId, columnId, next))}
+      onChange={(next) => save({ boardId, itemId, columnId, before: value, after: next })}
     />
   );
 }

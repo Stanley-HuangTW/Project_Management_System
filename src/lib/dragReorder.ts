@@ -7,7 +7,7 @@ import { computeWbsCodes } from "./wbs";
  * - "after":   變成目標項目下面的同層項目。
  * - "outdent": 外移一層,變成目標項目的父項的同層項目(緊接在目標項目的舊父項後面)。
  */
-export type DropZone = "child" | "after" | "outdent";
+export type DropZone = "child" | "after" | "outdent" | "before";
 
 export interface DropZoneInput {
   /** 目標列自己的 top(clientY 座標系)。 */
@@ -41,7 +41,12 @@ export function classifyDropZone(input: DropZoneInput): DropZone {
 
 export type MoveItemLike = { id: string; parentId: string | null; order: number };
 
-export type MoveRejectionReason = "not-found" | "self" | "descendant" | "no-parent-to-outdent-to";
+export type MoveRejectionReason =
+  | "not-found"
+  | "self"
+  | "descendant"
+  | "no-parent-to-outdent-to"
+  | "invalid-zone";
 
 /** 一筆要寫回資料庫的結果——parentId 一律帶上(即使沒變),讓呼叫端可以直接對每一筆
  *  跑一次 prisma.item.update()。 */
@@ -86,12 +91,24 @@ export function resolveItemMove(
   } else if (zone === "after") {
     newParentId = target.parentId;
     insertAfterId = targetId;
-  } else {
-    // outdent
+  } else if (zone === "before") {
+    // 畫面上的拖曳不會產生這個區域,只給「還原搬移」用:放在目標前面,也就是排在
+    // 目標前一個兄弟(扣掉被拖項目本身)的後面;目標是第一個就排在最前面。
+    newParentId = target.parentId;
+    const targetSiblings = items
+      .filter((i) => i.parentId === target.parentId && i.id !== draggedId)
+      .sort((a, b) => a.order - b.order);
+    const targetIndex = targetSiblings.findIndex((i) => i.id === targetId);
+    insertAfterId = targetIndex > 0 ? targetSiblings[targetIndex - 1].id : null;
+  } else if (zone === "outdent") {
     if (target.parentId === null) return { ok: false, reason: "no-parent-to-outdent-to" };
     const grandparent = byId.get(target.parentId);
     newParentId = grandparent ? grandparent.parentId : null;
     insertAfterId = target.parentId;
+  } else {
+    // 執行期收到沒見過的字串(server action 的參數不能全信 TypeScript)——寧可拒絕,
+    // 不要當成某一個區域亂搬。
+    return { ok: false, reason: "invalid-zone" };
   }
 
   const siblings = items
@@ -120,6 +137,27 @@ export function resolveItemMove(
   }
 
   return { ok: true, writes };
+}
+
+/**
+ * 還原一次搬移要用的那個「反向搬移」:依被拖項目**搬移前**的位置,算出拿 resolveItemMove
+ * 搬回去的 `{ targetId, zone }`。有下一個兄弟就放在它前面,否則有上一個兄弟就放在它後面,
+ * 否則(獨生子)回到原本的父項底下。最上層唯一的項目沒地方可搬,也就不會需要還原,回傳 null。
+ */
+export function buildMoveInverse<T extends MoveItemLike>(
+  items: T[],
+  draggedId: string
+): { targetId: string; zone: DropZone } | null {
+  const dragged = items.find((i) => i.id === draggedId);
+  if (!dragged) return null;
+  const siblings = items.filter((i) => i.parentId === dragged.parentId).sort((a, b) => a.order - b.order);
+  const index = siblings.findIndex((i) => i.id === draggedId);
+  const next = siblings[index + 1];
+  if (next) return { targetId: next.id, zone: "before" };
+  const previous = siblings[index - 1];
+  if (previous) return { targetId: previous.id, zone: "after" };
+  if (dragged.parentId) return { targetId: dragged.parentId, zone: "child" };
+  return null;
 }
 
 export type DropPreview = {
@@ -180,6 +218,7 @@ export function previewDrop<T extends MoveItemLike & { name: string }>(
 
   if (zone === "child") return { newCode, label: `${head}成為「${ref(targetId)}」的子項` };
   if (zone === "after") return { newCode, label: `${head}與「${ref(targetId)}」同階` };
+  if (zone === "before") return { newCode, label: `${head}放在「${ref(targetId)}」前面` };
   return { newCode, label: `${head}外移一層,與「${ref(target.parentId)}」同階` };
 }
 

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { classifyDropZone, computeLvlDelta, previewDrop, resolveItemMove, type MoveItemLike } from "./dragReorder";
+import {
+  buildMoveInverse,
+  classifyDropZone,
+  computeLvlDelta,
+  previewDrop,
+  resolveItemMove,
+  type DropZone,
+  type MoveItemLike,
+} from "./dragReorder";
 
 describe("classifyDropZone", () => {
   const base = { rowTop: 100, rowHeight: 40, targetIndentPx: 32, indentUnitPx: 16, targetIsTopLevel: false };
@@ -177,6 +185,100 @@ describe("previewDrop", () => {
     expect(previewDrop(items, "a", "a", "child")).toBeNull();
     expect(previewDrop(items, "b", "b1", "child")).toBeNull();
     expect(previewDrop(items, "a", "root", "outdent")).toBeNull();
+  });
+});
+
+describe("resolveItemMove 的 before 區域與無效區域", () => {
+  const items: MoveItemLike[] = [
+    { id: "p", parentId: null, order: 0 },
+    { id: "c1", parentId: "p", order: 0 },
+    { id: "c2", parentId: "p", order: 1 },
+    { id: "c3", parentId: "p", order: 2 },
+  ];
+
+  it("before:放在目標前面", () => {
+    const result = resolveItemMove(items, "c3", "c1", "before");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const orders = new Map(result.writes.map((w) => [w.id, w.order]));
+    // c3 排到最前面,c1、c2 各往後一格。
+    expect(orders.get("c3")).toBe(0);
+    expect(orders.get("c1")).toBe(1);
+    expect(orders.get("c2")).toBe(2);
+  });
+
+  it("before:放在目標前面但目標前面本來就是自己,位置不變", () => {
+    const result = resolveItemMove(items, "c1", "c2", "before");
+    expect(result).toEqual({ ok: true, writes: [] });
+  });
+
+  it("沒見過的區域字串被拒絕,不會被當成外移亂搬", () => {
+    const result = resolveItemMove(items, "c1", "c3", "sideways" as unknown as DropZone);
+    expect(result).toEqual({ ok: false, reason: "invalid-zone" });
+  });
+});
+
+describe("buildMoveInverse:搬過去再搬回來,位置完全回到原樣", () => {
+  // 1 根
+  // ├─ 1.1 a
+  // │   ├─ 1.1.1 a1
+  // │   └─ 1.1.2 a2
+  // ├─ 1.2 b
+  // └─ 1.3 c
+  //     └─ 1.3.1 c1   ← 獨生子
+  const original: MoveItemLike[] = [
+    { id: "root", parentId: null, order: 0 },
+    { id: "a", parentId: "root", order: 0 },
+    { id: "a1", parentId: "a", order: 0 },
+    { id: "a2", parentId: "a", order: 1 },
+    { id: "b", parentId: "root", order: 1 },
+    { id: "c", parentId: "root", order: 2 },
+    { id: "c1", parentId: "c", order: 0 },
+  ];
+
+  function apply(items: MoveItemLike[], writes: { id: string; parentId: string | null; order: number }[]) {
+    const byId = new Map(writes.map((w) => [w.id, w]));
+    return items.map((i) => {
+      const w = byId.get(i.id);
+      return w ? { ...i, parentId: w.parentId, order: w.order } : i;
+    });
+  }
+
+  const key = (items: MoveItemLike[]) =>
+    [...items].sort((x, y) => x.id.localeCompare(y.id)).map((i) => `${i.id}:${i.parentId}:${i.order}`);
+
+  const cases: [string, string, string, DropZone][] = [
+    ["第一個兄弟搬到最後面", "a1", "a2", "after"],
+    ["中間搬到第一個前面", "b", "a", "after"],
+    ["最後一個搬進別人底下變子項", "c", "a", "child"],
+    ["第一個子項外移一層", "a1", "a2", "outdent"],
+    ["獨生子搬到別的父項底下", "c1", "b", "child"],
+    ["獨生子外移", "c1", "c", "after"],
+    ["跨父層搬到另一個父項的子項後面", "a2", "c1", "after"],
+  ];
+
+  it.each(cases)("%s", (_name, draggedId, targetId, zone) => {
+    const forward = resolveItemMove(original, draggedId, targetId, zone);
+    expect(forward.ok).toBe(true);
+    if (!forward.ok) return;
+    const moved = apply(original, forward.writes);
+
+    const inverse = buildMoveInverse(original, draggedId);
+    expect(inverse).not.toBeNull();
+    const back = resolveItemMove(moved, draggedId, inverse!.targetId, inverse!.zone);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(key(apply(moved, back.writes))).toEqual(key(original));
+  });
+
+  it("最上層唯一的項目沒地方可搬,也沒有反向動作", () => {
+    expect(buildMoveInverse([{ id: "only", parentId: null, order: 0 }], "only")).toBeNull();
+  });
+
+  it("有下一個兄弟 → 放它前面;最後一個 → 放上一個後面;獨生子 → 回父項底下", () => {
+    expect(buildMoveInverse(original, "a")).toEqual({ targetId: "b", zone: "before" });
+    expect(buildMoveInverse(original, "c")).toEqual({ targetId: "b", zone: "after" });
+    expect(buildMoveInverse(original, "c1")).toEqual({ targetId: "c", zone: "child" });
   });
 });
 

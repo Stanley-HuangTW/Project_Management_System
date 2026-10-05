@@ -1,8 +1,8 @@
 "use client";
 
-import { upsertCellValue } from "@/lib/actions/cell";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import type { UserOption } from "@/types/board";
+import { useRecordedCellSave } from "./useCellSave";
 
 export function PersonCell({
   boardId,
@@ -17,13 +17,14 @@ export function PersonCell({
   value: string | null;
   users: UserOption[];
 }) {
+  const save = useRecordedCellSave();
   return (
     <PersonPicker
       users={users}
       selectedId={value}
       placeholder="未指派"
       unassignedLabel="未指派"
-      onSelect={(userId) => upsertCellValue(boardId, itemId, columnId, userId)}
+      onSelect={(userId) => save({ boardId, itemId, columnId, before: value, after: userId })}
     />
   );
 }

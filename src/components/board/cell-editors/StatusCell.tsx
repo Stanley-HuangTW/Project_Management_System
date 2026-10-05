@@ -1,9 +1,8 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { upsertCellValue } from "@/lib/actions/cell";
 import { getStatusOptions } from "@/types/column";
-import { useCellSave } from "./useCellSave";
+import { useRecordedCellSave } from "./useCellSave";
 
 export function StatusCell({
   boardId,
@@ -19,7 +18,7 @@ export function StatusCell({
   options: unknown;
 }) {
   const statuses = getStatusOptions(options);
-  const save = useCellSave();
+  const save = useRecordedCellSave();
   const current = statuses.find((s) => s.id === value);
 
   return (
@@ -43,7 +42,7 @@ export function StatusCell({
             <DropdownMenu.Item
               key={option.id}
               onSelect={() =>
-                save(() => upsertCellValue(boardId, itemId, columnId, option.id))
+                save({ boardId, itemId, columnId, before: value, after: option.id })
               }
               className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none hover:bg-neutral-100 dark:hover:bg-neutral-800"
             >
@@ -56,7 +55,7 @@ export function StatusCell({
           ))}
           <DropdownMenu.Separator className="my-1 h-px bg-neutral-200 dark:bg-neutral-700" />
           <DropdownMenu.Item
-            onSelect={() => upsertCellValue(boardId, itemId, columnId, null)}
+            onSelect={() => save({ boardId, itemId, columnId, before: value, after: null })}
             className="cursor-pointer rounded px-2 py-1.5 text-sm text-neutral-500 dark:text-neutral-400 outline-none hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >
             清除

@@ -331,6 +331,7 @@ export async function moveItemWithinGroup(
       self: "不能把項目拖放到自己身上",
       descendant: "不能把項目拖放到自己的子項目下面",
       "no-parent-to-outdent-to": "目標項目已經是最上層,無法再外移一層",
+      "invalid-zone": "不支援的搬移方式",
     };
     throw new Error(messages[result.reason]);
   }
