@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import type { ColumnData, UserOption } from "@/types/board";
@@ -20,12 +20,15 @@ export function BulkEditBar({
   users,
   selectedIds,
   onClear,
+  children,
 }: {
   boardId: string;
   columns: ColumnData[];
   users: UserOption[];
   selectedIds: Set<string>;
   onClear: () => void;
+  /** 接在批次編輯後面的其他動作(複製、移動、刪除)。 */
+  children?: ReactNode;
 }) {
   const router = useRouter();
   const { notify, confirm } = useDialogs();
@@ -136,6 +139,8 @@ export function BulkEditBar({
       >
         套用
       </button>
+
+      {children}
 
       <button
         type="button"

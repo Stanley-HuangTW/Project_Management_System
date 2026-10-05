@@ -29,6 +29,7 @@ import { computeRolledUpDateRange, manualScheduleHint as buildManualScheduleHint
 import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
 import { resolvePredLamps } from "@/lib/predLamp";
 import { BulkEditBar } from "./BulkEditBar";
+import { BulkStructureActions } from "./BulkStructureActions";
 import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
@@ -482,7 +483,15 @@ export function BoardTable({
           users={users}
           selectedIds={selectedIds}
           onClear={clearSelection}
-        />
+        >
+          <BulkStructureActions
+            board={board}
+            selectedIds={selectedIds}
+            canCopyMove={canEditStructure}
+            canDelete={canEditStructure}
+            onDone={clearSelection}
+          />
+        </BulkEditBar>
       )}
       <div className="flex flex-1 flex-col overflow-hidden rounded-lg border-2 border-neutral-800">
       <div className="flex shrink-0 items-center border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs font-medium text-neutral-500 dark:text-neutral-400">

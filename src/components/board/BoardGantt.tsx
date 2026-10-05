@@ -30,7 +30,7 @@ import {
 import NextLink from "next/link";
 import type { BoardWithData, ItemData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
-import { canManageGroupStructure, canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
+import { canManageGroupStructure, canManageStructure, canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAccess } from "@/lib/groupRoles";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import {
@@ -69,6 +69,7 @@ import { SavedViewBar } from "./SavedViewBar";
 import { ConstraintBadge } from "./ConstraintBadge";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { useRecordedItemMove } from "./useRecordedItemMove";
+import { BulkStructureBar } from "./BulkStructureActions";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import type { UndoResult } from "@/lib/editHistory";
@@ -81,6 +82,8 @@ import { subordinateIds } from "@/lib/orgChart";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 34, week: 10, month: 3 };
+/** 項目列最左邊給勾選框留的寬度,所有層級都一樣,勾選框才會排成一直排。 */
+const CHECKBOX_GUTTER = 20;
 const DEFAULT_LABEL_WIDTH = 260;
 const MIN_LABEL_WIDTH = 140;
 const MAX_LABEL_WIDTH = 560;
@@ -281,7 +284,7 @@ export function BoardGantt({
     // that never sees a pointerup never registers the choice, so the menu just
     // sat there doing nothing.
     if (!container.contains(e.target as Node)) return;
-    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("button, input")) return;
     dragState.current = { startX: e.clientX, startScrollLeft: container.scrollLeft };
     setIsPanning(true);
     container.setPointerCapture(e.pointerId);
@@ -306,6 +309,23 @@ export function BoardGantt({
   const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
   const moveRecorded = useRecordedItemMove();
 
+  // 勾選的項目(複製/移動/刪除用)。甘特圖整個換掉資料時,已經不存在的 id 會在
+  // liveSelectedIds 被濾掉,不會留下「已選 0 項」的空列。
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const toggleSelected = useCallback((itemId: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  const liveSelectedIds = useMemo(() => {
+    const existing = new Set(board.items.map((i) => i.id));
+    return new Set([...selectedIds].filter((id) => existing.has(id)));
+  }, [selectedIds, board.items]);
+
   function handleItemDragStart(event: DragStartEvent) {
     const activator = event.activatorEvent as PointerEvent;
     dragActivatorRef.current = { x: activator.clientX, y: activator.clientY };
@@ -327,9 +347,9 @@ export function BoardGantt({
     // 只能在同一個分組內移動——跨分組的目標不畫提示,免得讓人以為放得下去。
     if (!targetItem || !activeItem || activeItem.groupId !== targetItem.groupId) return null;
     const depth = computeAncestorIds(board.items, targetItem.id).size;
-    // 甘特圖的縮排單位是 depth*16(renderRows 的 paddingLeft),外加 chevron
-    // 圖示+間距的固定寬度——跟表格視圖的 depth*20 不是同一套,各自換算。
-    const rowLeftOffset = 8 + 20;
+    // 甘特圖的縮排單位是 depth*16(renderRows 的 paddingLeft),外加勾選框的
+    // 欄位與 chevron 圖示+間距的固定寬度——跟表格視圖的 depth*20 不是同一套,各自換算。
+    const rowLeftOffset = 8 + CHECKBOX_GUTTER + 20;
     const zone = classifyDropZone({
       rowTop: over.rect.top,
       rowHeight: over.rect.height,
@@ -960,6 +980,9 @@ export function BoardGantt({
             disabled={!canEditItemStructure(item)}
             dragOverTarget={dragOverTarget}
             labelWidth={labelWidth}
+            selected={selectedIds.has(item.id)}
+            onToggleSelected={(selected) => toggleSelected(item.id, selected)}
+            itemName={item.name}
           >
             {hasChildren ? (
               <button
@@ -1233,6 +1256,19 @@ export function BoardGantt({
           }}
         />
       </div>
+      {liveSelectedIds.size > 0 && (
+        <div className="mt-2">
+          <BulkStructureBar
+            board={board}
+            selectedIds={liveSelectedIds}
+            canCopyMove={
+              canManageStructure(userRole) || [...myGroupAccessByGroupId.values()].some((a) => a.disciplines.size > 0)
+            }
+            canDelete={canManageStructure(userRole)}
+            onClear={clearSelection}
+          />
+        </div>
+      )}
 
       {(!startColumnId || !durationColumnId) && (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">
@@ -1544,6 +1580,9 @@ function GanttDraggableLabel({
   disabled,
   dragOverTarget,
   labelWidth,
+  selected,
+  onToggleSelected,
+  itemName,
   children,
 }: {
   itemId: string;
@@ -1552,6 +1591,9 @@ function GanttDraggableLabel({
   disabled: boolean;
   dragOverTarget: DragOverState | null;
   labelWidth: number;
+  selected: boolean;
+  onToggleSelected: (selected: boolean) => void;
+  itemName: string;
   children: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
@@ -1571,8 +1613,8 @@ function GanttDraggableLabel({
       ref={setRef}
       {...attributes}
       onPointerDown={(e) => {
-        // 點收合箭頭/名稱/留言/指派/選單還是原本的點擊行為;空白處才是拖曳。
-        if ((e.target as HTMLElement).closest("button")) return;
+        // 點收合箭頭/名稱/留言/指派/選單/勾選框還是原本的點擊行為;空白處才是拖曳。
+        if ((e.target as HTMLElement).closest("button, input")) return;
         // 這個 sticky 容器同時也是甘特圖「拖拉平移視圖」的手勢範圍——蓋掉冒泡,
         // 讓從這裡拖曳變成拖動這一列,平移改成只能從右側時間軸拖動。
         e.stopPropagation();
@@ -1581,19 +1623,31 @@ function GanttDraggableLabel({
       className={`sticky left-0 z-10 flex shrink-0 items-center gap-1 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm relative ${
         disabled ? "" : isDragging ? "cursor-grabbing" : "cursor-grab"
       }`}
-      style={{ width: labelWidth, paddingLeft: 8 + depth * 16, opacity: isDragging ? 0.5 : 1 }}
+      style={{
+        width: labelWidth,
+        paddingLeft: 8 + CHECKBOX_GUTTER + depth * 16,
+        opacity: isDragging ? 0.5 : 1,
+      }}
     >
       {isDropTarget && dragOverTarget && (
         <DropIndicator
           zone={dragOverTarget.zone}
           indentPx={
             dragOverTarget.zone === "outdent"
-              ? Math.max(0, 8 + 20 + (depth - 1) * 16)
-              : 8 + 20 + depth * 16
+              ? Math.max(0, 8 + CHECKBOX_GUTTER + 20 + (depth - 1) * 16)
+              : 8 + CHECKBOX_GUTTER + 20 + depth * 16
           }
           label={dragOverTarget.preview?.label}
         />
       )}
+      {/* 絕對定位在最左邊:縮排只推內容,勾選框在所有層級排成一直排。 */}
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={(e) => onToggleSelected(e.target.checked)}
+        aria-label={`選取「${itemName}」`}
+        className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 cursor-pointer"
+      />
       {children}
     </div>
   );
