@@ -3,6 +3,8 @@ stages:
 
 auto-deploy:
   stage: deploy
+  tags:
+    - Auto Deploy Project Management System
   only:
     - main  # 僅在 main 分支有更新時觸發 (若您是用 master 請改為 master)
   script:
