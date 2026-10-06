@@ -19,10 +19,13 @@ export function Avatar({
   name,
   avatarUrl,
   size = 24,
+  title,
 }: {
   name: string;
   avatarUrl?: string | null;
   size?: number;
+  /** 滑鼠移上去顯示的文字(只有首字母的頭像,用它把完整姓名透出來)。 */
+  title?: string;
 }) {
   if (avatarUrl) {
     return (
@@ -30,6 +33,7 @@ export function Avatar({
       <img
         src={avatarUrl}
         alt={name}
+        title={title}
         className="shrink-0 rounded-full object-cover"
         style={{ width: size, height: size }}
       />
@@ -38,6 +42,7 @@ export function Avatar({
 
   return (
     <span
+      title={title}
       className="flex shrink-0 items-center justify-center rounded-full font-medium text-white"
       style={{ width: size, height: size, fontSize: size * 0.45, backgroundColor: colorForName(name || "?") }}
     >
