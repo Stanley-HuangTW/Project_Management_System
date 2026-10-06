@@ -234,6 +234,8 @@ type ActivityInput = {
   boardId?: string | null;
   /** 一天中的開始時間(分鐘),行事曆用。 */
   startMinute?: number | null;
+  /** 從外部日曆匯入時的識別,只在登記時寫入。 */
+  externalId?: string | null;
 };
 
 
@@ -311,6 +313,7 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
       note: input.note.trim() || null,
       riskEntryId: input.riskEntryId,
       startMinute: input.startMinute ?? null,
+      externalId: input.externalId ?? null,
       // 有對應專案的要主管核准才算進專案成本;沒有的登記即生效。
       boardId: input.boardId || null,
       status: input.boardId && !exempt ? "PENDING" : "APPROVED",

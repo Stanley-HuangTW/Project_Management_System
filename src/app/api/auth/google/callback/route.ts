@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import {
+  GOOGLE_CALENDAR_STATE_PREFIX,
+  GOOGLE_CALENDAR_TOKEN_COOKIE,
+  GOOGLE_CALENDAR_TOKEN_MAX_AGE_SECONDS,
   GOOGLE_STATE_COOKIE,
   GOOGLE_TOKEN_COOKIE,
   GOOGLE_RETURN_TO_COOKIE,
@@ -16,11 +19,13 @@ const TOKEN_COOKIE_MAX_AGE_SECONDS = 300;
 export async function GET(request: NextRequest) {
   const returnTo = request.cookies.get(GOOGLE_RETURN_TO_COOKIE)?.value;
   const target = isSafeReturnPath(returnTo) ? returnTo : "/";
+  // 日曆與 Google Sheet 共用同一個回呼網址(Google Cloud 只要登記一個),state 的前綴分辨是哪一條。
+  const expectedState = request.cookies.get(GOOGLE_STATE_COOKIE)?.value;
+  const isCalendar = !!expectedState?.startsWith(GOOGLE_CALENDAR_STATE_PREFIX);
 
   function redirectWithStatus(status: "success" | "error") {
-    const res = NextResponse.redirect(
-      new URL(`${target}?googleSheetsAuth=${status}`, request.url)
-    );
+    const param = isCalendar ? "googleCalendarAuth" : "googleSheetsAuth";
+    const res = NextResponse.redirect(new URL(`${target}?${param}=${status}`, request.url));
     res.cookies.delete(GOOGLE_STATE_COOKIE);
     res.cookies.delete(GOOGLE_RETURN_TO_COOKIE);
     return res;
@@ -28,17 +33,19 @@ export async function GET(request: NextRequest) {
 
   const session = await getSession();
   if (!session) return redirectWithStatus("error");
-  try {
-    requireBoardAdmin(session.role);
-  } catch {
-    return redirectWithStatus("error");
+  // 匯入 Google Sheet 只有管理者;連自己的日曆任何登入的人都可以。
+  if (!isCalendar) {
+    try {
+      requireBoardAdmin(session.role);
+    } catch {
+      return redirectWithStatus("error");
+    }
   }
 
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const oauthError = searchParams.get("error");
-  const expectedState = request.cookies.get(GOOGLE_STATE_COOKIE)?.value;
 
   if (oauthError) return redirectWithStatus("error");
   if (!code || !state || !expectedState || state !== expectedState) {
@@ -71,12 +78,13 @@ export async function GET(request: NextRequest) {
   if (!tokenData.access_token) return redirectWithStatus("error");
 
   const res = redirectWithStatus("success");
-  res.cookies.set(GOOGLE_TOKEN_COOKIE, tokenData.access_token, {
+  const maxAgeLimit = isCalendar ? GOOGLE_CALENDAR_TOKEN_MAX_AGE_SECONDS : TOKEN_COOKIE_MAX_AGE_SECONDS;
+  res.cookies.set(isCalendar ? GOOGLE_CALENDAR_TOKEN_COOKIE : GOOGLE_TOKEN_COOKIE, tokenData.access_token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: Math.min(tokenData.expires_in ?? TOKEN_COOKIE_MAX_AGE_SECONDS, TOKEN_COOKIE_MAX_AGE_SECONDS),
+    maxAge: Math.min(tokenData.expires_in ?? maxAgeLimit, maxAgeLimit),
   });
   return res;
 }

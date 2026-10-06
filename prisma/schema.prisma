@@ -1208,6 +1208,8 @@ model ActivityTimeEntry {
   note        String?
   /// 一天中的開始時間(從 00:00 起算的分鐘數),行事曆畫面用來排位置。null = 沒排時間。
   startMinute Int?
+  /// 從外部日曆匯入的識別(「gcal:」+ Google 行程 id)。同一個人同一個行程只會有一筆,重複匯入就是更新。
+  externalId  String?
   /// 連到的風險登記冊議題;議題刪掉只是斷開連結,不連帶刪工時。
   riskEntryId String?
   riskEntry   RiskEntry?   @relation(fields: [riskEntryId], references: [id], onDelete: SetNull)
@@ -1220,6 +1222,7 @@ model ActivityTimeEntry {
   decisionNote String?
   createdAt   DateTime     @default(now())
 
+  @@unique([userId, externalId])
   @@index([userId, date])
   @@index([date])
   @@index([boardId, status])

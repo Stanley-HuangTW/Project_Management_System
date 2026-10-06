@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Copy, LayoutTemplate } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Copy, LayoutTemplate } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   deleteActivityTime,
@@ -15,9 +15,10 @@ import {
 import { deleteTimeEntry, logTime, updateTimeEntry } from "@/lib/actions/timeEntry";
 import { copyPreviousWeek } from "@/lib/actions/timeTemplate";
 import { describeApplyResult } from "@/lib/timeTemplates";
-import { addDaysIso } from "@/lib/timesheet";
+import { addDaysIso, isValidIsoDate } from "@/lib/timesheet";
 import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
 import { EntryDialog, type EntryDialogTarget, type EntryDraft } from "./EntryDialog";
+import { GoogleCalendarDialog } from "./GoogleCalendarDialog";
 import { TemplateDialog, type TemplatePrefill } from "./TemplateDialog";
 import { WeekCalendar } from "./WeekCalendar";
 import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
@@ -37,6 +38,27 @@ export function MyWeekLog({ today }: { today: string }) {
   const [busy, setBusy] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templatePrefill, setTemplatePrefill] = useState<TemplatePrefill | null>(null);
+  const [gcalOpen, setGcalOpen] = useState(false);
+
+  // 從 Google 授權頁回來:回到原本看的那一週,成功就重新打開匯入視窗,失敗說一聲。
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("googleCalendarAuth");
+    if (!status) return;
+    params.delete("googleCalendarAuth");
+    const search = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (search ? `?${search}` : ""));
+    const savedWeek = sessionStorage.getItem("gcalReturnWeek");
+    sessionStorage.removeItem("gcalReturnWeek");
+    // 反應的是瀏覽器剛從 OAuth 跳轉回來這件事,不是 React 狀態的變化。
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (savedWeek && isValidIsoDate(savedWeek)) setWeekStart(weekRangeOf(savedWeek).weekStart);
+    if (status === "success") setGcalOpen(true);
+    else void notify("Google 授權失敗,請重新嘗試。", { title: "無法連結 Google 日曆" });
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // 只在載入時處理一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,6 +196,13 @@ export function MyWeekLog({ today }: { today: string }) {
     setTemplateOpen(true);
   }
 
+  function authorizeGoogleCalendar() {
+    sessionStorage.setItem("gcalReturnWeek", weekStart);
+    // 要整頁跳轉,瀏覽器才會真的走完到 Google 再回來的轉址。
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.href = `/api/auth/google/calendar/start?returnTo=${encodeURIComponent(window.location.pathname)}`;
+  }
+
   async function copyLastWeek() {
     const ok = await confirm(
       `把上一週(${addDaysIso(weekStart, -7)} 起)的工時複製到這週?同一個星期、同一個時間,已經有一樣的會略過。專案工時與對應專案的會議複製後要重新核准。`,
@@ -273,6 +302,15 @@ export function MyWeekLog({ today }: { today: string }) {
         >
           <Copy size={13} /> 複製上週
         </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setGcalOpen(true)}
+          className="flex items-center gap-1 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+          title="把 Google 日曆這一週的行程匯入成工時"
+        >
+          <CalendarDays size={13} /> Google 日曆
+        </button>
         <span className="ml-auto text-sm text-neutral-600 dark:text-neutral-300">
           本週合計 <span className="font-semibold tabular-nums">{fmt(weekTotal)}</span> 小時
         </span>
@@ -315,6 +353,15 @@ export function MyWeekLog({ today }: { today: string }) {
         onSave={saveFromDialog}
         onDelete={deleteFromDialog}
         onSaveAsTemplate={saveAsTemplate}
+      />
+      <GoogleCalendarDialog
+        open={gcalOpen}
+        onClose={() => setGcalOpen(false)}
+        weekStart={weekStart}
+        weekLabel={isoWeekLabel(weekStart)}
+        options={options}
+        onAuthorize={authorizeGoogleCalendar}
+        onImported={reload}
       />
       <TemplateDialog
         open={templateOpen}
