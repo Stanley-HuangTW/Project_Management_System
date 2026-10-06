@@ -96,6 +96,8 @@ model User {
   monthlySalary Decimal? @db.Decimal(12, 2)
   /// 可以檢視全部成員的工時統計(管理員指定給個別主管)。沒勾的主管只看得到
   /// 直屬部屬,一般成員只看得到自己 —— 見 timesheet.ts 的 canViewTimesheetOf。
+  /// 管理者設定:這個人登記的工時不用核准,直接生效(專案工時與對應專案的會議工時)。
+  timesheetNoApproval Boolean @default(false)
   canViewAllTimesheets Boolean @default(false)
 
   weeklyReports WeeklyReport[]
@@ -260,6 +262,7 @@ model Board {
   bomLines       BomLine[]
 
   @@index([deletedAt])
+  activityTimeEntries ActivityTimeEntry[]
 }
 
 model BoardMember {
@@ -1148,6 +1151,8 @@ model TimeEntry {
   date         String
   hours        Decimal        @db.Decimal(6, 2)
   note         String?
+  /// 一天中的開始時間(從 00:00 起算的分鐘數),行事曆畫面用來排位置。null = 沒排時間。
+  startMinute  Int?
   status       ApprovalStatus @default(PENDING)
   decidedById  String?
   decidedBy    User?          @relation("TimeEntryDecider", fields: [decidedById], references: [id], onDelete: SetNull)
@@ -1169,6 +1174,9 @@ model TimeCategory {
   active    Boolean  @default(true)
   /// 登記這個類別時,要不要提供「連結風險登記冊議題」的選項。
   linkIssue Boolean  @default(false)
+  /// 登記這個類別時,可不可以選「對應專案」。部門週會、公司專案週會、請假這類不屬於任何專案的
+  /// 類別關掉;例行會議、出差交通這類常常是為了某個專案而花的時間,開著。
+  allowProject Boolean @default(true)
   createdAt DateTime @default(now())
 
   entries ActivityTimeEntry[]
@@ -1190,13 +1198,23 @@ model ActivityTimeEntry {
   categoryId  String
   category    TimeCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   note        String?
+  /// 一天中的開始時間(從 00:00 起算的分鐘數),行事曆畫面用來排位置。null = 沒排時間。
+  startMinute Int?
   /// 連到的風險登記冊議題;議題刪掉只是斷開連結,不連帶刪工時。
   riskEntryId String?
   riskEntry   RiskEntry?   @relation(fields: [riskEntryId], references: [id], onDelete: SetNull)
+  /// 對應的專案(看板)。有對應專案的工時要主管核准才算進那個專案的成本;沒有對應專案就登記即生效。
+  boardId      String?
+  board        Board?         @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  status       ApprovalStatus @default(APPROVED)
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
   createdAt   DateTime     @default(now())
 
   @@index([userId, date])
   @@index([date])
+  @@index([boardId, status])
 }
 
 /// A saved plan, kept whole.

@@ -26,6 +26,7 @@ export async function listUsers() {
       discipline: true,
       monthlySalary: true,
       canViewAllTimesheets: true,
+      timesheetNoApproval: true,
     },
     orderBy: { order: "asc" },
   });
@@ -79,6 +80,44 @@ export async function updateUserTimesheetAccess(userId: string, canViewAll: bool
     `${target.name} ${canViewAll ? "可以檢視全部成員的工時" : "不再能檢視全部成員的工時"}`
   );
   revalidatePath("/users");
+}
+
+/**
+ * 設定某個人的工時免審核:之後登記的專案工時與對應專案的會議工時直接生效;目前還在待審的
+ * 一併視為核准(註記「免審核」),不留下一堆沒人處理的待審。
+ */
+export async function updateUserTimesheetNoApproval(userId: string, noApproval: boolean) {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") {
+    throw new Error("只有管理員可以設定工時免審核");
+  }
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  if (!target) throw new Error("找不到使用者");
+
+  await prisma.user.update({ where: { id: userId }, data: { timesheetNoApproval: noApproval } });
+  let approved = 0;
+  if (noApproval) {
+    const now = new Date();
+    const [a, b] = await Promise.all([
+      prisma.timeEntry.updateMany({
+        where: { userId, status: "PENDING" },
+        data: { status: "APPROVED", decidedAt: now, decisionNote: "免審核" },
+      }),
+      prisma.activityTimeEntry.updateMany({
+        where: { userId, status: "PENDING" },
+        data: { status: "APPROVED", decidedAt: now, decisionNote: "免審核" },
+      }),
+    ]);
+    approved = a.count + b.count;
+  }
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `${target.name} 的工時${noApproval ? `設為免審核(待審的 ${approved} 筆一併視為核准)` : "恢復為需要審核"}`
+  );
+  revalidatePath("/users");
+  revalidatePath("/approvals");
+  revalidatePath("/timesheet");
 }
 
 /**

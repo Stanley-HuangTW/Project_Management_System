@@ -68,7 +68,7 @@ export async function gatherCostInputs(
   const missingRateIds = new Set<string>();
 
   for (const board of boards) {
-    const [items, timeEntries, visibleIds] = await Promise.all([
+    const [items, timeEntries, activityEntries, visibleIds] = await Promise.all([
       prisma.item.findMany({
         where: { boardId: board.id, deletedAt: null },
         select: {
@@ -88,6 +88,12 @@ export async function gatherCostInputs(
         // CPI 就會隨著誰還沒按核准而上下跳。
         where: { item: { boardId: board.id, deletedAt: null }, status: "APPROVED" },
         select: { itemId: true, userId: true, hours: true },
+      }),
+      prisma.activityTimeEntry.findMany({
+        // 對應這個專案、而且主管核准過的會議/出差交通等工時——跟專案工時同一個規則,
+        // 待審的不是成本。
+        where: { boardId: board.id, status: "APPROVED" },
+        select: { userId: true, hours: true },
       }),
       visibleItemIdsForBoard(board.id, session),
     ]);
@@ -163,6 +169,26 @@ export async function gatherCostInputs(
         // today's schedule is the only plan there is.
         plannedStart: item.baselineStart ? new Date(item.baselineStart) : (range?.start ?? null),
         plannedEnd: item.baselineEnd ? new Date(item.baselineEnd) : (range?.end ?? null),
+      });
+    }
+
+    // 專案會議與其他工時:沒有工作項可以掛,各自算一列「沒有預算的實際成本」。
+    let overheadLabour = 0;
+    for (const entry of activityEntries) {
+      overheadLabour += Number(entry.hours) * (rateByUser.get(entry.userId) ?? 0);
+      if (!rateByUser.get(entry.userId)) missingRateIds.add(entry.userId);
+    }
+    if (activityEntries.length > 0) {
+      inputs.push({
+        id: `activity:${board.id}`,
+        name: "專案會議與其他工時",
+        plannedLabour: 0,
+        plannedDirect: 0,
+        actualLabour: overheadLabour,
+        actualDirect: 0,
+        fractionDone: 0,
+        plannedStart: null,
+        plannedEnd: null,
       });
     }
   }

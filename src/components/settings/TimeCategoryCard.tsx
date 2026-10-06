@@ -9,6 +9,7 @@ import {
   renameTimeCategory,
   setTimeCategoryActive,
   setTimeCategoryLinkIssue,
+  setTimeCategoryAllowProject,
   type TimeCategoryRow,
 } from "@/lib/actions/timeCategory";
 
@@ -71,8 +72,9 @@ export function TimeCategoryCard() {
         <Tags size={15} /> 工時類別
       </p>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        「工時」頁面登記非專案工時(例行會議、突發問題處理……)時選的類別。停用的類別不能再用來登記,
-        舊紀錄照常顯示。勾「可連結議題」的類別,登記時可以選一筆風險登記冊裡的議題。
+        「工時」頁面登記會議、請假、出差等工時(不是某個工作項的工時)時選的類別。停用的類別不能再用來登記,
+        舊紀錄照常顯示。勾「可連結議題」的類別,登記時可以選一筆風險登記冊裡的議題;勾「可對應專案」的類別,
+        登記時可以選對應的專案(要主管核准才計入那個專案的成本)。
       </p>
 
       {categories === null ? (
@@ -151,6 +153,18 @@ function CategoryRow({
           onChange={(e) => run(() => setTimeCategoryLinkIssue(category.id, e.target.checked), "無法儲存")}
         />
         可連結議題
+      </label>
+      <label
+        className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
+        title="勾起來:登記時可以選對應的專案(要主管核准才計入那個專案的成本)。不屬於專案的類別(部門週會、請假…)不要勾。"
+      >
+        <input
+          type="checkbox"
+          checked={category.allowProject}
+          disabled={busy}
+          onChange={(e) => run(() => setTimeCategoryAllowProject(category.id, e.target.checked), "無法儲存")}
+        />
+        可對應專案
       </label>
       <span className="w-16 text-right text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
         {category.entryCount} 筆

@@ -7,6 +7,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   listApprovalQueue,
   decideTimeEntry,
+  decideActivityTime,
   decideLeave,
   type ApprovalQueue as Queue,
 } from "@/lib/actions/approval";
@@ -76,7 +77,7 @@ export function ApprovalQueue() {
     );
   }
 
-  const total = queue.timeEntries.length + queue.leaves.length;
+  const total = queue.timeEntries.length + queue.activityEntries.length + queue.leaves.length;
   const approveClass =
     "flex items-center gap-1 rounded bg-green-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-40";
   const rejectClass =
@@ -137,6 +138,67 @@ export function ApprovalQueue() {
                     onClick={async () => {
                       const note = await rejectNote();
                       if (note) await run(() => decideTimeEntry(entry.id, "REJECTED", note), "無法退回");
+                    }}
+                    className={rejectClass}
+                  >
+                    <X size={12} /> 退回
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {queue.activityEntries.length > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+            <Clock size={14} /> 專案會議與其他工時 ({queue.activityEntries.length})
+          </h2>
+          <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
+            對應專案的會議、出差交通等工時。核准之後才會計入那個專案的實際成本(AC)。
+          </p>
+          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+            {queue.activityEntries.map((entry) => (
+              <li key={entry.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+                <span className="w-20 shrink-0 truncate font-medium text-neutral-800 dark:text-neutral-100">
+                  {entry.userName}
+                </span>
+                <span className="w-20 shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
+                  {entry.date}
+                </span>
+                <span className="w-12 shrink-0 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100">
+                  {entry.hours}h
+                </span>
+                <span className="shrink-0 rounded bg-purple-100 px-1.5 py-0.5 text-purple-800 dark:bg-purple-950 dark:text-purple-200">
+                  {entry.categoryName}
+                </span>
+                <Link
+                  href={`/boards/${entry.boardId}`}
+                  className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-200 hover:text-blue-600"
+                >
+                  {entry.boardName}
+                </Link>
+                {entry.note && (
+                  <span className="min-w-0 basis-full truncate text-neutral-500 dark:text-neutral-400 sm:basis-auto">
+                    {entry.note}
+                  </span>
+                )}
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => run(() => decideActivityTime(entry.id, "APPROVED", ""), "無法核准")}
+                    className={approveClass}
+                  >
+                    <Check size={12} /> 核准
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      const note = await rejectNote();
+                      if (note) await run(() => decideActivityTime(entry.id, "REJECTED", note), "無法退回");
                     }}
                     className={rejectClass}
                   >

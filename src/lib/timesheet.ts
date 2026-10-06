@@ -3,6 +3,9 @@ import { weekRangeOf, isoWeekLabel } from "./weeklyReport";
 /** 統計裡專案工作項工時(TimeEntry)歸在這個「類別」底下,跟非專案類別並排。 */
 export const PROJECT_CATEGORY_LABEL = "專案工作項";
 
+/** 統計裡沒有對應任何專案的工時(部門週會、公司專案週會、請假…)歸在這個「專案」底下。 */
+export const UNASSIGNED_PROJECT_LABEL = "未歸屬專案";
+
 /** 一次統計最多看這麼多天——日粒度每天一欄,區間太長畫面就沒法讀了。 */
 export const MAX_STATS_RANGE_DAYS = 366;
 
@@ -111,19 +114,32 @@ export type TimesheetRow = {
   date: string;
   hours: number;
   categoryLabel: string;
+  /** 這筆工時算在哪個專案(看板名稱);沒有就是 UNASSIGNED_PROJECT_LABEL。 */
+  projectLabel?: string;
 };
+
+/** 「各類別工時」表的一欄:專案底下的一個類別。 */
+export type CategoryColumn = { key: string; project: string; category: string };
+
+export function categoryColumnKey(project: string, category: string): string {
+  return `${project}\u0000${category}`;
+}
 
 export type TimesheetUserStats = {
   userId: string;
   total: number;
   byBucket: Record<string, number>;
   byCategory: Record<string, number>;
+  /** 專案 × 類別(key 見 categoryColumnKey)。 */
+  byColumn: Record<string, number>;
 };
 
 export type TimesheetStats = {
   buckets: string[];
   /** 專案工作項排第一個,其餘照名稱排。 */
   categories: string[];
+  /** 「各類別工時」的欄:依專案分組(工時多的專案在前,未歸屬專案最後),專案底下專案工作項在前。 */
+  columns: CategoryColumn[];
   users: TimesheetUserStats[];
   totals: Omit<TimesheetUserStats, "userId">;
 };
@@ -154,11 +170,19 @@ export function aggregateTimesheet(
   const { from, to, granularity, userOrder } = options;
   const buckets = bucketKeysInRange(from, to, granularity);
 
-  const perUser = new Map<string, { total: number; byBucket: Record<string, number>; byCategory: Record<string, number> }>(
-    userOrder.map((id) => [id, { total: 0, byBucket: {}, byCategory: {} }])
-  );
-  const totals = { total: 0, byBucket: {} as Record<string, number>, byCategory: {} as Record<string, number> };
+  const perUser = new Map<
+    string,
+    { total: number; byBucket: Record<string, number>; byCategory: Record<string, number>; byColumn: Record<string, number> }
+  >(userOrder.map((id) => [id, { total: 0, byBucket: {}, byCategory: {}, byColumn: {} }]));
+  const totals = {
+    total: 0,
+    byBucket: {} as Record<string, number>,
+    byCategory: {} as Record<string, number>,
+    byColumn: {} as Record<string, number>,
+  };
   const categorySet = new Set<string>();
+  const columnMap = new Map<string, CategoryColumn>();
+  const projectTotal = new Map<string, number>();
 
   for (const row of rows) {
     if (row.date < from || row.date > to) continue;
@@ -168,6 +192,12 @@ export function aggregateTimesheet(
     bucket.total += row.hours;
     addTo(bucket.byBucket, key, row.hours);
     addTo(bucket.byCategory, row.categoryLabel, row.hours);
+    const project = row.projectLabel ?? UNASSIGNED_PROJECT_LABEL;
+    const columnKey = categoryColumnKey(project, row.categoryLabel);
+    addTo(bucket.byColumn, columnKey, row.hours);
+    addTo(totals.byColumn, columnKey, row.hours);
+    columnMap.set(columnKey, { key: columnKey, project, category: row.categoryLabel });
+    projectTotal.set(project, (projectTotal.get(project) ?? 0) + row.hours);
     totals.total += row.hours;
     addTo(totals.byBucket, key, row.hours);
     addTo(totals.byCategory, row.categoryLabel, row.hours);
@@ -180,9 +210,24 @@ export function aggregateTimesheet(
     return a.localeCompare(b, "zh-TW");
   });
 
+  const columns = [...columnMap.values()].sort((a, b) => {
+    if (a.project !== b.project) {
+      if (a.project === UNASSIGNED_PROJECT_LABEL) return 1;
+      if (b.project === UNASSIGNED_PROJECT_LABEL) return -1;
+      return (
+        (projectTotal.get(b.project) ?? 0) - (projectTotal.get(a.project) ?? 0) ||
+        a.project.localeCompare(b.project, "zh-TW")
+      );
+    }
+    if (a.category === PROJECT_CATEGORY_LABEL) return -1;
+    if (b.category === PROJECT_CATEGORY_LABEL) return 1;
+    return a.category.localeCompare(b.category, "zh-TW");
+  });
+
   return {
     buckets,
     categories,
+    columns,
     users: userOrder.map((userId) => {
       const stats = perUser.get(userId)!;
       return {
@@ -190,12 +235,14 @@ export function aggregateTimesheet(
         total: round2(stats.total),
         byBucket: roundRecord(stats.byBucket),
         byCategory: roundRecord(stats.byCategory),
+        byColumn: roundRecord(stats.byColumn),
       };
     }),
     totals: {
       total: round2(totals.total),
       byBucket: roundRecord(totals.byBucket),
       byCategory: roundRecord(totals.byCategory),
+      byColumn: roundRecord(totals.byColumn),
     },
   };
 }

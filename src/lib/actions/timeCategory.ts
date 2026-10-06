@@ -11,6 +11,8 @@ export type TimeCategoryRow = {
   name: string;
   active: boolean;
   linkIssue: boolean;
+  /** 登記時可不可以選「對應專案」。 */
+  allowProject: boolean;
   /** 已經有多少筆工時用了這個類別——有人用的停用而不是刪。 */
   entryCount: number;
 };
@@ -27,6 +29,7 @@ export async function listTimeCategories(): Promise<TimeCategoryRow[]> {
     name: c.name,
     active: c.active,
     linkIssue: c.linkIssue,
+    allowProject: c.allowProject,
     entryCount: c._count.entries,
   }));
 }
@@ -84,6 +87,22 @@ export async function setTimeCategoryLinkIssue(id: string, linkIssue: boolean): 
     "SETTINGS",
     session.userId,
     `工時類別「${existing.name}」${linkIssue ? "開啟" : "關閉"}連結議題`
+  );
+  revalidatePath("/settings");
+  return {};
+}
+
+export async function setTimeCategoryAllowProject(id: string, allowProject: boolean): Promise<{ error?: string }> {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  const existing = await prisma.timeCategory.findUnique({ where: { id }, select: { name: true } });
+  if (!existing) return { error: "找不到這個類別" };
+
+  await prisma.timeCategory.update({ where: { id }, data: { allowProject } });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `工時類別「${existing.name}」${allowProject ? "開啟" : "關閉"}可對應專案`
   );
   revalidatePath("/settings");
   return {};

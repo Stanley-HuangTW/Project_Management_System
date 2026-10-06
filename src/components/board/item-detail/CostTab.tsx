@@ -2,6 +2,7 @@
 
 import { UserSelect } from "@/components/ui/UserSelect";
 import { NoteInput } from "@/components/ui/NoteInput";
+import { EntryStatusBadge } from "@/components/timesheet/EntryStatusBadge";
 import { useNoteSuggestions } from "@/components/timesheet/useNoteSuggestions";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -246,18 +247,12 @@ export function CostTab({
                 <span className="min-w-0 flex-1 truncate text-xs text-neutral-400 dark:text-neutral-500">
                   {entry.note}
                 </span>
-                {entry.status !== "APPROVED" && (
-                  <span
-                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      entry.status === "PENDING"
-                        ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
-                        : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-                    }`}
-                    title={entry.decisionNote ?? "核准前不會計入成本報表"}
-                  >
-                    {entry.status === "PENDING" ? "待審" : "已退回"}
-                  </span>
-                )}
+                <EntryStatusBadge
+                  status={entry.status}
+                  approvers={entry.approvers}
+                  decidedByName={entry.decidedByName}
+                  decisionNote={entry.decisionNote}
+                />
                 {entry.canEdit && (
                   <button
                     type="button"

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   PROJECT_CATEGORY_LABEL,
+  UNASSIGNED_PROJECT_LABEL,
   addDaysIso,
   aggregateTimesheet,
   bucketKeyOf,
   bucketKeysInRange,
   bucketLabel,
   canViewTimesheetOf,
+  categoryColumnKey,
   daysBetweenInclusive,
   isValidIsoDate,
   monthRangeOf,
@@ -212,5 +214,51 @@ describe("aggregateTimesheet", () => {
     expect(stats.users).toEqual([]);
     expect(stats.categories).toEqual([]);
     expect(stats.totals.total).toBe(0);
+  });
+});
+
+describe("aggregateTimesheet:專案維度", () => {
+  const options = { from: "2026-10-05", to: "2026-10-11", granularity: "day" as const, userOrder: ["u1", "u2"] };
+  const row = (userId: string, hours: number, categoryLabel: string, projectLabel?: string) => ({
+    userId,
+    date: "2026-10-06",
+    hours,
+    categoryLabel,
+    projectLabel,
+  });
+
+  it("沒有帶專案的工時歸在「未歸屬專案」", () => {
+    const stats = aggregateTimesheet([row("u1", 2, "部門週會")], options);
+    expect(stats.columns).toEqual([
+      { key: categoryColumnKey(UNASSIGNED_PROJECT_LABEL, "部門週會"), project: UNASSIGNED_PROJECT_LABEL, category: "部門週會" },
+    ]);
+  });
+
+  it("欄位依專案分組:工時多的專案在前、未歸屬專案最後;專案底下專案工作項在前、其餘照名稱", () => {
+    const stats = aggregateTimesheet(
+      [
+        row("u1", 1, "例行會議", "M3"),
+        row("u1", 8, PROJECT_CATEGORY_LABEL, "AMR Platform"),
+        row("u2", 2, "例行會議", "AMR Platform"),
+        row("u1", 3, "部門週會"),
+        row("u2", 1, "出差", "AMR Platform"),
+      ],
+      options
+    );
+    expect(stats.columns.map((c) => `${c.project}/${c.category}`)).toEqual([
+      `AMR Platform/${PROJECT_CATEGORY_LABEL}`,
+      "AMR Platform/出差",
+      "AMR Platform/例行會議",
+      "M3/例行會議",
+      `${UNASSIGNED_PROJECT_LABEL}/部門週會`,
+    ]);
+  });
+
+  it("每個人、合計都有 專案 × 類別 的工時", () => {
+    const stats = aggregateTimesheet([row("u1", 2, "例行會議", "M3"), row("u2", 1.5, "例行會議", "M3")], options);
+    const key = categoryColumnKey("M3", "例行會議");
+    expect(stats.users[0].byColumn[key]).toBe(2);
+    expect(stats.users[1].byColumn[key]).toBe(1.5);
+    expect(stats.totals.byColumn[key]).toBe(3.5);
   });
 });

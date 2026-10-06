@@ -2,6 +2,7 @@
 
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { NoteInput } from "@/components/ui/NoteInput";
+import { EntryStatusBadge } from "./EntryStatusBadge";
 import { useNoteSuggestions } from "./useNoteSuggestions";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
@@ -207,16 +208,12 @@ export function MyWeekLog({ today }: { today: string }) {
                           {e.itemName}
                           {e.note && <span className="ml-2 text-xs text-neutral-400">{e.note}</span>}
                         </span>
-                        {e.status === "PENDING" && (
-                          <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                            待審
-                          </span>
-                        )}
-                        {e.status === "REJECTED" && (
-                          <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] text-red-700 dark:bg-red-950 dark:text-red-300">
-                            已退回
-                          </span>
-                        )}
+                        <EntryStatusBadge
+                          status={e.status}
+                          approvers={e.approvers}
+                          decidedByName={e.decidedByName}
+                          decisionNote={e.decisionNote}
+                        />
                         <span className="w-14 shrink-0 text-right tabular-nums text-neutral-700 dark:text-neutral-100">
                           {fmt(e.hours)} h
                         </span>
@@ -236,9 +233,18 @@ export function MyWeekLog({ today }: { today: string }) {
                           {e.categoryName}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100">
-                          {e.riskTitle && <span className="text-neutral-500 dark:text-neutral-400">議題:{e.riskTitle}</span>}
+                          {e.boardName && <span className="text-neutral-500 dark:text-neutral-400">{e.boardName}</span>}
+                          {e.riskTitle && <span className="ml-2 text-neutral-500 dark:text-neutral-400">議題:{e.riskTitle}</span>}
                           {e.note && <span className="ml-2 text-xs text-neutral-400">{e.note}</span>}
                         </span>
+                        {e.boardId && (
+                          <EntryStatusBadge
+                            status={e.status}
+                            approvers={e.approvers}
+                            decidedByName={e.decidedByName}
+                            decisionNote={e.decisionNote}
+                          />
+                        )}
                         <span className="w-14 shrink-0 text-right tabular-nums text-neutral-700 dark:text-neutral-100">
                           {fmt(e.hours)} h
                         </span>
@@ -304,6 +310,7 @@ function EntryForm({
   const [itemId, setItemId] = useState("");
   const [categoryId, setCategoryId] = useState(editing?.categoryId ?? "");
   const [riskEntryId, setRiskEntryId] = useState(editing?.riskEntryId ?? "");
+  const [boardId, setBoardId] = useState(editing?.boardId ?? "");
   const [hours, setHours] = useState(editing ? String(editing.hours) : "");
   const [note, setNote] = useState(editing?.note ?? "");
   const [busy, setBusy] = useState(false);
@@ -314,11 +321,17 @@ function EntryForm({
       ? options.categories
       : [
           ...options.categories,
-          { id: editing.categoryId, name: `${editing.categoryName}(已停用)`, linkIssue: editing.riskEntryId !== null },
+          {
+            id: editing.categoryId,
+            name: `${editing.categoryName}(已停用)`,
+            linkIssue: editing.riskEntryId !== null,
+            allowProject: editing.boardId !== null,
+          },
         ]
     : [];
   const effectiveCategoryId = categoryId || categories[0]?.id || "";
   const category = categories.find((c) => c.id === effectiveCategoryId);
+  const linkedBoardId = category?.allowProject && boardId ? boardId : null;
   const effectiveItemId = itemId || options?.items[0]?.id || "";
   // 備註的建議:這位成員以前對同一個工作項/類別寫過的備註排前面。
   const noteScope =
@@ -349,6 +362,7 @@ function EntryForm({
           categoryId: effectiveCategoryId,
           note,
           riskEntryId: category?.linkIssue && riskEntryId ? riskEntryId : null,
+          boardId: linkedBoardId,
         }));
       } else {
         ({ error } = await logActivityTime({
@@ -357,6 +371,7 @@ function EntryForm({
           categoryId: effectiveCategoryId,
           note,
           riskEntryId: category?.linkIssue && riskEntryId ? riskEntryId : null,
+          boardId: linkedBoardId,
         }));
       }
       if (error) {
@@ -377,7 +392,7 @@ function EntryForm({
         <div className="flex w-fit overflow-hidden rounded-md border border-neutral-200 text-xs dark:border-neutral-700">
           {(
             [
-              ["activity", "非專案"],
+              ["activity", "會議與其他"],
               ["project", "專案工作項"],
             ] as const
           ).map(([key, label]) => (
@@ -445,6 +460,18 @@ function EntryForm({
           wrapperClassName="min-w-[8rem] flex-1"
         />
       </div>
+
+      {kind === "activity" && category?.allowProject && (
+        <SearchableSelect
+          options={(options?.boards ?? []).map((b) => ({ value: b.id, label: b.name }))}
+          value={boardId}
+          onChange={setBoardId}
+          emptyLabel="不屬於專案"
+          placeholder="對應專案"
+          className={`${inputClass} max-w-full`}
+          title="對應專案的工時要由專案分組的 Team Leader / PMD、同部門 DM 或直屬主管核准,才會計入那個專案的成本"
+        />
+      )}
 
       {kind === "activity" && category?.linkIssue && (
         <SearchableSelect

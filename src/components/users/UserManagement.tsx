@@ -34,6 +34,7 @@ import {
   updateUserDiscipline,
   updateUserMonthlySalary,
   updateUserTimesheetAccess,
+  updateUserTimesheetNoApproval,
   adminResetUserPassword,
   unlockUser,
 } from "@/lib/actions/user";
@@ -196,6 +197,14 @@ function SortableUserRow({
       </button>
       <span className="flex min-w-0 items-center gap-1 truncate text-neutral-800 dark:text-neutral-100">
         {user.name}
+        {user.timesheetNoApproval && (
+          <span
+            className="shrink-0 rounded bg-green-50 px-1 py-0.5 text-[10px] text-green-700 dark:bg-green-950 dark:text-green-300"
+            title="工時免審核:登記的工時直接生效"
+          >
+            免審核
+          </span>
+        )}
         {isLocked && (
           <Lock size={12} className="shrink-0 text-red-500" aria-label="帳號已鎖定" />
         )}
@@ -316,6 +325,7 @@ export function UserManagement({
   const [editRole, setEditRole] = useState<UserRole>("MEMBER");
   const [editSupervisorId, setEditSupervisorId] = useState("");
   const [editCanViewAll, setEditCanViewAll] = useState(false);
+  const [editNoApproval, setEditNoApproval] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -395,6 +405,7 @@ export function UserManagement({
     setEditRole(user.role);
     setEditSupervisorId(user.supervisorId ?? "");
     setEditCanViewAll(user.canViewAllTimesheets);
+    setEditNoApproval(user.timesheetNoApproval);
     setEditError(null);
   }
 
@@ -408,6 +419,9 @@ export function UserManagement({
       const nextCanViewAll = editRole === "SUPERVISOR" && editCanViewAll;
       if (nextCanViewAll !== editTarget.canViewAllTimesheets) {
         await updateUserTimesheetAccess(editTarget.id, nextCanViewAll);
+      }
+      if (editNoApproval !== editTarget.timesheetNoApproval) {
+        await updateUserTimesheetNoApproval(editTarget.id, editNoApproval);
       }
       setEditTarget(null);
     } catch (err) {
@@ -650,6 +664,20 @@ export function UserManagement({
             emptyLabel="所屬主管(未設定)"
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
           />
+          <label className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+            <input
+              type="checkbox"
+              checked={editNoApproval}
+              onChange={(e) => setEditNoApproval(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              工時免審核
+              <span className="block text-xs text-neutral-400 dark:text-neutral-500">
+                這個人登記的專案工時與對應專案的會議工時直接生效,不用核准。勾選時,目前待審的也一併視為核准。
+              </span>
+            </span>
+          </label>
           {editRole === "SUPERVISOR" && (
             <label className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">
               <input

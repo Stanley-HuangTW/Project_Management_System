@@ -7,9 +7,18 @@ import { requireSession } from "@/lib/session";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import type { SessionPayload } from "@/lib/jwt";
 import { weekRangeOf } from "@/lib/weeklyReport";
+import { validateStartMinute } from "@/lib/timeOfDay";
+import {
+  EXEMPT_DECISION_NOTE,
+  formatApprovers,
+  groupIdsOfBoards,
+  isTimesheetExempt,
+  resolveApprovers,
+} from "@/lib/timesheetApproval";
 import {
   MAX_STATS_RANGE_DAYS,
   PROJECT_CATEGORY_LABEL,
+  UNASSIGNED_PROJECT_LABEL,
   aggregateTimesheet,
   canViewTimesheetOf,
   daysBetweenInclusive,
@@ -29,6 +38,13 @@ export type ProjectDayEntry = {
   hours: number;
   note: string;
   status: ApprovalStatus;
+  /** 一天中的開始時間(從 00:00 起算的分鐘數),null = 沒排時間。 */
+  startMinute: number | null;
+  decisionNote: string | null;
+  /** 待審時:可以核准的人(姓名與身分)。 */
+  approvers: string[];
+  /** 核准或退回的人;免審核的沒有。 */
+  decidedByName: string | null;
 };
 
 export type ActivityDayEntry = {
@@ -39,6 +55,14 @@ export type ActivityDayEntry = {
   categoryName: string;
   riskEntryId: string | null;
   riskTitle: string | null;
+  /** 對應的專案;有的話要主管核准才計入那個專案的成本。 */
+  boardId: string | null;
+  boardName: string | null;
+  startMinute: number | null;
+  status: ApprovalStatus;
+  decisionNote: string | null;
+  approvers: string[];
+  decidedByName: string | null;
 };
 
 export type TimesheetDay = {
@@ -55,9 +79,11 @@ export type MyWeek = {
 
 export type TimesheetOptions = {
   /** 只列啟用中的類別——停用的不能再登記,但舊紀錄仍然顯示它的名字。 */
-  categories: { id: string; name: string; linkIssue: boolean }[];
+  categories: { id: string; name: string; linkIssue: boolean; allowProject: boolean }[];
   /** 指派給我、而且我看得到的工作項。 */
   items: { id: string; name: string; boardName: string }[];
+  /** 我看得到的專案(看板),給「對應專案」選。 */
+  boards: { id: string; name: string }[];
   /** 我看得到的看板上的議題。 */
   issues: { id: string; title: string; boardName: string; closed: boolean }[];
 };
@@ -80,7 +106,12 @@ async function hoursAlreadyLoggedOn(userId: string, date: string, excludeActivit
       _sum: { hours: true },
     }),
     prisma.activityTimeEntry.aggregate({
-      where: { userId, date, ...(excludeActivityId ? { id: { not: excludeActivityId } } : {}) },
+      where: {
+        userId,
+        date,
+        status: { not: "REJECTED" },
+        ...(excludeActivityId ? { id: { not: excludeActivityId } } : {}),
+      },
       _sum: { hours: true },
     }),
   ]);
@@ -96,14 +127,40 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
     prisma.timeEntry.findMany({
       where: { userId: session.userId, date: { gte: range.weekStart, lte: range.weekEnd } },
       orderBy: { createdAt: "asc" },
-      include: { item: { select: { name: true, board: { select: { name: true } } } } },
+      include: {
+        item: { select: { name: true, groupId: true, board: { select: { name: true } } } },
+        decidedBy: { select: { name: true } },
+      },
     }),
     prisma.activityTimeEntry.findMany({
       where: { userId: session.userId, date: { gte: range.weekStart, lte: range.weekEnd } },
       orderBy: { createdAt: "asc" },
-      include: { category: { select: { name: true } }, riskEntry: { select: { title: true } } },
+      include: {
+        category: { select: { name: true } },
+        riskEntry: { select: { title: true } },
+        board: { select: { name: true } },
+      },
     }),
   ]);
+
+  // 待審的:誰可以核准;核准過的:誰核准的(對應專案的非專案工時,decidedById 是單純的 id)。
+  const boardGroups = await groupIdsOfBoards([
+    ...new Set(activity.filter((e) => e.status === "PENDING" && e.boardId).map((e) => e.boardId!)),
+  ]);
+  const approvers = await resolveApprovers([
+    ...project
+      .filter((e) => e.status === "PENDING")
+      .map((e) => ({ key: `t:${e.id}`, userId: e.userId, groupIds: [e.item.groupId] })),
+    ...activity
+      .filter((e) => e.status === "PENDING" && e.boardId)
+      .map((e) => ({ key: `a:${e.id}`, userId: e.userId, groupIds: boardGroups.get(e.boardId!) ?? [] })),
+  ]);
+  const decidedIds = [...new Set(activity.map((e) => e.decidedById).filter((id): id is string => !!id))];
+  const deciders = decidedIds.length
+    ? await prisma.user.findMany({ where: { id: { in: decidedIds } }, select: { id: true, name: true } })
+    : [];
+  const deciderName = new Map(deciders.map((u) => [u.id, u.name]));
+  const approverText = (key: string) => formatApprovers(approvers.get(key) ?? []);
 
   return {
     weekStart: range.weekStart,
@@ -120,6 +177,10 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           hours: Number(e.hours),
           note: e.note ?? "",
           status: e.status,
+          startMinute: e.startMinute,
+          decisionNote: e.decisionNote,
+          approvers: approverText(`t:${e.id}`),
+          decidedByName: e.decidedBy?.name ?? null,
         })),
       activity: activity
         .filter((e) => e.date === date)
@@ -131,6 +192,13 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           categoryName: e.category.name,
           riskEntryId: e.riskEntryId,
           riskTitle: e.riskEntry?.title ?? null,
+          boardId: e.boardId,
+          boardName: e.board?.name ?? null,
+          startMinute: e.startMinute,
+          status: e.status,
+          decisionNote: e.decisionNote,
+          approvers: approverText(`a:${e.id}`),
+          decidedByName: e.decidedById ? (deciderName.get(e.decidedById) ?? null) : null,
         })),
     })),
   };
@@ -140,11 +208,11 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
   const session = await requireSession();
   const boardWhere = accessibleBoardWhere(session);
 
-  const [categories, assignments, issues] = await Promise.all([
+  const [categories, assignments, issues, boards] = await Promise.all([
     prisma.timeCategory.findMany({
       where: { active: true },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      select: { id: true, name: true, linkIssue: true },
+      select: { id: true, name: true, linkIssue: true, allowProject: true },
     }),
     prisma.assignment.findMany({
       where: { userId: session.userId, item: { deletedAt: null, board: boardWhere } },
@@ -156,10 +224,12 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
       take: 200,
       select: { id: true, title: true, status: true, board: { select: { name: true } } },
     }),
+    prisma.board.findMany({ where: boardWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
   return {
     categories,
+    boards,
     items: assignments
       .map((a) => ({ id: a.item.id, name: a.item.name, boardName: a.item.board.name }))
       .sort((a, b) => a.boardName.localeCompare(b.boardName, "zh-TW") || a.name.localeCompare(b.name, "zh-TW")),
@@ -178,7 +248,12 @@ type ActivityInput = {
   categoryId: string;
   note: string;
   riskEntryId: string | null;
+  /** 對應的專案(看板)。要主管核准才計入那個專案的成本。 */
+  boardId?: string | null;
+  /** 一天中的開始時間(分鐘),行事曆用。 */
+  startMinute?: number | null;
 };
+
 
 /** 登記跟修改共用的檢查——回傳錯誤訊息,沒問題回 null。 */
 async function validateActivityInput(
@@ -193,9 +268,21 @@ async function validateActivityInput(
 
   const category = await prisma.timeCategory.findUnique({
     where: { id: input.categoryId },
-    select: { active: true, linkIssue: true },
+    select: { active: true, linkIssue: true, allowProject: true },
   });
   if (!category) return "找不到這個類別";
+
+  const startError = validateStartMinute(input.startMinute, input.hours);
+  if (startError) return startError;
+
+  if (input.boardId) {
+    if (!category.allowProject) return "這個類別不能對應專案";
+    const board = await prisma.board.findFirst({
+      where: { id: input.boardId, ...accessibleBoardWhere(session) },
+      select: { id: true },
+    });
+    if (!board) return "找不到這個專案,或你沒有它的存取權限";
+  }
 
   if (input.riskEntryId) {
     if (!category.linkIssue) return "這個類別不能連結議題";
@@ -230,6 +317,9 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
   const error = await validateActivityInput(session, session.userId, input);
   if (error) return { error };
 
+  // 對應專案的要核准;管理者設定「工時免審核」的人直接生效。
+  const exempt = input.boardId ? await isTimesheetExempt(session.userId) : false;
+
   await prisma.activityTimeEntry.create({
     data: {
       userId: session.userId,
@@ -238,9 +328,15 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
       categoryId: input.categoryId,
       note: input.note.trim() || null,
       riskEntryId: input.riskEntryId,
+      startMinute: input.startMinute ?? null,
+      // 有對應專案的要主管核准才算進專案成本;沒有的登記即生效。
+      boardId: input.boardId || null,
+      status: input.boardId && !exempt ? "PENDING" : "APPROVED",
+      ...(input.boardId && exempt ? { decidedAt: new Date(), decisionNote: EXEMPT_DECISION_NOTE } : {}),
     },
   });
   revalidatePath("/timesheet");
+  revalidatePath("/approvals");
   return {};
 }
 
@@ -251,7 +347,7 @@ export async function updateActivityTime(
   const session = await requireSession();
   const entry = await prisma.activityTimeEntry.findUnique({
     where: { id: entryId },
-    select: { userId: true, categoryId: true },
+    select: { userId: true, categoryId: true, date: true, hours: true, boardId: true, status: true },
   });
   if (!entry) return { error: "找不到這筆工時" };
   if (entry.userId !== session.userId && session.role !== "ADMIN") {
@@ -270,6 +366,15 @@ export async function updateActivityTime(
   const error = await validateActivityInput(session, entry.userId, input, entryId);
   if (error) return { error };
 
+  // 改了日期、時數、類別或專案,就要重新送審;只改備註或開始時間(不影響成本)就維持原本的審核結果。
+  const boardId = input.boardId || null;
+  const affectsCost =
+    entry.date !== input.date ||
+    Number(entry.hours) !== input.hours ||
+    entry.categoryId !== input.categoryId ||
+    entry.boardId !== boardId;
+  const exempt = boardId ? await isTimesheetExempt(entry.userId) : false;
+  const resubmit = boardId !== null && (affectsCost || entry.status === "REJECTED");
   await prisma.activityTimeEntry.update({
     where: { id: entryId },
     data: {
@@ -278,9 +383,19 @@ export async function updateActivityTime(
       categoryId: input.categoryId,
       note: input.note.trim() || null,
       riskEntryId: input.riskEntryId,
+      startMinute: input.startMinute ?? null,
+      boardId,
+      ...(boardId === null
+        ? { status: "APPROVED", decidedById: null, decidedAt: null, decisionNote: null }
+        : resubmit
+          ? exempt
+            ? { status: "APPROVED", decidedById: null, decidedAt: new Date(), decisionNote: EXEMPT_DECISION_NOTE }
+            : { status: "PENDING", decidedById: null, decidedAt: null, decisionNote: null }
+          : {}),
     },
   });
   revalidatePath("/timesheet");
+  revalidatePath("/approvals");
   return {};
 }
 
@@ -352,11 +467,22 @@ export async function getTimesheetStats(input: TimesheetStatsInput): Promise<Tim
         date: { gte: input.from, lte: input.to },
         status: input.includePending ? { not: "REJECTED" } : "APPROVED",
       },
-      select: { userId: true, date: true, hours: true },
+      select: { userId: true, date: true, hours: true, item: { select: { board: { select: { name: true } } } } },
     }),
     prisma.activityTimeEntry.findMany({
-      where: { userId: { in: selectedIds }, date: { gte: input.from, lte: input.to } },
-      select: { userId: true, date: true, hours: true, category: { select: { name: true } } },
+      where: {
+        userId: { in: selectedIds },
+        date: { gte: input.from, lte: input.to },
+        // 沒對應專案的登記即生效(APPROVED);對應專案的跟專案工時同一個規則。
+        status: input.includePending ? { not: "REJECTED" } : "APPROVED",
+      },
+      select: {
+        userId: true,
+        date: true,
+        hours: true,
+        category: { select: { name: true } },
+        board: { select: { name: true } },
+      },
     }),
   ]);
 
@@ -366,12 +492,14 @@ export async function getTimesheetStats(input: TimesheetStatsInput): Promise<Tim
       date: e.date,
       hours: Number(e.hours),
       categoryLabel: PROJECT_CATEGORY_LABEL,
+      projectLabel: e.item.board.name,
     })),
     ...activity.map((e) => ({
       userId: e.userId,
       date: e.date,
       hours: Number(e.hours),
       categoryLabel: e.category.name,
+      projectLabel: e.board?.name ?? UNASSIGNED_PROJECT_LABEL,
     })),
   ];
 
