@@ -16,6 +16,7 @@ import {
   type TimesheetStats,
 } from "@/lib/timesheet";
 import { weekRangeOf } from "@/lib/weeklyReport";
+import { TimesheetPeopleSelect, type StatsPerson, type StatsUnit } from "./TimesheetPeopleSelect";
 
 function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
@@ -34,7 +35,8 @@ export function TimesheetStatsView({ today }: { today: string }) {
   const [to, setTo] = useState(initialWeek.weekEnd);
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [includePending, setIncludePending] = useState(true);
-  const [users, setUsers] = useState<{ id: string; name: string }[] | null>(null);
+  const [users, setUsers] = useState<StatsPerson[] | null>(null);
+  const [units, setUnits] = useState<StatsUnit[]>([]);
   /** null = 我看得到的全部人。 */
   const [selectedIds, setSelectedIds] = useState<string[] | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -43,7 +45,10 @@ export function TimesheetStatsView({ today }: { today: string }) {
     let cancelled = false;
     (async () => {
       const result = await listViewableUsers();
-      if (!cancelled) setUsers(result);
+      if (!cancelled) {
+        setUsers(result.users);
+        setUnits(result.units);
+      }
     })();
     return () => {
       cancelled = true;
@@ -99,13 +104,6 @@ export function TimesheetStatsView({ today }: { today: string }) {
     }
   }
 
-  function toggleUser(id: string) {
-    if (!users) return;
-    const current = selectedIds ?? users.map((u) => u.id);
-    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-    setSelectedIds(next.length === users.length ? null : next);
-  }
-
   const result = loaded && loaded.key === key ? loaded.data : null;
   const showPeoplePicker = users !== null && users.length > 1;
 
@@ -143,52 +141,18 @@ export function TimesheetStatsView({ today }: { today: string }) {
               </option>
             ))}
           </select>
+          {showPeoplePicker && (
+            <TimesheetPeopleSelect people={users!} units={units} value={selectedIds} onChange={setSelectedIds} />
+          )}
           <label className="flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-200">
             <input
               type="checkbox"
               checked={includePending}
               onChange={(e) => setIncludePending(e.target.checked)}
             />
-            含待審核的專案工時
+            含待審核的工時(專案工時與對應專案的會議)
           </label>
         </div>
-
-        {showPeoplePicker && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-xs text-neutral-500 dark:text-neutral-400">人員</span>
-            {users!.map((u) => {
-              const on = selectedIds === null || selectedIds.includes(u.id);
-              return (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => toggleUser(u.id)}
-                  className={`rounded-full border px-2.5 py-0.5 text-xs ${
-                    on
-                      ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                      : "border-neutral-200 text-neutral-400 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800"
-                  }`}
-                >
-                  {u.name}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => setSelectedIds(null)}
-              className="ml-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
-            >
-              全選
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedIds([])}
-              className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-            >
-              清除
-            </button>
-          </div>
-        )}
       </div>
 
       {rangeError ? (
@@ -216,6 +180,18 @@ function StatsTables({
   granularity: Granularity;
 }) {
   const nameById = new Map(names.map((u) => [u.id, u.name]));
+  // 欄位已經依專案排好;同一個專案的欄連在一起,第一列用 colSpan 蓋住它們。
+  const projectGroups: { project: string; columns: typeof stats.columns; total: number }[] = [];
+  for (const column of stats.columns) {
+    const last = projectGroups[projectGroups.length - 1];
+    const hours = stats.totals.byColumn[column.key] ?? 0;
+    if (last && last.project === column.project) {
+      last.columns.push(column);
+      last.total += hours;
+    } else {
+      projectGroups.push({ project: column.project, columns: [column], total: hours });
+    }
+  }
   const cell = (value: number | undefined) =>
     value ? (
       <span className="tabular-nums">{fmt(value)}</span>
@@ -274,31 +250,54 @@ function StatsTables({
 
       <section>
         <h2 className="mb-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          各類別的工時(小時)
+          各類別的工時(小時,依專案分類)
         </h2>
-        {stats.categories.length === 0 ? (
+        {stats.columns.length === 0 ? (
           <p className="text-sm text-neutral-400 dark:text-neutral-500">這段期間沒有登記任何工時。</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-neutral-200 dark:border-neutral-700">
-                  <th className={`${th} text-left`}>人員</th>
-                  {stats.categories.map((c) => (
-                    <th key={c} className={th}>
-                      {c}
+                {/* 第一列:專案(含該專案的工時合計);第二列:專案底下的類別 */}
+                <tr className="border-b border-neutral-100 dark:border-neutral-800">
+                  <th className={`${th} text-left`} rowSpan={2}>
+                    人員
+                  </th>
+                  {projectGroups.map((g) => (
+                    <th
+                      key={g.project}
+                      colSpan={g.columns.length}
+                      className="whitespace-nowrap border-l border-neutral-200 px-3 py-1.5 text-center text-xs font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200"
+                    >
+                      {g.project}
+                      <span className="ml-1 font-normal text-neutral-400">{fmt(g.total)}h</span>
                     </th>
                   ))}
-                  <th className={th}>合計</th>
+                  <th className={th} rowSpan={2}>
+                    合計
+                  </th>
+                </tr>
+                <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                  {stats.columns.map((c, i) => (
+                    <th
+                      key={c.key}
+                      className={`${th} ${i === 0 || stats.columns[i - 1].project !== c.project ? "border-l border-neutral-200 dark:border-neutral-700" : ""}`}
+                    >
+                      {c.category}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {stats.users.map((u) => (
                   <tr key={u.userId} className="border-b border-neutral-100 dark:border-neutral-800">
                     <td className={nameTd}>{nameById.get(u.userId) ?? u.userId}</td>
-                    {stats.categories.map((c) => (
-                      <td key={c} className={td}>
-                        {cell(u.byCategory[c])}
+                    {stats.columns.map((c, i) => (
+                      <td
+                        key={c.key}
+                        className={`${td} ${i === 0 || stats.columns[i - 1].project !== c.project ? "border-l border-neutral-100 dark:border-neutral-800" : ""}`}
+                      >
+                        {cell(u.byColumn[c.key])}
                       </td>
                     ))}
                     <td className={`${td} font-semibold`}>{cell(u.total)}</td>
@@ -306,9 +305,12 @@ function StatsTables({
                 ))}
                 <tr className="bg-neutral-50 font-semibold dark:bg-neutral-800/60">
                   <td className={nameTd}>合計</td>
-                  {stats.categories.map((c) => (
-                    <td key={c} className={td}>
-                      {cell(stats.totals.byCategory[c])}
+                  {stats.columns.map((c, i) => (
+                    <td
+                      key={c.key}
+                      className={`${td} ${i === 0 || stats.columns[i - 1].project !== c.project ? "border-l border-neutral-100 dark:border-neutral-800" : ""}`}
+                    >
+                      {cell(stats.totals.byColumn[c.key])}
                     </td>
                   ))}
                   <td className={td}>{cell(stats.totals.total)}</td>

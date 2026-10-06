@@ -8,6 +8,7 @@ import { accessibleBoardWhere } from "@/lib/boardAccess";
 import type { SessionPayload } from "@/lib/jwt";
 import { weekRangeOf } from "@/lib/weeklyReport";
 import { validateStartMinute } from "@/lib/timeOfDay";
+import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import {
   EXEMPT_DECISION_NOTE,
   formatApprovers,
@@ -414,15 +415,26 @@ export async function deleteActivityTime(entryId: string): Promise<{ error?: str
   return {};
 }
 
-/** 統計頁的人員篩選——只有看得到工時的人才會出現在名單裡。 */
-export async function listViewableUsers(): Promise<{ id: string; name: string }[]> {
+/** 統計頁的人員篩選——只有看得到工時的人才會出現在名單裡;附上所屬單位,讓畫面可以依部門選取。 */
+export async function listViewableUsers(): Promise<{
+  users: { id: string; name: string; discipline: string | null }[];
+  units: { code: string; label: string }[];
+}> {
   const session = await requireSession();
   const viewer = await loadViewer(session);
-  const users = await prisma.user.findMany({
-    select: { id: true, name: true, supervisorId: true },
-    orderBy: { order: "asc" },
-  });
-  return users.filter((u) => canViewTimesheetOf(viewer, u)).map((u) => ({ id: u.id, name: u.name }));
+  const [users, units] = await Promise.all([
+    prisma.user.findMany({
+      select: { id: true, name: true, supervisorId: true, discipline: true },
+      orderBy: { order: "asc" },
+    }),
+    loadOrgUnits(),
+  ]);
+  return {
+    users: users
+      .filter((u) => canViewTimesheetOf(viewer, u))
+      .map((u) => ({ id: u.id, name: u.name, discipline: u.discipline })),
+    units: units.map((u) => ({ code: u.code, label: u.label })),
+  };
 }
 
 export type TimesheetStatsInput = {
