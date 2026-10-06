@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barIndexRange, computeRolledUpDateRange, hasOwnScheduleRule } from "./gantt";
+import { barIndexRange, computeDailyLoadByUser, computeRolledUpDateRange, hasOwnScheduleRule } from "./gantt";
 
 const START = "startCol";
 const DAYS = "daysCol";
@@ -126,5 +126,37 @@ describe("barIndexRange", () => {
 
   it("沒有任何日子時不會當掉", () => {
     expect(barIndexRange([], range("2026-10-26", "2026-10-26"), new Map())).toEqual({ startIndex: 0, endIndex: 0 });
+  });
+});
+
+describe("computeDailyLoadByUser:只算人員分配", () => {
+  const item = (assignments: { userId: string; allocationPct: number }[], ownerValue?: string) =>
+    ({
+      id: "i1",
+      parentId: null,
+      assignments,
+      cellValues: [
+        { columnId: "s", value: "2026-10-05" },
+        { columnId: "d", value: 2 },
+        ...(ownerValue ? [{ columnId: "owner", value: ownerValue }] : []),
+      ],
+    }) as unknown as Parameters<typeof computeDailyLoadByUser>[0][number];
+
+  it("有人員分配:每一天都記上那個百分比", () => {
+    const load = computeDailyLoadByUser([item([{ userId: "u1", allocationPct: 30 }])], "s", "d");
+    expect([...(load.get("u1") ?? [])]).toEqual([
+      ["2026-10-05", 30],
+      ["2026-10-06", 30],
+    ]);
+  });
+
+  it("只有負責人欄位、沒有人員分配:不算工作量", () => {
+    const load = computeDailyLoadByUser([item([], "u2")], "s", "d");
+    expect(load.size).toBe(0);
+  });
+
+  it("負責人欄位跟人員分配是不同的人:只有被分配的人有負載", () => {
+    const load = computeDailyLoadByUser([item([{ userId: "u1", allocationPct: 50 }], "u2")], "s", "d");
+    expect([...load.keys()]).toEqual(["u1"]);
   });
 });

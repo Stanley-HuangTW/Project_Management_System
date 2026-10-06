@@ -705,11 +705,10 @@ export function BoardGantt({
       board.items,
       startColumnId,
       durationColumnId,
-      personColumnIds,
       durationMode,
       holidaySet
     );
-  }, [board.items, startColumnId, durationColumnId, personColumnIds, durationMode, holidaySet]);
+  }, [board.items, startColumnId, durationColumnId, durationMode, holidaySet]);
 
   const usersWithLoad = users.filter((u) => (dailyLoad.get(u.id)?.size ?? 0) > 0);
 

@@ -71,12 +71,10 @@ export function computeTeamWorkload(
 
   for (const board of boards) {
     if (!board.ganttStartColumnId || !board.ganttDurationColumnId) continue;
-    const personColumnIds = board.columns.filter((c) => c.type === "PERSON").map((c) => c.id);
     const dailyLoad = computeDailyLoadByUser(
       board.items,
       board.ganttStartColumnId,
       board.ganttDurationColumnId,
-      personColumnIds,
       board.ganttDurationMode,
       holidays
     );
@@ -120,14 +118,11 @@ export function computeMemberItemWorkload(
 
   for (const board of boards) {
     if (!board.ganttStartColumnId || !board.ganttDurationColumnId) continue;
-    const personColumnIds = board.columns.filter((c) => c.type === "PERSON").map((c) => c.id);
     for (const item of board.items) {
+      // 只算人員分配;負責人欄位沒有百分比,不是工作量。
       const assignment = item.assignments.find((a) => a.userId === userId);
-      const personIds = item.cellValues
-        .filter((cv) => personColumnIds.includes(cv.columnId))
-        .flatMap((cv) => getPersonIds(cv.value));
-      if (!assignment && !personIds.includes(userId)) continue;
-      const allocationPct = assignment?.allocationPct ?? 100;
+      if (!assignment) continue;
+      const allocationPct = assignment.allocationPct;
       const range = getItemDateRange(
         item,
         board.ganttStartColumnId,

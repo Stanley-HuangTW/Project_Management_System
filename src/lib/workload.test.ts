@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { groupTasksByBoardAndGroup } from "./workload";
+import type { BoardWithData } from "@/types/board";
+import { computeMemberTaskBreakdown, groupTasksByBoardAndGroup } from "./workload";
 
 describe("groupTasksByBoardAndGroup", () => {
   const task = (boardId: string, boardName: string, groupId: string, groupName: string, itemId: string) => ({
@@ -42,5 +43,42 @@ describe("groupTasksByBoardAndGroup", () => {
 
   it("沒有任務就沒有任何一層", () => {
     expect(groupTasksByBoardAndGroup([])).toEqual([]);
+  });
+});
+
+describe("computeMemberTaskBreakdown:只算人員分配", () => {
+  const board = {
+    id: "b1",
+    name: "AMR",
+    groups: [{ id: "g1", name: "POC" }],
+    columns: [{ id: "owner", type: "PERSON" }],
+    ganttStartColumnId: "s",
+    ganttDurationColumnId: "d",
+    ganttDurationMode: "CALENDAR",
+    items: [
+      {
+        id: "i1",
+        groupId: "g1",
+        parentId: null,
+        order: 0,
+        name: "MCU Schematic",
+        assignments: [{ userId: "u1", allocationPct: 30 }],
+        cellValues: [
+          { columnId: "s", value: "2026-10-05" },
+          { columnId: "d", value: 2 },
+          { columnId: "owner", value: "u2" },
+        ],
+      },
+    ],
+  } as unknown as BoardWithData;
+
+  it("被分配的人有任務、百分比照人員分配", () => {
+    const byUser = computeMemberTaskBreakdown([board], ["u1", "u2"]);
+    expect(byUser.get("u1")?.map((t) => t.allocationPct)).toEqual([30]);
+  });
+
+  it("只掛在負責人欄位的人沒有任務(不再被當成 100%)", () => {
+    const byUser = computeMemberTaskBreakdown([board], ["u1", "u2"]);
+    expect(byUser.has("u2")).toBe(false);
   });
 });
