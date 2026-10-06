@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, FolderInput, Trash2, X } from "lucide-react";
+import { Copy, FolderInput, Replace, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { bulkCopyItems, bulkMoveItems } from "@/lib/actions/bulkStructure";
+import { bulkCopyItems, bulkMoveItems, bulkReplaceItemNames } from "@/lib/actions/bulkStructure";
 import { deleteItem, previewItemDeletion, type DeletionDependent, type DeletionImpact } from "@/lib/actions/item";
 import { collapseToRoots, subtreeIdsOf } from "@/lib/bulkStructure";
 import type { BoardWithData } from "@/types/board";
+import { BulkRenameDialog } from "./BulkRenameDialog";
 import { BulkTargetDialog, type BulkTarget } from "./BulkTargetDialog";
 
 const MAX_LISTED = 12;
@@ -27,7 +28,7 @@ const neutralButton = `${buttonClass} border-blue-300 dark:border-blue-700 bg-wh
 const dangerButton = `${buttonClass} border-red-300 dark:border-red-800 bg-white dark:bg-neutral-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950`;
 
 /**
- * 勾選之後的「複製 / 移動 / 刪除」。表格視圖(塞在批次編輯列裡)與甘特圖(自己的選取列)
+ * 勾選之後的「複製 / 移動 / 取代名稱 / 刪除」。表格視圖(塞在批次編輯列裡)與甘特圖(自己的選取列)
  * 共用這一份。複製與移動只能在同一個看板內;刪除是移到垃圾桶,可以還原。
  */
 export function BulkStructureActions({
@@ -47,7 +48,7 @@ export function BulkStructureActions({
 }) {
   const router = useRouter();
   const { notify, confirm, choose } = useDialogs();
-  const [dialog, setDialog] = useState<"copy" | "move" | null>(null);
+  const [dialog, setDialog] = useState<"copy" | "move" | "rename" | null>(null);
   const [busy, setBusy] = useState(false);
   const { rootIds, totalCount } = useSelectionRoots(board, selectedIds);
 
@@ -77,6 +78,30 @@ export function BulkStructureActions({
       );
     } catch {
       await notify("操作失敗,請重新整理後再試一次。", { title: `無法${mode === "copy" ? "複製" : "移動"}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runRename(find: string, replace: string) {
+    setBusy(true);
+    try {
+      const result = await bulkReplaceItemNames(board.id, [...selectedIds], find, replace);
+      if (result.error) {
+        await notify(result.error, { title: "無法取代名稱" });
+        return;
+      }
+      router.refresh();
+      setDialog(null);
+      onDone();
+      await notify(
+        `已改了 ${result.changed} 個項目的名稱${result.unchanged > 0 ? `,${result.unchanged} 個沒有這段字樣` : ""}${
+          result.blank > 0 ? `,${result.blank} 個取代後會變空白而略過` : ""
+        }。`,
+        { title: "取代完成" }
+      );
+    } catch {
+      await notify("操作失敗,請重新整理後再試一次。", { title: "無法取代名稱" });
     } finally {
       setBusy(false);
     }
@@ -184,6 +209,9 @@ export function BulkStructureActions({
           <button type="button" disabled={busy} onClick={() => setDialog("move")} className={neutralButton}>
             <FolderInput size={13} /> 移動到…
           </button>
+          <button type="button" disabled={busy} onClick={() => setDialog("rename")} className={neutralButton}>
+            <Replace size={13} /> 取代名稱…
+          </button>
         </>
       )}
       {canDelete && (
@@ -191,7 +219,15 @@ export function BulkStructureActions({
           <Trash2 size={13} /> 刪除
         </button>
       )}
-      {dialog && (
+      {dialog === "rename" && (
+        <BulkRenameDialog
+          items={board.items.filter((i) => selectedIds.has(i.id))}
+          busy={busy}
+          onConfirm={runRename}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {(dialog === "copy" || dialog === "move") && (
         <BulkTargetDialog
           mode={dialog}
           board={board}

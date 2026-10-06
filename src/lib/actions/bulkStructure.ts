@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import type { SessionPayload } from "@/lib/jwt";
 import { requireGroupStructureAccess } from "@/lib/actions/item";
 import { logActivity } from "@/lib/activityLog";
+import { planNameReplace } from "@/lib/bulkRename";
 import { notifyStructuralChange } from "@/lib/notify";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
@@ -338,4 +339,71 @@ export async function bulkMoveItems(
   revalidatePath(`/boards/${boardId}`);
   revalidatePath("/dashboard");
   return { roots: rootIds.length, items: moved.size };
+}
+
+export type BulkRenameResult = {
+  error?: string;
+  /** 實際改了名的項目數。 */
+  changed: number;
+  /** 名稱裡沒有出現那段字樣的項目數。 */
+  unchanged: number;
+  /** 取代後會變成空白而跳過的項目數。 */
+  blank: number;
+};
+
+const failRename = (error: string): BulkRenameResult => ({ error, changed: 0, unchanged: 0, blank: 0 });
+
+/**
+ * 批次取代名稱字樣:只改勾選的項目本身(不連帶沒勾的子項目)。名稱在 server 端用資料庫裡
+ * 現在的值重算,不信任畫面預覽那份;權限比照單筆改名(requireGroupStructureAccess),
+ * 涉及的每個分組都要過,有一個不行就整批不動。
+ */
+export async function bulkReplaceItemNames(
+  /** 不信任——看板一律從項目推導。 */
+  _boardId: string,
+  itemIds: string[],
+  find: string,
+  replace: string
+): Promise<BulkRenameResult> {
+  const session = await requireSession();
+  if (itemIds.length === 0) return failRename("請先勾選項目");
+  if (!find) return failRename("請輸入要尋找的字樣");
+
+  const items = await prisma.item.findMany({
+    where: { id: { in: itemIds }, deletedAt: null },
+    select: { id: true, name: true, groupId: true, boardId: true },
+  });
+  if (items.length !== new Set(itemIds).size) {
+    return failRename("找不到其中的項目(可能已被刪除)");
+  }
+  const boardIds = new Set(items.map((i) => i.boardId));
+  if (boardIds.size !== 1) return failRename("勾選的項目不在同一個看板");
+  const boardId = items[0].boardId;
+
+  const visible = await visibleItemIdsForBoard(boardId, session);
+  if (items.some((i) => !visible.has(i.id))) {
+    return failRename("找不到其中的項目(可能已被刪除,或你沒有權限看到)");
+  }
+  for (const groupId of new Set(items.map((i) => i.groupId))) {
+    const accessError = await structureAccessError(session, groupId);
+    if (accessError) return failRename(accessError);
+  }
+
+  const plan = planNameReplace(items, find, replace);
+  if (plan.changes.length > 0) {
+    await prisma.$transaction([
+      ...plan.changes.map((c) => prisma.item.update({ where: { id: c.id }, data: { name: c.to } })),
+      prisma.activityLogEntry.createMany({
+        data: plan.changes.map((c) => ({
+          itemId: c.id,
+          boardId,
+          actorId: session.userId,
+          message: `項目名稱從「${c.from}」改為「${c.to}」`,
+          category: "ITEM" as const,
+        })),
+      }),
+    ]);
+    revalidatePath(`/boards/${boardId}`);
+  }
+  return { changed: plan.changes.length, unchanged: plan.unchangedIds.length, blank: plan.blankIds.length };
 }
