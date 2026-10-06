@@ -9,6 +9,7 @@ import type { SessionPayload } from "@/lib/jwt";
 import { weekRangeOf } from "@/lib/weeklyReport";
 import { validateStartMinute } from "@/lib/timeOfDay";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
+import { DAILY_LIMIT_HOURS, hoursAlreadyLoggedOn } from "@/lib/timesheetHours";
 import {
   EXEMPT_DECISION_NOTE,
   formatApprovers,
@@ -89,7 +90,6 @@ export type TimesheetOptions = {
   issues: { id: string; title: string; boardName: string; closed: boolean }[];
 };
 
-const DAILY_LIMIT_HOURS = 24;
 
 async function loadViewer(session: SessionPayload): Promise<TimesheetViewer> {
   const user = await prisma.user.findUnique({
@@ -99,25 +99,6 @@ async function loadViewer(session: SessionPayload): Promise<TimesheetViewer> {
   return { id: session.userId, role: session.role, canViewAllTimesheets: user?.canViewAllTimesheets ?? false };
 }
 
-/** 這個人這一天已經登記的時數(專案未退回 + 非專案),可以排除正在編輯的那一筆。 */
-async function hoursAlreadyLoggedOn(userId: string, date: string, excludeActivityId?: string): Promise<number> {
-  const [project, activity] = await Promise.all([
-    prisma.timeEntry.aggregate({
-      where: { userId, date, status: { not: "REJECTED" } },
-      _sum: { hours: true },
-    }),
-    prisma.activityTimeEntry.aggregate({
-      where: {
-        userId,
-        date,
-        status: { not: "REJECTED" },
-        ...(excludeActivityId ? { id: { not: excludeActivityId } } : {}),
-      },
-      _sum: { hours: true },
-    }),
-  ]);
-  return Number(project._sum.hours ?? 0) + Number(activity._sum.hours ?? 0);
-}
 
 export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: string }> {
   const session = await requireSession();
@@ -294,7 +275,7 @@ async function validateActivityInput(
     if (!issue) return "找不到這個議題,或你沒有它所在看板的存取權限";
   }
 
-  const already = await hoursAlreadyLoggedOn(userId, input.date, excludeActivityId);
+  const already = await hoursAlreadyLoggedOn(userId, input.date, { activityEntryId: excludeActivityId });
   if (already + input.hours > DAILY_LIMIT_HOURS) {
     return `${input.date} 已經登記了 ${already} 小時,加上這筆會超過一天的 24 小時`;
   }

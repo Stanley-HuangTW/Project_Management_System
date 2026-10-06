@@ -1,11 +1,7 @@
 "use client";
 
-import { SearchableSelect } from "@/components/ui/SearchableSelect";
-import { NoteInput } from "@/components/ui/NoteInput";
-import { EntryStatusBadge } from "./EntryStatusBadge";
-import { useNoteSuggestions } from "./useNoteSuggestions";
-import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   deleteActivityTime,
@@ -13,45 +9,29 @@ import {
   listMyWeek,
   logActivityTime,
   updateActivityTime,
-  type ActivityDayEntry,
   type MyWeek,
-  type TimesheetDay,
   type TimesheetOptions,
 } from "@/lib/actions/activityTime";
-import { deleteTimeEntry, logTime } from "@/lib/actions/timeEntry";
+import { deleteTimeEntry, logTime, updateTimeEntry } from "@/lib/actions/timeEntry";
 import { addDaysIso } from "@/lib/timesheet";
 import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
-
-const WEEKDAY_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
-
-function weekdayLabel(dateIso: string): string {
-  return WEEKDAY_LABELS[new Date(`${dateIso}T00:00:00Z`).getUTCDay()];
-}
+import { EntryDialog, type EntryDialogTarget, type EntryDraft } from "./EntryDialog";
+import { WeekCalendar } from "./WeekCalendar";
+import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
 
 function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
 }
 
-/** 退回的專案工時不算數——跟統計、24 小時上限同一個規則。 */
-function dayTotal(day: TimesheetDay): number {
-  return (
-    day.project.filter((e) => e.status !== "REJECTED").reduce((sum, e) => sum + e.hours, 0) +
-    day.activity.reduce((sum, e) => sum + e.hours, 0)
-  );
-}
-
-const inputClass =
-  "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
-
-type FormTarget = { date: string; editing: ActivityDayEntry | null };
-
+/** 工時頁「我的工時」:週行事曆。點/拖出時段新增、點一筆開啟編輯、拖曳換時間換天、拖下緣改時數。 */
 export function MyWeekLog({ today }: { today: string }) {
   const { notify, confirm } = useDialogs();
   const [weekStart, setWeekStart] = useState(() => weekRangeOf(today).weekStart);
   const [loaded, setLoaded] = useState<MyWeek | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [options, setOptions] = useState<TimesheetOptions | null>(null);
-  const [form, setForm] = useState<FormTarget | null>(null);
+  const [dialog, setDialog] = useState<EntryDialogTarget | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,12 +57,14 @@ export function MyWeekLog({ today }: { today: string }) {
 
   const loading = !loaded || loaded.weekStart !== weekStart;
   const week = loading ? null : loaded;
-  const weekEnd = addDaysIso(weekStart, 6);
-  const weekTotal = week ? week.days.reduce((sum, d) => sum + dayTotal(d), 0) : 0;
+  const events = useMemo(() => (week ? eventsOfWeek(week) : []), [week]);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDaysIso(weekStart, i)), [weekStart]);
+  const weekEnd = days[6];
+  const weekTotal = days.reduce((sum, d) => sum + dayTotalHours(events, d), 0);
   const currentWeekStart = weekRangeOf(today).weekStart;
 
   function goToWeek(next: string) {
-    setForm(null);
+    setDialog(null);
     setWeekStart(next);
   }
 
@@ -90,40 +72,108 @@ export function MyWeekLog({ today }: { today: string }) {
     setRefreshKey((k) => k + 1);
   }
 
-  async function run(work: () => Promise<{ error?: string }>, failTitle: string) {
+  /** 把一筆行事曆上的工時改成新的日期/開始時間/時數,存到伺服器。 */
+  function saveChange(
+    event: CalendarEvent,
+    change: { date: string; startMinute: number | null; hours: number },
+    note: string = (event.project ?? event.activity)?.note ?? ""
+  ): Promise<{ error?: string }> {
+    if (event.project) {
+      return updateTimeEntry(event.id, { itemId: event.project.itemId, note, ...change });
+    }
+    const a = event.activity!;
+    return updateActivityTime(event.id, {
+      categoryId: a.categoryId,
+      riskEntryId: a.riskEntryId,
+      boardId: a.boardId,
+      note,
+      ...change,
+    });
+  }
+
+  /** 拖曳或拉長:先在畫面上套用,存到伺服器後重新讀取(失敗也重新讀取,畫面就回到原樣)。 */
+  async function changeOnCalendar(event: CalendarEvent, change: { date: string; startMinute: number | null; hours: number }) {
+    // 已核准、會計入成本的工時,改了日期或時數就得重新送審(免審核的人除外,但這邊看不出來,所以照實說明)。
+    const affectsCost = change.date !== event.date || change.hours !== event.hours;
+    if (event.status === "APPROVED" && event.needsApproval && affectsCost) {
+      const ok = await confirm("這筆工時已經核准,改了日期或時數後會重新送審(免審核的人除外),核准前不會計入成本。確定要改嗎?", {
+        title: "修改已核准的工時",
+        confirmLabel: "確定修改",
+      });
+      if (!ok) return;
+    }
+    if (week) setLoaded(moveEventInWeek(week, event, change));
+    setBusy(true);
     try {
-      const result = await work();
-      if (result.error) {
-        await notify(result.error, { title: failTitle });
-        return;
-      }
-      reload();
+      const result = await saveChange(event, change);
+      if (result.error) await notify(result.error, { title: "無法修改" });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      await notify(err instanceof Error ? err.message : "修改失敗", { title: "無法修改" });
+    } finally {
+      setBusy(false);
+      reload();
     }
   }
 
-  async function removeProject(id: string, label: string) {
-    const ok = await confirm(`確定要刪除「${label}」這筆專案工時嗎?`, {
-      title: "刪除工時",
-      confirmLabel: "刪除",
-      danger: true,
-    });
-    if (ok) await run(() => deleteTimeEntry(id), "無法刪除");
+  /** 對話框儲存:回傳錯誤訊息就留在對話框。 */
+  async function saveFromDialog(draft: EntryDraft, editing: CalendarEvent | null): Promise<string | null> {
+    let error: string | undefined;
+    if (draft.kind === "project") {
+      error = editing
+        ? (
+            await updateTimeEntry(editing.id, {
+              itemId: draft.itemId,
+              date: draft.date,
+              hours: draft.hours,
+              note: draft.note,
+              startMinute: draft.startMinute,
+            })
+          ).error
+        : (await logTime(draft.itemId, draft.date, draft.hours, draft.note, undefined, draft.startMinute)).error;
+    } else {
+      const input = {
+        date: draft.date,
+        hours: draft.hours,
+        categoryId: draft.categoryId,
+        note: draft.note,
+        riskEntryId: draft.riskEntryId || null,
+        boardId: draft.boardId || null,
+        startMinute: draft.startMinute,
+      };
+      error = editing ? (await updateActivityTime(editing.id, input)).error : (await logActivityTime(input)).error;
+    }
+    if (error) return error;
+    setDialog(null);
+    // 存到不在這一週的日期,就跟著跳過去,不然新增的那筆看起來像不見了。
+    const targetWeek = weekRangeOf(draft.date).weekStart;
+    if (targetWeek !== weekStart) setWeekStart(targetWeek);
+    else reload();
+    return null;
   }
 
-  async function removeActivity(id: string, label: string) {
-    const ok = await confirm(`確定要刪除「${label}」這筆工時嗎?`, {
+  async function deleteFromDialog(event: CalendarEvent) {
+    const ok = await confirm(`確定要刪除「${event.title}」這筆工時嗎?`, {
       title: "刪除工時",
       confirmLabel: "刪除",
       danger: true,
     });
-    if (ok) await run(() => deleteActivityTime(id), "無法刪除");
+    if (!ok) return;
+    try {
+      const result = await (event.kind === "project" ? deleteTimeEntry(event.id) : deleteActivityTime(event.id));
+      if (result.error) {
+        await notify(result.error, { title: "無法刪除" });
+        return;
+      }
+      setDialog(null);
+      reload();
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "刪除失敗", { title: "無法刪除" });
+    }
   }
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => goToWeek(addDaysIso(weekStart, -7))}
@@ -163,346 +213,40 @@ export function MyWeekLog({ today }: { today: string }) {
       {loading ? (
         <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>
       ) : (
-        <div className="space-y-2">
-          {week!.days.map((day) => {
-            const total = dayTotal(day);
-            const isToday = day.date === today;
-            const formOpen = form?.date === day.date;
-            return (
-              <section
-                key={day.date}
-                className={`rounded-lg border bg-white px-3 py-2 dark:bg-neutral-900 ${
-                  isToday ? "border-blue-300 dark:border-blue-800" : "border-neutral-200 dark:border-neutral-700"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
-                    {weekdayLabel(day.date)} {day.date.slice(5)}
-                  </span>
-                  {isToday && (
-                    <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                      今天
-                    </span>
-                  )}
-                  <span className="ml-auto text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
-                    {total > 0 ? `${fmt(total)} 小時` : "—"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setForm(formOpen && !form?.editing ? null : { date: day.date, editing: null })}
-                    className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-0.5 text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
-                  >
-                    <Plus size={12} /> 登記
-                  </button>
-                </div>
-
-                {(day.project.length > 0 || day.activity.length > 0) && (
-                  <ul className="mt-2 divide-y divide-neutral-100 dark:divide-neutral-800">
-                    {day.project.map((e) => (
-                      <li key={e.id} className="flex items-center gap-2 py-1.5 text-sm">
-                        <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                          專案
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100">
-                          <span className="text-neutral-400 dark:text-neutral-500">{e.boardName} / </span>
-                          {e.itemName}
-                          {e.note && <span className="ml-2 text-xs text-neutral-400">{e.note}</span>}
-                        </span>
-                        <EntryStatusBadge
-                          status={e.status}
-                          approvers={e.approvers}
-                          decidedByName={e.decidedByName}
-                          decisionNote={e.decisionNote}
-                        />
-                        <span className="w-14 shrink-0 text-right tabular-nums text-neutral-700 dark:text-neutral-100">
-                          {fmt(e.hours)} h
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeProject(e.id, e.itemName)}
-                          className="shrink-0 text-neutral-400 hover:text-red-600 dark:text-neutral-500"
-                          aria-label="刪除"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </li>
-                    ))}
-                    {day.activity.map((e) => (
-                      <li key={e.id} className="flex items-center gap-2 py-1.5 text-sm">
-                        <span className="shrink-0 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
-                          {e.categoryName}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100">
-                          {e.boardName && <span className="text-neutral-500 dark:text-neutral-400">{e.boardName}</span>}
-                          {e.riskTitle && <span className="ml-2 text-neutral-500 dark:text-neutral-400">議題:{e.riskTitle}</span>}
-                          {e.note && <span className="ml-2 text-xs text-neutral-400">{e.note}</span>}
-                        </span>
-                        {e.boardId && (
-                          <EntryStatusBadge
-                            status={e.status}
-                            approvers={e.approvers}
-                            decidedByName={e.decidedByName}
-                            decisionNote={e.decisionNote}
-                          />
-                        )}
-                        <span className="w-14 shrink-0 text-right tabular-nums text-neutral-700 dark:text-neutral-100">
-                          {fmt(e.hours)} h
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setForm({ date: day.date, editing: e })}
-                          className="shrink-0 text-neutral-400 hover:text-blue-600 dark:text-neutral-500"
-                          aria-label="修改"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeActivity(e.id, e.categoryName)}
-                          className="shrink-0 text-neutral-400 hover:text-red-600 dark:text-neutral-500"
-                          aria-label="刪除"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                {formOpen && (
-                  <EntryForm
-                    // 換一筆要修改的、或從修改切成新增,表單內的欄位都要重來。
-                    key={form.editing?.id ?? "new"}
-                    date={day.date}
-                    editing={form.editing}
-                    options={options}
-                    onCancel={() => setForm(null)}
-                    onSaved={() => {
-                      setForm(null);
-                      reload();
-                    }}
-                  />
-                )}
-              </section>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EntryForm({
-  date,
-  editing,
-  options,
-  onCancel,
-  onSaved,
-}: {
-  date: string;
-  editing: ActivityDayEntry | null;
-  options: TimesheetOptions | null;
-  onCancel: () => void;
-  onSaved: () => void;
-}) {
-  const { notify } = useDialogs();
-  const [kind, setKind] = useState<"project" | "activity">("activity");
-  const [itemId, setItemId] = useState("");
-  const [categoryId, setCategoryId] = useState(editing?.categoryId ?? "");
-  const [riskEntryId, setRiskEntryId] = useState(editing?.riskEntryId ?? "");
-  const [boardId, setBoardId] = useState(editing?.boardId ?? "");
-  const [hours, setHours] = useState(editing ? String(editing.hours) : "");
-  const [note, setNote] = useState(editing?.note ?? "");
-  const [busy, setBusy] = useState(false);
-
-  // 修改一筆舊紀錄時,它的類別可能後來被停用了——選單裡還是要有它自己。
-  const categories = options
-    ? options.categories.some((c) => c.id === editing?.categoryId) || !editing
-      ? options.categories
-      : [
-          ...options.categories,
-          {
-            id: editing.categoryId,
-            name: `${editing.categoryName}(已停用)`,
-            linkIssue: editing.riskEntryId !== null,
-            allowProject: editing.boardId !== null,
-          },
-        ]
-    : [];
-  const effectiveCategoryId = categoryId || categories[0]?.id || "";
-  const category = categories.find((c) => c.id === effectiveCategoryId);
-  const linkedBoardId = category?.allowProject && boardId ? boardId : null;
-  const effectiveItemId = itemId || options?.items[0]?.id || "";
-  // 備註的建議:這位成員以前對同一個工作項/類別寫過的備註排前面。
-  const noteScope =
-    kind === "project"
-      ? effectiveItemId
-        ? `item:${effectiveItemId}`
-        : null
-      : effectiveCategoryId
-        ? `cat:${effectiveCategoryId}`
-        : null;
-  const noteSuggestions = useNoteSuggestions(noteScope, note);
-
-  async function submit() {
-    const parsed = Number(hours);
-    setBusy(true);
-    try {
-      let error: string | undefined;
-      if (kind === "project") {
-        if (!effectiveItemId) {
-          error = "請選擇工作項";
-        } else {
-          ({ error } = await logTime(effectiveItemId, date, parsed, note));
-        }
-      } else if (editing) {
-        ({ error } = await updateActivityTime(editing.id, {
-          date,
-          hours: parsed,
-          categoryId: effectiveCategoryId,
-          note,
-          riskEntryId: category?.linkIssue && riskEntryId ? riskEntryId : null,
-          boardId: linkedBoardId,
-        }));
-      } else {
-        ({ error } = await logActivityTime({
-          date,
-          hours: parsed,
-          categoryId: effectiveCategoryId,
-          note,
-          riskEntryId: category?.linkIssue && riskEntryId ? riskEntryId : null,
-          boardId: linkedBoardId,
-        }));
-      }
-      if (error) {
-        await notify(error, { title: "無法儲存" });
-        return;
-      }
-      onSaved();
-    } catch (err) {
-      await notify(err instanceof Error ? err.message : "儲存失敗", { title: "無法儲存" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-2 space-y-2 rounded-md bg-neutral-50 p-3 dark:bg-neutral-800/60">
-      {!editing && (
-        <div className="flex w-fit overflow-hidden rounded-md border border-neutral-200 text-xs dark:border-neutral-700">
-          {(
-            [
-              ["activity", "會議與其他"],
-              ["project", "專案工作項"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setKind(key)}
-              className={`px-3 py-1 ${
-                kind === key
-                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                  : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        {kind === "project" ? (
-          options && options.items.length === 0 ? (
-            <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              沒有指派給你的工作項。可以到項目卡片的「工時與費用」分頁登記。
+        <>
+          <WeekCalendar
+            days={days}
+            events={events}
+            today={today}
+            busy={busy}
+            onCreate={(slot) => setDialog({ mode: "new", ...slot })}
+            onOpen={(event) => setDialog({ mode: "edit", event })}
+            onMove={(event, to) => changeOnCalendar(event, { ...to, hours: event.hours })}
+            onResize={(event, hours) => changeOnCalendar(event, { date: event.date, startMinute: event.startMinute, hours })}
+          />
+          <p className="mt-2 text-[11px] text-neutral-400 dark:text-neutral-500">
+            點一下或拖出一段時間新增;拖曳整塊換時間或換天,拖下緣改時數。
+            <span className="ml-2 inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-sm bg-blue-500" /> 專案工作項
             </span>
-          ) : (
-            <SearchableSelect
-              options={(options?.items ?? []).map((i) => ({ value: i.id, label: `${i.boardName} / ${i.name}` }))}
-              value={effectiveItemId}
-              onChange={setItemId}
-              disabled={!options}
-              className={`${inputClass} min-w-0 flex-1`}
-            />
-          )
-        ) : (
-          <select
-            value={effectiveCategoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            disabled={!options}
-            className={inputClass}
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <input
-          type="number"
-          min={0}
-          max={24}
-          step={0.5}
-          value={hours}
-          onChange={(e) => setHours(e.target.value)}
-          placeholder="小時"
-          className={`${inputClass} w-20 tabular-nums`}
-        />
-        <NoteInput
-          value={note}
-          onChange={setNote}
-          suggestions={noteSuggestions}
-          placeholder="備註(選填)"
-          className={inputClass}
-          wrapperClassName="min-w-[8rem] flex-1"
-        />
-      </div>
-
-      {kind === "activity" && category?.allowProject && (
-        <SearchableSelect
-          options={(options?.boards ?? []).map((b) => ({ value: b.id, label: b.name }))}
-          value={boardId}
-          onChange={setBoardId}
-          emptyLabel="不屬於專案"
-          placeholder="對應專案"
-          className={`${inputClass} max-w-full`}
-          title="對應專案的工時要由專案分組的 Team Leader / PMD、同部門 DM 或直屬主管核准,才會計入那個專案的成本"
-        />
+            <span className="ml-2 inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-sm bg-violet-500" /> 對應專案的會議(要核准)
+            </span>
+            <span className="ml-2 inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-sm bg-emerald-600" /> 其他(登記即生效)
+            </span>
+            <span className="ml-2">虛線 = 待審</span>
+          </p>
+        </>
       )}
 
-      {kind === "activity" && category?.linkIssue && (
-        <SearchableSelect
-          options={(options?.issues ?? []).map((i) => ({
-            value: i.id,
-            label: `${i.closed ? "(已結案) " : ""}${i.boardName} / ${i.title}`,
-          }))}
-          value={riskEntryId}
-          onChange={setRiskEntryId}
-          emptyLabel="不連結議題"
-          className={`${inputClass} max-w-full`}
-        />
-      )}
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={busy || !hours || !options}
-          onClick={submit}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {busy ? "儲存中..." : editing ? "儲存修改" : "登記"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs text-neutral-600 hover:bg-white dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
-        >
-          取消
-        </button>
-      </div>
+      <EntryDialog
+        target={dialog}
+        options={options}
+        onClose={() => setDialog(null)}
+        onSave={saveFromDialog}
+        onDelete={deleteFromDialog}
+      />
     </div>
   );
 }

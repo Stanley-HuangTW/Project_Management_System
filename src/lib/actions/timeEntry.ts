@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { validateStartMinute } from "@/lib/timeOfDay";
+import { DAILY_LIMIT_HOURS, hoursAlreadyLoggedOn } from "@/lib/timesheetHours";
 import { EXEMPT_DECISION_NOTE, formatApprovers, isTimesheetExempt, resolveApprovers } from "@/lib/timesheetApproval";
 
 export type TimeEntryRow = {
@@ -87,6 +88,10 @@ export async function logTime(
   if (startError) return { error: startError };
 
   const targetUserId = userId && session.role === "ADMIN" ? userId : session.userId;
+  const already = await hoursAlreadyLoggedOn(targetUserId, date);
+  if (already + hours > DAILY_LIMIT_HOURS) {
+    return { error: `${date} 已經登記了 ${already} 小時,加上這筆會超過一天的 24 小時` };
+  }
   // 管理者設定「工時免審核」的人,登記就生效,並留下「免審核」的註記。
   const exempt = await isTimesheetExempt(targetUserId);
   await prisma.timeEntry.create({
@@ -102,6 +107,62 @@ export async function logTime(
   });
 
   revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/**
+ * 修改自己登記的專案工時(行事曆上拖曳、拉長或開啟編輯)。
+ *
+ * 改了日期、時數或工作項(會影響成本)就要重新送審——已核准的也一樣,免審核的人則直接生效;
+ * 只改備註或開始時間不影響成本,維持原本的審核結果。
+ */
+export async function updateTimeEntry(
+  entryId: string,
+  input: { itemId: string; date: string; hours: number; note: string; startMinute: number | null }
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const entry = await prisma.timeEntry.findUnique({
+    where: { id: entryId },
+    select: { userId: true, itemId: true, date: true, hours: true, status: true },
+  });
+  if (!entry) return { error: "找不到這筆工時" };
+  if (entry.userId !== session.userId && session.role !== "ADMIN") {
+    return { error: "只能修改自己登記的工時" };
+  }
+  const boardId = await requireItemBoardAccess(input.itemId, session);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { error: "請選擇日期" };
+  if (!Number.isFinite(input.hours) || input.hours <= 0) return { error: "工時必須大於 0" };
+  if (input.hours > DAILY_LIMIT_HOURS) return { error: "一天不會超過 24 小時" };
+  const startError = validateStartMinute(input.startMinute, input.hours);
+  if (startError) return { error: startError };
+  const already = await hoursAlreadyLoggedOn(entry.userId, input.date, { projectEntryId: entryId });
+  if (already + input.hours > DAILY_LIMIT_HOURS) {
+    return { error: `${input.date} 已經登記了 ${already} 小時,加上這筆會超過一天的 24 小時` };
+  }
+
+  const affectsCost =
+    entry.itemId !== input.itemId || entry.date !== input.date || Number(entry.hours) !== input.hours;
+  const resubmit = affectsCost || entry.status === "REJECTED";
+  const exempt = resubmit ? await isTimesheetExempt(entry.userId) : false;
+  await prisma.timeEntry.update({
+    where: { id: entryId },
+    data: {
+      itemId: input.itemId,
+      date: input.date,
+      hours: input.hours,
+      note: input.note.trim() || null,
+      startMinute: input.startMinute,
+      ...(resubmit
+        ? exempt
+          ? { status: "APPROVED" as const, decidedById: null, decidedAt: new Date(), decisionNote: EXEMPT_DECISION_NOTE }
+          : { status: "PENDING" as const, decidedById: null, decidedAt: null, decisionNote: null }
+        : {}),
+    },
+  });
+  revalidatePath(`/boards/${boardId}`);
+  revalidatePath("/timesheet");
+  revalidatePath("/approvals");
   return {};
 }
 
