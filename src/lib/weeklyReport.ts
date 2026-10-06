@@ -91,7 +91,7 @@ export type RiskLine = {
   boardName: string;
   programName: string | null;
   kind: "RISK" | "ISSUE";
-  status: "OPEN" | "MITIGATING" | "CLOSED";
+  status: "OPEN" | "MITIGATING" | "PENDING_REVIEW" | "CLOSED";
   title: string;
   probability: number;
   impact: number;

@@ -17,6 +17,7 @@ const CATEGORY_LABELS: Record<AuditCategory, string> = {
   GATE: "閘門",
   CHANGE: "變更單",
   APPROVAL: "審核",
+  RISK: "風險議題",
 };
 
 const CATEGORY_CLASS: Record<AuditCategory, string> = {
@@ -30,6 +31,7 @@ const CATEGORY_CLASS: Record<AuditCategory, string> = {
   GATE: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200",
   CHANGE: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
   APPROVAL: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200",
+  RISK: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
 };
 
 /**

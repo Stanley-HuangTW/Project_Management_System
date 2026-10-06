@@ -40,6 +40,7 @@ export const RISK_KIND_LABELS: Record<RiskKind, string> = {
 export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
   OPEN: "未處理",
   MITIGATING: "處理中",
+  PENDING_REVIEW: "待審核",
   CLOSED: "已結案",
 };
 

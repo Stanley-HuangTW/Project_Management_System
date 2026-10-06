@@ -20,13 +20,18 @@ import { riskEmv, summarizeEmv, resolveProbability, PROBABILITY_BY_LEVEL } from 
 import { formatMoney } from "@/lib/cost";
 import {
   listRisks,
+  getRiskDetail,
   createRisk,
   updateRisk,
   setRiskStatus,
   deleteRisk,
   type RiskRow,
   type RiskInput,
+  type RiskUpdateRow,
+  type RiskHistoryRow,
 } from "@/lib/actions/risk";
+import { WORKING_STATUSES } from "@/lib/riskWorkflow";
+import { ClosureBar, HistoryPanel, ReviewerEditor, STATUS_CHIP_CLASS, UpdatesPanel } from "./RiskWorkflow";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const EMPTY: RiskInput = {
@@ -40,9 +45,16 @@ const EMPTY: RiskInput = {
   probabilityPct: null,
   mitigation: "",
   ownerId: null,
+  reviewerIds: [],
   dueDate: null,
   itemId: null,
 };
+
+const TABS = [
+  { key: "content", label: "內容與審核" },
+  { key: "updates", label: "進度更新" },
+  { key: "history", label: "紀錄" },
+] as const;
 
 const LEVELS = [1, 2, 3, 4, 5];
 
@@ -67,6 +79,12 @@ export function BoardRisks({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ id: string | null; input: RiskInput } | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("content");
+  const [detail, setDetail] = useState<{ updates: RiskUpdateRow[]; history: RiskHistoryRow[] }>({
+    updates: [],
+    history: [],
+  });
+  const editingId = editing?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -82,8 +100,41 @@ export function BoardRisks({
     };
   }, [board.id]);
 
+  // 打開既有的一筆時,讀它的進度更新與紀錄。
+  useEffect(() => {
+    if (!editingId) return;
+    let cancelled = false;
+    (async () => {
+      const d = await getRiskDetail(editingId);
+      if (!cancelled && !d.error) setDetail({ updates: d.updates, history: d.history });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editingId]);
+
   async function reload() {
     setRisks(await listRisks(board.id));
+  }
+
+  function openEditor(next: { id: string | null; input: RiskInput }) {
+    setTab("content");
+    setDetail({ updates: [], history: [] });
+    setEditing(next);
+  }
+
+  /** 申請結案、審核、進度更新之後:列表、這一筆的更新與紀錄一起重讀,表單上的狀態也跟著現況走。 */
+  async function refreshAfterAction() {
+    const rows = await listRisks(board.id);
+    setRisks(rows);
+    if (editingId) {
+      const d = await getRiskDetail(editingId);
+      if (!d.error) setDetail({ updates: d.updates, history: d.history });
+      const fresh = rows.find((r) => r.id === editingId);
+      if (fresh) {
+        setEditing((prev) => (prev && prev.id === editingId ? { ...prev, input: { ...prev.input, status: fresh.status } } : prev));
+      }
+    }
   }
 
   async function handleSave() {
@@ -107,7 +158,8 @@ export function BoardRisks({
   async function handleStatus(risk: RiskRow, status: RiskStatus) {
     setBusy(true);
     try {
-      await setRiskStatus(risk.id, status);
+      const result = await setRiskStatus(risk.id, status);
+      if (result.error) await notify(result.error, { title: "無法變更狀態" });
       await reload();
     } finally {
       setBusy(false);
@@ -119,7 +171,8 @@ export function BoardRisks({
     if (!ok) return;
     setBusy(true);
     try {
-      await deleteRisk(risk.id);
+      const result = await deleteRisk(risk.id);
+      if (result.error) await notify(result.error, { title: "無法刪除" });
       await reload();
     } finally {
       setBusy(false);
@@ -144,6 +197,10 @@ export function BoardRisks({
     return map;
   }, [board]);
 
+  const liveRow = editing?.id ? (risks.find((r) => r.id === editing.id) ?? null) : null;
+  // 新增時自己就是建立者;既有的看 server 算出來的權限。
+  const canEditContent = !editing?.id || !!liveRow?.permissions.canEditContent;
+
   const fieldClass =
     "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500";
 
@@ -152,7 +209,7 @@ export function BoardRisks({
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => setEditing({ id: null, input: { ...EMPTY, ownerId: currentUserId } })}
+          onClick={() => openEditor({ id: null, input: { ...EMPTY, ownerId: currentUserId } })}
           className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
         >
           <Plus size={14} /> 新增風險 / 議題
@@ -212,7 +269,7 @@ export function BoardRisks({
                 <th className="px-2 py-2 text-center font-medium">分數</th>
                 <th className="px-2 py-2 text-right font-medium">金額</th>
                 <th className="px-2 py-2 text-right font-medium">EMV</th>
-                <th className="px-3 py-2 text-left font-medium">對策</th>
+                <th className="px-3 py-2 text-left font-medium">對策與驗收標準</th>
                 <th className="px-3 py-2 text-left font-medium">負責人</th>
                 <th className="px-3 py-2 text-left font-medium">到期日</th>
                 <th className="px-3 py-2 text-left font-medium">狀態</th>
@@ -270,36 +327,54 @@ export function BoardRisks({
                     <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.ownerName ?? "—"}</td>
                     <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.dueDate ?? "—"}</td>
                     <td className="px-3 py-2">
-                      <select
-                        value={risk.status}
-                        disabled={busy}
-                        onChange={(e) => handleStatus(risk, e.target.value as RiskStatus)}
-                        className="rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
-                      >
-                        {(Object.keys(RISK_STATUS_LABELS) as RiskStatus[]).map((key) => (
-                          <option key={key} value={key}>
-                            {RISK_STATUS_LABELS[key]}
-                          </option>
-                        ))}
-                      </select>
+                      {risk.permissions.canSetWorkingStatus ? (
+                        <select
+                          value={risk.status}
+                          disabled={busy}
+                          onChange={(e) => handleStatus(risk, e.target.value as RiskStatus)}
+                          className="rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
+                        >
+                          {WORKING_STATUSES.map((key) => (
+                            <option key={key} value={key}>
+                              {RISK_STATUS_LABELS[key]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="inline-flex flex-wrap items-center gap-1">
+                          <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_CHIP_CLASS[risk.status]}`}>
+                            {RISK_STATUS_LABELS[risk.status]}
+                            {risk.status === "PENDING_REVIEW" &&
+                              ` ${risk.reviewers.filter((r) => r.approvedAt).length}/${risk.reviewers.length}`}
+                          </span>
+                          {risk.permissions.canReview && (
+                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-200">
+                              等你審核
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-2 py-2 text-right">
                       <button
                         type="button"
-                        onClick={() => setEditing({ id: risk.id, input: risk })}
+                        onClick={() => openEditor({ id: risk.id, input: risk })}
                         className="rounded p-1 text-neutral-400 dark:text-neutral-500 hover:text-blue-600"
-                        aria-label="編輯"
+                        aria-label={risk.permissions.canEditContent ? "編輯" : "檢視"}
+                        title={risk.permissions.canEditContent ? "編輯" : "檢視、寫進度更新"}
                       >
                         <Pencil size={13} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(risk)}
-                        className="rounded p-1 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
-                        aria-label="刪除"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {risk.permissions.canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(risk)}
+                          className="rounded p-1 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
+                          aria-label="刪除"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -317,6 +392,40 @@ export function BoardRisks({
       >
         {editing && (
           <div className="space-y-3">
+            {liveRow && (
+              <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-700 text-sm">
+                {TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setTab(t.key)}
+                    className={`-mb-px border-b-2 px-3 py-1.5 ${
+                      tab === t.key
+                        ? "border-blue-600 font-medium text-blue-700 dark:text-blue-300"
+                        : "border-transparent text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100"
+                    }`}
+                  >
+                    {t.label}
+                    {t.key === "updates" && detail.updates.length > 0 && `(${detail.updates.length})`}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {liveRow && tab === "updates" && (
+              <UpdatesPanel
+                riskId={liveRow.id}
+                canPost={liveRow.permissions.canPostUpdate}
+                updates={detail.updates}
+                onChanged={refreshAfterAction}
+              />
+            )}
+            {liveRow && tab === "history" && <HistoryPanel history={detail.history} />}
+
+            {(!liveRow || tab === "content") && (
+            <>
+            {liveRow && <ClosureBar risk={liveRow} onChanged={refreshAfterAction} />}
+            <fieldset disabled={!canEditContent} className="m-0 min-w-0 space-y-3 border-0 p-0">
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">類型</span>
@@ -338,12 +447,17 @@ export function BoardRisks({
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">狀態</span>
                 <select
                   value={editing.input.status}
+                  disabled={editing.input.status === "PENDING_REVIEW"}
                   onChange={(e) =>
                     setEditing({ ...editing, input: { ...editing.input, status: e.target.value as RiskStatus } })
                   }
                   className={fieldClass}
+                  title="結案要由負責人申請、審核人全部同意"
                 >
-                  {(Object.keys(RISK_STATUS_LABELS) as RiskStatus[]).map((key) => (
+                  {!WORKING_STATUSES.includes(editing.input.status) && (
+                    <option value={editing.input.status}>{RISK_STATUS_LABELS[editing.input.status]}</option>
+                  )}
+                  {WORKING_STATUSES.map((key) => (
                     <option key={key} value={key}>
                       {RISK_STATUS_LABELS[key]}
                     </option>
@@ -464,12 +578,14 @@ export function BoardRisks({
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">對策</span>
+              <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+                對策與驗收標準(由指派的人寫給負責人)
+              </span>
               <textarea
                 value={editing.input.mitigation}
                 onChange={(e) => setEditing({ ...editing, input: { ...editing.input, mitigation: e.target.value } })}
-                rows={2}
-                placeholder="要做什麼、做到什麼程度才算解除"
+                rows={3}
+                placeholder="要做什麼、測試標準與需求、做到什麼程度才算解除"
                 className={fieldClass}
               />
             </label>
@@ -512,23 +628,50 @@ export function BoardRisks({
               </label>
             </div>
 
+            <div>
+              <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">
+                審核人(申請結案後,每一位都同意才算解除)
+              </span>
+              <ReviewerEditor
+                users={users}
+                value={editing.input.reviewerIds}
+                onChange={(reviewerIds) => setEditing({ ...editing, input: { ...editing.input, reviewerIds } })}
+              />
+              {editing.input.status === "PENDING_REVIEW" && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  待審核中不能更換審核人,要換請先撤回申請結案。
+                </p>
+              )}
+            </div>
+            </fieldset>
+
+            {liveRow?.createdByName && (
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                建立者:{liveRow.createdByName}・{new Date(liveRow.createdAt).toLocaleString("zh-TW")}
+              </p>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setEditing(null)}
                 className="rounded-md border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               >
-                取消
+                {canEditContent ? "取消" : "關閉"}
               </button>
-              <button
-                type="button"
-                disabled={busy || !editing.input.title.trim()}
-                onClick={handleSave}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                儲存
-              </button>
+              {canEditContent && (
+                <button
+                  type="button"
+                  disabled={busy || !editing.input.title.trim()}
+                  onClick={handleSave}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  儲存
+                </button>
+              )}
             </div>
+            </>
+            )}
           </div>
         )}
       </Modal>

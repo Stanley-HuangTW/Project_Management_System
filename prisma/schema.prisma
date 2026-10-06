@@ -124,6 +124,8 @@ model User {
   timeEntries             TimeEntry[]
   activityTimeEntries     ActivityTimeEntry[]
   ownedRisks              RiskEntry[]              @relation("RiskOwner")
+  riskReviews             RiskReviewer[]           @relation("RiskReviewer")
+  riskUpdates             RiskUpdate[]             @relation("RiskUpdateAuthor")
   visibleItems            ItemViewer[]
   leaves                  Leave[]
   visibleGroups           GroupViewer[]
@@ -500,6 +502,8 @@ enum AuditCategory {
   CHANGE
   /// 工時與請假的審核。
   APPROVAL
+  /// 風險與議題的建立、修改、進度更新與結案審核。
+  RISK
 }
 
 model ActivityLogEntry {
@@ -511,6 +515,10 @@ model ActivityLogEntry {
   /// 查每一筆的工作項。系統層級的事件為 null。
   boardId   String?
   board     Board?        @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  /// 風險與議題層級的事件(建立、改欄位、申請結案、審核)。風險被刪掉時紀錄一起清掉,
+  /// 「誰刪了它」另外記一筆沒有 riskId 的板級稽核。
+  riskId    String?
+  risk      RiskEntry?    @relation(fields: [riskId], references: [id], onDelete: Cascade)
   category  AuditCategory @default(ITEM)
   actorId   String?
   actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
@@ -518,6 +526,7 @@ model ActivityLogEntry {
   createdAt DateTime      @default(now())
 
   @@index([itemId])
+  @@index([riskId])
   @@index([boardId, createdAt])
   @@index([category, createdAt])
 }
@@ -1002,6 +1011,8 @@ enum RiskKind {
 enum RiskStatus {
   OPEN
   MITIGATING
+  /// 負責人申請結案,等所有審核人同意。全部同意才會變成 CLOSED。
+  PENDING_REVIEW
   CLOSED
 }
 
@@ -1040,8 +1051,40 @@ model RiskEntry {
   updatedAt   DateTime @updatedAt
 
   activityTimeEntries ActivityTimeEntry[]
+  /// 審核人:申請結案之後,每一位都同意才算解除。
+  reviewers           RiskReviewer[]
+  /// 負責人的進度更新(時間軸,寫了不能改)。
+  updates             RiskUpdate[]
+  /// 建立、改欄位、申請結案、同意、退回的紀錄。
+  logs                ActivityLogEntry[]
 
   @@index([boardId, status])
+}
+
+/// 風險/議題的審核人。approvedAt 為 null = 這一輪還沒同意;申請結案、退回、重新開啟時都會清掉。
+model RiskReviewer {
+  id         String    @id @default(cuid())
+  riskId     String
+  risk       RiskEntry @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation("RiskReviewer", fields: [userId], references: [id], onDelete: Cascade)
+  approvedAt DateTime?
+
+  @@unique([riskId, userId])
+  @@index([userId])
+}
+
+/// 負責人(與有編輯權的人)對一筆風險/議題寫的進度更新。
+model RiskUpdate {
+  id        String    @id @default(cuid())
+  riskId    String
+  risk      RiskEntry @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?     @relation("RiskUpdateAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  body      String
+  createdAt DateTime  @default(now())
+
+  @@index([riskId, createdAt])
 }
 
 /// A key for the read-only REST API. Only the hash is stored — a key that
