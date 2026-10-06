@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { sessionFromApiKey } from "@/lib/apiAuth";
 import { getSession } from "@/lib/session";
-import { generateAndStoreWeeklyReport } from "@/lib/weeklyReportServer";
+import { generateAndStoreWeeklyReport, getReportRange } from "@/lib/weeklyReportServer";
 import { deliverWeeklyReport } from "@/lib/weeklyReportDelivery";
-import { weekRangeOf, previousWeekOf } from "@/lib/weeklyReport";
+import { lastCompletedReportRange, reportRangeOf } from "@/lib/weeklyReport";
+import { taipeiTodayIso } from "@/lib/timesheet";
 
 /**
  * 產一份週報。
@@ -25,13 +26,17 @@ export async function POST(request: Request) {
   }
 
   const url = new URL(request.url);
-  // 預設是「上一週」:這支是給週一早上的排程用的,那時候要的是剛結束的
-  // 那一週,不是才剛開始的這一週。
+  // 預設是「上一期」:這支是給排程用的,那時候要的是剛結束的那個範圍,不是才剛開始的。
+  // 範圍是從星期幾到星期幾,照系統設定(預設週三到週二),不一定是日曆上的週一到週日。
   const scope = url.searchParams.get("week") ?? "last";
-  const today = new Date().toISOString().slice(0, 10);
-  const thisWeek = weekRangeOf(today);
+  const today = taipeiTodayIso();
+  const range = await getReportRange();
   const target =
-    scope === "this" ? thisWeek.weekStart : scope === "last" ? previousWeekOf(thisWeek.weekStart).weekStart : scope;
+    scope === "this"
+      ? reportRangeOf(today, range).weekStart
+      : scope === "last"
+        ? lastCompletedReportRange(today, range).weekStart
+        : scope;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
     return NextResponse.json(
@@ -44,7 +49,7 @@ export async function POST(request: Request) {
 
   try {
     const { snapshot, diff, markdown } = await generateAndStoreWeeklyReport(session, target);
-    const delivery = deliver ? await deliverWeeklyReport(session, snapshot, markdown) : null;
+    const delivery = deliver ? await deliverWeeklyReport(session, snapshot, diff, markdown) : null;
     return NextResponse.json({
       weekStart: snapshot.weekStart,
       weekEnd: snapshot.weekEnd,

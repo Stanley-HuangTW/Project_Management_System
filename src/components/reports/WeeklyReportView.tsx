@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isoWeekLabel, type WeeklyReportData, type WeeklyReportDiff } from "@/lib/weeklyReport";
+import { reportWeekLabel, type WeeklyReportData, type WeeklyReportDiff } from "@/lib/weeklyReport";
 import { WeeklyProgramPanel } from "@/components/reports/WeeklyProgramPanel";
 
 export type WeeklyReportRow = {
@@ -63,9 +63,18 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
         return;
       }
       // 寄信與寫檔各自回報結果 —— 只說「已產生」會讓人以為信也寄出去了。
+      // 一個專案一封信,所以要說清楚寄了幾封、哪幾封沒寄出去。
+      const messages: { programName: string | null; ok: boolean; reason?: string }[] = body.delivery?.mail?.messages ?? [];
+      const sent = messages.filter((m) => m.ok);
+      const nameOf = (m: { programName: string | null }) => m.programName ?? "未歸屬專案群組";
       const mail = body.delivery?.mail?.ok
-        ? `已寄到 ${body.delivery.mail.to}`
-        : `沒有寄出(${body.delivery?.mail?.reason ?? "未知原因"})`;
+        ? `已寄出 ${sent.length} 封信到 ${body.delivery.mail.to}(${sent.map(nameOf).join("、")})`
+        : sent.length > 0
+          ? `寄出 ${sent.length} 封,${messages.length - sent.length} 封沒有寄出(${messages
+              .filter((m) => !m.ok)
+              .map(nameOf)
+              .join("、")}:${body.delivery.mail.reason ?? "未知原因"})`
+          : `沒有寄出(${body.delivery?.mail?.reason ?? "未知原因"})`;
       const file = body.delivery?.file?.ok
         ? "已存檔"
         : `沒有存檔(${body.delivery?.file?.reason ?? "未知原因"})`;
@@ -126,7 +135,7 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
           >
             {reports.map((r) => (
               <option key={r.weekStart} value={r.weekStart}>
-                {isoWeekLabel(r.weekStart)}({r.weekStart} ~ {r.weekEnd})
+                {reportWeekLabel(r.weekEnd)}({r.weekStart} ~ {r.weekEnd})
               </option>
             ))}
           </select>

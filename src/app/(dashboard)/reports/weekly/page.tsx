@@ -1,6 +1,6 @@
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { diffWeeks, previousWeekOf, type WeeklyReportData } from "@/lib/weeklyReport";
+import { diffWeeks, previousReportWeekStart, type WeeklyReportData } from "@/lib/weeklyReport";
 import { WeeklyReportView } from "@/components/reports/WeeklyReportView";
 
 /** 存的時候沒有驗證過型別(Json 欄位),讀回來時當舊版格式一律當「沒有資料」,
@@ -35,7 +35,7 @@ export default async function WeeklyReportPage() {
       <WeeklyReportView
         reports={reports.map((r) => {
           const data = asReportData(r.data);
-          const previous = dataByWeekStart.get(previousWeekOf(r.weekStart).weekStart) ?? null;
+          const previous = dataByWeekStart.get(previousReportWeekStart(r.weekStart)) ?? null;
           return {
             weekStart: r.weekStart,
             weekEnd: r.weekEnd,

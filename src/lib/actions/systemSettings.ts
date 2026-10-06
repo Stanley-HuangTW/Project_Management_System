@@ -36,6 +36,8 @@ export async function getSystemSettings() {
     weeklyReportDow: 1,
     weeklyReportHour: 6,
     weeklyReportMinute: 0,
+    weeklyReportRangeStartDow: 3,
+    weeklyReportRangeEndDow: 2,
     weeklyReportLastRunWeek: null as string | null,
     backupEnabled: false,
     backupFrequency: "DAILY",
@@ -218,12 +220,15 @@ export async function setEnabledNotificationTypes(types: NotificationType[]) {
 
 const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
-/** 專案週報分發的排程時間——星期幾、幾點幾分,見 weeklyReportTick 那條路。 */
+/** 專案週報分發的排程時間(星期幾、幾點幾分,見 weeklyReportTick 那條路)與週報涵蓋的日期範圍。 */
 export async function setWeeklyReportSchedule(schedule: {
   enabled: boolean;
   dow: number;
   hour: number;
   minute: number;
+  /** 週報範圍從星期幾開始、到星期幾結束(0=週日 … 6=週六)。 */
+  rangeStartDow: number;
+  rangeEndDow: number;
 }): Promise<{ error?: string }> {
   const session = await requireSession();
   requireBoardAdmin(session.role);
@@ -231,6 +236,9 @@ export async function setWeeklyReportSchedule(schedule: {
   if (schedule.dow < 0 || schedule.dow > 6) return { error: "星期幾不合法" };
   if (schedule.hour < 0 || schedule.hour > 23) return { error: "小時不合法" };
   if (schedule.minute < 0 || schedule.minute > 59) return { error: "分鐘不合法" };
+  for (const dow of [schedule.rangeStartDow, schedule.rangeEndDow]) {
+    if (!Number.isInteger(dow) || dow < 0 || dow > 6) return { error: "週報範圍的星期幾不合法" };
+  }
 
   await prisma.systemSettings.upsert({
     where: { id: "global" },
@@ -240,20 +248,26 @@ export async function setWeeklyReportSchedule(schedule: {
       weeklyReportDow: schedule.dow,
       weeklyReportHour: schedule.hour,
       weeklyReportMinute: schedule.minute,
+      weeklyReportRangeStartDow: schedule.rangeStartDow,
+      weeklyReportRangeEndDow: schedule.rangeEndDow,
     },
     update: {
       weeklyReportEnabled: schedule.enabled,
       weeklyReportDow: schedule.dow,
       weeklyReportHour: schedule.hour,
       weeklyReportMinute: schedule.minute,
+      weeklyReportRangeStartDow: schedule.rangeStartDow,
+      weeklyReportRangeEndDow: schedule.rangeEndDow,
     },
   });
   await logAudit(
     "SETTINGS",
     session.userId,
-    schedule.enabled
-      ? `專案週報排程設定為每${DOW_LABELS[schedule.dow]} ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
-      : "專案週報排程關閉"
+    `${
+      schedule.enabled
+        ? `專案週報排程設定為每${DOW_LABELS[schedule.dow]} ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
+        : "專案週報排程關閉"
+    },週報範圍${DOW_LABELS[schedule.rangeStartDow]}到${DOW_LABELS[schedule.rangeEndDow]}`
   );
   revalidatePath("/settings");
   return {};

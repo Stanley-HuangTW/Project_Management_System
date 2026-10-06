@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { buildProgramWeeklyReportData } from "@/lib/weeklyReportServer";
 import { deliverProgramReport } from "@/lib/weeklyReportDelivery";
-import { weekRangeOf, previousWeekOf, isoWeekLabel, isPastWeeklyTrigger } from "@/lib/weeklyReport";
+import { weekRangeOf, isoWeekLabel, isPastWeeklyTrigger, lastCompletedReportRange } from "@/lib/weeklyReport";
 
 /**
  * 專案週報分發的排程心跳。
@@ -37,11 +37,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ ran: false, reason: "還沒到設定的時間" });
   }
 
-  // 排程是「每週一早上」這種語意,報的是剛結束的那一週,不是才剛開始的
-  // 這一週——跟 /api/reports/weekly 預設 week=last 是同一個道理。
+  // 排程報的是剛結束的那個範圍(從星期幾到星期幾,照系統設定,預設週三到週二),不是才剛開始的
+  // ——跟 /api/reports/weekly 預設 week=last 是同一個道理。「這週跑過了沒」仍然照日曆上的週算,
+  // 排程本來就是每個日曆週跑一次。
   const todayIso = taipeiNow.toISOString().slice(0, 10);
   const thisWeek = weekRangeOf(todayIso);
-  const target = previousWeekOf(thisWeek.weekStart).weekStart;
+  const target = lastCompletedReportRange(todayIso, {
+    startDow: settings.weeklyReportRangeStartDow,
+    endDow: settings.weeklyReportRangeEndDow,
+  }).weekStart;
   const thisWeekKey = isoWeekLabel(thisWeek.weekStart);
 
   if (settings.weeklyReportLastRunWeek === thisWeekKey) {

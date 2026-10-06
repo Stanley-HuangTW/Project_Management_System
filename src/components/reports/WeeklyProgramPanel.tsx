@@ -1,6 +1,9 @@
 import { useState, type ReactNode } from "react";
 import {
+  ITEM_UPDATE_LABELS,
   byPriority,
+  groupItemUpdates,
+  type ItemUpdateLine,
   type ProgramSection,
   type PersonSection,
   type ReportItem,
@@ -79,6 +82,72 @@ function ItemList({ items, limit = 15 }: { items: ReportItem[]; limit?: number }
             className="text-xs text-blue-600 hover:underline dark:text-blue-400"
           >
             ……另外還有 {sorted.length - shown.length} 項(點擊展開)
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+const UPDATE_ICON: Record<ItemUpdateLine["kind"], string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎" };
+
+/** 只有 http(s) 的網址才做成可以點的連結;其他(例如 javascript:)只顯示文字。 */
+function safeHref(url: string | null): string | null {
+  return url && /^https?:\/\//i.test(url) ? url : null;
+}
+
+/** 這一週工作項上新增的留言、連結、附件,一個工作項一組。 */
+function ItemUpdateList({ updates, limit = 10 }: { updates: ItemUpdateLine[]; limit?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const groups = groupItemUpdates(updates);
+  if (groups.length === 0) {
+    return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週沒有工作項新增留言、連結或附件。</p>;
+  }
+  const shown = expanded ? groups : groups.slice(0, limit);
+  return (
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {shown.map((g) => (
+        <li key={g.itemId} className="py-1.5">
+          <p className="text-sm text-neutral-700 dark:text-neutral-100">
+            <span className="text-neutral-400 dark:text-neutral-500">{g.boardName} / </span>
+            {g.wbsCode && <span className="mr-1 tabular-nums text-neutral-400 dark:text-neutral-500">{g.wbsCode}</span>}
+            {g.name}
+          </p>
+          <ul className="mt-0.5 space-y-0.5 pl-3">
+            {g.updates.map((u, idx) => {
+              const href = safeHref(u.url);
+              return (
+                <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
+                  <span title={ITEM_UPDATE_LABELS[u.kind]}>{UPDATE_ICON[u.kind]}</span>
+                  <span className="text-neutral-400 dark:text-neutral-500">
+                    {u.authorName} {u.date.slice(5)}
+                  </span>
+                  {href ? (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {u.text}
+                    </a>
+                  ) : (
+                    <span className="break-words">{u.text}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </li>
+      ))}
+      {!expanded && groups.length > shown.length && (
+        <li className="py-1">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+          >
+            ……另外還有 {groups.length - shown.length} 個工作項(點擊展開)
           </button>
         </li>
       )}
@@ -268,7 +337,14 @@ export function WeeklyProgramPanel({
             脫離逾期 {diff.recovered.filter((i) => i.programName === name).length}・
             狀態更新 {inProgram(diff.statusChanged, name).length}・
             時程變化 {inProgram(diff.scheduleChanged, name).length}
+            {program.itemUpdates && <>・資訊更新 {groupItemUpdates(program.itemUpdates).length}</>}
           </p>
+        </Block>
+      )}
+
+      {program.itemUpdates && (
+        <Block title="工作項資訊更新" count={groupItemUpdates(program.itemUpdates).length}>
+          <ItemUpdateList updates={program.itemUpdates} />
         </Block>
       )}
 

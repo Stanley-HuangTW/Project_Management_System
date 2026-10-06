@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { setWeeklyReportSchedule } from "@/lib/actions/systemSettings";
+import { reportRangeDays } from "@/lib/weeklyReport";
 
 const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
@@ -10,7 +11,14 @@ const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", 
 export function WeeklyReportScheduleCard({
   initial,
 }: {
-  initial: { enabled: boolean; dow: number; hour: number; minute: number };
+  initial: {
+    enabled: boolean;
+    dow: number;
+    hour: number;
+    minute: number;
+    rangeStartDow: number;
+    rangeEndDow: number;
+  };
 }) {
   const [schedule, setSchedule] = useState(initial);
   const [isPending, startTransition] = useTransition();
@@ -81,6 +89,47 @@ export function WeeklyReportScheduleCard({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+        <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">週報涵蓋的範圍</p>
+        <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+          每份週報(手動產生的、排程寄的都一樣)涵蓋哪幾天。預設週三到週二;排程與「產生上一週」報的是已經結束的那一個範圍
+          (最後一天過完才算結束)。
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-neutral-600 dark:text-neutral-300">從</span>
+          <select
+            value={schedule.rangeStartDow}
+            disabled={isPending}
+            onChange={(e) => save({ ...schedule, rangeStartDow: Number(e.target.value) })}
+            className={fieldClass}
+            aria-label="週報範圍的起始日"
+          >
+            {DOW_LABELS.map((label, dow) => (
+              <option key={dow} value={dow}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span className="text-sm text-neutral-600 dark:text-neutral-300">到</span>
+          <select
+            value={schedule.rangeEndDow}
+            disabled={isPending}
+            onChange={(e) => save({ ...schedule, rangeEndDow: Number(e.target.value) })}
+            className={fieldClass}
+            aria-label="週報範圍的結束日"
+          >
+            {DOW_LABELS.map((label, dow) => (
+              <option key={dow} value={dow}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-neutral-400 dark:text-neutral-500">
+            共 {reportRangeDays({ startDow: schedule.rangeStartDow, endDow: schedule.rangeEndDow })} 天
+          </span>
+        </div>
       </div>
     </div>
   );

@@ -544,7 +544,14 @@ export function SystemSettingsForm({
   programs: ProgramRow[];
   programBoards: ProgramBoard[];
   programReportSubscriptions: ProgramReportSubscriptionRow[];
-  weeklyReportSchedule: { enabled: boolean; dow: number; hour: number; minute: number };
+  weeklyReportSchedule: {
+    enabled: boolean;
+    dow: number;
+    hour: number;
+    minute: number;
+    rangeStartDow: number;
+    rangeEndDow: number;
+  };
   backupSchedule: BackupScheduleInput;
   reportSettingsBoards: ReportSettingsBoardWithName[];
   statusColorBoards: StatusColorBoard[];

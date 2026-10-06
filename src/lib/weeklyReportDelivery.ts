@@ -2,7 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionPayload } from "@/lib/jwt";
 import { sendMailChecked } from "@/lib/mail";
-import { isoWeekLabel } from "@/lib/weeklyReport";
+import {
+  programSubset,
+  renderWeeklyReportMarkdown,
+  reportWeekLabel,
+  weeklyReportSubject,
+  type WeeklyReportDiff,
+} from "@/lib/weeklyReport";
 import type { WeeklyReportSnapshot } from "@/lib/weeklyReportServer";
 
 /**
@@ -15,9 +21,13 @@ import type { WeeklyReportSnapshot } from "@/lib/weeklyReportServer";
  * 人力,不該靠一個難猜的網址當作保護。
  */
 
+/** 一個專案一封信的結果。 */
+export type MailOutcome = { programName: string | null; subject: string; ok: boolean; reason?: string };
+
 export type DeliveryResult = {
   file: { ok: boolean; path?: string; reason?: string };
-  mail: { ok: boolean; to?: string; reason?: string };
+  /** 寄給要求產生週報的人:每個專案各一封,ok = 每一封都寄出去了。 */
+  mail: { ok: boolean; to?: string; reason?: string; messages: MailOutcome[] };
 };
 
 function reportDir(): string {
@@ -32,13 +42,14 @@ function safeName(raw: string): string {
 export async function deliverWeeklyReport(
   session: SessionPayload,
   snapshot: WeeklyReportSnapshot,
+  diff: WeeklyReportDiff,
   markdown: string
 ): Promise<DeliveryResult> {
-  const label = isoWeekLabel(snapshot.weekStart).replace(" ", "-");
+  const label = reportWeekLabel(snapshot.weekEnd).replace(" ", "-");
   const base = `${snapshot.weekStart}_${label}_${safeName(session.name)}`;
 
   const file = await writeReportFiles(base, snapshot, markdown);
-  const mail = await mailReport(session, snapshot, markdown);
+  const mail = await mailReport(session, snapshot, diff);
   return { file, mail };
 }
 
@@ -60,15 +71,33 @@ async function writeReportFiles(
   }
 }
 
+/**
+ * 一個專案寄一封,標題「{專案名稱}週報 W41 (起 ~ 迄)」,內容只有那個專案的部分——
+ * 看板跨好幾個專案時,混在一封信裡的週報讀的人得自己分。
+ */
 async function mailReport(
   session: SessionPayload,
   snapshot: WeeklyReportSnapshot,
-  markdown: string
+  diff: WeeklyReportDiff
 ): Promise<DeliveryResult["mail"]> {
-  if (!session.email) return { ok: false, reason: "這個帳號沒有 email" };
-  const subject = `週報 ${isoWeekLabel(snapshot.weekStart)}(${snapshot.weekStart} ~ ${snapshot.weekEnd})`;
-  const result = await sendMailChecked(session.email, subject, markdown);
-  return { ok: result.ok, to: session.email, reason: result.reason };
+  if (!session.email) return { ok: false, reason: "這個帳號沒有 email", messages: [] };
+  if (snapshot.programs.length === 0) {
+    return { ok: false, to: session.email, reason: "沒有可以寄的專案週報(看不到任何看板)", messages: [] };
+  }
+
+  const messages: MailOutcome[] = [];
+  for (const program of snapshot.programs) {
+    const subset = programSubset(snapshot, diff, program.programName);
+    const subject = weeklyReportSubject(program.programName, snapshot.weekStart, snapshot.weekEnd);
+    const markdown = renderWeeklyReportMarkdown(subset.data, subset.diff, {
+      title: `${program.programName ?? "未歸屬專案群組"}週報`,
+    });
+    // 一封寄失敗不該讓後面的專案也收不到。
+    const result = await sendMailChecked(session.email, subject, markdown);
+    messages.push({ programName: program.programName, subject, ok: result.ok, reason: result.reason });
+  }
+  const failed = messages.filter((m) => !m.ok);
+  return { ok: failed.length === 0, to: session.email, reason: failed[0]?.reason, messages };
 }
 
 export type ProgramDeliveryResult = {
@@ -88,11 +117,11 @@ export async function deliverProgramReport(
   markdown: string,
   recipientEmails: string[]
 ): Promise<ProgramDeliveryResult> {
-  const label = isoWeekLabel(snapshot.weekStart).replace(" ", "-");
+  const label = reportWeekLabel(snapshot.weekEnd).replace(" ", "-");
   const base = `${snapshot.weekStart}_${label}_${safeName(programName)}`;
   const file = await writeReportFiles(base, snapshot, markdown);
 
-  const subject = `【${programName}】週報 ${isoWeekLabel(snapshot.weekStart)}(${snapshot.weekStart} ~ ${snapshot.weekEnd})`;
+  const subject = `【${programName}】週報 ${reportWeekLabel(snapshot.weekEnd)}(${snapshot.weekStart} ~ ${snapshot.weekEnd})`;
   const mail: ProgramDeliveryResult["mail"] = [];
   for (const to of recipientEmails) {
     const result = await sendMailChecked(to, subject, markdown);

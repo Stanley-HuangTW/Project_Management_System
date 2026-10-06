@@ -96,6 +96,8 @@ export default async function SettingsPage() {
           dow: settings.weeklyReportDow,
           hour: settings.weeklyReportHour,
           minute: settings.weeklyReportMinute,
+          rangeStartDow: settings.weeklyReportRangeStartDow,
+          rangeEndDow: settings.weeklyReportRangeEndDow,
         }}
         backupSchedule={{
           enabled: settings.backupEnabled,

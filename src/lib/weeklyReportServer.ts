@@ -9,16 +9,19 @@ import { gatherDelayInputs } from "@/lib/delayInputs";
 import { analyzeDelays } from "@/lib/delayAnalysis";
 import { summarizeBudget } from "@/lib/budget";
 import { getProgramView } from "@/lib/programView";
+import { getSystemSettings } from "@/lib/actions/systemSettings";
 import {
   diffWeeks,
   renderWeeklyReportMarkdown,
-  weekRangeOf,
-  previousWeekOf,
+  reportRangeOf,
+  previousReportWeekStart,
   type BoardLine,
   type BudgetLine,
   type DelayLine,
   type PersonSection,
+  type ReportRangeConfig,
   type ItemBucket,
+  type ItemUpdateLine,
   type ProgramSection,
   type ReportItem,
   type RiskLine,
@@ -59,12 +62,19 @@ const DM_ROLE_OF: Record<string, string> = {
   PM: "PM_DM",
 };
 
+/** 系統設定裡的週報範圍(從星期幾到星期幾)。 */
+export async function getReportRange(): Promise<ReportRangeConfig> {
+  const settings = await getSystemSettings();
+  return { startDow: settings.weeklyReportRangeStartDow, endDow: settings.weeklyReportRangeEndDow };
+}
+
+/** weekStartIso 是範圍裡的任何一天,實際涵蓋的起訖照系統設定的週報範圍算。 */
 export async function buildWeeklyReport(
   session: SessionPayload,
   weekStartIso: string,
   upcomingDays = 7
 ): Promise<{ snapshot: WeeklyReportSnapshot; diff: WeeklyReportDiff; markdown: string }> {
-  const { weekStart, weekEnd } = weekRangeOf(weekStartIso);
+  const { weekStart, weekEnd } = reportRangeOf(weekStartIso, await getReportRange());
 
   const [boards, holidayRows] = await Promise.all([
     prisma.board.findMany({ where: accessibleBoardWhere(session), ...boardWithDataArgs }),
@@ -91,49 +101,53 @@ export async function buildWeeklyReport(
     const view = await getProgramView(program.id, session);
     if (!view) continue;
     const mine = boards.filter((b) => b.programId === program.id);
+    const items: ReportItem[] = view.tasks.map((task) => ({
+      id: task.id,
+      wbsCode: task.wbsCode,
+      name: task.name,
+      boardName: task.boardName,
+      groupName: task.groupName,
+      programName: program.name,
+      start: task.start,
+      end: task.end,
+      status: task.status,
+      ownerIds: task.assigneeIds,
+      ownerNames: task.assigneeNames,
+      isMilestone: task.isMilestone,
+      isCritical: task.isCritical,
+      priority: task.priority,
+      bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(mine, holidays)),
+    }));
     sections.push({
       programName: program.name,
       boards: boardLinesOf(mine, program.name, holidays),
-      items: view.tasks.map((task) => ({
-        id: task.id,
-        wbsCode: task.wbsCode,
-        name: task.name,
-        boardName: task.boardName,
-        groupName: task.groupName,
-        programName: program.name,
-        start: task.start,
-        end: task.end,
-        status: task.status,
-        ownerIds: task.assigneeIds,
-        ownerNames: task.assigneeNames,
-        isMilestone: task.isMilestone,
-        isCritical: task.isCritical,
-        priority: task.priority,
-        bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(mine, holidays)),
-      })),
+      items,
       budgets: await gatherBudgets(mine),
       delays: await gatherDelays(mine, session),
       risks: await gatherRisks(mine, program.name),
+      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
     });
   }
 
   // 沒有歸屬專案群組的看板自己一段 —— 漏掉它們,那些工作項就整個消失了。
   const orphans = boards.filter((b) => !b.programId);
   if (orphans.length > 0) {
+    const items = orphanItems(orphans, holidays, bucketOf);
     sections.push({
       programName: null,
       boards: boardLinesOf(orphans, null, holidays),
-      items: orphanItems(orphans, holidays, bucketOf),
+      items,
       budgets: await gatherBudgets(orphans),
       delays: await gatherDelays(orphans, session),
       risks: await gatherRisks(orphans, null),
+      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
     });
   }
 
   // diff 要先算出來,才有「這週已完成」的名單可以分給各部門/各人——見
   // gatherPersonSections 的說明。diffWeeks 只讀 current.programs,所以在
   // snapshot 組完整之前先用 sections 算是等價的。
-  const previous = await loadSnapshot(session.userId, previousWeekOf(weekStart).weekStart);
+  const previous = await loadSnapshot(session.userId, previousReportWeekStart(weekStart));
   const diff = diffWeeks({ programs: sections }, previous);
 
   const snapshot: WeeklyReportSnapshot = {
@@ -540,6 +554,80 @@ async function gatherBudgets(boards: BoardWithData[]): Promise<BudgetLine[]> {
   return lines.sort((a, b) => Number(b.over) - Number(a.over) || a.remaining - b.remaining);
 }
 
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/** 站內的相對路徑(附件)換成完整網址——信件裡的連結要能直接點開。 */
+function absoluteUrl(url: string): string {
+  if (!url.startsWith("/")) return url;
+  return `${(process.env.APP_BASE_URL || "http://localhost:3000").replace(/\/+$/, "")}${url}`;
+}
+
+/** 留言太長就截短,換行壓成空白——週報裡一則留言只佔一行。 */
+function excerpt(text: string, max = 120): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/**
+ * 這一週工作項上新增的資訊:留言、連結(網址)、附件。
+ *
+ * 直接查資料庫,不跟上週的快照比:這些是「這週發生了」的事,不是狀態。只看 items 裡有的工作項,
+ * 所以看不到的(私人)工作項不會透過這裡漏出去。報銷憑證(掛在費用或承諾上的附件)不算。
+ * 週的邊界照台灣時間(UTC+8)——跟工時、排程用同一個時區。
+ */
+async function gatherItemUpdates(items: ReportItem[], weekStart: string, weekEnd: string): Promise<ItemUpdateLine[]> {
+  if (items.length === 0) return [];
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const itemIds = [...itemById.keys()];
+  const createdAt = {
+    gte: new Date(`${weekStart}T00:00:00+08:00`),
+    lt: new Date(new Date(`${weekEnd}T00:00:00+08:00`).getTime() + 86_400_000),
+  };
+  const dateOf = (d: Date) => new Date(d.getTime() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
+
+  const [comments, links, attachments] = await Promise.all([
+    prisma.comment.findMany({
+      where: { itemId: { in: itemIds }, createdAt },
+      select: { itemId: true, body: true, createdAt: true, author: { select: { name: true } } },
+    }),
+    prisma.itemLink.findMany({
+      where: { itemId: { in: itemIds }, createdAt },
+      select: { itemId: true, url: true, label: true, createdAt: true, createdBy: { select: { name: true } } },
+    }),
+    prisma.attachment.findMany({
+      where: { itemId: { in: itemIds }, createdAt, expenseId: null, commitmentId: null },
+      select: { itemId: true, fileName: true, url: true, createdAt: true, uploader: { select: { name: true } } },
+    }),
+  ]);
+
+  const line = (
+    itemId: string,
+    kind: ItemUpdateLine["kind"],
+    text: string,
+    url: string | null,
+    authorName: string,
+    at: Date
+  ): ItemUpdateLine => {
+    const item = itemById.get(itemId)!;
+    return {
+      itemId,
+      wbsCode: item.wbsCode,
+      name: item.name,
+      boardName: item.boardName,
+      kind,
+      text,
+      url,
+      authorName,
+      date: dateOf(at),
+    };
+  };
+  return [
+    ...comments.map((c) => line(c.itemId, "COMMENT", excerpt(c.body), null, c.author.name, c.createdAt)),
+    ...links.map((l) => line(l.itemId, "LINK", l.label?.trim() || l.url, absoluteUrl(l.url), l.createdBy.name, l.createdAt)),
+    ...attachments.map((a) => line(a.itemId, "ATTACHMENT", a.fileName, absoluteUrl(a.url), a.uploader.name, a.createdAt)),
+  ];
+}
+
 /** 這一週每塊看板有幾筆異動。週末那一天也要算進去,所以比到隔天零點。 */
 async function gatherActivity(
   boards: BoardWithData[],
@@ -641,7 +729,7 @@ export async function buildProgramWeeklyReportData(
   const program = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, name: true } });
   if (!program) return null;
 
-  const { weekStart, weekEnd } = weekRangeOf(weekStartIso);
+  const { weekStart, weekEnd } = reportRangeOf(weekStartIso, await getReportRange());
   const systemSession: SessionPayload = {
     userId: "system-weekly-report",
     email: "",
@@ -664,34 +752,36 @@ export async function buildProgramWeeklyReportData(
   const view = await getProgramView(programId, systemSession);
   if (!view) return null;
 
+  const items: ReportItem[] = view.tasks.map((task) => ({
+    id: task.id,
+    wbsCode: task.wbsCode,
+    name: task.name,
+    boardName: task.boardName,
+    groupName: task.groupName,
+    programName: program.name,
+    start: task.start,
+    end: task.end,
+    status: task.status,
+    ownerIds: task.assigneeIds,
+    ownerNames: task.assigneeNames,
+    isMilestone: task.isMilestone,
+    isCritical: task.isCritical,
+    priority: task.priority,
+    bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(boards, holidays)),
+  }));
   const sections: ProgramSection[] = [
     {
       programName: program.name,
       boards: boardLinesOf(boards, program.name, holidays),
-      items: view.tasks.map((task) => ({
-        id: task.id,
-        wbsCode: task.wbsCode,
-        name: task.name,
-        boardName: task.boardName,
-        groupName: task.groupName,
-        programName: program.name,
-        start: task.start,
-        end: task.end,
-        status: task.status,
-        ownerIds: task.assigneeIds,
-        ownerNames: task.assigneeNames,
-        isMilestone: task.isMilestone,
-        isCritical: task.isCritical,
-        priority: task.priority,
-        bucket: resolveBucket(task.id, task.status, bucketOf, doneIds(boards, holidays)),
-      })),
+      items,
       budgets: await gatherBudgets(boards),
       delays: await gatherDelays(boards, systemSession),
       risks: await gatherRisks(boards, program.name),
+      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
     },
   ];
 
-  const previous = await loadProgramSnapshot(programId, previousWeekOf(weekStart).weekStart);
+  const previous = await loadProgramSnapshot(programId, previousReportWeekStart(weekStart));
   const diff = diffWeeks({ programs: sections }, previous);
 
   const snapshot: WeeklyReportSnapshot = {

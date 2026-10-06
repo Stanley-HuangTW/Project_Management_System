@@ -101,6 +101,30 @@ export type RiskLine = {
   updatedAt: string;
 };
 
+/** 這一週工作項上新增的資訊:留言、連結(網址)、附件。 */
+export type ItemUpdateKind = "COMMENT" | "LINK" | "ATTACHMENT";
+
+export const ITEM_UPDATE_LABELS: Record<ItemUpdateKind, string> = {
+  COMMENT: "留言",
+  LINK: "連結",
+  ATTACHMENT: "附件",
+};
+
+export type ItemUpdateLine = {
+  itemId: string;
+  wbsCode: string;
+  name: string;
+  boardName: string;
+  kind: ItemUpdateKind;
+  /** 留言內容(已截短)、連結的顯示名稱、附件的檔名。 */
+  text: string;
+  /** 連結或附件的完整網址;留言沒有。 */
+  url: string | null;
+  authorName: string;
+  /** "YYYY-MM-DD" */
+  date: string;
+};
+
 export type ProgramSection = {
   programName: string | null;
   boards: BoardLine[];
@@ -108,6 +132,8 @@ export type ProgramSection = {
   budgets: BudgetLine[];
   delays: DelayLine[];
   risks: RiskLine[];
+  /** 這一週工作項上新增的留言、連結、附件。舊版快照沒有這個欄位。 */
+  itemUpdates?: ItemUpdateLine[];
 };
 
 export type WeeklyReportData = {
@@ -199,6 +225,61 @@ export function isPastWeeklyTrigger(
   if (now.dow !== trigger.dow) return now.dow > trigger.dow;
   if (now.hour !== trigger.hour) return now.hour > trigger.hour;
   return now.minute >= trigger.minute;
+}
+
+/**
+ * 週報涵蓋的日期範圍:從星期幾到星期幾(0=週日 … 6=週六,沿用 JS Date.getDay())。
+ * 連續 1~7 天、每 7 天一輪,預設週三到週二——不一定是日曆上的週一到週日。
+ */
+export type ReportRangeConfig = { startDow: number; endDow: number };
+
+export const DEFAULT_REPORT_RANGE: ReportRangeConfig = { startDow: 3, endDow: 2 };
+
+/** 範圍有幾天:週三到週二 = 7、週一到週五 = 5、起訖同一天 = 1。 */
+export function reportRangeDays(config: ReportRangeConfig): number {
+  return ((config.endDow - config.startDow + 7) % 7) + 1;
+}
+
+/**
+ * 這一天所屬的範圍;起訖不滿 7 天時,落在兩個範圍中間空檔的那天回前一個範圍。
+ * 回傳的 weekStart / weekEnd 沿用週報原本的欄位名,但現在是「範圍的第一天與最後一天」。
+ */
+export function reportRangeOf(
+  dayIso: string,
+  config: ReportRangeConfig
+): { weekStart: string; weekEnd: string } {
+  const date = utc(dayIso);
+  const back = (date.getUTCDay() - config.startDow + 7) % 7;
+  const start = new Date(date.getTime() - back * DAY_MS);
+  return {
+    weekStart: iso(start),
+    weekEnd: iso(new Date(start.getTime() + (reportRangeDays(config) - 1) * DAY_MS)),
+  };
+}
+
+/** 上一輪範圍的第一天:不管範圍從星期幾開始,都是往前 7 天。 */
+export function previousReportWeekStart(weekStartIso: string): string {
+  return iso(new Date(utc(weekStartIso).getTime() - 7 * DAY_MS));
+}
+
+/**
+ * 最近一個已經結束的範圍(結束日早於今天)。排程與「產生上一週」要的是這個:跟原本
+ * 「週一早上報剛結束的那一週」同一個道理——範圍的最後一天還沒過完,就還不算結束。
+ */
+export function lastCompletedReportRange(
+  todayIso: string,
+  config: ReportRangeConfig
+): { weekStart: string; weekEnd: string } {
+  const current = reportRangeOf(todayIso, config);
+  return current.weekEnd < todayIso ? current : reportRangeOf(previousReportWeekStart(current.weekStart), config);
+}
+
+/**
+ * 週報的週數標籤,例如「2026 W41」:看範圍的最後一天落在哪個 ISO 週。週三到週二的範圍橫跨
+ * 兩個日曆週,取最後一天——那是報告寄出時大家正在過的那一週。
+ */
+export function reportWeekLabel(weekEndIso: string): string {
+  return isoWeekLabel(weekRangeOf(weekEndIso).weekStart);
 }
 
 /** 上一個 ISO 週。週一早上跑的排程要的是這個,不是它自己那一週。 */
@@ -373,6 +454,110 @@ export function byPriority(items: ReportItem[]): ReportItem[] {
   return [...items].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
 }
 
+/** 一個工作項這一週新增的資訊,依發生的先後排。 */
+export type ItemUpdateGroup = {
+  itemId: string;
+  wbsCode: string;
+  name: string;
+  boardName: string;
+  updates: ItemUpdateLine[];
+};
+
+const UPDATE_KIND_ORDER: Record<ItemUpdateKind, number> = { COMMENT: 0, LINK: 1, ATTACHMENT: 2 };
+
+/** 照工作項分組,工作項依 WBS 編號排(1.2 在 1.10 前面),組內依日期、再依留言/連結/附件。 */
+export function groupItemUpdates(updates: ItemUpdateLine[]): ItemUpdateGroup[] {
+  const byItem = new Map<string, ItemUpdateGroup>();
+  for (const u of updates) {
+    const group = byItem.get(u.itemId) ?? {
+      itemId: u.itemId,
+      wbsCode: u.wbsCode,
+      name: u.name,
+      boardName: u.boardName,
+      updates: [],
+    };
+    group.updates.push(u);
+    byItem.set(u.itemId, group);
+  }
+  const groups = [...byItem.values()];
+  for (const g of groups) {
+    g.updates.sort((a, b) => a.date.localeCompare(b.date) || UPDATE_KIND_ORDER[a.kind] - UPDATE_KIND_ORDER[b.kind]);
+  }
+  return groups.sort(
+    (a, b) =>
+      a.boardName.localeCompare(b.boardName, "zh-TW") ||
+      a.wbsCode.localeCompare(b.wbsCode, "zh-TW", { numeric: true }) ||
+      a.name.localeCompare(b.name, "zh-TW")
+  );
+}
+
+/** 有新增資訊的工作項有幾個(同一個工作項新增好幾筆只算一個)。 */
+export function countItemsWithUpdates(programs: { itemUpdates?: ItemUpdateLine[] }[]): number {
+  return new Set(programs.flatMap((p) => (p.itemUpdates ?? []).map((u) => u.itemId))).size;
+}
+
+const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎" };
+
+/** 網址用 <…> 包起來:Markdown 與純文字信件都會把它當成可以點的連結。 */
+function updateLine(u: ItemUpdateLine): string {
+  const who = `${u.authorName} ${u.date.slice(5)}`;
+  const detail = u.url ? (u.text && u.text !== u.url ? `${u.text} <${u.url}>` : `<${u.url}>`) : u.text;
+  return `  - ${UPDATE_ICON[u.kind]} ${ITEM_UPDATE_LABELS[u.kind]}(${who}):${detail}`;
+}
+
+function renderItemUpdates(groups: ItemUpdateGroup[], limit = 20): string[] {
+  const out: string[] = [];
+  for (const g of groups.slice(0, limit)) {
+    out.push(`- ${g.boardName} · ${g.wbsCode ? `${g.wbsCode} ` : ""}${g.name}`);
+    out.push(...g.updates.map(updateLine));
+  }
+  if (groups.length > limit) out.push(`- ……另外還有 ${groups.length - limit} 個工作項`);
+  return out;
+}
+
+/**
+ * 只留某個專案的那一份:給分專案寄信用。差異與部門、異動筆數都是整份算好的,這裡只切出
+ * 屬於這個專案的部分,排版時才不會把別的專案的數字算進這一封。
+ */
+export function programSubset(
+  data: WeeklyReportData,
+  diff: WeeklyReportDiff,
+  programName: string | null
+): { data: WeeklyReportData; diff: WeeklyReportDiff } {
+  const program = data.programs.find((p) => p.programName === programName);
+  const boardNames = new Set((program?.boards ?? []).map((b) => b.boardName));
+  const budgetIds = new Set((program?.budgets ?? []).map((b) => b.itemId));
+  const mine = (i: ReportItem) => i.programName === programName;
+  return {
+    data: {
+      ...data,
+      programs: program ? [program] : [],
+      departments: data.departments.filter((d) => d.programName === programName),
+      activity: data.activity.filter((a) => boardNames.has(a.boardName)),
+    },
+    diff: {
+      ...diff,
+      completed: diff.completed.filter(mine),
+      newlyOverdue: diff.newlyOverdue.filter(mine),
+      recovered: diff.recovered.filter(mine),
+      statusChanged: diff.statusChanged.filter((c) => mine(c.item)),
+      scheduleChanged: diff.scheduleChanged.filter((c) => mine(c.item)),
+      budgetChanged: diff.budgetChanged.filter((c) => budgetIds.has(c.line.itemId)),
+      milestoneFlagged: diff.milestoneFlagged.filter(mine),
+      criticalFlagged: diff.criticalFlagged.filter(mine),
+      riskAdded: diff.riskAdded.filter((r) => r.programName === programName),
+      riskStatusChanged: diff.riskStatusChanged.filter((c) => c.line.programName === programName),
+      riskUpdated: diff.riskUpdated.filter((r) => r.programName === programName),
+    },
+  };
+}
+
+/** 分專案寄的週報信件標題,例如「AMR BOX週報 W41 (2026-10-05 ~ 2026-10-11)」。 */
+export function weeklyReportSubject(programName: string | null, weekStart: string, weekEnd: string): string {
+  const week = reportWeekLabel(weekEnd).split(" ")[1];
+  return `${programName ?? "未歸屬專案群組"}週報 ${week} (${weekStart} ~ ${weekEnd})`;
+}
+
 function itemLine(i: ReportItem): string {
   const priorityTag = i.priority === "CRITICAL" ? "🔴CRITICAL" : i.priority === "HIGH" ? "🟣HIGH" : "";
   const tags = [i.isMilestone ? "🚩里程碑" : "", i.isCritical ? "⚡要徑" : "", priorityTag]
@@ -410,6 +595,8 @@ function section(title: string, body: string[]): string[] {
  * 本週新增。
  */
 export type WeeklyReportSections = {
+  /** 標題的名稱,預設「週報」;分專案寄信時用「{專案名稱}週報」。 */
+  title?: string;
   summary?: boolean;
   programs?: boolean;
   departments?: boolean;
@@ -426,11 +613,12 @@ export function renderWeeklyReportMarkdown(
     programs: includePrograms = true,
     departments: includeDepartments = true,
     activity: includeActivity = true,
+    title = "週報",
   } = include;
   const out: string[] = [];
-  const label = isoWeekLabel(data.weekStart);
+  const label = reportWeekLabel(data.weekEnd);
 
-  out.push(`# 週報 ${label}(${data.weekStart} ~ ${data.weekEnd})`);
+  out.push(`# ${title} ${label}(${data.weekStart} ~ ${data.weekEnd})`);
   out.push("");
   out.push(`視角:${data.viewerName}・產出時間:${data.generatedAt}`);
   out.push("");
@@ -438,13 +626,16 @@ export function renderWeeklyReportMarkdown(
   if (includeSummary) {
     out.push("## 本週摘要");
     out.push("");
+    const infoItems = data.programs.some((p) => p.itemUpdates) ? countItemsWithUpdates(data.programs) : null;
     if (diff.firstEver) {
       out.push("這是第一份週報,沒有上一週可以比,所以下面只有目前的狀態。");
+      if (infoItems) out.push("", `這週有 ${infoItems} 個工作項新增了留言、連結或附件。`);
     } else {
       out.push(
         `完成 ${diff.completed.length}・新逾期 ${diff.newlyOverdue.length}・` +
           `脫離逾期 ${diff.recovered.length}・改期 ${diff.scheduleChanged.length}・` +
-          `狀態更新 ${diff.statusChanged.length}・預算異動 ${diff.budgetChanged.length}`
+          `狀態更新 ${diff.statusChanged.length}・預算異動 ${diff.budgetChanged.length}` +
+          (infoItems === null ? "" : `・資訊更新 ${infoItems}`)
       );
       const newlyOver = diff.budgetChanged.filter((b) => b.newlyOver);
       if (newlyOver.length > 0) {
@@ -559,6 +750,16 @@ function renderProgram(
     ];
     out.push("", "### 這一週");
     out.push(body.length === 0 ? "\n這個專案這一週沒有變化。" : body.join("\n"));
+  }
+
+  if (program.itemUpdates) {
+    const groups = groupItemUpdates(program.itemUpdates);
+    out.push("", `### 工作項資訊更新(${groups.length})`, "");
+    out.push(
+      groups.length === 0
+        ? "這週沒有工作項新增留言、連結或附件。"
+        : renderItemUpdates(groups).join("\n")
+    );
   }
 
   if (includeDepartments) {

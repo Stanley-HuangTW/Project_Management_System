@@ -6,7 +6,18 @@ import {
   isoWeekLabel,
   diffWeeks,
   renderWeeklyReportMarkdown,
+  groupItemUpdates,
+  programSubset,
+  weeklyReportSubject,
+  DEFAULT_REPORT_RANGE,
+  lastCompletedReportRange,
+  previousReportWeekStart,
+  reportRangeDays,
+  reportRangeOf,
+  reportWeekLabel,
   type BudgetLine,
+  type ItemUpdateLine,
+  type PersonSection,
   type ProgramSection,
   type ReportItem,
   type RiskLine,
@@ -640,5 +651,239 @@ describe("Markdown", () => {
     const md = renderWeeklyReportMarkdown(now, diff);
     expect(md).toContain("做完了");
     expect(md).not.toContain("做完了()");
+  });
+});
+
+const update = (overrides: Partial<ItemUpdateLine> & { itemId: string }): ItemUpdateLine => ({
+  wbsCode: "1.1",
+  name: overrides.itemId,
+  boardName: "M3專案",
+  kind: "COMMENT",
+  text: "已跟供應商確認交期",
+  url: null,
+  authorName: "Henry",
+  date: "2026-09-16",
+  ...overrides,
+});
+
+describe("工作項資訊更新(留言、連結、附件)", () => {
+  it("同一個工作項的更新歸在一起,工作項依 WBS 編號排(1.2 在 1.10 前面)", () => {
+    const groups = groupItemUpdates([
+      update({ itemId: "b", wbsCode: "1.10", name: "後面的" }),
+      update({ itemId: "a", wbsCode: "1.2", name: "前面的" }),
+      update({ itemId: "a", wbsCode: "1.2", name: "前面的", kind: "LINK", url: "https://example.com/spec" }),
+    ]);
+    expect(groups.map((g) => g.itemId)).toEqual(["a", "b"]);
+    expect(groups[0].updates).toHaveLength(2);
+  });
+
+  it("組內依日期排,同一天留言 → 連結 → 附件", () => {
+    const [group] = groupItemUpdates([
+      update({ itemId: "a", kind: "ATTACHMENT", text: "report.pdf", date: "2026-09-16" }),
+      update({ itemId: "a", kind: "LINK", text: "規格", url: "https://e.com", date: "2026-09-16" }),
+      update({ itemId: "a", kind: "COMMENT", date: "2026-09-17" }),
+      update({ itemId: "a", kind: "COMMENT", date: "2026-09-16" }),
+    ]);
+    expect(group.updates.map((u) => `${u.date}${u.kind}`)).toEqual([
+      "2026-09-16COMMENT",
+      "2026-09-16LINK",
+      "2026-09-16ATTACHMENT",
+      "2026-09-17COMMENT",
+    ]);
+  });
+
+  it("Markdown 有「工作項資訊更新」一段,連結附上網址", () => {
+    const data = snapshot([]);
+    data.programs[0].itemUpdates = [
+      update({ itemId: "a", wbsCode: "1.4", name: "韌體開發", kind: "LINK", text: "設計文件", url: "https://example.com/doc" }),
+      update({ itemId: "a", wbsCode: "1.4", name: "韌體開發", kind: "COMMENT", text: "已更新到 v2" }),
+    ];
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("### 工作項資訊更新(1)");
+    expect(md).toContain("1.4 韌體開發");
+    expect(md).toContain("🔗 連結(Henry 09-16):設計文件 <https://example.com/doc>");
+    expect(md).toContain("💬 留言(Henry 09-16):已更新到 v2");
+  });
+
+  it("連結沒有取名字就只放網址", () => {
+    const data = snapshot([]);
+    data.programs[0].itemUpdates = [update({ itemId: "a", kind: "LINK", text: "https://e.com/x", url: "https://e.com/x" })];
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("連結(Henry 09-16):<https://e.com/x>");
+    expect(md).not.toContain("https://e.com/x <");
+  });
+
+  it("這週沒有新增時說清楚,不是留白", () => {
+    const data = snapshot([]);
+    data.programs[0].itemUpdates = [];
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("這週沒有工作項新增留言、連結或附件");
+  });
+
+  it("舊版快照沒有這個欄位就不顯示這一段", () => {
+    const md = renderWeeklyReportMarkdown(snapshot([]), diffWeeks(snapshot([]), null));
+    expect(md).not.toContain("工作項資訊更新");
+  });
+
+  it("摘要列出有資訊更新的工作項數(同一個工作項只算一個)", () => {
+    const data = snapshot([]);
+    data.programs[0].itemUpdates = [
+      update({ itemId: "a" }),
+      update({ itemId: "a", kind: "LINK", url: "https://e.com", text: "x" }),
+      update({ itemId: "b" }),
+    ];
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, snapshot([])));
+    expect(md).toContain("・資訊更新 2");
+  });
+
+  it("太多工作項時截斷並說還有幾個", () => {
+    const data = snapshot([]);
+    data.programs[0].itemUpdates = Array.from({ length: 25 }, (_, i) =>
+      update({ itemId: `i${i}`, wbsCode: `1.${i + 1}` })
+    );
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("### 工作項資訊更新(25)");
+    expect(md).toContain("……另外還有 5 個工作項");
+  });
+});
+
+describe("分專案寄信", () => {
+  const person = (programName: string | null): PersonSection => ({
+    userId: "u1",
+    userName: "Henry",
+    role: "MEMBER",
+    discipline: "SW 軟體",
+    programName,
+    groupName: "G",
+    boardName: "B",
+    overdue: [],
+    completedThisWeek: [],
+    upcoming: [],
+  });
+
+  function twoPrograms() {
+    const a = item({ id: "a1", programName: "AMR BOX", bucket: "done" });
+    const m = item({ id: "m1", programName: "M3", bucket: "done" });
+    const before = snapshot([]);
+    before.programs = [
+      { ...program([item({ id: "a1", programName: "AMR BOX" })]), programName: "AMR BOX", boards: [{ boardId: "b2", boardName: "AMR BOX專案", programName: "AMR BOX", total: 1, done: 0, overdue: 0, inProgress: 1, notStarted: 0 }] },
+      { ...program([item({ id: "m1", programName: "M3" })]), programName: "M3" },
+    ];
+    const now = snapshot([]);
+    now.programs = [
+      { ...program([a]), programName: "AMR BOX", boards: before.programs[0].boards },
+      { ...program([m]), programName: "M3" },
+    ];
+    now.departments = [person("AMR BOX"), person("M3")];
+    now.activity = [
+      { boardName: "AMR BOX專案", count: 4 },
+      { boardName: "M3專案", count: 9 },
+    ];
+    return { now, diff: diffWeeks(now, before) };
+  }
+
+  it("只留下這個專案的專案段落、部門與異動筆數", () => {
+    const { now, diff } = twoPrograms();
+    const sub = programSubset(now, diff, "AMR BOX");
+    expect(sub.data.programs.map((p) => p.programName)).toEqual(["AMR BOX"]);
+    expect(sub.data.departments).toHaveLength(1);
+    expect(sub.data.activity).toEqual([{ boardName: "AMR BOX專案", count: 4 }]);
+  });
+
+  it("差異也只算這個專案的:信裡的摘要不會把別的專案的完成數加進來", () => {
+    const { now, diff } = twoPrograms();
+    expect(diff.completed).toHaveLength(2);
+    const sub = programSubset(now, diff, "AMR BOX");
+    expect(sub.diff.completed.map((i) => i.id)).toEqual(["a1"]);
+    const md = renderWeeklyReportMarkdown(sub.data, sub.diff, { title: "AMR BOX週報" });
+    expect(md.startsWith("# AMR BOX週報 2026 W38(2026-09-14 ~ 2026-09-20)")).toBe(true);
+    expect(md).toContain("完成 1・");
+    expect(md).not.toContain("## 專案:M3");
+  });
+
+  it("沒有歸屬專案群組的看板也能切出來", () => {
+    const { now, diff } = twoPrograms();
+    now.programs.push({ ...program([]), programName: null });
+    expect(programSubset(now, diff, null).data.programs).toHaveLength(1);
+  });
+
+  it("標題:專案名稱 + 週報 + 週數 + 起訖", () => {
+    expect(weeklyReportSubject("AMR BOX", "2026-10-05", "2026-10-11")).toBe("AMR BOX週報 W41 (2026-10-05 ~ 2026-10-11)");
+    expect(weeklyReportSubject(null, "2026-10-05", "2026-10-11")).toBe("未歸屬專案群組週報 W41 (2026-10-05 ~ 2026-10-11)");
+  });
+});
+
+describe("週報涵蓋的範圍(從星期幾到星期幾)", () => {
+  const WED_TUE = DEFAULT_REPORT_RANGE; // 預設:週三到週二
+  const MON_SUN = { startDow: 1, endDow: 0 };
+
+  it("預設是週三到週二,共 7 天", () => {
+    expect(WED_TUE).toEqual({ startDow: 3, endDow: 2 });
+    expect(reportRangeDays(WED_TUE)).toBe(7);
+  });
+
+  it("天數:週一到週五 5 天、起訖同一天 1 天、週一到週日 7 天", () => {
+    expect(reportRangeDays({ startDow: 1, endDow: 5 })).toBe(5);
+    expect(reportRangeDays({ startDow: 4, endDow: 4 })).toBe(1);
+    expect(reportRangeDays(MON_SUN)).toBe(7);
+  });
+
+  it("一天落在哪個範圍:週三到週二", () => {
+    // 2026-10-07 是週三、2026-10-13 是下週二
+    expect(reportRangeOf("2026-10-07", WED_TUE)).toEqual({ weekStart: "2026-10-07", weekEnd: "2026-10-13" });
+    expect(reportRangeOf("2026-10-10", WED_TUE)).toEqual({ weekStart: "2026-10-07", weekEnd: "2026-10-13" });
+    expect(reportRangeOf("2026-10-13", WED_TUE)).toEqual({ weekStart: "2026-10-07", weekEnd: "2026-10-13" });
+    expect(reportRangeOf("2026-10-06", WED_TUE)).toEqual({ weekStart: "2026-09-30", weekEnd: "2026-10-06" });
+  });
+
+  it("週一到週日跟原本的 ISO 週一樣", () => {
+    expect(reportRangeOf("2026-10-07", MON_SUN)).toEqual(weekRangeOf("2026-10-07"));
+    expect(reportRangeOf("2026-10-11", MON_SUN)).toEqual(weekRangeOf("2026-10-11"));
+  });
+
+  it("不滿 7 天時,空檔那幾天回前一個範圍", () => {
+    const monFri = { startDow: 1, endDow: 5 };
+    expect(reportRangeOf("2026-10-07", monFri)).toEqual({ weekStart: "2026-10-05", weekEnd: "2026-10-09" });
+    expect(reportRangeOf("2026-10-10", monFri)).toEqual({ weekStart: "2026-10-05", weekEnd: "2026-10-09" });
+  });
+
+  it("上一輪是往前 7 天,不管從星期幾開始", () => {
+    expect(previousReportWeekStart("2026-10-07")).toBe("2026-09-30");
+    expect(previousReportWeekStart("2026-01-05")).toBe("2025-12-29");
+  });
+
+  it("最近一個已經結束的範圍:最後一天還沒過完就不算", () => {
+    // 週二 10-13 是範圍(10-07 ~ 10-13)的最後一天,還沒結束 → 報上一個
+    expect(lastCompletedReportRange("2026-10-13", WED_TUE)).toEqual({ weekStart: "2026-09-30", weekEnd: "2026-10-06" });
+    // 隔天週三,10-07 ~ 10-13 結束了
+    expect(lastCompletedReportRange("2026-10-14", WED_TUE)).toEqual({ weekStart: "2026-10-07", weekEnd: "2026-10-13" });
+    // 週一早上
+    expect(lastCompletedReportRange("2026-10-12", WED_TUE)).toEqual({ weekStart: "2026-09-30", weekEnd: "2026-10-06" });
+  });
+
+  it("週一到週日時,週一早上報的是剛結束的那一週(跟原本一樣)", () => {
+    expect(lastCompletedReportRange("2026-10-12", MON_SUN)).toEqual({ weekStart: "2026-10-05", weekEnd: "2026-10-11" });
+    expect(lastCompletedReportRange("2026-10-11", MON_SUN)).toEqual({ weekStart: "2026-09-28", weekEnd: "2026-10-04" });
+  });
+
+  it("起訖不滿 7 天,空檔那天報剛結束的那個範圍", () => {
+    expect(lastCompletedReportRange("2026-10-10", { startDow: 1, endDow: 5 })).toEqual({
+      weekStart: "2026-10-05",
+      weekEnd: "2026-10-09",
+    });
+  });
+
+  it("週數標籤看最後一天落在哪個 ISO 週", () => {
+    expect(reportWeekLabel("2026-10-06")).toBe("2026 W41");
+    expect(reportWeekLabel("2026-10-13")).toBe("2026 W42");
+    expect(reportWeekLabel("2026-10-11")).toBe("2026 W41");
+  });
+
+  it("標題與信件標題用最後一天的週數,範圍橫跨兩個日曆週也不亂", () => {
+    expect(weeklyReportSubject("M3", "2026-09-30", "2026-10-06")).toBe("M3週報 W41 (2026-09-30 ~ 2026-10-06)");
+    const data = snapshot([]);
+    data.weekStart = "2026-09-30";
+    data.weekEnd = "2026-10-06";
+    expect(renderWeeklyReportMarkdown(data, diffWeeks(data, null)).startsWith("# 週報 2026 W41(2026-09-30 ~ 2026-10-06)")).toBe(true);
   });
 });

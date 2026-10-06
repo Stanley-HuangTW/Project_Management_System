@@ -936,6 +936,10 @@ model SystemSettings {
   weeklyReportDow           Int                @default(1)
   weeklyReportHour          Int                @default(6)
   weeklyReportMinute        Int                @default(0)
+  /// 週報涵蓋的日期範圍:從星期幾到星期幾(0=週日 … 6=週六,同上)。預設週三到週二。
+  /// 連續 1~7 天,每 7 天一輪——手動產生與排程寄的週報都照這個範圍。
+  weeklyReportRangeStartDow Int                @default(3)
+  weeklyReportRangeEndDow   Int                @default(2)
   /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
   /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
   weeklyReportLastRunWeek   String?
