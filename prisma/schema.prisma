@@ -125,6 +125,7 @@ model User {
   projectTemplates        ProjectTemplate[]        @relation("ProjectTemplateCreatedBy")
   timeEntries             TimeEntry[]
   activityTimeEntries     ActivityTimeEntry[]
+  timeTemplates           TimeTemplate[]
   ownedRisks              RiskEntry[]              @relation("RiskOwner")
   riskReviews             RiskReviewer[]           @relation("RiskReviewer")
   riskUpdates             RiskUpdate[]             @relation("RiskUpdateAuthor")
@@ -263,6 +264,7 @@ model Board {
 
   @@index([deletedAt])
   activityTimeEntries ActivityTimeEntry[]
+  timeTemplates       TimeTemplate[]
 }
 
 model BoardMember {
@@ -436,6 +438,7 @@ model Item {
   activityLog   ActivityLogEntry[]
   todoItems     TodoItem[]
   timeEntries   TimeEntry[]
+  timeTemplates TimeTemplate[]
   budgets       Budget[]
   commitments   Commitment[]
   expenses      Expense[]
@@ -1179,7 +1182,8 @@ model TimeCategory {
   allowProject Boolean @default(true)
   createdAt DateTime @default(now())
 
-  entries ActivityTimeEntry[]
+  entries   ActivityTimeEntry[]
+  templates TimeTemplate[]
 }
 
 /// 不屬於任何看板工作項的工時(會議、突發問題處理、教育訓練……)。
@@ -1215,6 +1219,33 @@ model ActivityTimeEntry {
   @@index([userId, date])
   @@index([date])
   @@index([boardId, status])
+}
+
+/// 工時範本:例行會議等每週重複登記的工時,套用到某一週就一次建立(同一天同一筆不會重複)。
+///
+/// ownerId = null 是管理者建立、大家都能用的共用範本——只能是「會議與其他」(categoryId),
+/// 不能指定工作項(工作項是各人被指派的)。個人範本可以是會議與其他,也可以是專案工作項(itemId)。
+model TimeTemplate {
+  id          String        @id @default(cuid())
+  name        String
+  ownerId     String?
+  owner       User?         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    TimeCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  itemId      String?
+  item        Item?         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 會議與其他的「對應專案」。專案被刪掉只是少了這個對應,範本還在。
+  boardId     String?
+  board       Board?        @relation(fields: [boardId], references: [id], onDelete: SetNull)
+  /// 一天中的開始時間(從 00:00 起算的分鐘數);null = 不排時間。
+  startMinute Int?
+  hours       Decimal       @db.Decimal(6, 2)
+  note        String?
+  /// 套用到一週時排在哪幾天:1 = 週一 … 7 = 週日。
+  weekdays    Int[]
+  createdAt   DateTime      @default(now())
+
+  @@index([ownerId])
 }
 
 /// A saved plan, kept whole.

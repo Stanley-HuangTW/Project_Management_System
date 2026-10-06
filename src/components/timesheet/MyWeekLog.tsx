@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, LayoutTemplate } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   deleteActivityTime,
@@ -13,9 +13,12 @@ import {
   type TimesheetOptions,
 } from "@/lib/actions/activityTime";
 import { deleteTimeEntry, logTime, updateTimeEntry } from "@/lib/actions/timeEntry";
+import { copyPreviousWeek } from "@/lib/actions/timeTemplate";
+import { describeApplyResult } from "@/lib/timeTemplates";
 import { addDaysIso } from "@/lib/timesheet";
 import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
 import { EntryDialog, type EntryDialogTarget, type EntryDraft } from "./EntryDialog";
+import { TemplateDialog, type TemplatePrefill } from "./TemplateDialog";
 import { WeekCalendar } from "./WeekCalendar";
 import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
 
@@ -32,6 +35,8 @@ export function MyWeekLog({ today }: { today: string }) {
   const [options, setOptions] = useState<TimesheetOptions | null>(null);
   const [dialog, setDialog] = useState<EntryDialogTarget | null>(null);
   const [busy, setBusy] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [templatePrefill, setTemplatePrefill] = useState<TemplatePrefill | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +156,48 @@ export function MyWeekLog({ today }: { today: string }) {
     return null;
   }
 
+  /** 這筆工時存成範本:關掉編輯對話框,打開範本對話框並帶入這筆的內容。 */
+  function saveAsTemplate(event: CalendarEvent) {
+    const weekday = ((new Date(`${event.date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+    setTemplatePrefill({
+      name: event.title,
+      kind: event.kind,
+      categoryId: event.activity?.categoryId ?? "",
+      itemId: event.project?.itemId ?? "",
+      boardId: event.activity?.boardId ?? "",
+      startMinute: event.startMinute,
+      hours: event.hours,
+      note: (event.project ?? event.activity)?.note ?? "",
+      weekday,
+    });
+    setDialog(null);
+    setTemplateOpen(true);
+  }
+
+  async function copyLastWeek() {
+    const ok = await confirm(
+      `把上一週(${addDaysIso(weekStart, -7)} 起)的工時複製到這週?同一個星期、同一個時間,已經有一樣的會略過。專案工時與對應專案的會議複製後要重新核准。`,
+      { title: "複製上週", confirmLabel: "複製" }
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await copyPreviousWeek(weekStart);
+      if ("error" in result) {
+        await notify(result.error, { title: "無法複製" });
+        return;
+      }
+      const empty = result.created === 0 && result.existing === 0 && result.failed.length === 0;
+      const lines = [empty ? "上週沒有可以複製的工時" : describeApplyResult(result), ...result.failed];
+      await notify(lines.join("\n"), { title: "複製上週" });
+      if (result.created > 0) reload();
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "複製失敗", { title: "無法複製" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function deleteFromDialog(event: CalendarEvent) {
     const ok = await confirm(`確定要刪除「${event.title}」這筆工時嗎?`, {
       title: "刪除工時",
@@ -205,6 +252,27 @@ export function MyWeekLog({ today }: { today: string }) {
             回到本週
           </button>
         )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setTemplatePrefill(null);
+            setTemplateOpen(true);
+          }}
+          className="ml-2 flex items-center gap-1 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+          title="例行會議等重複的工時,存成範本一次套用"
+        >
+          <LayoutTemplate size={13} /> 範本
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={copyLastWeek}
+          className="flex items-center gap-1 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+          title="把上一週的工時複製到這週"
+        >
+          <Copy size={13} /> 複製上週
+        </button>
         <span className="ml-auto text-sm text-neutral-600 dark:text-neutral-300">
           本週合計 <span className="font-semibold tabular-nums">{fmt(weekTotal)}</span> 小時
         </span>
@@ -246,6 +314,16 @@ export function MyWeekLog({ today }: { today: string }) {
         onClose={() => setDialog(null)}
         onSave={saveFromDialog}
         onDelete={deleteFromDialog}
+        onSaveAsTemplate={saveAsTemplate}
+      />
+      <TemplateDialog
+        open={templateOpen}
+        onClose={() => setTemplateOpen(false)}
+        options={options}
+        weekStart={weekStart}
+        weekLabel={isoWeekLabel(weekStart)}
+        prefill={templatePrefill}
+        onApplied={reload}
       />
     </div>
   );

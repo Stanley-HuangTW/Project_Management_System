@@ -40,6 +40,7 @@ export function EntryDialog({
   onClose,
   onSave,
   onDelete,
+  onSaveAsTemplate,
 }: {
   target: EntryDialogTarget | null;
   options: TimesheetOptions | null;
@@ -47,6 +48,7 @@ export function EntryDialog({
   /** 回傳錯誤訊息就留在對話框裡讓使用者改;沒有錯誤對話框才會關。 */
   onSave: (draft: EntryDraft, editing: CalendarEvent | null) => Promise<string | null>;
   onDelete: (event: CalendarEvent) => Promise<void>;
+  onSaveAsTemplate: (event: CalendarEvent) => void;
 }) {
   return (
     <Modal open={target !== null} onOpenChange={(open) => !open && onClose()} title={target?.mode === "edit" ? "修改工時" : "登記工時"}>
@@ -59,6 +61,7 @@ export function EntryDialog({
           onCancel={onClose}
           onSave={onSave}
           onDelete={onDelete}
+          onSaveAsTemplate={onSaveAsTemplate}
         />
       )}
     </Modal>
@@ -71,12 +74,14 @@ function EntryForm({
   onCancel,
   onSave,
   onDelete,
+  onSaveAsTemplate,
 }: {
   target: EntryDialogTarget;
   options: TimesheetOptions | null;
   onCancel: () => void;
   onSave: (draft: EntryDraft, editing: CalendarEvent | null) => Promise<string | null>;
   onDelete: (event: CalendarEvent) => Promise<void>;
+  onSaveAsTemplate: (event: CalendarEvent) => void;
 }) {
   const editing = target.mode === "edit" ? target.event : null;
   const { notify } = useDialogs();
@@ -341,8 +346,19 @@ function EntryForm({
           <button
             type="button"
             disabled={busy}
+            onClick={() => onSaveAsTemplate(editing)}
+            className="ml-auto rounded-md px-2 py-1.5 text-sm text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            title="把這筆存成範本,之後可以一次套用到任何一週"
+          >
+            存成範本
+          </button>
+        )}
+        {editing && (
+          <button
+            type="button"
+            disabled={busy}
             onClick={() => onDelete(editing)}
-            className="ml-auto flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
           >
             <Trash2 size={14} /> 刪除
           </button>
