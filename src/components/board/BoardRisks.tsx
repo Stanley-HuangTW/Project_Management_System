@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { RiskKind, RiskStatus } from "@prisma/client";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
+import { PersonPicker } from "@/components/ui/PersonPicker";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData, UserOption } from "@/types/board";
 import { computeWbsCodes } from "@/lib/wbs";
@@ -474,25 +475,18 @@ export function BoardRisks({
             </label>
 
             <div className="grid grid-cols-3 gap-3">
-              <label className="block">
+              <div className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">負責人</span>
-                <select
-                  value={editing.input.ownerId ?? ""}
-                  onChange={(e) =>
-                    setEditing({ ...editing, input: { ...editing.input, ownerId: e.target.value || null } })
-                  }
-                  className={fieldClass}
-                >
-                  <option value="">未指定</option>
-                  {users
-                    .filter((u) => !u.isResource)
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+                <div className="rounded-md border border-neutral-300 dark:border-neutral-600">
+                  <PersonPicker
+                    users={users.filter((u) => !u.isResource)}
+                    selectedId={editing.input.ownerId ?? null}
+                    placeholder="未指定"
+                    unassignedLabel="未指定"
+                    onSelect={(ownerId) => setEditing({ ...editing, input: { ...editing.input, ownerId } })}
+                  />
+                </div>
+              </div>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">對策到期日</span>
                 <input
