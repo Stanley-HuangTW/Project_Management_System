@@ -1,5 +1,5 @@
 pm.ur-srobot.com {
-    # 導入內部Window AD CS憑證
+    # 導入內部Window AD CS憑證.
     tls /etc/caddy/certs/bundle-server.crt /etc/caddy/certs/server.key
     # 將所有流量轉發到同一個 Docker 網路底下的 app 服務的 3000 port
     reverse_proxy app:3000
