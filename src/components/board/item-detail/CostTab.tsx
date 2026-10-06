@@ -1,6 +1,8 @@
 "use client";
 
 import { UserSelect } from "@/components/ui/UserSelect";
+import { NoteInput } from "@/components/ui/NoteInput";
+import { useNoteSuggestions } from "@/components/timesheet/useNoteSuggestions";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
@@ -51,6 +53,7 @@ export function CostTab({
   const [date, setDate] = useState(today);
   const [hours, setHours] = useState("");
   const [note, setNote] = useState("");
+  const noteSuggestions = useNoteSuggestions(`item:${itemId}`, note);
   const [forUserId, setForUserId] = useState(currentUserId);
 
   const [budget, setBudget] = useState(budgetCost === null ? "" : String(budgetCost));
@@ -196,12 +199,14 @@ export function CostTab({
             placeholder="小時"
             className={`${fieldClass} w-20`}
           />
-          <input
+          <NoteInput
             value={note}
             disabled={busy}
-            onChange={(e) => setNote(e.target.value)}
+            onChange={setNote}
+            suggestions={noteSuggestions}
             placeholder="說明(選填)"
-            className={`${fieldClass} min-w-0 flex-1`}
+            className={fieldClass}
+            wrapperClassName="min-w-0 flex-1"
           />
           {/* Only an ADMIN can log for someone else — see logTime. */}
           {userRole === "ADMIN" && (

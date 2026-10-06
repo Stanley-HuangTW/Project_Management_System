@@ -1,6 +1,8 @@
 "use client";
 
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { NoteInput } from "@/components/ui/NoteInput";
+import { useNoteSuggestions } from "./useNoteSuggestions";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -318,6 +320,16 @@ function EntryForm({
   const effectiveCategoryId = categoryId || categories[0]?.id || "";
   const category = categories.find((c) => c.id === effectiveCategoryId);
   const effectiveItemId = itemId || options?.items[0]?.id || "";
+  // 備註的建議:這位成員以前對同一個工作項/類別寫過的備註排前面。
+  const noteScope =
+    kind === "project"
+      ? effectiveItemId
+        ? `item:${effectiveItemId}`
+        : null
+      : effectiveCategoryId
+        ? `cat:${effectiveCategoryId}`
+        : null;
+  const noteSuggestions = useNoteSuggestions(noteScope, note);
 
   async function submit() {
     const parsed = Number(hours);
@@ -424,11 +436,13 @@ function EntryForm({
           placeholder="小時"
           className={`${inputClass} w-20 tabular-nums`}
         />
-        <input
+        <NoteInput
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={setNote}
+          suggestions={noteSuggestions}
           placeholder="備註(選填)"
-          className={`${inputClass} min-w-[8rem] flex-1`}
+          className={inputClass}
+          wrapperClassName="min-w-[8rem] flex-1"
         />
       </div>
 
