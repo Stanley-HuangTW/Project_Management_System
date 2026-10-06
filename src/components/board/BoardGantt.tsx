@@ -472,8 +472,8 @@ export function BoardGantt({
     return { ...wbsIndex, groupByItemId };
   }, [wbsIndex, externalPreds]);
   const ruleColumns = useMemo(
-    () => ({ predColumnId, manualStartColumnId: board.manualStartColumnId }),
-    [predColumnId, board.manualStartColumnId]
+    () => ({ predColumnId }),
+    [predColumnId]
   );
 
   // Nothing to draw against until a plan has actually been saved.
@@ -560,12 +560,9 @@ export function BoardGantt({
       linkColumnId,
       linkColumn?.options,
       typeColumnId,
-      typeColumn?.options,
-      undefined,
-      undefined,
-      board.manualStartColumnId
+      typeColumn?.options
     );
-  }, [board.items, board.columns, predColumnId, linkColumnId, typeColumnId, board.manualStartColumnId]);
+  }, [board.items, board.columns, predColumnId, linkColumnId, typeColumnId]);
 
   const typeOptions = useMemo(() => {
     const typeColumn = board.columns.find((c) => c.id === typeColumnId);
@@ -589,7 +586,7 @@ export function BoardGantt({
         durationColumnId,
         durationMode,
         holidaySet,
-        { predColumnId: board.predColumnId, manualStartColumnId: board.manualStartColumnId }
+        { predColumnId: board.predColumnId }
       );
       if (!range) continue;
       map.set(item.id, isMilestone(item) ? { start: range.start, end: range.start } : range);

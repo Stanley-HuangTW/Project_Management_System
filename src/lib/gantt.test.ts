@@ -23,15 +23,15 @@ function item(
   } as never;
 }
 
-const RULE_COLUMNS = { predColumnId: PRED, manualStartColumnId: MANUAL_START };
+const RULE_COLUMNS = { predColumnId: PRED };
 
 describe("hasOwnScheduleRule", () => {
   it("is true when a Pred is set", () => {
     expect(hasOwnScheduleRule(item("a", null, { [PRED]: "1.2" }), RULE_COLUMNS)).toBe(true);
   });
 
-  it("is true when a manual start is set", () => {
-    expect(hasOwnScheduleRule(item("a", null, { [MANUAL_START]: "2026-08-03" }), RULE_COLUMNS)).toBe(true);
+  it("is false when only a manual start is set — every item on an always-computed board has one", () => {
+    expect(hasOwnScheduleRule(item("a", null, { [MANUAL_START]: "2026-08-03" }), RULE_COLUMNS)).toBe(false);
   });
 
   it("is false for blank values, and when no rule columns are configured", () => {
@@ -60,10 +60,13 @@ describe("computeRolledUpDateRange", () => {
     expect(iso(range!.end)).toBe("2026-09-01");
   });
 
-  it("keeps a summary's own dates when it has a manual start", () => {
+  it("rolls a summary up from its children even when it carries a manual start", () => {
+    // 任務原本自己排好時程(start(set)+天數),後來加了子項——長條要跟著子項的範圍走,
+    // 不是停在它原本規劃的那一段。
     const parent = item("parent", null, { ...parentCells, [MANUAL_START]: "2026-08-03" });
     const range = computeRolledUpDateRange(parent, [parent, child], START, DAYS, "CALENDAR", new Set(), RULE_COLUMNS);
-    expect(iso(range!.start)).toBe("2026-08-03");
+    expect(iso(range!.start)).toBe("2026-09-04");
+    expect(iso(range!.end)).toBe("2026-09-05");
   });
 
   it("still rolls up when the rule columns aren't passed (unchanged callers)", () => {

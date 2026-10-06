@@ -39,30 +39,31 @@ export function getItemDateRange(
   return { start, end };
 }
 
-/** The columns that can pin an item's schedule to a rule of its own: a Pred
- *  (its dates follow that predecessor) or a manual start date. */
+/** The column that can pin an item's schedule to a rule of its own: a Pred
+ *  (its dates follow that predecessor). */
 export type OwnScheduleRuleColumns = {
   predColumnId?: string | null;
-  manualStartColumnId?: string | null;
 };
 
 /**
- * Whether this item's schedule is driven by a rule it owns — a Pred, or an
- * explicitly set manual start date — rather than being whatever its children
- * happen to span. A summary with a rule of its own is the authority on its
- * dates; its children are expected to fit inside that window.
+ * Whether this item's schedule is driven by a Pred it owns, rather than being
+ * whatever its children happen to span. A summary with a Pred is the authority
+ * on its dates; its children are expected to fit inside that window.
+ *
+ * A manual start (start(set)) deliberately does NOT count. On an "always
+ * computed" board every item carries one — new rows get today's date, and a
+ * task keeps the start/duration it had before it gained children — so treating
+ * it as a rule meant no summary on such a board ever followed its children: the
+ * bar stayed at whatever the parent was last planned as.
  */
 export function hasOwnScheduleRule(
   item: Pick<ItemData, "cellValues">,
   columns?: OwnScheduleRuleColumns
 ): boolean {
   if (!columns) return false;
-  for (const columnId of [columns.predColumnId, columns.manualStartColumnId]) {
-    if (!columnId) continue;
-    const value = item.cellValues.find((cv) => cv.columnId === columnId)?.value;
-    if (typeof value === "string" && value.trim() !== "") return true;
-  }
-  return false;
+  if (!columns.predColumnId) return false;
+  const value = item.cellValues.find((cv) => cv.columnId === columns.predColumnId)?.value;
+  return typeof value === "string" && value.trim() !== "";
 }
 
 /**

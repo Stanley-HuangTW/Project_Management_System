@@ -320,12 +320,7 @@ export function resolveLockedScheduleFields(
   typeColumnId?: string | null,
   typeColumnOptions?: unknown,
   manualStartColumnId?: string | null,
-  manualDurationColumnId?: string | null,
-  /** The manual-start column, for testing whether an item has a schedule rule
-   *  of its own, when the caller is deliberately NOT applying the blanket
-   *  always-computed lock above — the drag paths, which need to know what
-   *  really decides the dates rather than which cells are typeable. */
-  ownRuleStartColumnId?: string | null
+  manualDurationColumnId?: string | null
 ): Map<string, ScheduleLock> {
   const result = new Map<string, ScheduleLock>();
 
@@ -344,10 +339,7 @@ export function resolveLockedScheduleFields(
   for (const item of items) {
     if (item.parentId) childCount.set(item.parentId, (childCount.get(item.parentId) ?? 0) + 1);
   }
-  const ownRuleColumns = {
-    predColumnId,
-    manualStartColumnId: ownRuleStartColumnId ?? manualStartColumnId,
-  };
+  const ownRuleColumns = { predColumnId };
 
   function ensure(id: string): ScheduleLock {
     let lock = result.get(id);
@@ -1019,10 +1011,7 @@ async function resolveAncestorScheduleWindow(
     if (!drivesSchedule) return null;
   }
 
-  const ruleColumns = {
-    predColumnId: board.predColumnId,
-    manualStartColumnId: board.manualStartColumnId,
-  };
+  const ruleColumns = { predColumnId: board.predColumnId };
   // Ancestors are always in the same group, so this stays group-scoped
   // rather than loading every item on the board.
   const self0 = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true, parentId: true, boardId: true } });

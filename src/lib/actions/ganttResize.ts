@@ -82,10 +82,7 @@ async function loadGanttEditContext(itemId: string, session: SessionPayload) {
     board.linkColumnId,
     linkColumn?.options,
     board.typeColumnId,
-    typeColumn?.options,
-    undefined,
-    undefined,
-    board.manualStartColumnId
+    typeColumn?.options
   ).get(itemId);
   const writeStartColumnId = alwaysComputed ? board.manualStartColumnId! : board.ganttStartColumnId!;
   const writeDurationColumnId = alwaysComputed ? board.manualDurationColumnId! : board.ganttDurationColumnId!;

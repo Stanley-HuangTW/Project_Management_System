@@ -209,10 +209,7 @@ export async function getProgramView(
               board.ganttDurationColumnId,
               board.ganttDurationMode,
               holidays,
-              {
-                predColumnId: board.predColumnId,
-                manualStartColumnId: board.manualStartColumnId,
-              }
+              { predColumnId: board.predColumnId }
             )
           : null;
 

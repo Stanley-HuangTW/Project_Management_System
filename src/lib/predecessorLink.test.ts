@@ -141,23 +141,13 @@ describe("resolveLockedScheduleFields", () => {
       expect(locks.get("p")).toEqual({ startLocked: true, endLocked: true, daysLocked: false });
     });
 
-    it("leaves a summary with its own start(set) draggable — its bar shows its own dates", () => {
+    it("still follows its children when it carries a start(set) — every item on an always-computed board has one", () => {
       const withStartSet = {
         ...parent,
         cellValues: [cell("manualStartCol", "2026-07-24")],
       };
-      const locks = resolveLockedScheduleFields(
-        [withStartSet, child],
-        "predCol",
-        "linkCol",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        "manualStartCol"
-      );
-      expect(locks.get("p")).toBeUndefined();
+      const locks = resolveLockedScheduleFields([withStartSet, child], "predCol", "linkCol");
+      expect(locks.get("p")).toEqual({ startLocked: true, endLocked: true, daysLocked: false });
     });
 
     it("leaves a summary with its own Pred draggable at the end its Link doesn't pin", () => {
@@ -168,19 +158,9 @@ describe("resolveLockedScheduleFields", () => {
       expect(locks.get("p")).toBeUndefined();
     });
 
-    it("ignores a blank start(set) — an empty string is not a rule", () => {
-      const blank = { ...parent, cellValues: [cell("manualStartCol", "  ")] };
-      const locks = resolveLockedScheduleFields(
-        [blank, child],
-        "predCol",
-        "linkCol",
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        "manualStartCol"
-      );
+    it("ignores a blank Pred — an empty string is not a rule", () => {
+      const blank = { ...parent, cellValues: [cell("predCol", "  ")] };
+      const locks = resolveLockedScheduleFields([blank, child], "predCol", "linkCol");
       expect(locks.get("p")).toEqual({ startLocked: true, endLocked: true, daysLocked: false });
     });
   });
