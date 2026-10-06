@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { PercentInput } from "@/components/ui/PercentInput";
 import type { ColumnData, UserOption } from "@/types/board";
 import { getDistinctTextValues, applyResourceMapping } from "@/lib/actions/resourceMapping";
 
@@ -140,12 +141,9 @@ export function ResourceMappingModal({
             </label>
             {assignAllocation && (
               <>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
+                <PercentInput
                   value={allocationPct}
-                  onChange={(e) => setAllocationPct(Number(e.target.value))}
+                  onChange={setAllocationPct}
                   className="w-16 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 outline-none focus:border-blue-500"
                 />
                 <span className="text-neutral-500 dark:text-neutral-400">%</span>

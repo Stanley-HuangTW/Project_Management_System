@@ -7,6 +7,7 @@ import { canEditGanttItem } from "@/lib/permissions";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 import { logActivity } from "@/lib/activityLog";
+import { normalizeAllocationPct } from "@/lib/allocationPct";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { subordinateIdsOf } from "@/lib/orgChartServer";
@@ -68,7 +69,7 @@ export async function upsertAssignment(
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
   await assertCanEditAssignment(boardId, itemId, session);
-  const pct = Math.max(5, Math.min(100, Math.round(allocationPct / 5) * 5));
+  const pct = normalizeAllocationPct(allocationPct);
 
   if (session.role === "SUPERVISOR" && userId !== session.userId) {
     if (!(await subordinateIdsOf(session.userId)).has(userId)) {

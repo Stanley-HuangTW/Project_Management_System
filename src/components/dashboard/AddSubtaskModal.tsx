@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PersonPicker } from "@/components/ui/PersonPicker";
+import { PercentInput } from "@/components/ui/PercentInput";
 import { createSubtaskFromDashboard } from "@/lib/actions/teamTask";
 import type { UserOption } from "@/types/board";
 
@@ -160,12 +161,9 @@ export function AddSubtaskModal({
           </label>
           <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             百分比
-            <input
-              type="number"
-              min={1}
-              max={100}
+            <PercentInput
               value={pct}
-              onChange={(e) => setPct(Number(e.target.value))}
+              onChange={setPct}
               className="w-16 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-sm outline-none focus:border-blue-500"
             />
           </label>

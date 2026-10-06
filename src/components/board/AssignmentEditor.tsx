@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { Avatar } from "@/components/ui/Avatar";
 import { PersonPicker } from "@/components/ui/PersonPicker";
+import { PercentInput } from "@/components/ui/PercentInput";
 import { subordinateIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
@@ -109,14 +110,11 @@ export function AssignmentEditor({
             <span className="truncate">{a.user.name}</span>
           </span>
           <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={5}
-              max={100}
-              step={5}
+            <PercentInput
               value={a.allocationPct}
-              disabled={!canEdit || busy}
-              onChange={(e) => run(() => upsertAssignment(boardId, itemId, a.userId, Number(e.target.value)))}
+              delayMs={500}
+              disabled={!canEdit}
+              onChange={(pct) => run(() => upsertAssignment(boardId, itemId, a.userId, pct))}
               className="w-16 rounded-md border border-neutral-300 bg-white px-2 py-1 text-right text-sm outline-none focus:border-blue-500 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
             />
             <span className="text-sm text-neutral-500 dark:text-neutral-400">%</span>
@@ -144,13 +142,9 @@ export function AssignmentEditor({
               onSelect={(userId: string | null) => setSelectedUserId(userId ?? "")}
             />
           </div>
-          <input
-            type="number"
-            min={5}
-            max={100}
-            step={5}
+          <PercentInput
             value={pct}
-            onChange={(e) => setPct(Number(e.target.value))}
+            onChange={setPct}
             className="w-20 rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
           />
           <span className="text-sm text-neutral-500 dark:text-neutral-400">%</span>

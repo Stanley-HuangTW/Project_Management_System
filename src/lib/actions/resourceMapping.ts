@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { normalizeAllocationPct } from "@/lib/allocationPct";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 
 export async function getDistinctTextValues(boardId: string, columnId: string) {
@@ -42,7 +43,7 @@ export async function applyResourceMapping(
   if (assignAllocation && (!Number.isFinite(allocationPct) || allocationPct < 1 || allocationPct > 100)) {
     throw new Error("人員分配百分比需介於 1 到 100 之間");
   }
-  const clampedAllocationPct = Math.max(5, Math.min(100, Math.round(allocationPct / 5) * 5));
+  const clampedAllocationPct = normalizeAllocationPct(allocationPct);
 
   const notifications: {
     userId: string;

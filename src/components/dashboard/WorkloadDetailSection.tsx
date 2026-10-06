@@ -20,6 +20,7 @@ import {
 import { AssignmentModal } from "@/components/board/AssignmentModal";
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { PercentInput } from "@/components/ui/PercentInput";
 import type { UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { findTreeNode, firstTreeItemId, type ParentTreeNode } from "@/lib/parentTaskTree";
@@ -660,12 +661,9 @@ export function WorkloadDetailSection({
                                   </label>
                                   <label className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
                                     百分比
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      max={100}
+                                    <PercentInput
                                       value={formPct}
-                                      onChange={(e) => setFormPct(Number(e.target.value))}
+                                      onChange={setFormPct}
                                       className="w-14 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
                                     />
                                   </label>
