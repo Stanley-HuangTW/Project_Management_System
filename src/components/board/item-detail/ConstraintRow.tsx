@@ -26,6 +26,7 @@ export function ConstraintRow({
   canEdit,
   currentEnd,
   durationDays,
+  className = "border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5",
 }: {
   itemId: string;
   type: ItemConstraintType | null;
@@ -34,6 +35,8 @@ export function ConstraintRow({
   /** The item's current finish, for showing whether a deadline is being met. */
   currentEnd: string | null;
   durationDays: number | null;
+  /** 外框的樣式——項目卡片裡是帶底線的一列,別處(人員分配視窗)要自己排版時覆蓋。 */
+  className?: string;
 }) {
   const router = useRouter();
   const { notify } = useDialogs();
@@ -75,7 +78,7 @@ export function ConstraintRow({
       : null;
 
   return (
-    <div className="border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
+    <div className={className}>
       <div className="flex items-center justify-between gap-3">
         <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">日期約束</span>
         <div className="flex min-w-0 flex-1 items-center justify-end gap-2">

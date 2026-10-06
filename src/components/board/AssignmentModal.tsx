@@ -11,6 +11,7 @@ import { listDependentItems, type SchedulePreview } from "@/lib/predecessorLink"
 import { DependentItemsRow } from "./DependentItemsRow";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { CellEditor } from "./cell-editors/CellEditor";
+import { ConstraintRow } from "./item-detail/ConstraintRow";
 import { PredPicker } from "./cell-editors/PredPicker";
 import { PredLampDot } from "./PredLampDot";
 import type { PredLamp } from "@/lib/predLamp";
@@ -157,6 +158,15 @@ export function AssignmentModal({
   const scheduleColumns = [predColumnId, linkColumnId, lagColumnId, durationColumnId, manualStartColumnId]
     .map((id) => columns?.find((c) => c.id === id))
     .filter((c): c is ColumnData => !!c);
+
+  // 負責人(人員欄位)與日期約束跟排程欄位放在同一個視窗:點長條就能一併設定,不用再開項目卡片。
+  const ownerColumn = columns?.find((c) => c.name === "負責人" && c.type === "PERSON");
+  const endValueForConstraint = ganttEndColumnId
+    ? item.cellValues.find((cv) => cv.columnId === ganttEndColumnId)?.value
+    : null;
+  const durationValueForConstraint = durationColumnId
+    ? item.cellValues.find((cv) => cv.columnId === durationColumnId)?.value
+    : null;
 
   // Item name -> its WBS code, so Pred can be picked from a list instead of
   // typed by hand — codes are group-scoped (same rule as the lock check and
@@ -340,6 +350,32 @@ export function AssignmentModal({
               </div>
             );
           })}
+
+          {ownerColumn && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{ownerColumn.name}</span>
+              <div className="w-56">
+                <CellEditor
+                  boardId={boardId}
+                  itemId={item.id}
+                  column={ownerColumn}
+                  value={(item.cellValues.find((cv) => cv.columnId === ownerColumn.id)?.value as string | null | undefined) ?? null}
+                  users={users}
+                  canEdit={canEditSchedule}
+                />
+              </div>
+            </div>
+          )}
+
+          <ConstraintRow
+            itemId={item.id}
+            type={item.constraintType}
+            date={item.constraintDate}
+            canEdit={canEditSchedule}
+            currentEnd={typeof endValueForConstraint === "string" ? endValueForConstraint : null}
+            durationDays={typeof durationValueForConstraint === "number" ? durationValueForConstraint : null}
+            className=""
+          />
         </div>
       )}
     </Modal>
