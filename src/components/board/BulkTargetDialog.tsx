@@ -161,7 +161,7 @@ export function BulkTargetDialog({
         <p className="rounded-md bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300">
           {mode === "copy"
             ? "複製會帶走欄位值(日期、狀態、負責人欄位等)與所有子項目,接在目標底下現有項目的最後面。前置依賴:指到這次一起複製的項目,會改指新的複本;指到範圍外的維持不變。不含指派人員、留言、附件與待辦。"
-            : "移動會連同子項目一起搬,接在目標底下現有項目的最後面;換分組時整串項目一併改到新分組。"}
+            : "移動會連同子項目一起搬,放在上面選的位置;換分組時整串項目一併改到新分組。"}
         </p>
 
         <div className="flex items-center justify-between gap-3">
