@@ -75,9 +75,13 @@ export function subtreeIdsOf(items: TreeNode[], rootIds: string[]): Set<string> 
 
 export type BulkMoveWrite = { id: string; parentId: string | null; order: number; groupId: string };
 
+/** 插在新父層底下哪裡:afterId 是「接在這個兄弟後面」,null 是排在最前面。不給就接在最後面。
+ *  afterId 必須是新父層底下、而且不在被搬動範圍內的項目。 */
+export type MovePosition = { afterId: string | null };
+
 export type PlanMoveResult =
   | { ok: true; writes: BulkMoveWrite[] }
-  | { ok: false; reason: "not-found" | "target-group-mismatch" | "target-in-moved" };
+  | { ok: false; reason: "not-found" | "target-group-mismatch" | "target-in-moved" | "position-not-found" };
 
 /**
  * 把一批根項目(連同各自的子樹)搬到 targetParentId 底下(null = targetGroupId 的最上層),
@@ -91,7 +95,8 @@ export function planMoveToParent(
   items: TreeNode[],
   rootIds: string[],
   targetParentId: string | null,
-  targetGroupId: string
+  targetGroupId: string,
+  position?: MovePosition
 ): PlanMoveResult {
   const byId = new Map(items.map((i) => [i.id, i]));
   if (rootIds.some((id) => !byId.has(id))) return { ok: false, reason: "not-found" };
@@ -107,11 +112,23 @@ export function planMoveToParent(
   const desired = new Map<string, BulkMoveWrite>();
   const rootSet = new Set(rootIds);
 
-  // 1. 新父層:原有子項目(扣掉被搬的)+ 被搬的根項目,依序重新編號。
+  // 1. 新父層:原有子項目(扣掉被搬的)+ 被搬的根項目,依序重新編號。被搬的根項目
+  //    整串插在 position 指定的位置(預設接在最後面),本身維持傳入的順序。
   const targetSiblings = items
     .filter((i) => i.parentId === targetParentId && i.groupId === targetGroupId && !moved.has(i.id))
     .sort((a, b) => a.order - b.order);
-  [...targetSiblings.map((i) => i.id), ...rootIds].forEach((id, index) => {
+  let insertAt = targetSiblings.length;
+  if (position) {
+    if (position.afterId === null) insertAt = 0;
+    else {
+      const index = targetSiblings.findIndex((i) => i.id === position.afterId);
+      if (index < 0) return { ok: false, reason: "position-not-found" };
+      insertAt = index + 1;
+    }
+  }
+  const ordered = targetSiblings.map((i) => i.id);
+  ordered.splice(insertAt, 0, ...rootIds);
+  ordered.forEach((id, index) => {
     desired.set(id, { id, parentId: targetParentId, order: index, groupId: targetGroupId });
   });
 

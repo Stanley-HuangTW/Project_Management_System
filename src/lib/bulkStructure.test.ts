@@ -117,6 +117,62 @@ describe("planMoveToParent", () => {
     expect(planMoveToParent(items, ["b"], "x", "G1")).toEqual({ ok: false, reason: "target-group-mismatch" });
   });
 
+  it("inserts after a chosen sibling instead of at the end", () => {
+    const result = planMoveToParent(items, ["c"], null, "G1", { afterId: "a" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const next = applyWrites(items, result.writes);
+    expect(childrenOrder(next, null, "G1")).toEqual(["a", "c", "b"]);
+    expect(next.filter((i) => i.groupId === "G1" && i.parentId === null).map((i) => i.order).sort()).toEqual([0, 1, 2]);
+  });
+
+  it("puts the roots first when afterId is null", () => {
+    const result = planMoveToParent(items, ["b"], "a", "G1", { afterId: null });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const next = applyWrites(items, result.writes);
+    expect(childrenOrder(next, "a", "G1")).toEqual(["b", "a1", "a2"]);
+    expect(childrenOrder(next, null, "G1")).toEqual(["a", "c"]);
+  });
+
+  it("reorders within the same parent", () => {
+    const result = planMoveToParent(items, ["a2"], "a", "G1", { afterId: null });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(childrenOrder(applyWrites(items, result.writes), "a", "G1")).toEqual(["a2", "a1"]);
+  });
+
+  it("inserts several roots together, keeping their own order", () => {
+    const result = planMoveToParent(items, ["c", "b"], null, "G1", { afterId: null });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(childrenOrder(applyWrites(items, result.writes), null, "G1")).toEqual(["c", "b", "a"]);
+  });
+
+  it("can insert into another group at a chosen spot", () => {
+    const result = planMoveToParent(items, ["c"], null, "G2", { afterId: "x" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const next = applyWrites(items, result.writes);
+    expect(childrenOrder(next, null, "G2")).toEqual(["x", "c", "y"]);
+    expect(next.find((i) => i.id === "c")!.groupId).toBe("G2");
+  });
+
+  it("rejects a position that is not a sibling under the target, or is inside the moved set", () => {
+    expect(planMoveToParent(items, ["c"], null, "G1", { afterId: "a1" })).toEqual({
+      ok: false,
+      reason: "position-not-found",
+    });
+    expect(planMoveToParent(items, ["a"], null, "G1", { afterId: "a" })).toEqual({
+      ok: false,
+      reason: "position-not-found",
+    });
+    expect(planMoveToParent(items, ["c"], null, "G1", { afterId: "nope" })).toEqual({
+      ok: false,
+      reason: "position-not-found",
+    });
+  });
+
   it("moves roots from different parents and closes the gaps in both", () => {
     const result = planMoveToParent(items, ["a1", "x1"], "c", "G1");
     expect(result.ok).toBe(true);

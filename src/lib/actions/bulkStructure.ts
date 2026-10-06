@@ -19,6 +19,7 @@ import {
   planMoveToParent,
   remapPredValue,
   subtreeIdsOf,
+  type MovePosition,
 } from "@/lib/bulkStructure";
 
 /**
@@ -244,7 +245,9 @@ export async function bulkMoveItems(
   _boardId: string,
   itemIds: string[],
   targetParentId: string | null,
-  targetGroupId: string
+  targetGroupId: string,
+  /** 插在新父項底下哪裡(WBS 編號順序);不給就接在最後面。 */
+  position?: MovePosition
 ): Promise<BulkStructureResult> {
   const prep = await prepare(itemIds, targetParentId, targetGroupId);
   if (!prep.ok) return fail(prep.error);
@@ -258,14 +261,16 @@ export async function bulkMoveItems(
     if (error) return fail(error);
   }
 
-  const plan = planMoveToParent(items, rootIds, targetParentId, targetGroupId);
+  const plan = planMoveToParent(items, rootIds, targetParentId, targetGroupId, position);
   if (!plan.ok) {
     return fail(
       plan.reason === "target-in-moved"
         ? "不能把項目搬到它自己或它的子項目底下"
         : plan.reason === "target-group-mismatch"
           ? "目標父項目不在所選的分組裡"
-          : "找不到其中的項目"
+          : plan.reason === "position-not-found"
+            ? "指定的位置找不到(它可能剛被搬走或刪除),請重新選擇位置"
+            : "找不到其中的項目"
     );
   }
 

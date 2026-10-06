@@ -54,8 +54,10 @@ export function BulkStructureActions({
   async function runTarget(mode: "copy" | "move", target: BulkTarget) {
     setBusy(true);
     try {
-      const run = mode === "copy" ? bulkCopyItems : bulkMoveItems;
-      const result = await run(board.id, rootIds, target.parentId, target.groupId);
+      const result =
+        mode === "copy"
+          ? await bulkCopyItems(board.id, rootIds, target.parentId, target.groupId)
+          : await bulkMoveItems(board.id, rootIds, target.parentId, target.groupId, target.position);
       const verb = mode === "copy" ? "複製" : "移動";
       if (result.error) {
         // 對話框不關,讓人改選別的目標再試。
