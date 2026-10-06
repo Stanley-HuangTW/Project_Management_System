@@ -35,6 +35,7 @@ import { canManageGroupStructure, canManageStructure, canEditGanttItem, canModif
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAccess } from "@/lib/groupRoles";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import {
+  barIndexRange,
   computeRolledUpDateRange,
   computeDailyLoadByUser,
   hasOwnScheduleRule,
@@ -1737,8 +1738,7 @@ function GanttBar({
   canEdit: boolean;
   onClick?: () => void;
 }) {
-  const startIndex = dayIndexByIso.get(toIsoDate(range.start)) ?? 0;
-  const endIndex = dayIndexByIso.get(toIsoDate(range.end)) ?? startIndex;
+  const { startIndex, endIndex } = barIndexRange(days, range, dayIndexByIso);
   // While dragging, offsetPx tracks the pointer continuously (in raw pixels,
   // not day-quantized) so the bar follows the mouse smoothly; the drag is
   // only snapped to a day boundary once, at release — see handleDragUp.

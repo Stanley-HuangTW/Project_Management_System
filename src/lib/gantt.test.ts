@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeRolledUpDateRange, hasOwnScheduleRule } from "./gantt";
+import { barIndexRange, computeRolledUpDateRange, hasOwnScheduleRule } from "./gantt";
 
 const START = "startCol";
 const DAYS = "daysCol";
@@ -96,5 +96,35 @@ describe("computeRolledUpDateRange", () => {
     );
     expect(iso(range!.start)).toBe("2026-08-03");
     expect(iso(range!.end)).toBe("2026-09-01");
+  });
+});
+
+describe("barIndexRange", () => {
+  // 工作天模式的時間軸:週末與 10/26(光復節補假)不佔寬度。
+  const iso = ["2026-10-22", "2026-10-23", "2026-10-27", "2026-10-28", "2026-10-29"];
+  const days = iso.map((d) => new Date(`${d}T00:00:00Z`));
+  const indexByIso = new Map(iso.map((d, i) => [d, i]));
+  const range = (start: string, end: string) => ({ start: new Date(`${start}T00:00:00Z`), end: new Date(`${end}T00:00:00Z`) });
+
+  it("起訖都在時間軸上就照原位置", () => {
+    expect(barIndexRange(days, range("2026-10-23", "2026-10-28"), indexByIso)).toEqual({ startIndex: 1, endIndex: 3 });
+  });
+
+  it("0 天的里程碑排在假日:畫在下一個工作日,不是最左邊", () => {
+    expect(barIndexRange(days, range("2026-10-26", "2026-10-26"), indexByIso)).toEqual({ startIndex: 2, endIndex: 2 });
+  });
+
+  it("開始落在週末就往後靠、結束落在週末就往前靠", () => {
+    expect(barIndexRange(days, range("2026-10-24", "2026-10-26"), indexByIso)).toEqual({ startIndex: 2, endIndex: 2 });
+    expect(barIndexRange(days, range("2026-10-22", "2026-10-25"), indexByIso)).toEqual({ startIndex: 0, endIndex: 1 });
+  });
+
+  it("超出時間軸就夾在兩端", () => {
+    expect(barIndexRange(days, range("2026-11-02", "2026-11-03"), indexByIso)).toEqual({ startIndex: 4, endIndex: 4 });
+    expect(barIndexRange(days, range("2026-10-01", "2026-10-02"), indexByIso)).toEqual({ startIndex: 0, endIndex: 0 });
+  });
+
+  it("沒有任何日子時不會當掉", () => {
+    expect(barIndexRange([], range("2026-10-26", "2026-10-26"), new Map())).toEqual({ startIndex: 0, endIndex: 0 });
   });
 });

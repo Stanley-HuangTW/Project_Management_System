@@ -41,6 +41,49 @@ export function getItemDateRange(
 
 /** The column that can pin an item's schedule to a rule of its own: a Pred
  *  (its dates follow that predecessor). */
+/**
+ * 一根長條在時間軸上佔哪幾欄。「工作天」模式下週末與假日不佔寬度(時間軸直接跳過),起訖日
+ * 若剛好落在那一天,查表會落空——以前一律退回第 0 欄,長條就被畫到最左邊。這裡改成:開始往後靠到
+ * 下一個工作日、結束往前靠到上一個工作日(跟相依箭頭 indexForDate 同一套規則);整根都落在
+ * 非工作日(例如 0 天的里程碑排在假日)就畫在下一個工作日那一格。
+ */
+export function barIndexRange(
+  days: Date[],
+  range: DateRange,
+  dayIndexByIso: Map<string, number>
+): { startIndex: number; endIndex: number } {
+  if (days.length === 0) return { startIndex: 0, endIndex: 0 };
+  const startIso = toIsoDate(range.start);
+  const endIso = toIsoDate(range.end);
+
+  // 第一個 >= iso 的欄位(沒有就是最後一欄)。
+  const firstOnOrAfter = (iso: string) => {
+    let lo = 0;
+    let hi = days.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (toIsoDate(days[mid]) >= iso) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
+  };
+  // 最後一個 <= iso 的欄位(沒有就是第 0 欄)。
+  const lastOnOrBefore = (iso: string) => {
+    let lo = 0;
+    let hi = days.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (toIsoDate(days[mid]) <= iso) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+
+  const startIndex = dayIndexByIso.get(startIso) ?? firstOnOrAfter(startIso);
+  const endIndex = Math.max(dayIndexByIso.get(endIso) ?? lastOnOrBefore(endIso), startIndex);
+  return { startIndex, endIndex };
+}
+
 export type OwnScheduleRuleColumns = {
   predColumnId?: string | null;
 };
