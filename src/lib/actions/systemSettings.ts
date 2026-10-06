@@ -30,6 +30,7 @@ export async function getSystemSettings() {
     predBlockedColor: "#e2445c",
     hoursPerDay: 8,
     workingDaysPerMonth: 21,
+    ownerDefaultAllocationPct: 2,
     defaultColumns: null as Prisma.JsonValue,
     weeklyReportEnabled: false,
     weeklyReportDow: 1,
@@ -158,6 +159,29 @@ export async function setWorkingDaysPerMonth(days: number) {
     `每月工作天數:${before.workingDaysPerMonth} → ${value} 天`
   );
   revalidatePath("/settings");
+}
+
+/** 只掛在負責人欄位、沒有人員分配的工作項,算那位負責人幾 % 的工作量。0 = 不算。 */
+export async function setOwnerDefaultAllocationPct(pct: number) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+    throw new Error("預設工作量必須在 0 到 100 之間");
+  }
+  const value = Math.round(pct);
+  const before = await getSystemSettings();
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", ownerDefaultAllocationPct: value },
+    update: { ownerDefaultAllocationPct: value },
+  });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `負責人預設工作量:${before.ownerDefaultAllocationPct}% → ${value}%`
+  );
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
 }
 
 export async function setEmailNotificationsEnabled(enabled: boolean) {

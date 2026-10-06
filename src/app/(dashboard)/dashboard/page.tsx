@@ -23,6 +23,7 @@ import { BudgetAlertCard } from "@/components/dashboard/BudgetAlertCard";
 import { budgetAlerts } from "@/lib/budgetAlerts";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
+import { getSystemSettings } from "@/lib/actions/systemSettings";
 import {
   computeMemberTaskBreakdown,
   computeWeekColumns,
@@ -99,9 +100,10 @@ export default async function DashboardPage({
   // their own team only, not the whole org.
   const assignableUsers = isSupervisor ? teamMembers : isAdmin ? users : [];
 
-  const teamWorkloadDay = computeTeamWorkload(boards, workloadScope, "day", holidays);
-  const teamWorkloadWeek = computeTeamWorkload(boards, workloadScope, "week", holidays);
-  const teamWorkloadMonth = computeTeamWorkload(boards, workloadScope, "month", holidays);
+  const { ownerDefaultAllocationPct } = await getSystemSettings();
+  const teamWorkloadDay = computeTeamWorkload(boards, workloadScope, "day", holidays, ownerDefaultAllocationPct);
+  const teamWorkloadWeek = computeTeamWorkload(boards, workloadScope, "week", holidays, ownerDefaultAllocationPct);
+  const teamWorkloadMonth = computeTeamWorkload(boards, workloadScope, "month", holidays, ownerDefaultAllocationPct);
   const boardProgress = computeBoardProgressOverview(boards);
   const { overdue, completedThisWeek, upcoming7, upcoming30 } = computeDashboardDueLists(
     boards,
@@ -121,7 +123,7 @@ export default async function DashboardPage({
 
   const workloadThreshold = await getWorkloadThreshold();
   const workloadScopeIds = workloadScope.map((u) => u.id);
-  const memberTasksMap = computeMemberTaskBreakdown(boards, workloadScopeIds, holidays);
+  const memberTasksMap = computeMemberTaskBreakdown(boards, workloadScopeIds, holidays, ownerDefaultAllocationPct);
   // Admins aren't limited to delegating their own work — they can split a
   // subtask off any task in the full hierarchy. Supervisors get a tree of
   // the ancestor paths of tasks assigned to them or their team, so they can
@@ -133,7 +135,7 @@ export default async function DashboardPage({
       ? buildFullParentTree(visibleBoards, holidays)
       : buildSupervisorParentTree(boards, [session.userId, ...teamMembers.map((m) => m.id)], holidays);
   const weekColumns = computeWeekColumns(boards, holidays);
-  const weeklyLoadMap = computeMemberWeeklyLoad(boards, workloadScopeIds, weekColumns, holidays);
+  const weeklyLoadMap = computeMemberWeeklyLoad(boards, workloadScopeIds, weekColumns, holidays, ownerDefaultAllocationPct);
 
   const tasksByUser: Record<string, MemberTask[]> = {};
   const weeklyLoadByUser: Record<string, number[]> = {};
@@ -166,9 +168,9 @@ export default async function DashboardPage({
   const memberItemWorkload: Record<string, Record<WorkloadPeriod, MemberItemWorkloadEntry[]>> = {};
   for (const id of workloadScopeIds) {
     memberItemWorkload[id] = {
-      day: computeMemberItemWorkload(boards, id, "day", holidays),
-      week: computeMemberItemWorkload(boards, id, "week", holidays),
-      month: computeMemberItemWorkload(boards, id, "month", holidays),
+      day: computeMemberItemWorkload(boards, id, "day", holidays, ownerDefaultAllocationPct),
+      week: computeMemberItemWorkload(boards, id, "week", holidays, ownerDefaultAllocationPct),
+      month: computeMemberItemWorkload(boards, id, "month", holidays, ownerDefaultAllocationPct),
     };
   }
 

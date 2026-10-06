@@ -129,7 +129,7 @@ describe("barIndexRange", () => {
   });
 });
 
-describe("computeDailyLoadByUser:只算人員分配", () => {
+describe("computeDailyLoadByUser", () => {
   const item = (assignments: { userId: string; allocationPct: number }[], ownerValue?: string) =>
     ({
       id: "i1",
@@ -141,22 +141,41 @@ describe("computeDailyLoadByUser:只算人員分配", () => {
         ...(ownerValue ? [{ columnId: "owner", value: ownerValue }] : []),
       ],
     }) as unknown as Parameters<typeof computeDailyLoadByUser>[0][number];
+  const owner = (defaultPct: number) => ({ personColumnIds: ["owner"], defaultPct });
+  const days = (load: ReturnType<typeof computeDailyLoadByUser>, userId: string) => [...(load.get(userId) ?? [])];
 
   it("有人員分配:每一天都記上那個百分比", () => {
     const load = computeDailyLoadByUser([item([{ userId: "u1", allocationPct: 30 }])], "s", "d");
-    expect([...(load.get("u1") ?? [])]).toEqual([
+    expect(days(load, "u1")).toEqual([
       ["2026-10-05", 30],
       ["2026-10-06", 30],
     ]);
   });
 
-  it("只有負責人欄位、沒有人員分配:不算工作量", () => {
-    const load = computeDailyLoadByUser([item([], "u2")], "s", "d");
+  it("只掛在負責人欄位:照預設比例算,不是 100%", () => {
+    const load = computeDailyLoadByUser([item([], "u2")], "s", "d", "CALENDAR", new Set(), owner(2));
+    expect(days(load, "u2")).toEqual([
+      ["2026-10-05", 2],
+      ["2026-10-06", 2],
+    ]);
+  });
+
+  it("預設比例是 0:負責人欄位完全不計入", () => {
+    const load = computeDailyLoadByUser([item([], "u2")], "s", "d", "CALENDAR", new Set(), owner(0));
     expect(load.size).toBe(0);
   });
 
-  it("負責人欄位跟人員分配是不同的人:只有被分配的人有負載", () => {
-    const load = computeDailyLoadByUser([item([{ userId: "u1", allocationPct: 50 }], "u2")], "s", "d");
-    expect([...load.keys()]).toEqual(["u1"]);
+  it("負責人同時也有人員分配:只算人員分配那一份,不重複加預設", () => {
+    const load = computeDailyLoadByUser([item([{ userId: "u2", allocationPct: 40 }], "u2")], "s", "d", "CALENDAR", new Set(), owner(2));
+    expect(days(load, "u2")).toEqual([
+      ["2026-10-05", 40],
+      ["2026-10-06", 40],
+    ]);
+  });
+
+  it("負責人跟被分配的是不同的人:各算各的", () => {
+    const load = computeDailyLoadByUser([item([{ userId: "u1", allocationPct: 50 }], "u2")], "s", "d", "CALENDAR", new Set(), owner(2));
+    expect(days(load, "u1")[0]).toEqual(["2026-10-05", 50]);
+    expect(days(load, "u2")[0]).toEqual(["2026-10-05", 2]);
   });
 });

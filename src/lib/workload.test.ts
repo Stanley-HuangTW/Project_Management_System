@@ -46,7 +46,7 @@ describe("groupTasksByBoardAndGroup", () => {
   });
 });
 
-describe("computeMemberTaskBreakdown:只算人員分配", () => {
+describe("computeMemberTaskBreakdown", () => {
   const board = {
     id: "b1",
     name: "AMR",
@@ -71,14 +71,27 @@ describe("computeMemberTaskBreakdown:只算人員分配", () => {
       },
     ],
   } as unknown as BoardWithData;
+  const pcts = (byUser: ReturnType<typeof computeMemberTaskBreakdown>, id: string) =>
+    byUser.get(id)?.map((t) => t.allocationPct);
 
-  it("被分配的人有任務、百分比照人員分配", () => {
-    const byUser = computeMemberTaskBreakdown([board], ["u1", "u2"]);
-    expect(byUser.get("u1")?.map((t) => t.allocationPct)).toEqual([30]);
+  it("被分配的人照人員分配的百分比", () => {
+    expect(pcts(computeMemberTaskBreakdown([board], ["u1", "u2"]), "u1")).toEqual([30]);
   });
 
-  it("只掛在負責人欄位的人沒有任務(不再被當成 100%)", () => {
-    const byUser = computeMemberTaskBreakdown([board], ["u1", "u2"]);
-    expect(byUser.has("u2")).toBe(false);
+  it("只掛在負責人欄位的人:預設算 2%,不是 100%", () => {
+    expect(pcts(computeMemberTaskBreakdown([board], ["u1", "u2"]), "u2")).toEqual([2]);
+  });
+
+  it("預設比例可以改(系統設定),0 代表不計入", () => {
+    expect(pcts(computeMemberTaskBreakdown([board], ["u2"], new Set(), 5), "u2")).toEqual([5]);
+    expect(computeMemberTaskBreakdown([board], ["u2"], new Set(), 0).has("u2")).toBe(false);
+  });
+
+  it("負責人同時有人員分配:只出現一次,百分比是人員分配的", () => {
+    const withBoth = {
+      ...board,
+      items: [{ ...board.items[0], assignments: [{ userId: "u2", allocationPct: 25 }] }],
+    } as unknown as BoardWithData;
+    expect(pcts(computeMemberTaskBreakdown([withBoth], ["u2"]), "u2")).toEqual([25]);
   });
 });

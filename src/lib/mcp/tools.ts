@@ -612,7 +612,8 @@ async function getWorkload(session: SessionPayload, args: Json) {
   const byUser = computeMemberTaskBreakdown(
     boards,
     scope.map((u) => u.id),
-    holidays
+    holidays,
+    (await getSystemSettings()).ownerDefaultAllocationPct
   );
 
   return {

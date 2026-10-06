@@ -72,6 +72,7 @@ export default async function SettingsPage() {
         ganttDurationMode={settings.ganttDurationMode}
         hoursPerDay={settings.hoursPerDay}
         workingDaysPerMonth={settings.workingDaysPerMonth}
+        ownerDefaultAllocationPct={settings.ownerDefaultAllocationPct}
         levelColors={settings.levelColors}
         ganttStatusColors={{
           overdue: settings.ganttOverdueColor,

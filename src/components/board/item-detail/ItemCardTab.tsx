@@ -16,6 +16,7 @@ import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
+import { OwnerAllocationInput } from "../OwnerAllocationInput";
 import { AssignmentEditor } from "../AssignmentEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { useEditHistory } from "../EditHistoryProvider";
@@ -237,6 +238,17 @@ export function ItemCardTab({
                 />
               </span>
             </div>
+            {col.name === "負責人" && col.type === "PERSON" && (
+              <div className="flex justify-end border-b border-neutral-100 dark:border-neutral-700 px-4 py-2">
+                <OwnerAllocationInput
+                  boardId={boardId}
+                  item={item}
+                  ownerId={(valuesByColumn.get(col.id) as string | null | undefined) ?? null}
+                  users={users}
+                  canEdit={canEdit}
+                />
+              </div>
+            )}
             {col.name === "Lvl" && (
               <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">父項</span>

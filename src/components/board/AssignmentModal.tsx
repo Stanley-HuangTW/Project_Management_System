@@ -11,6 +11,7 @@ import { listDependentItems, type SchedulePreview } from "@/lib/predecessorLink"
 import { DependentItemsRow } from "./DependentItemsRow";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { CellEditor } from "./cell-editors/CellEditor";
+import { OwnerAllocationInput } from "./OwnerAllocationInput";
 import { ConstraintRow } from "./item-detail/ConstraintRow";
 import { PredPicker } from "./cell-editors/PredPicker";
 import { PredLampDot } from "./PredLampDot";
@@ -354,12 +355,23 @@ export function AssignmentModal({
           {ownerColumn && (
             <div className="flex items-center justify-between gap-3">
               <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{ownerColumn.name}</span>
-              <div className="w-56">
-                <CellEditor
+              <div className="flex items-center gap-2">
+                <div className="w-44">
+                  <CellEditor
+                    boardId={boardId}
+                    itemId={item.id}
+                    column={ownerColumn}
+                    value={(item.cellValues.find((cv) => cv.columnId === ownerColumn.id)?.value as string | null | undefined) ?? null}
+                    users={users}
+                    canEdit={canEditSchedule}
+                  />
+                </div>
+                <OwnerAllocationInput
                   boardId={boardId}
-                  itemId={item.id}
-                  column={ownerColumn}
-                  value={(item.cellValues.find((cv) => cv.columnId === ownerColumn.id)?.value as string | null | undefined) ?? null}
+                  item={item}
+                  ownerId={
+                    (item.cellValues.find((cv) => cv.columnId === ownerColumn.id)?.value as string | null | undefined) ?? null
+                  }
                   users={users}
                   canEdit={canEditSchedule}
                 />

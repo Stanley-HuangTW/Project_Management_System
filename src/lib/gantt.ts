@@ -1,5 +1,6 @@
 import type { GanttDurationMode } from "@prisma/client";
 import type { ItemData } from "@/types/board";
+import { getPersonIds } from "@/types/column";
 import { addBusinessDays, isNonWorkingDay } from "@/lib/workday";
 
 export type DateRange = { start: Date; end: Date };
@@ -162,20 +163,25 @@ function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** 沒有人員分配、只掛在負責人欄位的人,預設算幾 % 的工作量(系統設定可調)。 */
+export const DEFAULT_OWNER_ALLOCATION_PCT = 2;
+
 /**
  * For every item with a resolvable date range, spreads each assignee's load
- * across every day in that range, accumulated per user. Only a real
- * 人員分配 (Assignment, with its allocationPct) counts: a name in a PERSON
- * column (負責人 / 測試工具…) says who is responsible, not how much of their
- * time it takes, so it adds no load. Used to detect days where a person is
- * assigned over 100%.
+ * across every day in that range, accumulated per user. A real 人員分配
+ * (Assignment, with its allocationPct) counts at its own percentage. A name
+ * in a PERSON column (負責人 …) with no Assignment of its own says who is
+ * responsible but not how much time it takes, so it counts only at
+ * `owner.defaultPct` (small — 0 turns it off) instead of a full day. Used to
+ * detect days where a person is assigned over 100%.
  */
 export function computeDailyLoadByUser(
   items: ItemData[],
   startColumnId: string,
   durationColumnId: string,
   mode: GanttDurationMode = "CALENDAR",
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  owner: { personColumnIds: string[]; defaultPct: number } = { personColumnIds: [], defaultPct: 0 }
 ): Map<string, Map<string, number>> {
   const loadByUser = new Map<string, Map<string, number>>();
 
@@ -199,8 +205,19 @@ export function computeDailyLoadByUser(
     const range = getItemDateRange(item, startColumnId, durationColumnId, mode, holidays);
     if (!range) continue;
 
+    const covered = new Set<string>();
     for (const assignment of item.assignments) {
       addLoad(assignment.userId, range, assignment.allocationPct);
+      covered.add(assignment.userId);
+    }
+
+    if (owner.defaultPct > 0) {
+      const ownerIds = item.cellValues
+        .filter((cv) => owner.personColumnIds.includes(cv.columnId))
+        .flatMap((cv) => getPersonIds(cv.value));
+      for (const userId of new Set(ownerIds)) {
+        if (!covered.has(userId)) addLoad(userId, range, owner.defaultPct);
+      }
     }
   }
 

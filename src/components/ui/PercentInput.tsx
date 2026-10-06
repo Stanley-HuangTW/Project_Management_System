@@ -25,20 +25,25 @@ export function PercentInput({
   delayMs = 0,
   disabled,
   className,
+  placeholder,
+  title,
 }: {
-  value: number;
+  /** null = 還沒填(顯示 placeholder)。 */
+  value: number | null;
   onChange: (pct: number) => void;
   delayMs?: number;
   disabled?: boolean;
   className?: string;
+  placeholder?: string;
+  title?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState(String(value));
+  const [text, setText] = useState(value === null ? "" : String(value));
   const [seenValue, setSeenValue] = useState(value);
   if (value !== seenValue) {
     // 外面的值變了(例如存檔後重新載入)就跟著變。
     setSeenValue(value);
-    setText(String(value));
+    setText(value === null ? "" : String(value));
   }
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,9 +107,12 @@ export function PercentInput({
       value={text}
       disabled={disabled}
       onChange={(e) => propose(e.target.value)}
+      placeholder={placeholder}
+      title={title}
       onBlur={() => {
         flush();
-        setText(String(parsePercent(text) ?? value));
+        const valid = parsePercent(text);
+        setText(valid !== null ? String(valid) : value === null ? "" : String(value));
       }}
       className={className}
     />

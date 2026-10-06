@@ -9,6 +9,7 @@ import {
   type MemberItemWorkloadEntry,
 } from "@/lib/dashboard";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
+import { getSystemSettings } from "@/lib/actions/systemSettings";
 
 /** Same numbers as the workload card's day/week/month tabs, for an
  *  arbitrary date range instead — used by its "自訂" option. boardId
@@ -27,11 +28,12 @@ export async function getCustomWorkload(
   const boards = boardId ? allBoards.filter((b) => b.id === boardId) : allBoards;
   const holidays = toHolidaySet(await listHolidays());
   const range = { from: fromIso, to: toIso };
+  const { ownerDefaultAllocationPct } = await getSystemSettings();
 
-  const team = computeTeamWorkload(boards, workloadScope, range, holidays);
+  const team = computeTeamWorkload(boards, workloadScope, range, holidays, ownerDefaultAllocationPct);
   const memberItemWorkload: Record<string, MemberItemWorkloadEntry[]> = {};
   for (const u of workloadScope) {
-    memberItemWorkload[u.id] = computeMemberItemWorkload(boards, u.id, range, holidays);
+    memberItemWorkload[u.id] = computeMemberItemWorkload(boards, u.id, range, holidays, ownerDefaultAllocationPct);
   }
 
   return { team, memberItemWorkload };

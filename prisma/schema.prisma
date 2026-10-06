@@ -918,6 +918,8 @@ model SystemSettings {
   hoursPerDay               Int                @default(8)
   /// 一個人月算幾個工作天 — 把月薪換算成時薪、把人月換算成工時的係數。
   workingDaysPerMonth       Int                @default(21)
+  /// 只掛在負責人欄位、沒有人員分配的工作項,算那位負責人幾 % 的工作量。0 = 不算。
+  ownerDefaultAllocationPct Int                @default(2)
   /// 新看板要帶哪些欄位:[{ name, type, options }],順序就是欄位順序。
   /// Null means nobody has set one, and a new board falls back to the built-in
   /// list — the same one this used to be, hardcoded.

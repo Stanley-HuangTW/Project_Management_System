@@ -7,6 +7,7 @@ import type { BoardWithData, UserOption, ExternalPredecessor } from "@/types/boa
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
 import { EditHistoryProvider } from "./EditHistoryProvider";
+import { OwnerDefaultPctProvider } from "./OwnerDefaultPctContext";
 import { BoardTable } from "./BoardTable";
 import { BoardKanban } from "./BoardKanban";
 import { BoardGantt } from "./BoardGantt";
@@ -36,6 +37,7 @@ export function BoardView({
   highlightNonce,
   openAction,
   holidays,
+  ownerDefaultPct,
   externalPreds,
 }: {
   board: BoardWithData;
@@ -50,6 +52,8 @@ export function BoardView({
    *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
   openAction?: string | null;
   holidays: Holiday[];
+  /** 只掛在負責人欄位、沒有人員分配的工作項,算幾 % 的工作量(系統設定)。 */
+  ownerDefaultPct: number;
   /** 已經被指到的外部前置,甘特圖用來畫那一列。 */
   externalPreds: ExternalPredecessor[];
 }) {
@@ -238,6 +242,7 @@ export function BoardView({
         </div>
       </div>
 
+      <OwnerDefaultPctProvider value={ownerDefaultPct}>
       <EditHistoryProvider key={board.id} board={board}>
       <div className={`flex-1 p-3 sm:p-6 ${view === "table" ? "overflow-hidden" : "overflow-auto"}`}>
         {view === "table" && (
@@ -273,6 +278,7 @@ export function BoardView({
             holidays={holidays}
             active={view === "gantt"}
             externalPreds={externalPreds}
+            ownerDefaultPct={ownerDefaultPct}
           />
         )}
         {view === "risks" && (
@@ -299,6 +305,7 @@ export function BoardView({
         )}
       </div>
       </EditHistoryProvider>
+      </OwnerDefaultPctProvider>
 
       {canManageStructure(userRole) && (
         <AddColumnDialog

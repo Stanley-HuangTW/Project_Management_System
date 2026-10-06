@@ -183,6 +183,7 @@ export function BoardGantt({
   userRole,
   currentUserId,
   holidays,
+  ownerDefaultPct,
   active = true,
   externalPreds,
 }: {
@@ -191,6 +192,8 @@ export function BoardGantt({
   userRole: UserRole;
   currentUserId: string;
   holidays: Holiday[];
+  /** 只掛在負責人欄位、沒有人員分配的工作項,算幾 % 的工作量(系統設定)。 */
+  ownerDefaultPct: number;
   /** False while another view is showing. BoardView keeps this mounted so the
    *  zoom, scale, filters and collapsed rows survive a trip to the table;
    *  hiding it is display:none, which drops the scroll offsets, so those are
@@ -706,9 +709,10 @@ export function BoardGantt({
       startColumnId,
       durationColumnId,
       durationMode,
-      holidaySet
+      holidaySet,
+      { personColumnIds, defaultPct: ownerDefaultPct }
     );
-  }, [board.items, startColumnId, durationColumnId, durationMode, holidaySet]);
+  }, [board.items, startColumnId, durationColumnId, personColumnIds, durationMode, holidaySet, ownerDefaultPct]);
 
   const usersWithLoad = users.filter((u) => (dailyLoad.get(u.id)?.size ?? 0) > 0);
 

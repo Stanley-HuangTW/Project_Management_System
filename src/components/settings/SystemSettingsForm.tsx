@@ -7,6 +7,7 @@ import {
   setEmailNotificationsEnabled,
   setGanttDurationMode,
   setHoursPerDay,
+  setOwnerDefaultAllocationPct,
   setLevelColors,
   setGanttStatusColors,
   setPredLampColors,
@@ -195,6 +196,44 @@ function HoursPerDayCard({ initial }: { initial: number }) {
         className="w-24 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
       />
       <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">小時</span>
+    </div>
+  );
+}
+
+function OwnerDefaultAllocationCard({ initial }: { initial: number }) {
+  const [pct, setPct] = useState(String(initial));
+  const [isPending, startTransition] = useTransition();
+
+  function save() {
+    const value = Number(pct);
+    if (pct.trim() === "" || !Number.isFinite(value) || value < 0 || value > 100) {
+      setPct(String(initial));
+      return;
+    }
+    startTransition(async () => {
+      await setOwnerDefaultAllocationPct(value);
+    });
+  }
+
+  return (
+    <div className="max-w-xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
+      <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">負責人預設工作量</p>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        工作項只在「負責人」欄位掛了人、沒有另外做「人員分配」時,那位負責人算幾 % 的工作量(儀表板的成員工作量、
+        過度配置與甘特圖的每日負載都用這個數字)。要精確一點,在負責人旁邊直接填「工作量 %」,或到「人員分配」設定。
+        填 0 代表負責人欄位完全不計入工作量。
+      </p>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        value={pct}
+        disabled={isPending}
+        onChange={(e) => setPct(e.target.value)}
+        onBlur={save}
+        className="w-24 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
+      />
+      <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">%</span>
     </div>
   );
 }
@@ -466,6 +505,7 @@ export function SystemSettingsForm({
   ganttDurationMode,
   hoursPerDay,
   workingDaysPerMonth,
+  ownerDefaultAllocationPct,
   levelColors,
   ganttStatusColors,
   predLampColors,
@@ -493,6 +533,7 @@ export function SystemSettingsForm({
   ganttDurationMode: GanttDurationMode;
   hoursPerDay: number;
   workingDaysPerMonth: number;
+  ownerDefaultAllocationPct: number;
   levelColors: string[];
   ganttStatusColors: { overdue: string; completed: string; inProgress: string };
   predLampColors: { ready: string; waiting: string; blocked: string };
@@ -521,6 +562,7 @@ export function SystemSettingsForm({
           <NotificationTypesCard initial={enabledNotificationTypes} />
           <GanttModeCard initial={ganttDurationMode} />
           <HoursPerDayCard initial={hoursPerDay} />
+          <OwnerDefaultAllocationCard initial={ownerDefaultAllocationPct} />
           <TimeCategoryCard />
           <OrgUnitCard units={orgUnits} />
           <DisciplineRateCard

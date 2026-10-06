@@ -1,6 +1,11 @@
 import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/board";
 import { getPersonIds, getStatusOptions, type StatusOption } from "@/types/column";
-import { getItemDateRange, computeDailyLoadByUser, manualScheduleHint } from "@/lib/gantt";
+import {
+  getItemDateRange,
+  computeDailyLoadByUser,
+  manualScheduleHint,
+  DEFAULT_OWNER_ALLOCATION_PCT,
+} from "@/lib/gantt";
 import { computeItemProgress } from "@/lib/progress";
 import { resolveLockedScheduleFields, type ScheduleLock } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
@@ -64,7 +69,8 @@ export function computeTeamWorkload(
   boards: BoardWithData[],
   users: UserOption[],
   period: WorkloadPeriod | WorkloadRange = "day",
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  ownerDefaultPct: number = DEFAULT_OWNER_ALLOCATION_PCT
 ): TeamWorkloadEntry[] {
   const dates = datesForPeriod(period).map(toIsoDate);
   const totals = new Map<string, number>();
@@ -76,7 +82,11 @@ export function computeTeamWorkload(
       board.ganttStartColumnId,
       board.ganttDurationColumnId,
       board.ganttDurationMode,
-      holidays
+      holidays,
+      {
+        personColumnIds: board.columns.filter((c) => c.type === "PERSON").map((c) => c.id),
+        defaultPct: ownerDefaultPct,
+      }
     );
     for (const [userId, dayMap] of dailyLoad) {
       const sum = dates.reduce((acc, date) => acc + (dayMap.get(date) ?? 0), 0);
@@ -111,18 +121,24 @@ export function computeMemberItemWorkload(
   boards: BoardWithData[],
   userId: string,
   period: WorkloadPeriod | WorkloadRange = "day",
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  ownerDefaultPct: number = DEFAULT_OWNER_ALLOCATION_PCT
 ): MemberItemWorkloadEntry[] {
   const dates = new Set(datesForPeriod(period).map(toIsoDate));
   const entries: MemberItemWorkloadEntry[] = [];
 
   for (const board of boards) {
     if (!board.ganttStartColumnId || !board.ganttDurationColumnId) continue;
+    const personColumnIds = board.columns.filter((c) => c.type === "PERSON").map((c) => c.id);
     for (const item of board.items) {
-      // 只算人員分配;負責人欄位沒有百分比,不是工作量。
+      // 人員分配照它自己的百分比;只掛在負責人欄位的,照系統設定的預設比例(0 = 不算)。
       const assignment = item.assignments.find((a) => a.userId === userId);
-      if (!assignment) continue;
-      const allocationPct = assignment.allocationPct;
+      const isOwner = item.cellValues
+        .filter((cv) => personColumnIds.includes(cv.columnId))
+        .flatMap((cv) => getPersonIds(cv.value))
+        .includes(userId);
+      if (!assignment && !(isOwner && ownerDefaultPct > 0)) continue;
+      const allocationPct = assignment ? assignment.allocationPct : ownerDefaultPct;
       const range = getItemDateRange(
         item,
         board.ganttStartColumnId,

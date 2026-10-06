@@ -5,6 +5,7 @@ import { canAccessBoard } from "@/lib/boardAccess";
 import { boardWithDataArgs, type UserOption } from "@/types/board";
 import { BoardView } from "@/components/board/BoardView";
 import { listHolidays } from "@/lib/holidays";
+import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { applyVisibility } from "@/lib/applyVisibility";
 import { externalPredecessors } from "@/lib/externalPredecessors";
 
@@ -67,6 +68,7 @@ export default async function BoardPage({
       openAction={openAction ?? null}
       holidays={holidays}
       externalPreds={externalPreds}
+      ownerDefaultPct={(await getSystemSettings()).ownerDefaultAllocationPct}
     />
   );
 }

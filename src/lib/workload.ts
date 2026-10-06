@@ -1,5 +1,6 @@
 import type { BoardWithData, ItemData } from "@/types/board";
-import { getItemDateRange, computeDailyLoadByUser } from "@/lib/gantt";
+import { getPersonIds } from "@/types/column";
+import { getItemDateRange, computeDailyLoadByUser, DEFAULT_OWNER_ALLOCATION_PCT } from "@/lib/gantt";
 import { groupByBoardAndGroup } from "@/lib/boardGrouping";
 import { computeWbsCodes, compareWbsCodes } from "@/lib/wbs";
 
@@ -48,15 +49,16 @@ export function groupTasksByBoardAndGroup(tasks: MemberTask[]) {
 }
 
 /**
- * Per-user list of assigned tasks: only a real 人員分配 (which carries its own
- * allocation %). A name in a PERSON column (負責人 …) is not workload — it has
- * no percentage, so counting it at some default made people look overloaded
- * on items nobody had actually assigned time to.
+ * Per-user list of assigned tasks: a real 人員分配 counts at its own allocation
+ * %. A name in a PERSON column (負責人 …) with no 人員分配 counts only at
+ * `ownerDefaultPct` (system setting, small, 0 = not at all) — it says who is
+ * responsible, not that they spend the whole day on it.
  */
 export function computeMemberTaskBreakdown(
   boards: BoardWithData[],
   userIds: string[],
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  ownerDefaultPct: number = DEFAULT_OWNER_ALLOCATION_PCT
 ): Map<string, MemberTask[]> {
   const idSet = new Set(userIds);
   const byUser = new Map<string, MemberTask[]>();
@@ -97,6 +99,7 @@ export function computeMemberTaskBreakdown(
 
   for (const board of boards) {
     const hasRange = !!(board.ganttStartColumnId && board.ganttDurationColumnId);
+    const personColumnIds = board.columns.filter((c) => c.type === "PERSON").map((c) => c.id);
     // WBS 是項目在它自己分組樹裡的位置,一個分組算一次。
     const wbs = new Map<string, string>();
     for (const group of board.groups) {
@@ -105,9 +108,21 @@ export function computeMemberTaskBreakdown(
     }
 
     for (const item of board.items) {
+      const covered = new Set<string>();
       for (const assignment of item.assignments) {
+        covered.add(assignment.userId);
         if (!idSet.has(assignment.userId)) continue;
         addTask(assignment.userId, board, item, wbs, assignment.allocationPct, hasRange);
+      }
+
+      if (ownerDefaultPct > 0) {
+        const ownerIds = item.cellValues
+          .filter((cv) => personColumnIds.includes(cv.columnId))
+          .flatMap((cv) => getPersonIds(cv.value));
+        for (const userId of new Set(ownerIds)) {
+          if (!idSet.has(userId) || covered.has(userId)) continue;
+          addTask(userId, board, item, wbs, ownerDefaultPct, hasRange);
+        }
       }
     }
   }
@@ -128,7 +143,8 @@ export function computeMemberTaskBreakdown(
 export function computeCrossBoardDailyLoad(
   boards: BoardWithData[],
   userIds: string[],
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  ownerDefaultPct: number = DEFAULT_OWNER_ALLOCATION_PCT
 ): Map<string, Map<string, number>> {
   const idSet = new Set(userIds);
   const merged = new Map<string, Map<string, number>>();
@@ -140,7 +156,11 @@ export function computeCrossBoardDailyLoad(
       board.ganttStartColumnId,
       board.ganttDurationColumnId,
       board.ganttDurationMode,
-      holidays
+      holidays,
+      {
+        personColumnIds: board.columns.filter((c) => c.type === "PERSON").map((c) => c.id),
+        defaultPct: ownerDefaultPct,
+      }
     );
     for (const [userId, dayMap] of dailyLoad) {
       if (!idSet.has(userId)) continue;
@@ -228,9 +248,10 @@ export function computeMemberWeeklyLoad(
   boards: BoardWithData[],
   userIds: string[],
   weeks: WeekColumn[],
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  ownerDefaultPct: number = DEFAULT_OWNER_ALLOCATION_PCT
 ): Map<string, number[]> {
-  const dailyLoad = computeCrossBoardDailyLoad(boards, userIds, holidays);
+  const dailyLoad = computeCrossBoardDailyLoad(boards, userIds, holidays, ownerDefaultPct);
 
   const result = new Map<string, number[]>();
   for (const userId of userIds) {
