@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -94,23 +95,17 @@ export function ProgramReportSubscriptionCard({
               )}
 
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <UserSelect
+                  users={addableUsers}
                   value=""
                   disabled={busy}
-                  onChange={(e) => {
-                    const userId = e.target.value;
+                  placeholder="加入現有帳號…"
+                  onChange={(userId) => {
                     if (!userId) return;
                     run(() => addProgramReportRecipient(sub.programId, { userId }), "無法新增收件人");
                   }}
                   className={`${fieldClass} text-xs`}
-                >
-                  <option value="">加入現有帳號…</option>
-                  {addableUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-                </select>
+                />
                 <input
                   value={emailDrafts[sub.programId] ?? ""}
                   disabled={busy}

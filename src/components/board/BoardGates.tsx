@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useCallback, useEffect, useState } from "react";
 import type { GateStatus } from "@prisma/client";
 import { AlertTriangle, Check, Plus, Trash2, X, ChevronRight, ChevronDown } from "lucide-react";
@@ -522,25 +523,18 @@ function GateCard({
             )}
 
             {canManage && !decided && (
-              <select
+              <UserSelect
+                users={staff.filter((u) => !gate.approvers.some((a) => a.userId === u.id))}
                 value=""
                 disabled={busy}
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  const next = [...gate.approvers.map((a) => a.userId), e.target.value];
+                placeholder="加入簽核人…"
+                onChange={(userId) => {
+                  if (!userId) return;
+                  const next = [...gate.approvers.map((a) => a.userId), userId];
                   run(() => setApprovers(gate.id, next), "無法加入簽核人");
                 }}
                 className="mt-2 w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
-              >
-                <option value="">加入簽核人…</option>
-                {staff
-                  .filter((u) => !gate.approvers.some((a) => a.userId === u.id))
-                  .map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-              </select>
+              />
             )}
           </div>
 

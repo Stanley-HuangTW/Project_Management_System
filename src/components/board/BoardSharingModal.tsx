@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import type { UserOption } from "@/types/board";
@@ -180,18 +181,7 @@ export function BoardSharingModal({
             這個看板底下任何分組有角色(Team Leader/DM/QA...)或是 SW/EE/ME/QA 實作成員的人,不用加進下面的名單也一律看得到——這裡只管理額外再加的人。
           </p>
           <div className="mb-2 flex items-center gap-2">
-            <select
-              value={addUserId}
-              onChange={(e) => setAddUserId(e.target.value)}
-              className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-            >
-              <option value="">選擇要新增的成員</option>
-              {nonMembers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
+            <UserSelect users={nonMembers} value={addUserId} onChange={setAddUserId} placeholder="選擇要新增的成員" className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500" />
             <button
               type="button"
               onClick={handleAddMember}

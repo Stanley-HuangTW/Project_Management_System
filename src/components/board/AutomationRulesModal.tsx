@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
@@ -224,18 +225,13 @@ export function AutomationRulesModal({
 
           <div className="flex items-center gap-2 text-sm">
             <span className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">通知</span>
-            <select
+            <UserSelect
+              users={users.filter((u) => !u.isResource)}
               value={notifyUserId}
-              onChange={(e) => setNotifyUserId(e.target.value)}
+              onChange={setNotifyUserId}
+              emptyLabel="不通知"
               className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 outline-none focus:border-blue-500"
-            >
-              <option value="">不通知</option>
-              {users.filter((u) => !u.isResource).map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div className="flex items-center gap-2 text-sm">

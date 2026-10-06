@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
@@ -1203,18 +1204,13 @@ export function BoardGantt({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-neutral-500 dark:text-neutral-400">父項目</span>
-          <select
+          <SearchableSelect
+            options={board.items.map((i) => ({ value: i.id, label: `${wbsCodes.get(i.id) ?? ""} ${i.name}`.trim() }))}
             value={parentFilterId}
-            onChange={(e) => setParentFilterId(e.target.value)}
+            onChange={setParentFilterId}
+            emptyLabel="全部"
             className="max-w-[200px] rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
-          >
-            <option value="">全部</option>
-            {board.items.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name}
-              </option>
-            ))}
-          </select>
+          />
         </div>
         {(groupFilterId || parentFilterId) && (
           <button

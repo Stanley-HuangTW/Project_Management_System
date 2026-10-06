@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -81,19 +82,14 @@ export function LeaveManagement({
       </p>
 
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3">
-        <select
+        <UserSelect
+          users={isAdmin ? users : users.filter((u) => u.id === currentUserId)}
           value={userId}
           disabled={busy || !isAdmin}
-          onChange={(e) => setUserId(e.target.value)}
+          onChange={setUserId}
           title={isAdmin ? undefined : "只能登記自己的休假"}
           className={fieldClass}
-        >
-          {(isAdmin ? users : users.filter((u) => u.id === currentUserId)).map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
+        />
         <input
           type="date"
           value={startDate}

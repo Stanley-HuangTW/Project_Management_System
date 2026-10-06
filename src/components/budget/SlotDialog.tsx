@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { guessUnitCode, type OrgUnit } from "@/lib/orgUnits";
@@ -136,18 +137,13 @@ export function SlotDialog({
 
         <label className="block">
           <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">人員</span>
-          <select
+          <UserSelect
+            users={users}
             value={userId ?? ""}
-            onChange={(e) => setUserId(e.target.value || null)}
+            onChange={(id) => setUserId(id || null)}
+            emptyLabel="未指定(TBH)"
             className={field}
-          >
-            <option value="">未指定(TBH)</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
         {/* 還沒招到人的時候,那一列要寫什麼由使用者決定 —— 有人寫 TBH,

@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { useCallback, useEffect, useState } from "react";
 import type { CostCategory, ReserveKind } from "@prisma/client";
 import { AlertTriangle, Plus, Trash2, Check, Paperclip, X } from "lucide-react";
@@ -919,14 +920,16 @@ function CommitmentTable({
 
       {view.canEdit && view.items.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
-          <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={`${fieldClass} max-w-[16rem]`}>
-            {view.items.map((i) => (
-              <option key={i.id} value={i.id}>
-                {" ".repeat(i.depth * 2)}
-                {scope.kind === "program" ? `${i.boardName} / ${i.name}` : i.name}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={view.items.map((i) => ({
+              value: i.id,
+              label: scope.kind === "program" ? `${i.boardName} / ${i.name}` : i.name,
+              indent: i.depth,
+            }))}
+            value={itemId}
+            onChange={setItemId}
+            className={`${fieldClass} max-w-[16rem]`}
+          />
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as CostCategory)}
@@ -1132,14 +1135,16 @@ function ExpenseTable({
 
       {view.canEdit && view.items.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-2">
-          <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={`${fieldClass} max-w-[16rem]`}>
-            {view.items.map((i) => (
-              <option key={i.id} value={i.id}>
-                {" ".repeat(i.depth * 2)}
-                {scope.kind === "program" ? `${i.boardName} / ${i.name}` : i.name}
-              </option>
-            ))}
-          </select>
+          <SearchableSelect
+            options={view.items.map((i) => ({
+              value: i.id,
+              label: scope.kind === "program" ? `${i.boardName} / ${i.name}` : i.name,
+              indent: i.depth,
+            }))}
+            value={itemId}
+            onChange={setItemId}
+            className={`${fieldClass} max-w-[16rem]`}
+          />
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as CostCategory)}

@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -391,18 +392,13 @@ function EntryForm({
               沒有指派給你的工作項。可以到項目卡片的「工時與費用」分頁登記。
             </span>
           ) : (
-            <select
+            <SearchableSelect
+              options={(options?.items ?? []).map((i) => ({ value: i.id, label: `${i.boardName} / ${i.name}` }))}
               value={effectiveItemId}
-              onChange={(e) => setItemId(e.target.value)}
+              onChange={setItemId}
               disabled={!options}
-              className={`${inputClass} min-w-0 max-w-full`}
-            >
-              {(options?.items ?? []).map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.boardName} / {i.name}
-                </option>
-              ))}
-            </select>
+              className={`${inputClass} min-w-0 flex-1`}
+            />
           )
         ) : (
           <select
@@ -437,19 +433,16 @@ function EntryForm({
       </div>
 
       {kind === "activity" && category?.linkIssue && (
-        <select
+        <SearchableSelect
+          options={(options?.issues ?? []).map((i) => ({
+            value: i.id,
+            label: `${i.closed ? "(已結案) " : ""}${i.boardName} / ${i.title}`,
+          }))}
           value={riskEntryId}
-          onChange={(e) => setRiskEntryId(e.target.value)}
+          onChange={setRiskEntryId}
+          emptyLabel="不連結議題"
           className={`${inputClass} max-w-full`}
-        >
-          <option value="">不連結議題</option>
-          {(options?.issues ?? []).map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.closed ? "(已結案) " : ""}
-              {i.boardName} / {i.title}
-            </option>
-          ))}
-        </select>
+        />
       )}
 
       <div className="flex gap-2">

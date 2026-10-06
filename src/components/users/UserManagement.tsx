@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useRef, useState } from "react";
 import {
   DndContext,
@@ -225,18 +226,13 @@ function SortableUserRow({
       </select>
       <SalaryInput user={user} />
       <RateInput user={user} />
-      <select
+      <UserSelect
+        users={supervisorOptions}
         value={user.supervisorId ?? ""}
-        onChange={(e) => updateUserSupervisor(user.id, e.target.value || null)}
+        onChange={(id) => updateUserSupervisor(user.id, id || null)}
+        emptyLabel="未設定"
         className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
-      >
-        <option value="">未設定</option>
-        {supervisorOptions.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name}
-          </option>
-        ))}
-      </select>
+      />
       <span className="flex items-center justify-end gap-2">
         {isLocked && (
           <button
@@ -598,18 +594,7 @@ export function UserManagement({
             <option value="ADMIN">管理者</option>
           </select>
           {
-            <select
-              value={supervisorId}
-              onChange={(e) => setSupervisorId(e.target.value)}
-              className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            >
-              <option value="">所屬主管(未設定)</option>
-              {supervisors.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <UserSelect users={supervisors} value={supervisorId} onChange={setSupervisorId} emptyLabel="所屬主管(未設定)" className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500" />
           }
           <button
             type="button"
@@ -658,18 +643,13 @@ export function UserManagement({
             <option value="SUPERVISOR">主管</option>
             <option value="ADMIN">管理者</option>
           </select>
-          <select
+          <UserSelect
+            users={editTarget ? supervisorsFor(editTarget.id) : supervisors}
             value={editSupervisorId}
-            onChange={(e) => setEditSupervisorId(e.target.value)}
+            onChange={setEditSupervisorId}
+            emptyLabel="所屬主管(未設定)"
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
-          >
-            <option value="">所屬主管(未設定)</option>
-            {(editTarget ? supervisorsFor(editTarget.id) : supervisors).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          />
           {editRole === "SUPERVISOR" && (
             <label className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">
               <input

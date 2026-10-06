@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
@@ -204,20 +205,13 @@ export function CostTab({
           />
           {/* Only an ADMIN can log for someone else — see logTime. */}
           {userRole === "ADMIN" && (
-            <select
+            <UserSelect
+              users={users.filter((u) => !u.isResource)}
               value={forUserId}
               disabled={busy}
-              onChange={(e) => setForUserId(e.target.value)}
+              onChange={setForUserId}
               className={fieldClass}
-            >
-              {users
-                .filter((u) => !u.isResource)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-            </select>
+            />
           )}
           <button
             type="button"

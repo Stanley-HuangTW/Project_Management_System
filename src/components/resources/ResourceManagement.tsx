@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useState } from "react";
 import {
   DndContext,
@@ -309,18 +310,7 @@ export function ResourceManagement({
             placeholder="備註"
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
           />
-          <select
-            value={managerId}
-            onChange={(e) => setManagerId(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
-          >
-            <option value="">負責窗口(未設定)</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
+          <UserSelect users={users} value={managerId} onChange={setManagerId} emptyLabel="負責窗口(未設定)" className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500" />
           <button
             type="button"
             disabled={submitting || !name.trim()}
@@ -369,18 +359,7 @@ export function ResourceManagement({
             placeholder="備註"
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
           />
-          <select
-            value={editManagerId}
-            onChange={(e) => setEditManagerId(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
-          >
-            <option value="">負責窗口(未設定)</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
+          <UserSelect users={users} value={editManagerId} onChange={setEditManagerId} emptyLabel="負責窗口(未設定)" className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500" />
           <button
             type="button"
             disabled={editSubmitting || !editName.trim()}

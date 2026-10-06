@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { TeamWorkloadEntry, WorkloadPeriod, MemberItemWorkloadEntry } from "@/lib/dashboard";
@@ -274,17 +275,12 @@ export function TeamWorkloadCard({
         <div className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
           <div className="mb-3 flex items-center gap-2">
             <span className="text-xs text-neutral-500 dark:text-neutral-400">成員</span>
-            <select
+            <SearchableSelect
+              options={data.map((entry) => ({ value: entry.userId, label: entry.userName }))}
               value={selectedPieUserId ?? ""}
-              onChange={(e) => setPieUserId(e.target.value)}
+              onChange={setPieUserId}
               className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
-            >
-              {data.map((entry) => (
-                <option key={entry.userId} value={entry.userId}>
-                  {entry.userName}
-                </option>
-              ))}
-            </select>
+            />
           </div>
           {pieEntries.length === 0 ? (
             <p className="text-sm text-neutral-400 dark:text-neutral-500">此成員在所選期間沒有任何指派中的任務。</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useCallback, useEffect, useState } from "react";
 import type { AuditCategory } from "@prisma/client";
 import { listAuditLog, type AuditRow } from "@/lib/actions/audit";
@@ -139,14 +140,7 @@ export function AuditLog({
             </option>
           ))}
         </select>
-        <select value={actorId} onChange={(e) => setActorId(e.target.value)} className={fieldClass}>
-          <option value="">全部人員</option>
-          {actors.map((actor) => (
-            <option key={actor.id} value={actor.id}>
-              {actor.name}
-            </option>
-          ))}
-        </select>
+        <UserSelect users={actors} value={actorId} onChange={setActorId} emptyLabel="全部人員" className={fieldClass} />
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={fieldClass} />
         <span className="text-xs text-neutral-400 dark:text-neutral-500">~</span>
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={fieldClass} />

@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { PercentInput } from "@/components/ui/PercentInput";
@@ -169,20 +170,13 @@ export function ResourceMappingModal({
                     {value}
                   </span>
                   <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{count} 項目</span>
-                  <select
+                  <UserSelect
+                    users={users}
                     value={mapping[value] ?? ""}
-                    onChange={(e) =>
-                      setMapping((prev) => ({ ...prev, [value]: e.target.value }))
-                    }
+                    onChange={(userId) => setMapping((prev) => ({ ...prev, [value]: userId }))}
+                    emptyLabel="略過"
                     className="w-40 shrink-0 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
-                  >
-                    <option value="">略過</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
               ))}
             </div>

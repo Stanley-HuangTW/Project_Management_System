@@ -1,5 +1,6 @@
 "use client";
 
+import { UserSelect } from "@/components/ui/UserSelect";
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
@@ -97,29 +98,21 @@ export function BulkEditBar({
       ))}
 
       {personColumns.map((column) => (
-        <select
+        <UserSelect
           key={column.id}
-          value=""
+          users={users}
           disabled={busy}
-          onChange={(e) => {
-            const value = e.target.value;
-            e.target.value = "";
-            if (value) {
-              run(`批次設定「${column.name}」`, () =>
-                bulkSetCellValue(boardId, ids, column.id, value === "__clear__" ? null : value)
-              );
-            }
+          extraOptions={[{ value: "__clear__", label: "— 清除 —" }]}
+          value=""
+          placeholder={`設定${column.name}...`}
+          onChange={(value) => {
+            if (!value) return;
+            run(`批次設定「${column.name}」`, () =>
+              bulkSetCellValue(boardId, ids, column.id, value === "__clear__" ? null : value)
+            );
           }}
           className={selectClass}
-        >
-          <option value="">設定{column.name}...</option>
-          <option value="__clear__">— 清除 —</option>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
+        />
       ))}
 
       <span className="ml-1 text-blue-800 dark:text-blue-200">推移</span>
