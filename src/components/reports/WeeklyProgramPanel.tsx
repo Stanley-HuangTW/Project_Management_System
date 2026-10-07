@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from "react";
 import {
   ITEM_UPDATE_LABELS,
+  MAX_UPDATES_PER_ITEM,
   byPriority,
   groupItemUpdates,
+  updatesByItem,
   type ItemUpdateLine,
   type ProgramSection,
   type PersonSection,
@@ -41,7 +43,7 @@ function PriorityBadge({ priority }: { priority: string | null }) {
   );
 }
 
-function ItemRow({ item }: { item: ReportItem }) {
+function ItemRow({ item, updates }: { item: ReportItem; updates?: ItemUpdateLine[] }) {
   return (
     <li className="flex flex-wrap items-center gap-1.5 py-1 text-sm text-neutral-700 dark:text-neutral-100">
       <span className="text-neutral-400 dark:text-neutral-500">
@@ -60,11 +62,25 @@ function ItemRow({ item }: { item: ReportItem }) {
       {item.isMilestone && <span title="里程碑">🚩</span>}
       {item.isCritical && <span title="要徑">⚡</span>}
       <PriorityBadge priority={item.priority} />
+      {updates && updates.length > 0 && (
+        <div className="basis-full">
+          <UpdateRows updates={updates} max={MAX_UPDATES_PER_ITEM} />
+        </div>
+      )}
     </li>
   );
 }
 
-function ItemList({ items, limit = 15 }: { items: ReportItem[]; limit?: number }) {
+function ItemList({
+  items,
+  limit = 15,
+  updates,
+}: {
+  items: ReportItem[];
+  limit?: number;
+  /** 有給的話,每個工作項底下列出它這週的留言、連結、附件(這週已完成的用)。 */
+  updates?: Map<string, ItemUpdateLine[]>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const sorted = byPriority(items);
   const shown = expanded ? sorted : sorted.slice(0, limit);
@@ -72,7 +88,7 @@ function ItemList({ items, limit = 15 }: { items: ReportItem[]; limit?: number }
   return (
     <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
       {shown.map((i) => (
-        <ItemRow key={i.id} item={i} />
+        <ItemRow key={i.id} item={i} updates={updates?.get(i.id)} />
       ))}
       {!expanded && sorted.length > shown.length && (
         <li className="py-1">
@@ -96,6 +112,41 @@ function safeHref(url: string | null): string | null {
   return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
+/** 一個工作項這週新增的留言、連結、附件;max 有給的話只列前幾筆,其餘說還有幾筆。 */
+function UpdateRows({ updates, max }: { updates: ItemUpdateLine[]; max?: number }) {
+  const shown = max === undefined ? updates : updates.slice(0, max);
+  return (
+    <ul className="mt-0.5 space-y-0.5 pl-3">
+      {shown.map((u, idx) => {
+        const href = safeHref(u.url);
+        return (
+          <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
+            <span title={ITEM_UPDATE_LABELS[u.kind]}>{UPDATE_ICON[u.kind]}</span>
+            <span className="text-neutral-400 dark:text-neutral-500">
+              {u.authorName} {u.date.slice(5)}
+            </span>
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {u.text}
+              </a>
+            ) : (
+              <span className="break-words">{u.text}</span>
+            )}
+          </li>
+        );
+      })}
+      {shown.length < updates.length && (
+        <li className="text-xs text-neutral-400 dark:text-neutral-500">……另外還有 {updates.length - shown.length} 筆</li>
+      )}
+    </ul>
+  );
+}
+
 /** 這一週工作項上新增的留言、連結、附件,一個工作項一組。 */
 function ItemUpdateList({ updates, limit = 10 }: { updates: ItemUpdateLine[]; limit?: number }) {
   const [expanded, setExpanded] = useState(false);
@@ -113,31 +164,7 @@ function ItemUpdateList({ updates, limit = 10 }: { updates: ItemUpdateLine[]; li
             {g.wbsCode && <span className="mr-1 tabular-nums text-neutral-400 dark:text-neutral-500">{g.wbsCode}</span>}
             {g.name}
           </p>
-          <ul className="mt-0.5 space-y-0.5 pl-3">
-            {g.updates.map((u, idx) => {
-              const href = safeHref(u.url);
-              return (
-                <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
-                  <span title={ITEM_UPDATE_LABELS[u.kind]}>{UPDATE_ICON[u.kind]}</span>
-                  <span className="text-neutral-400 dark:text-neutral-500">
-                    {u.authorName} {u.date.slice(5)}
-                  </span>
-                  {href ? (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="break-all text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      {u.text}
-                    </a>
-                  ) : (
-                    <span className="break-words">{u.text}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <UpdateRows updates={g.updates} />
         </li>
       ))}
       {!expanded && groups.length > shown.length && (
@@ -248,7 +275,15 @@ function RiskList({
   );
 }
 
-function DepartmentBlock({ people, upcomingDays }: { people: PersonSection[]; upcomingDays: number }) {
+function DepartmentBlock({
+  people,
+  upcomingDays,
+  updates,
+}: {
+  people: PersonSection[];
+  upcomingDays: number;
+  updates: Map<string, ItemUpdateLine[]>;
+}) {
   if (people.length === 0) {
     return (
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
@@ -286,7 +321,7 @@ function DepartmentBlock({ people, upcomingDays }: { people: PersonSection[]; up
                   </div>
                   <div className="sm:border-l sm:border-neutral-200 sm:px-3 dark:sm:border-neutral-800">
                     <p className="text-[11px] text-neutral-400">這週已完成({person.completedThisWeek.length})</p>
-                    <ItemList items={person.completedThisWeek} limit={5} />
+                    <ItemList items={person.completedThisWeek} limit={5} updates={updates} />
                   </div>
                   <div className="sm:border-l sm:border-neutral-200 sm:pl-3 dark:sm:border-neutral-800">
                     <p className="text-[11px] text-neutral-400">
@@ -349,7 +384,7 @@ export function WeeklyProgramPanel({
       )}
 
       <Block title="依職能的工作項">
-        <DepartmentBlock people={myPeople} upcomingDays={upcomingDays} />
+        <DepartmentBlock people={myPeople} upcomingDays={upcomingDays} updates={updatesByItem(program.itemUpdates)} />
       </Block>
 
       <Block title="目前逾期" count={overdue.length}>

@@ -7,6 +7,7 @@ import {
   diffWeeks,
   renderWeeklyReportMarkdown,
   groupItemUpdates,
+  updatesByItem,
   programSubset,
   weeklyReportSubject,
   DEFAULT_REPORT_RANGE,
@@ -744,6 +745,78 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
     expect(md).toContain("### 工作項資訊更新(25)");
     expect(md).toContain("……另外還有 5 個工作項");
+  });
+});
+
+describe("這週已完成的工作項附上它的資訊更新", () => {
+  /** 一個做完了、一個還沒做完的工作項,各有留言;這週完成的是 done 那個。 */
+  function setup() {
+    const before = snapshot([item({ id: "done", name: "ME 3D 出圖" }), item({ id: "open", name: "還沒做完", wbsCode: "1.2" })]);
+    const now = snapshot([item({ id: "done", name: "ME 3D 出圖", bucket: "done" }), item({ id: "open", name: "還沒做完", wbsCode: "1.2", bucket: "overdue" })]);
+    now.programs[0].itemUpdates = [
+      update({ itemId: "done", name: "ME 3D 出圖", kind: "COMMENT", text: "已更新圖紙" }),
+      update({ itemId: "done", name: "ME 3D 出圖", kind: "LINK", text: "3D 圖檔", url: "https://example.com/3d" }),
+      update({ itemId: "open", name: "還沒做完", wbsCode: "1.2", text: "還在等廠商" }),
+    ];
+    return { now, diff: diffWeeks(now, before) };
+  }
+
+  it("工作項依編號分組後,查得到每個工作項自己的更新", () => {
+    const map = updatesByItem([update({ itemId: "a" }), update({ itemId: "a", kind: "LINK", url: "https://e.com", text: "x" }), update({ itemId: "b" })]);
+    expect(map.get("a")).toHaveLength(2);
+    expect(map.get("b")).toHaveLength(1);
+    expect(updatesByItem(undefined).size).toBe(0);
+  });
+
+  it("「完成」清單裡,完成的工作項底下接著它的留言與連結(連結附網址)", () => {
+    const { now, diff } = setup();
+    const md = renderWeeklyReportMarkdown(now, diff);
+    const done = md.slice(md.indexOf("**完成(1)**"), md.indexOf("### 工作項資訊更新"));
+    expect(done).toContain("ME 3D 出圖");
+    expect(done).toContain("💬 留言(Henry 09-16):已更新圖紙");
+    expect(done).toContain("🔗 連結(Henry 09-16):3D 圖檔 <https://example.com/3d>");
+    expect(done).not.toContain("還在等廠商");
+  });
+
+  it("部門裡每個人的「這週已完成」也一樣附上", () => {
+    const { now, diff } = setup();
+    now.departments = [
+      {
+        userId: "u1",
+        userName: "Henry",
+        role: "DM",
+        discipline: "SW 軟體",
+        programName: "M3",
+        groupName: "M3",
+        boardName: "M3專案",
+        overdue: [item({ id: "open", name: "還沒做完", wbsCode: "1.2", bucket: "overdue" })],
+        completedThisWeek: [item({ id: "done", name: "ME 3D 出圖", bucket: "done" })],
+        upcoming: [],
+      },
+    ];
+    const md = renderWeeklyReportMarkdown(now, diff);
+    const person = md.slice(md.indexOf("**這週已完成(1)**"), md.indexOf("### 目前逾期"));
+    expect(person).toContain("💬 留言(Henry 09-16):已更新圖紙");
+    expect(person).toContain("<https://example.com/3d>");
+    // 逾期的不附(只有「這週已完成」附)。
+    expect(person).not.toContain("還在等廠商");
+  });
+
+  it("一個工作項的更新太多時只列前幾筆,其餘說還有幾筆", () => {
+    const { now, diff } = setup();
+    now.programs[0].itemUpdates = Array.from({ length: 8 }, (_, i) =>
+      update({ itemId: "done", name: "ME 3D 出圖", text: `第 ${i + 1} 則`, date: `2026-09-${String(15 + (i % 3)).padStart(2, "0")}` })
+    );
+    const md = renderWeeklyReportMarkdown(now, diff);
+    expect(md).toContain("  - ……另外還有 3 筆");
+  });
+
+  it("完成的工作項這週沒有任何更新就不多出東西", () => {
+    const { now, diff } = setup();
+    now.programs[0].itemUpdates = [];
+    const md = renderWeeklyReportMarkdown(now, diff);
+    const done = md.slice(md.indexOf("**完成(1)**"), md.indexOf("### 工作項資訊更新"));
+    expect(done).not.toContain("留言(");
   });
 });
 

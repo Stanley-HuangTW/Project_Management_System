@@ -491,6 +491,14 @@ export function groupItemUpdates(updates: ItemUpdateLine[]): ItemUpdateGroup[] {
   );
 }
 
+/** 工作項 id → 它這一週新增的資訊(依日期排),給「這週已完成」的工作項底下附上。 */
+export function updatesByItem(updates: ItemUpdateLine[] | undefined): Map<string, ItemUpdateLine[]> {
+  return new Map(groupItemUpdates(updates ?? []).map((g) => [g.itemId, g.updates]));
+}
+
+/** 掛在單一工作項底下時,最多列幾筆;其餘只說還有幾筆。 */
+export const MAX_UPDATES_PER_ITEM = 5;
+
 /** 有新增資訊的工作項有幾個(同一個工作項新增好幾筆只算一個)。 */
 export function countItemsWithUpdates(programs: { itemUpdates?: ItemUpdateLine[] }[]): number {
   return new Set(programs.flatMap((p) => (p.itemUpdates ?? []).map((u) => u.itemId))).size;
@@ -568,11 +576,19 @@ function itemLine(i: ReportItem): string {
   return `- ${i.boardName} / ${i.groupName} · ${i.wbsCode} ${i.name}${due}${owner}${tags ? ` ${tags}` : ""}`;
 }
 
+/** 一個工作項底下的資訊更新(縮排的子項目);沒有就是空的。 */
+function updateLinesOf(list: ItemUpdateLine[] | undefined): string[] {
+  if (!list || list.length === 0) return [];
+  const lines = list.slice(0, MAX_UPDATES_PER_ITEM).map(updateLine);
+  if (list.length > MAX_UPDATES_PER_ITEM) lines.push(`  - ……另外還有 ${list.length - MAX_UPDATES_PER_ITEM} 筆`);
+  return lines;
+}
+
 /** 依 Priority 排序後再截斷——CRITICAL/HIGH 的項目優先被看到,不會被排序前面但
- *  不重要的項目擠出清單。 */
-function itemLines(items: ReportItem[], limit = 15): string[] {
+ *  不重要的項目擠出清單。updates 有給的話,每個工作項底下接著列它這週的留言、連結、附件。 */
+function itemLines(items: ReportItem[], limit = 15, updates?: Map<string, ItemUpdateLine[]>): string[] {
   const shown = byPriority(items).slice(0, limit);
-  const lines = shown.map(itemLine);
+  const lines = shown.flatMap((i) => [itemLine(i), ...updateLinesOf(updates?.get(i.id))]);
   if (items.length > shown.length) lines.push(`- ……另外還有 ${items.length - shown.length} 項`);
   return lines;
 }
@@ -672,7 +688,7 @@ const ROLE_LABEL: Record<PersonSection["role"], string> = {
 
 /** 屬於這個專案群組的人,依職能分組——組內保留原本的排序(DM/成員/Team Leader
  *  的排法是 gatherPersonSections 那邊決定的,這裡不重排,只是分組)。 */
-function renderDepartments(people: PersonSection[], upcomingDays: number): string[] {
+function renderDepartments(people: PersonSection[], upcomingDays: number, updates: Map<string, ItemUpdateLine[]>): string[] {
   const out: string[] = [];
   if (people.length === 0) {
     out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");
@@ -690,7 +706,7 @@ function renderDepartments(people: PersonSection[], upcomingDays: number): strin
       out.push("", `**[${ROLE_LABEL[person.role]}] ${person.userName}**`);
       out.push(
         ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
-        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10)),
+        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10, updates)),
         ...section(`**接下來 ${upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
       );
       if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
@@ -711,6 +727,7 @@ function renderProgram(
   const out: string[] = [];
   const name = program.programName;
   const items = program.items;
+  const updates = updatesByItem(program.itemUpdates);
 
   const overdue = items.filter((i) => i.bucket === "overdue");
   const upcoming = items.filter((i) => i.bucket === "upcoming");
@@ -725,7 +742,7 @@ function renderProgram(
     const scheduleChanged = inProgram(diff.scheduleChanged, name);
 
     const body = [
-      ...section(`**完成(${completed.length})**`, itemLines(completed)),
+      ...section(`**完成(${completed.length})**`, itemLines(completed, 15, updates)),
       ...section(`**新逾期(${newlyOverdue.length})**`, itemLines(newlyOverdue)),
       ...section(`**脫離逾期(${recovered.length})**`, itemLines(recovered)),
       ...section(
@@ -764,7 +781,7 @@ function renderProgram(
 
   if (includeDepartments) {
     out.push("", "### 依職能的工作項");
-    out.push(...renderDepartments(departments.filter((p) => p.programName === name), upcomingDays));
+    out.push(...renderDepartments(departments.filter((p) => p.programName === name), upcomingDays, updates));
   }
 
   out.push("", `### 目前逾期(${overdue.length})`, "");
