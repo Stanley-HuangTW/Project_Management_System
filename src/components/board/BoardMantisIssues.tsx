@@ -215,6 +215,7 @@ export function BoardMantisIssues({
           {issues.length === 0 ? (
             <p className="rounded-md border border-dashed border-neutral-200 py-10 text-center text-sm text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
               還沒有同步到任何問題。
+              {connection.lastSyncNote && <span className="mx-auto mt-2 block max-w-xl text-xs">{connection.lastSyncNote}</span>}
             </p>
           ) : shown.length === 0 ? (
             <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">沒有符合條件的問題。</p>

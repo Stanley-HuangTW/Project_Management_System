@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import type { MantisIssueRow } from "@/lib/mantisIssues";
+import type { SyncSummary } from "@/lib/mantisSync";
 
 export type BoardMantisInfo = {
   baseUrl: string;
@@ -11,6 +12,8 @@ export type BoardMantisInfo = {
   enabled: boolean;
   lastSyncAt: string | null;
   lastSyncError: string | null;
+  /** 同步成功但要提醒的事(例如一筆都沒取到時是用哪個帳號在讀)。 */
+  lastSyncNote: string | null;
 };
 
 const PREVIEW_LENGTH = 400;
@@ -38,6 +41,7 @@ export async function listBoardMantisIssues(
           enabled: connection.enabled,
           lastSyncAt: connection.lastSyncAt?.toISOString() ?? null,
           lastSyncError: connection.lastSyncError,
+          lastSyncNote: (connection.lastSyncSummary as SyncSummary | null)?.note ?? null,
         }
       : null,
     issues: risks.map((r) => ({

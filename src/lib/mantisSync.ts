@@ -101,7 +101,45 @@ async function fetchAllIssues(baseUrl: string, token: string, projectId: number)
   return { issues, truncated: true };
 }
 
-export type SyncSummary = { total: number; created: number; updated: number; unchanged: number; truncated: boolean };
+export type SyncSummary = {
+  total: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  truncated: boolean;
+  /** 同步成功但有要提醒的事(例如一筆問題都沒取到時,用的是哪個帳號);沒有就不放。 */
+  note?: string;
+};
+
+/**
+ * Mantis 回應成功卻一筆問題都沒給:多半是 token 對應的帳號看不到這個專案(或只看得到公開的),
+ * 光看「0 筆」分不出是專案真的沒有、還是帳號沒權限。問一下 Mantis「我是誰、看得到哪些專案」,把答案寫進提示。
+ */
+export async function explainEmptyResult(baseUrl: string, token: string, projectId: number): Promise<string> {
+  const head = "Mantis 回應成功,但這個專案一筆問題都沒取到。";
+  try {
+    const me = (await mantisGet(baseUrl, token, "users/me")) as {
+      name?: string;
+      real_name?: string;
+      access_level?: { label?: string; name?: string };
+      projects?: { id?: number }[];
+    } | null;
+    const who = me?.real_name?.trim() || me?.name?.trim();
+    if (who) {
+      const level = me?.access_level?.label || me?.access_level?.name;
+      const sees = Array.isArray(me?.projects) ? me.projects.some((p) => p?.id === projectId) : null;
+      return (
+        `${head}目前是用「${who}」${level ? `(權限:${level})` : ""}的身分在讀` +
+        (sees === false
+          ? ",而且這個帳號看不到這個專案——請改用有檢視權限的帳號建 token。"
+          : "——請確認專案裡真的有問題,而且這個帳號有權限看(私人的問題要夠高的權限才看得到)。")
+      );
+    }
+  } catch {
+    // 問不到就用下面通用的說法
+  }
+  return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有問題。`;
+}
 export type SyncOutcome = { ok: true; summary: SyncSummary } | { ok: false; error: string };
 
 /** 同步一個連線。結果(成功的統計或失敗的原因)也記在連線上,設定畫面讀得到。 */
@@ -155,6 +193,7 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
   const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.id]));
 
   const summary: SyncSummary = { total: mapped.length, created: 0, updated: 0, unchanged: 0, truncated: fetched.truncated };
+  if (mapped.length === 0) summary.note = await explainEmptyResult(conn.baseUrl, token, conn.projectId);
   for (const m of mapped) {
     const ownerId = m.handlerEmail ? (userByEmail.get(m.handlerEmail) ?? null) : null;
     const fields = {

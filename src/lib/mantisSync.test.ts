@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { MantisError, mantisGet } from "@/lib/mantisSync";
+import { MantisError, explainEmptyResult, mantisGet } from "@/lib/mantisSync";
 
 /** 假的 fetch:依序回應,並記下每次送出的 Authorization 標頭。 */
 function stubFetch(responses: { status: number; body?: unknown; location?: string; text?: string }[]) {
@@ -103,5 +103,33 @@ describe("mantisGet", () => {
     );
     await mantisGet("https://m.example.com/mantis", "t", "issues", { project_id: "3", page_size: "50", page: "2" });
     expect(urls[0]).toBe("https://m.example.com/mantis/api/rest/issues?project_id=3&page_size=50&page=2");
+  });
+});
+
+describe("explainEmptyResult(一筆問題都沒取到時的提示)", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("說出是用哪個帳號在讀;帳號看不到這個專案就直接講", async () => {
+    stubFetch([{ status: 200, body: { name: "chen", real_name: "陳小明", access_level: { label: "reporter" }, projects: [{ id: 1 }, { id: 7 }] } }]);
+    const note = await explainEmptyResult(freshBase(), "tok", 99);
+    expect(note).toContain("「陳小明」");
+    expect(note).toContain("權限:reporter");
+    expect(note).toContain("看不到這個專案");
+  });
+
+  it("帳號看得到這個專案時,不說看不到,改請確認專案有問題與權限", async () => {
+    stubFetch([{ status: 200, body: { name: "chen", projects: [{ id: 7 }] } }]);
+    const note = await explainEmptyResult(freshBase(), "tok", 7);
+    expect(note).toContain("「chen」");
+    expect(note).not.toContain("看不到這個專案");
+    expect(note).toContain("真的有問題");
+  });
+
+  it("問不到「我是誰」(例如舊版沒有這個 API)就用通用的說法,不會丟錯", async () => {
+    stubFetch([{ status: 404 }]);
+    const note = await explainEmptyResult(freshBase(), "tok", 7);
+    expect(note).toContain("一筆問題都沒取到");
+    expect(note).toContain("檢視權限");
   });
 });

@@ -30,7 +30,7 @@ type Draft = {
 };
 
 function describeSummary(s: SyncSummary): string {
-  return `共 ${s.total} 筆:新增 ${s.created}、更新 ${s.updated}、沒變 ${s.unchanged}${s.truncated ? "(超過上限,只抓了前 5000 筆)" : ""}`;
+  return `共 ${s.total} 筆:新增 ${s.created}、更新 ${s.updated}、沒變 ${s.unchanged}${s.truncated ? "(超過上限,只抓了前 5000 筆)" : ""}${s.note ? `。${s.note}` : ""}`;
 }
 
 /**
