@@ -265,6 +265,7 @@ model Board {
   @@index([deletedAt])
   activityTimeEntries ActivityTimeEntry[]
   timeTemplates       TimeTemplate[]
+  mantisConnection    MantisConnection?
 }
 
 model BoardMember {
@@ -1058,6 +1059,15 @@ model RiskEntry {
   /// it — the risk is often the reason the item is being reworked.
   itemId         String?
 
+  /// 從 MantisBT 同步來的議題:Mantis 的議題編號與當時抓到的資訊。有值的這一筆內容以 Mantis 為準,
+  /// 在這裡是唯讀的(下一次同步會蓋回來),要改請到 Mantis。
+  mantisId        Int?
+  mantisUrl       String?
+  /// Mantis 上的狀態名稱(原文,例如 assigned、resolved)。
+  mantisStatus    String?
+  mantisHandler   String?
+  mantisUpdatedAt DateTime?
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1070,7 +1080,32 @@ model RiskEntry {
   /// 建立、改欄位、申請結案、同意、退回的紀錄。
   logs                ActivityLogEntry[]
 
+  @@unique([boardId, mantisId])
   @@index([boardId, status])
+}
+
+/// 看板與 MantisBT 專案的連線(一個看板對一個 Mantis 專案,單向:Mantis → 本系統)。
+/// 同步下來的 Mantis 議題成為這個看板「風險與議題」裡的議題,並掛在 issueItemId 這個「ISSUE」工作項底下。
+model MantisConnection {
+  id          String   @id @default(cuid())
+  boardId     String   @unique
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// Mantis 網站的根網址,例如 https://mantis.example.com(不含 /api/rest)。
+  baseUrl     String
+  projectId   Int
+  projectName String
+  /// API token,AES-256-GCM 加密後存放(見 secretBox.ts),不會回傳給畫面。
+  tokenEnc    String
+  enabled     Boolean  @default(true)
+  /// 同步下來的議題都掛在這個「ISSUE」工作項;建立連線時建立。
+  issueItemId String?
+  lastSyncAt  DateTime?
+  /// 上一次同步的錯誤訊息;成功就是 null。
+  lastSyncError String?
+  /// 上一次同步的結果:{ total, created, updated, unchanged, truncated }。
+  lastSyncSummary Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 /// 風險/議題的審核人。approvedAt 為 null = 這一輪還沒同意;申請結案、退回、重新開啟時都會清掉。

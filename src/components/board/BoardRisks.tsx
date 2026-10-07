@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { RiskKind, RiskStatus } from "@prisma/client";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -79,6 +79,7 @@ export function BoardRisks({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ id: string | null; input: RiskInput } | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  const [source, setSource] = useState<"all" | "manual" | "mantis">("all");
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("content");
   const [detail, setDetail] = useState<{ updates: RiskUpdateRow[]; history: RiskHistoryRow[] }>({
     updates: [],
@@ -179,7 +180,10 @@ export function BoardRisks({
     }
   }
 
-  const sorted = sortRisks(risks).filter((r) => showClosed || r.status !== "CLOSED");
+  const hasMantis = risks.some((r) => r.mantis);
+  const sorted = sortRisks(risks)
+    .filter((r) => showClosed || r.status !== "CLOSED")
+    .filter((r) => source === "all" || (source === "mantis" ? !!r.mantis : !r.mantis));
   const openCount = risks.filter((r) => r.status !== "CLOSED").length;
   const highCount = risks.filter(
     (r) => r.status !== "CLOSED" && riskBand(riskScore(r.probability, r.impact)).key === "critical"
@@ -217,7 +221,23 @@ export function BoardRisks({
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
           未結案 {openCount} 筆{highCount > 0 && `,其中 ${highCount} 筆極高`}
         </span>
-        <label className="ml-auto flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+        {hasMantis && (
+          <label className="ml-auto flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            來源
+            <select
+              value={source}
+              onChange={(e) => setSource(e.target.value as "all" | "manual" | "mantis")}
+              className="rounded border border-neutral-200 bg-white px-1 py-0.5 text-xs outline-none focus:border-blue-500 dark:border-neutral-700 dark:bg-neutral-900"
+            >
+              <option value="all">全部</option>
+              <option value="manual">手動建立</option>
+              <option value="mantis">Mantis 同步</option>
+            </select>
+          </label>
+        )}
+        <label
+          className={"flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400" + (hasMantis ? "" : " ml-auto")}
+        >
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
           顯示已結案
         </label>
@@ -289,7 +309,20 @@ export function BoardRisks({
                       {RISK_KIND_LABELS[risk.kind]}
                     </td>
                     <td className="max-w-[280px] px-3 py-2">
-                      <p className="truncate text-neutral-800 dark:text-neutral-100">{risk.title}</p>
+                      <p className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-100">
+                        {risk.mantis && (
+                          <a
+                            href={risk.mantis.url ?? undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex shrink-0 items-center gap-0.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300"
+                            title={"在 Mantis 開啟 #" + risk.mantis.id + (risk.mantis.status ? "(Mantis 狀態:" + risk.mantis.status + ")" : "")}
+                          >
+                            Mantis #{risk.mantis.id} <ExternalLink size={10} />
+                          </a>
+                        )}
+                        <span className="truncate">{risk.title}</span>
+                      </p>
                       {(risk.description || risk.itemName) && (
                         <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">
                           {risk.itemName ? `↳ ${risk.itemName}・` : ""}
@@ -424,6 +457,28 @@ export function BoardRisks({
 
             {(!liveRow || tab === "content") && (
             <>
+            {liveRow?.mantis && (
+              <div className="rounded-md bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:bg-indigo-950 dark:text-indigo-100">
+                <p className="mb-0.5 font-medium">
+                  從 Mantis 同步:
+                  <a
+                    href={liveRow.mantis.url ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-1 inline-flex items-center gap-0.5 underline"
+                  >
+                    #{liveRow.mantis.id} <ExternalLink size={10} />
+                  </a>
+                </p>
+                <p>
+                  Mantis 狀態 {liveRow.mantis.status ?? "—"}・處理人 {liveRow.mantis.handler ?? "—"}
+                  {liveRow.mantis.updatedAt ? "・更新於 " + new Date(liveRow.mantis.updatedAt).toLocaleString("zh-TW") : ""}
+                </p>
+                <p className="mt-0.5 text-indigo-700 dark:text-indigo-300">
+                  內容與狀態以 Mantis 為準,這裡唯讀(下一次同步會蓋回來),要修改請到 Mantis。進度更新可以在這裡寫。
+                </p>
+              </div>
+            )}
             {liveRow && <ClosureBar risk={liveRow} onChanged={refreshAfterAction} />}
             <fieldset disabled={!canEditContent} className="m-0 min-w-0 space-y-3 border-0 p-0">
             <div className="grid grid-cols-2 gap-3">

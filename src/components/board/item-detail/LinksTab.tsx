@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Link2, Plus, Trash2 } from "lucide-react";
-import { addItemLink, deleteItemLink, listItemLinks } from "@/lib/actions/itemLink";
+import { addItemLink, deleteItemLink, getMantisInfoForLinks, listItemLinks, type LinkMantisInfo } from "@/lib/actions/itemLink";
 
 export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string }) {
   const [links, setLinks] = useState<Awaited<ReturnType<typeof listItemLinks>>>([]);
+  const [mantis, setMantis] = useState<Record<string, LinkMantisInfo>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -13,7 +14,9 @@ export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string 
   const [label, setLabel] = useState("");
 
   async function refresh() {
-    setLinks(await listItemLinks(itemId));
+    const [list, info] = await Promise.all([listItemLinks(itemId), getMantisInfoForLinks(itemId)]);
+    setLinks(list);
+    setMantis(info);
   }
 
   useEffect(() => {
@@ -21,8 +24,11 @@ export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string 
     (async () => {
       setLoading(true);
       try {
-        const result = await listItemLinks(itemId);
-        if (!cancelled) setLinks(result);
+        const [result, info] = await Promise.all([listItemLinks(itemId), getMantisInfoForLinks(itemId)]);
+        if (!cancelled) {
+          setLinks(result);
+          setMantis(info);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -103,6 +109,21 @@ export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string 
             >
               {l.label || l.url}
             </a>
+            {mantis[l.id] && (
+              <span
+                className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                title={
+                  mantis[l.id].synced
+                    ? "這是同步下來的 Mantis 議題,狀態約每 15 分鐘更新一次"
+                    : "這個議題還沒同步下來(不在連線的 Mantis 專案裡,或還沒同步到)"
+                }
+              >
+                Mantis #{mantis[l.id].mantisId}
+                {mantis[l.id].synced
+                  ? "・" + (mantis[l.id].status ?? "—") + (mantis[l.id].handler ? "・" + mantis[l.id].handler : "")
+                  : "・尚未同步"}
+              </span>
+            )}
             <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{l.createdBy.name}</span>
             <button
               type="button"

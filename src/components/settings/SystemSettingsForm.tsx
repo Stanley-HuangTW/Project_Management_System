@@ -35,6 +35,7 @@ import type { ProgramRow } from "@/lib/actions/program";
 import type { ProgramReportSubscriptionRow } from "@/lib/actions/programReportSubscription";
 import { BoardSharingCard, type SharingBoard } from "./BoardSharingCard";
 import { IntegrationCard } from "./IntegrationCard";
+import { MantisIntegrationCard } from "./MantisIntegrationCard";
 import { StatusColorCard, type StatusColorBoard } from "./StatusColorCard";
 import { DefaultColumnsCard, type DefaultColumnsBoard } from "./DefaultColumnsCard";
 import type { DefaultColumn } from "@/lib/defaultColumns";
@@ -597,6 +598,7 @@ export function SystemSettingsForm({
           />
           <ReportSettingsCard boards={reportSettingsBoards} />
           <IntegrationCard boards={sharingBoards.map((b) => ({ id: b.id, name: b.name }))} />
+          <MantisIntegrationCard />
         </>
       )}
       <BoardSharingCard boards={sharingBoards} users={users} />

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   allReviewersApproved,
   describeRiskChanges,
+  mantisReadOnly,
   riskPermissions,
   type RiskActors,
   type RiskSnapshot,
@@ -145,5 +146,35 @@ describe("describeRiskChanges", () => {
     expect(describeRiskChanges({ ...base, reviewerIds: ["r1", "r2"] }, { ...base, reviewerIds: ["r2", "r1"] }, names)).toEqual([]);
     expect(describeRiskChanges(base, { ...base, reviewerIds: ["r1", "r2"] }, names)).toEqual(["審核人:Rey → Rey、Sam"]);
     expect(describeRiskChanges(base, { ...base, reviewerIds: [] }, names)).toEqual(["審核人:Rey → 無"]);
+  });
+});
+
+describe("從 Mantis 同步來的議題是唯讀的", () => {
+  it("管理者、建立者、負責人、審核人都不能改內容、改狀態、走結案流程或刪除", () => {
+    for (const userId of ["admin", "creator", "owner", "rev1"]) {
+      const base = riskPermissions({ userId, role: userId === "admin" ? "ADMIN" : "MEMBER", status: "MITIGATING", actors });
+      const locked = mantisReadOnly(base);
+      expect(locked).toMatchObject({
+        canEditContent: false,
+        canSetWorkingStatus: false,
+        canRequestClosure: false,
+        canWithdrawClosure: false,
+        canReview: false,
+        canReopen: false,
+        canDelete: false,
+      });
+    }
+  });
+
+  it("已結案的也不能重新開啟(狀態以 Mantis 為準)", () => {
+    const base = riskPermissions({ userId: "admin", role: "ADMIN", status: "CLOSED", actors });
+    expect(base.canReopen).toBe(true);
+    expect(mantisReadOnly(base).canReopen).toBe(false);
+  });
+
+  it("進度更新照常可以寫", () => {
+    const base = riskPermissions({ userId: "owner", role: "MEMBER", status: "OPEN", actors });
+    expect(base.canPostUpdate).toBe(true);
+    expect(mantisReadOnly(base).canPostUpdate).toBe(true);
   });
 });

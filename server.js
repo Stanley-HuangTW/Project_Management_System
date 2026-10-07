@@ -27,7 +27,7 @@ if (cluster.isPrimary && !dev) {
     cluster.fork();
   });
 
-  // 專案週報分發、資料庫備份的排程心跳。Primary process 從不接請求、整個
+  // 專案週報分發、資料庫備份、MantisBT 同步的排程心跳。Primary process 從不接請求、整個
   // 部署裡天然只有一份,是放這種「一定只能跑一次」的計時器最乾淨的地方——
   // 不用另外裝 cron 套件,也不用在多個 worker 之間搶鎖。實際「現在該不該
   // 動作」的判斷都在各自那支 /api/internal/*-tick 路由裡,這裡只是每五
@@ -43,6 +43,7 @@ if (cluster.isPrimary && !dev) {
     setInterval(() => {
       tick("weekly-report-tick");
       tick("backup-tick");
+      tick("mantis-sync-tick");
     }, 5 * 60 * 1000);
   } else {
     console.warn("INTERNAL_CRON_SECRET not set — 專案週報排程、資料庫備份排程都不會自動觸發。");

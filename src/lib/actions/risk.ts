@@ -13,6 +13,7 @@ import {
   allReviewersApproved,
   describeRiskChanges,
   isWorkingStatus,
+  mantisReadOnly,
   riskPermissions,
   type RiskPermissions,
   type RiskSnapshot,
@@ -47,8 +48,19 @@ export type RiskInput = {
 
 export type RiskReviewerRow = { userId: string; name: string; approvedAt: string | null };
 
+/** 從 MantisBT 同步來的議題帶的來源資訊;手動建立的是 null。 */
+export type RiskMantisInfo = {
+  id: number;
+  url: string | null;
+  /** Mantis 上的狀態原文,例如 assigned。 */
+  status: string | null;
+  handler: string | null;
+  updatedAt: string | null;
+};
+
 export type RiskRow = RiskInput & {
   id: string;
+  mantis: RiskMantisInfo | null;
   ownerName: string | null;
   itemName: string | null;
   createdAt: string;
@@ -68,10 +80,16 @@ const uniq = (ids: string[]) => [...new Set(ids.filter(Boolean))];
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((id) => b.includes(id));
 
 function permissionsFor(
-  risk: { status: RiskStatus; createdById: string | null; ownerId: string | null; reviewers: { userId: string; approvedAt: Date | null }[] },
+  risk: {
+    status: RiskStatus;
+    createdById: string | null;
+    ownerId: string | null;
+    mantisId: number | null;
+    reviewers: { userId: string; approvedAt: Date | null }[];
+  },
   session: SessionPayload
 ): RiskPermissions {
-  return riskPermissions({
+  const base = riskPermissions({
     userId: session.userId,
     role: session.role,
     status: risk.status,
@@ -81,6 +99,7 @@ function permissionsFor(
       reviewers: risk.reviewers.map((r) => ({ userId: r.userId, approved: r.approvedAt !== null })),
     },
   });
+  return risk.mantisId === null ? base : mantisReadOnly(base);
 }
 
 export async function listRisks(boardId: string): Promise<RiskRow[]> {
@@ -113,6 +132,16 @@ export async function listRisks(boardId: string): Promise<RiskRow[]> {
 
   return risks.map((risk) => ({
     id: risk.id,
+    mantis:
+      risk.mantisId === null
+        ? null
+        : {
+            id: risk.mantisId,
+            url: risk.mantisUrl,
+            status: risk.mantisStatus,
+            handler: risk.mantisHandler,
+            updatedAt: risk.mantisUpdatedAt?.toISOString() ?? null,
+          },
     kind: risk.kind,
     status: risk.status,
     title: risk.title,

@@ -67,6 +67,23 @@ export function riskPermissions(args: {
   };
 }
 
+/**
+ * 從 MantisBT 同步來的議題:內容與狀態以 Mantis 為準(下一次同步會蓋回來),所以改內容、改狀態、
+ * 走結案流程都不行,也不能刪(刪了下次同步又長回來)。寫進度更新是這邊自己的時間軸,照常可以。
+ */
+export function mantisReadOnly(base: RiskPermissions): RiskPermissions {
+  return {
+    ...base,
+    canEditContent: false,
+    canSetWorkingStatus: false,
+    canRequestClosure: false,
+    canWithdrawClosure: false,
+    canReview: false,
+    canReopen: false,
+    canDelete: false,
+  };
+}
+
 /** 有審核人、而且每一位這一輪都同意了。 */
 export function allReviewersApproved(reviewers: { approved: boolean }[]): boolean {
   return reviewers.length > 0 && reviewers.every((r) => r.approved);
