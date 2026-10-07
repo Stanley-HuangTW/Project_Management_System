@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", GOOGLE_CALENDAR_SCOPE);
   authUrl.searchParams.set("access_type", "online");
-  authUrl.searchParams.set("prompt", "select_account");
+  // consent=1:上次授權漏勾了讀日曆的權限,重新連結時強制再顯示一次同意畫面。
+  authUrl.searchParams.set("prompt", request.nextUrl.searchParams.get("consent") === "1" ? "select_account consent" : "select_account");
   authUrl.searchParams.set("state", state);
 
   const cookie = {

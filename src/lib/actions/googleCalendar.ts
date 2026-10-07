@@ -4,7 +4,13 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { GOOGLE_CALENDAR_TOKEN_COOKIE } from "@/lib/googleAuth";
-import { EXTERNAL_ID_PREFIX, toCandidates, type CalendarCandidate, type GoogleEvent } from "@/lib/googleCalendar";
+import {
+  EXTERNAL_ID_PREFIX,
+  explainGoogleForbidden,
+  toCandidates,
+  type CalendarCandidate,
+  type GoogleEvent,
+} from "@/lib/googleCalendar";
 import { isValidIsoDate } from "@/lib/timesheet";
 import { validateStartMinute } from "@/lib/timeOfDay";
 import { weekRangeOf } from "@/lib/weeklyReport";
@@ -24,7 +30,8 @@ export type CalendarWeekResult =
   | { status: "needsAuth" }
   /** 伺服器沒設 Google 登入(GOOGLE_CLIENT_ID),要請管理者設定。 */
   | { status: "notConfigured" }
-  | { status: "error"; message: string };
+  /** reauthorize = 重試沒用,要請使用者重新連結(例如授權時沒勾到讀日曆的權限)。 */
+  | { status: "error"; message: string; reauthorize?: boolean };
 
 /** Google Calendar API 的位址;測試(假的 Google)或走代理時可以用 GOOGLE_CALENDAR_API_BASE 換掉。 */
 const API_BASE = () => (process.env.GOOGLE_CALENDAR_API_BASE || "https://www.googleapis.com").replace(/\/+$/, "");
@@ -63,10 +70,10 @@ export async function fetchGoogleCalendarWeek(weekStart: string): Promise<Calend
     return { status: "needsAuth" };
   }
   if (response.status === 403) {
-    return {
-      status: "error",
-      message: "Google 拒絕讀取日曆:管理者要在 Google Cloud 啟用「Google Calendar API」,授權時也要同意讀取日曆行程。",
-    };
+    // 403 有好幾種原因(專案沒啟用 Calendar API、授權沒勾到日曆權限、額度),看 Google 回的內容分辨,不要一句話帶過。
+    const why = explainGoogleForbidden(await response.json().catch(() => null));
+    if (why.reauthorize) store.delete(GOOGLE_CALENDAR_TOKEN_COOKIE);
+    return { status: "error", message: why.message, reauthorize: why.reauthorize };
   }
   if (!response.ok) return { status: "error", message: `讀取 Google 日曆失敗(HTTP ${response.status})` };
 

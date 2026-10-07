@@ -196,11 +196,11 @@ export function MyWeekLog({ today }: { today: string }) {
     setTemplateOpen(true);
   }
 
-  function authorizeGoogleCalendar() {
+  function authorizeGoogleCalendar(forceConsent = false) {
     sessionStorage.setItem("gcalReturnWeek", weekStart);
     // 要整頁跳轉,瀏覽器才會真的走完到 Google 再回來的轉址。
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.href = `/api/auth/google/calendar/start?returnTo=${encodeURIComponent(window.location.pathname)}`;
+    window.location.href = `/api/auth/google/calendar/start?returnTo=${encodeURIComponent(window.location.pathname)}${forceConsent ? "&consent=1" : ""}`;
   }
 
   async function copyLastWeek() {

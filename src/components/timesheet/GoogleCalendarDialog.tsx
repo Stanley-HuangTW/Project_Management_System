@@ -23,6 +23,19 @@ function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
 }
 
+/** 訊息裡的 https 網址做成可以點的連結(例如啟用 Calendar API 的頁面)。 */
+function linkify(text: string): React.ReactNode[] {
+  return text.split(/(https:\/\/\S+)/).map((part, i) =>
+    part.startsWith("https://") ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline">
+        {part}
+      </a>
+    ) : (
+      part
+    )
+  );
+}
+
 function dayLabel(dateIso: string): string {
   return `${WEEKDAY_LABELS[new Date(`${dateIso}T00:00:00Z`).getUTCDay()]} ${dateIso.slice(5)}`;
 }
@@ -45,8 +58,8 @@ export function GoogleCalendarDialog({
   weekStart: string;
   weekLabel: string;
   options: TimesheetOptions | null;
-  /** 帶使用者去 Google 授權(整頁跳轉,回來後會重新開啟這個視窗)。 */
-  onAuthorize: () => void;
+  /** 帶使用者去 Google 授權(整頁跳轉,回來後會重新開啟這個視窗)。forceConsent = 強制再顯示一次同意畫面。 */
+  onAuthorize: (forceConsent?: boolean) => void;
   onImported: () => void;
 }) {
   const { notify } = useDialogs();
@@ -227,7 +240,7 @@ export function GoogleCalendarDialog({
             <p className="mb-3">要先連結你的 Google 日曆(唯讀)。會跳到 Google 的同意畫面,同意後自動回到這裡。</p>
             <button
               type="button"
-              onClick={onAuthorize}
+              onClick={() => onAuthorize()}
               className="flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
             >
               <CalendarDays size={14} /> 連結 Google 日曆
@@ -243,14 +256,24 @@ export function GoogleCalendarDialog({
 
         {result?.status === "error" && (
           <div className="rounded-md bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
-            <p className="mb-2">{result.message}</p>
-            <button
-              type="button"
-              onClick={() => setReloadKey((k) => k + 1)}
-              className="rounded-md border border-red-300 px-3 py-1 text-xs hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
-            >
-              重試
-            </button>
+            <p className="mb-2 break-words">{linkify(result.message)}</p>
+            {result.reauthorize ? (
+              <button
+                type="button"
+                onClick={() => onAuthorize(true)}
+                className="rounded-md border border-red-300 px-3 py-1 text-xs hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
+              >
+                重新連結 Google 日曆
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="rounded-md border border-red-300 px-3 py-1 text-xs hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
+              >
+                重試
+              </button>
+            )}
           </div>
         )}
 

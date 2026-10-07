@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToMidnight, minutesToHours, toCandidates, toTaipei, type GoogleEvent } from "./googleCalendar";
+import { clampToMidnight, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, type GoogleEvent } from "./googleCalendar";
 
 const ev = (over: Partial<GoogleEvent> & { id: string }): GoogleEvent => ({
   summary: "部門週會",
@@ -121,5 +121,51 @@ describe("clampToMidnight", () => {
 
   it("超過午夜就縮到午夜", () => {
     expect(clampToMidnight(1410, 1)).toBe(0.5);
+  });
+});
+
+describe("explainGoogleForbidden(Google 回 403 的原因)", () => {
+  it("Google Cloud 專案還沒啟用 Calendar API:給啟用網址,不用重新連結", () => {
+    const r = explainGoogleForbidden({
+      error: {
+        code: 403,
+        message: "Google Calendar API has not been used in project 123 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=123 then retry.",
+        errors: [{ reason: "accessNotConfigured" }],
+        details: [{ reason: "SERVICE_DISABLED", metadata: { activationUrl: "https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=123" } }],
+      },
+    });
+    expect(r.reauthorize).toBe(false);
+    expect(r.message).toContain("還沒有啟用「Google Calendar API」");
+    expect(r.message).toContain("https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=123");
+  });
+
+  it("只有訊息、沒有 details 也認得,並從訊息抓出網址", () => {
+    const r = explainGoogleForbidden({
+      error: { message: "Google Calendar API has not been used in project 9 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=9 then retry." },
+    });
+    expect(r.message).toContain("project=9");
+  });
+
+  it("授權沒有帶到讀日曆的範圍:要重新連結", () => {
+    const r = explainGoogleForbidden({
+      error: { message: "Request had insufficient authentication scopes.", errors: [{ reason: "insufficientPermissions" }], details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] },
+    });
+    expect(r.reauthorize).toBe(true);
+    expect(r.message).toContain("沒有包含讀取日曆行程的權限");
+  });
+
+  it("額度用完", () => {
+    expect(explainGoogleForbidden({ error: { errors: [{ reason: "rateLimitExceeded" }] } }).message).toContain("額度用完");
+  });
+
+  it("別的 403:把 Google 的原話帶出來,方便查", () => {
+    const r = explainGoogleForbidden({ error: { message: "The caller does not have permission", errors: [{ reason: "forbidden" }] } });
+    expect(r.message).toBe("Google 拒絕讀取日曆(403):The caller does not have permission");
+    expect(r.reauthorize).toBe(false);
+  });
+
+  it("回應不是預期的格式也不會壞", () => {
+    expect(explainGoogleForbidden(null).message).toContain("Google 沒有說明原因");
+    expect(explainGoogleForbidden("oops").message).toContain("403");
   });
 });

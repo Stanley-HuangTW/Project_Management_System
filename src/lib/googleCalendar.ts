@@ -94,6 +94,41 @@ export function toCandidates(events: GoogleEvent[]): CalendarCandidate[] {
   );
 }
 
+/**
+ * Google 回 403 時,看它的錯誤內容分辨原因:Google Cloud 專案沒啟用 Calendar API、這次授權沒帶到讀日曆的權限、
+ * 額度用完,或別的。reauthorize = 要請使用者重新連結(重試沒用)。
+ */
+export function explainGoogleForbidden(body: unknown): { message: string; reauthorize: boolean } {
+  const error = (body as { error?: { message?: string; errors?: { reason?: string }[]; details?: { reason?: string; metadata?: { activationUrl?: string } }[] } } | null)?.error;
+  const googleMessage = error?.message?.trim() ?? "";
+  const reasons = new Set([
+    ...(error?.errors ?? []).map((e) => e.reason),
+    ...(error?.details ?? []).map((d) => d.reason),
+  ]);
+  const has = (...names: string[]) => names.some((n) => reasons.has(n));
+
+  if (has("accessNotConfigured", "SERVICE_DISABLED") || /has not been used in project|is disabled/i.test(googleMessage)) {
+    const url =
+      error?.details?.find((d) => d.metadata?.activationUrl)?.metadata?.activationUrl ??
+      googleMessage.match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/\S+?(?=\s|$)/)?.[0] ??
+      "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com";
+    return {
+      message: `這個 Google Cloud 專案還沒有啟用「Google Calendar API」。請管理者到這裡按「啟用」,等一兩分鐘後再重試:${url}`,
+      reauthorize: false,
+    };
+  }
+  if (has("insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT") || /insufficient authentication scopes/i.test(googleMessage)) {
+    return {
+      message: "這次的 Google 授權沒有包含讀取日曆行程的權限(Google 同意畫面上「查看日曆活動」沒有打勾)。請重新連結,並把所有權限都勾起來。",
+      reauthorize: true,
+    };
+  }
+  if (has("rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "dailyLimitExceeded")) {
+    return { message: "Google 日曆 API 目前額度用完了,請稍後再試。", reauthorize: false };
+  }
+  return { message: `Google 拒絕讀取日曆(403):${googleMessage || "Google 沒有說明原因"}`, reauthorize: false };
+}
+
 /** 對齊後會超過午夜的(例如 23:50 開始、開 1 小時)要把時數縮到午夜,不然存不進去。 */
 export function clampToMidnight(startMinute: number, hours: number): number {
   return Math.min(hours, (MINUTES_PER_DAY - startMinute) / 60);
