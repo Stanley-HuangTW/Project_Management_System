@@ -39,15 +39,27 @@ async function request(baseUrl: string, token: string, path: string, params: Rec
   });
 }
 
+/** 每個 Mantis 網站上次成功的驗證寫法。舊版 Mantis 每個請求都先試一次必定 401 的 Bearer 太浪費,記住就直接用。 */
+const authSchemeByBaseUrl = new Map<string, "bearer" | "bare">();
+
 /**
  * GET {網址}/api/rest/{path},回解析好的 JSON。
- * 先用 Bearer(Mantis 2.29 起的標準寫法);舊版只認不加 Bearer 的 token,401 時再用那種寫法重試一次。
+ * 先用 Bearer(Mantis 2.29 起的標準寫法);舊版只認不加 Bearer 的 token,401 時換另一種寫法重試一次,
+ * 哪一種成功就記起來,同一個網站下次直接用。
  */
 export async function mantisGet(baseUrl: string, token: string, path: string, params: Record<string, string> = {}): Promise<unknown> {
   let response: Response;
   try {
-    response = await request(baseUrl, token, path, params, "bearer");
-    if (response.status === 401) response = await request(baseUrl, token, path, params, "bare");
+    const preferred = authSchemeByBaseUrl.get(baseUrl) ?? "bearer";
+    const other = preferred === "bearer" ? "bare" : "bearer";
+    response = await request(baseUrl, token, path, params, preferred);
+    if (response.status === 401) {
+      const retry = await request(baseUrl, token, path, params, other);
+      if (retry.status !== 401) authSchemeByBaseUrl.set(baseUrl, other);
+      response = retry;
+    } else if (response.ok) {
+      authSchemeByBaseUrl.set(baseUrl, preferred);
+    }
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
     throw new MantisError(timedOut ? "連線 Mantis 逾時,請確認網址、網路與防火牆" : "連不上 Mantis,請確認網址、網路與防火牆");
@@ -56,7 +68,10 @@ export async function mantisGet(baseUrl: string, token: string, path: string, pa
     throw new MantisError(`網址被轉址到 ${response.headers.get("location") ?? "別處"},請改用最終的網址`);
   }
   if (response.status === 401 || response.status === 403) {
-    throw new MantisError("Mantis 拒絕了這個 API token:請確認 token 沒有過期,而且那個帳號對這個專案有檢視權限");
+    throw new MantisError(
+      "Mantis 拒絕了這個 API token:請確認 token 沒有過期、貼對了,而且那個帳號對這個專案有檢視權限。" +
+        "(token 確定沒錯的話,可能是網站伺服器沒有把 Authorization 標頭傳給 Mantis——Apache 搭配 FastCGI 時常見,要請 Mantis 管理者設定。)"
+    );
   }
   if (response.status === 404) {
     throw new MantisError("找不到 Mantis 的 REST API(404):請確認網址、Mantis 版本(建議 2.20 以上)與 REST API 已啟用");
