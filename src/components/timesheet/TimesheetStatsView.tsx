@@ -8,11 +8,9 @@ import {
 } from "@/lib/actions/activityTime";
 import {
   MAX_STATS_RANGE_DAYS,
-  bucketLabel,
   daysBetweenInclusive,
   isValidIsoDate,
   monthRangeOf,
-  type Granularity,
   type TimesheetStats,
 } from "@/lib/timesheet";
 import { weekRangeOf } from "@/lib/weeklyReport";
@@ -25,15 +23,12 @@ function fmt(hours: number): string {
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500";
 
-const GRANULARITY_LABELS: Record<Granularity, string> = { day: "依日", week: "依週", month: "依月" };
-
 type Loaded = { key: string; data: TimesheetStatsResult };
 
 export function TimesheetStatsView({ today }: { today: string }) {
   const initialWeek = weekRangeOf(today);
   const [from, setFrom] = useState(initialWeek.weekStart);
   const [to, setTo] = useState(initialWeek.weekEnd);
-  const [granularity, setGranularity] = useState<Granularity>("day");
   const [includePending, setIncludePending] = useState(true);
   const [users, setUsers] = useState<StatsPerson[] | null>(null);
   const [units, setUnits] = useState<StatsUnit[]>([]);
@@ -64,7 +59,7 @@ export function TimesheetStatsView({ today }: { today: string }) {
         : null;
   const nobodySelected = selectedIds !== null && selectedIds.length === 0;
   const canFetch = !rangeError && !nobodySelected && users !== null;
-  const key = JSON.stringify({ from, to, granularity, includePending, selectedIds });
+  const key = JSON.stringify({ from, to, includePending, selectedIds });
 
   useEffect(() => {
     if (!canFetch) return;
@@ -73,7 +68,8 @@ export function TimesheetStatsView({ today }: { today: string }) {
       const data = await getTimesheetStats({
         from,
         to,
-        granularity,
+        // 畫面只看「各類別的工時(依專案分類)」,不用分時段;時段彙總是伺服器端的選項,這裡固定用依日。
+        granularity: "day",
         includePending,
         userIds: selectedIds ?? undefined,
       });
@@ -90,17 +86,14 @@ export function TimesheetStatsView({ today }: { today: string }) {
     if (preset === "day") {
       setFrom(today);
       setTo(today);
-      setGranularity("day");
     } else if (preset === "week") {
       const range = weekRangeOf(today);
       setFrom(range.weekStart);
       setTo(range.weekEnd);
-      setGranularity("day");
     } else {
       const range = monthRangeOf(today);
       setFrom(range.monthStart);
       setTo(range.monthEnd);
-      setGranularity("week");
     }
   }
 
@@ -130,17 +123,6 @@ export function TimesheetStatsView({ today }: { today: string }) {
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
           <span className="text-sm text-neutral-400">~</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputClass} />
-          <select
-            value={granularity}
-            onChange={(e) => setGranularity(e.target.value as Granularity)}
-            className={inputClass}
-          >
-            {(Object.keys(GRANULARITY_LABELS) as Granularity[]).map((g) => (
-              <option key={g} value={g}>
-                {GRANULARITY_LABELS[g]}
-              </option>
-            ))}
-          </select>
           {showPeoplePicker && (
             <TimesheetPeopleSelect people={users!} units={units} value={selectedIds} onChange={setSelectedIds} />
           )}
@@ -164,21 +146,13 @@ export function TimesheetStatsView({ today }: { today: string }) {
       ) : "error" in result ? (
         <p className="text-sm text-red-600 dark:text-red-400">{result.error}</p>
       ) : (
-        <StatsTables stats={result.stats} names={result.users} granularity={granularity} />
+        <StatsTables stats={result.stats} names={result.users} />
       )}
     </div>
   );
 }
 
-function StatsTables({
-  stats,
-  names,
-  granularity,
-}: {
-  stats: TimesheetStats;
-  names: { id: string; name: string }[];
-  granularity: Granularity;
-}) {
+function StatsTables({ stats, names }: { stats: TimesheetStats; names: { id: string; name: string }[] }) {
   const nameById = new Map(names.map((u) => [u.id, u.name]));
   // 欄位已經依專案排好;同一個專案的欄連在一起,第一列用 colSpan 蓋住它們。
   const projectGroups: { project: string; columns: typeof stats.columns; total: number }[] = [];
@@ -205,49 +179,6 @@ function StatsTables({
 
   return (
     <div className="space-y-6">
-      <section>
-        <h2 className="mb-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          各時段的工時(小時)
-        </h2>
-        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-neutral-200 dark:border-neutral-700">
-                <th className={`${th} text-left`}>人員</th>
-                {stats.buckets.map((b) => (
-                  <th key={b} className={th}>
-                    {bucketLabel(b, granularity)}
-                  </th>
-                ))}
-                <th className={th}>合計</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.users.map((u) => (
-                <tr key={u.userId} className="border-b border-neutral-100 dark:border-neutral-800">
-                  <td className={nameTd}>{nameById.get(u.userId) ?? u.userId}</td>
-                  {stats.buckets.map((b) => (
-                    <td key={b} className={td}>
-                      {cell(u.byBucket[b])}
-                    </td>
-                  ))}
-                  <td className={`${td} font-semibold`}>{cell(u.total)}</td>
-                </tr>
-              ))}
-              <tr className="bg-neutral-50 font-semibold dark:bg-neutral-800/60">
-                <td className={nameTd}>合計</td>
-                {stats.buckets.map((b) => (
-                  <td key={b} className={td}>
-                    {cell(stats.totals.byBucket[b])}
-                  </td>
-                ))}
-                <td className={td}>{cell(stats.totals.total)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section>
         <h2 className="mb-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           各類別的工時(小時,依專案分類)
