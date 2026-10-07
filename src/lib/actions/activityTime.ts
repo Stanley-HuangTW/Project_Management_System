@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import type { SessionPayload } from "@/lib/jwt";
 import { weekRangeOf } from "@/lib/weeklyReport";
+import { riskLinkTag } from "@/lib/riskRegister";
 import { validateStartMinute } from "@/lib/timeOfDay";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { DAILY_LIMIT_HOURS, hoursAlreadyLoggedOn } from "@/lib/timesheetHours";
@@ -59,6 +60,8 @@ export type ActivityDayEntry = {
   categoryName: string;
   riskEntryId: string | null;
   riskTitle: string | null;
+  /** 連結的風險/議題是什麼:風險、議題,或 Mantis 編號。 */
+  riskTag: string | null;
   /** 對應的專案;有的話要主管核准才計入那個專案的成本。 */
   boardId: string | null;
   boardName: string | null;
@@ -89,8 +92,8 @@ export type TimesheetOptions = {
   items: { id: string; name: string; boardName: string }[];
   /** 我看得到的專案(看板),給「對應專案」選。 */
   boards: { id: string; name: string }[];
-  /** 我看得到的看板上的議題。 */
-  issues: { id: string; title: string; boardName: string; closed: boolean }[];
+  /** 我看得到的看板上的風險與議題(含從 Mantis 同步來的),給「連結風險 / 議題」選。 */
+  risks: { id: string; title: string; boardName: string; closed: boolean; tag: string }[];
 };
 
 
@@ -122,7 +125,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
       orderBy: { createdAt: "asc" },
       include: {
         category: { select: { name: true } },
-        riskEntry: { select: { title: true } },
+        riskEntry: { select: { title: true, kind: true, mantisId: true } },
         board: { select: { name: true } },
       },
     }),
@@ -178,6 +181,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           categoryName: e.category.name,
           riskEntryId: e.riskEntryId,
           riskTitle: e.riskEntry?.title ?? null,
+          riskTag: e.riskEntry ? riskLinkTag(e.riskEntry) : null,
           boardId: e.boardId,
           boardName: e.board?.name ?? null,
           startMinute: e.startMinute,
@@ -195,7 +199,7 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
   const session = await requireSession();
   const boardWhere = accessibleBoardWhere(session);
 
-  const [categories, assignments, issues, boards] = await Promise.all([
+  const [categories, assignments, risks, boards] = await Promise.all([
     prisma.timeCategory.findMany({
       where: { active: true },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
@@ -206,10 +210,10 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
       select: { item: { select: { id: true, name: true, board: { select: { name: true } } } } },
     }),
     prisma.riskEntry.findMany({
-      where: { kind: "ISSUE", board: boardWhere },
+      where: { board: boardWhere },
       orderBy: { updatedAt: "desc" },
-      take: 200,
-      select: { id: true, title: true, status: true, board: { select: { name: true } } },
+      take: 500,
+      select: { id: true, title: true, status: true, kind: true, mantisId: true, board: { select: { name: true } } },
     }),
     prisma.board.findMany({ where: boardWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
@@ -220,11 +224,12 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
     items: assignments
       .map((a) => ({ id: a.item.id, name: a.item.name, boardName: a.item.board.name }))
       .sort((a, b) => a.boardName.localeCompare(b.boardName, "zh-TW") || a.name.localeCompare(b.name, "zh-TW")),
-    issues: issues.map((r) => ({
+    risks: risks.map((r) => ({
       id: r.id,
       title: r.title,
       boardName: r.board.name,
       closed: r.status === "CLOSED",
+      tag: riskLinkTag(r),
     })),
   };
 }
@@ -276,12 +281,12 @@ async function validateActivityInput(
   }
 
   if (input.riskEntryId) {
-    if (!category.linkIssue) return "這個類別不能連結議題";
-    const issue = await prisma.riskEntry.findFirst({
-      where: { id: input.riskEntryId, kind: "ISSUE", board: accessibleBoardWhere(session) },
+    if (!category.linkIssue) return "這個類別不能連結風險或議題";
+    const risk = await prisma.riskEntry.findFirst({
+      where: { id: input.riskEntryId, board: accessibleBoardWhere(session) },
       select: { id: true },
     });
-    if (!issue) return "找不到這個議題,或你沒有它所在看板的存取權限";
+    if (!risk) return "找不到這個風險或議題,或你沒有它所在看板的存取權限";
   }
 
   const already = await hoursAlreadyLoggedOn(userId, input.date, { activityEntryId: excludeActivityId });

@@ -50,7 +50,7 @@ export function eventsOfWeek(week: MyWeek): CalendarEvent[] {
         seriesId: e.seriesId,
         hours: e.hours,
         title: e.categoryName,
-        subtitle: [e.boardName, e.riskTitle ? `議題:${e.riskTitle}` : "", e.note].filter(Boolean).join(" · "),
+        subtitle: [e.boardName, e.riskTitle ? `${e.riskTag}:${e.riskTitle}` : "", e.note].filter(Boolean).join(" · "),
         status: e.status,
         needsApproval: e.boardId !== null,
         activity: e,

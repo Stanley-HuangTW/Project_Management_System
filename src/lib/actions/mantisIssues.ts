@@ -15,7 +15,7 @@ export type BoardMantisInfo = {
 
 const PREVIEW_LENGTH = 400;
 
-/** 看板「Issue」分頁:這個看板同步下來的 Mantis 議題,與連線的狀態。看得到看板的人都看得到(唯讀)。 */
+/** 看板「問題」分頁:這個看板同步下來的 Mantis 問題,與連線的狀態。看得到看板的人都看得到(唯讀)。 */
 export async function listBoardMantisIssues(
   boardId: string
 ): Promise<{ connection: BoardMantisInfo | null; issues: MantisIssueRow[] }> {

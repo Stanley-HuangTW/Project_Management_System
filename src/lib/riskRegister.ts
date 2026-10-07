@@ -37,6 +37,11 @@ export const RISK_KIND_LABELS: Record<RiskKind, string> = {
   ISSUE: "議題",
 };
 
+/** 在選單、行事曆上標示一筆風險/議題是什麼:從 Mantis 同步來的標 Mantis 編號,其他標風險或議題。 */
+export function riskLinkTag(r: { kind: RiskKind; mantisId: number | null }): string {
+  return r.mantisId !== null ? `Mantis #${r.mantisId}` : RISK_KIND_LABELS[r.kind];
+}
+
 export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
   OPEN: "未處理",
   MITIGATING: "處理中",

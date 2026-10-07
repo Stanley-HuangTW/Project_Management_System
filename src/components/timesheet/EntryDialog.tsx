@@ -297,15 +297,15 @@ function EntryForm({
 
       {kind === "activity" && category?.linkIssue && (
         <label className="block text-xs text-neutral-500 dark:text-neutral-400">
-          連結議題
+          連結風險 / 議題
           <SearchableSelect
-            options={(options?.issues ?? []).map((i) => ({
-              value: i.id,
-              label: `${i.closed ? "(已結案) " : ""}${i.boardName} / ${i.title}`,
+            options={(options?.risks ?? []).map((r) => ({
+              value: r.id,
+              label: `[${r.tag}] ${r.closed ? "(已結案) " : ""}${r.boardName} / ${r.title}`,
             }))}
             value={riskEntryId}
             onChange={setRiskEntryId}
-            emptyLabel="不連結議題"
+            emptyLabel="不連結風險 / 議題"
             className={`${inputClass} mt-1 w-full`}
           />
         </label>

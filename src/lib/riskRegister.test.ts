@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { riskScore, riskBand, clampLevel, sortRisks } from "./riskRegister";
+import { riskScore, riskBand, clampLevel, sortRisks, riskLinkTag } from "./riskRegister";
 
 describe("riskScore", () => {
   it("is 機率 × 衝擊", () => {
@@ -47,5 +47,17 @@ describe("sortRisks", () => {
       risk("舊的", 3, 3, "OPEN", "2026-01-01"),
     ]);
     expect(sorted.map((r) => r.title)).toEqual(["舊的", "新的"]);
+  });
+});
+
+describe("riskLinkTag", () => {
+  it("labels a Mantis-synced entry by its Mantis number, whatever its kind", () => {
+    expect(riskLinkTag({ kind: "ISSUE", mantisId: 123 })).toBe("Mantis #123");
+    expect(riskLinkTag({ kind: "RISK", mantisId: 7 })).toBe("Mantis #7");
+  });
+
+  it("labels the hand-written ones as 風險 or 議題", () => {
+    expect(riskLinkTag({ kind: "RISK", mantisId: null })).toBe("風險");
+    expect(riskLinkTag({ kind: "ISSUE", mantisId: null })).toBe("議題");
   });
 });

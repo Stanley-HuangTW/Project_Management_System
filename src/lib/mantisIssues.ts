@@ -1,5 +1,5 @@
 /**
- * 看板「Issue」分頁(同步自 MantisBT 的議題)的排序、篩選、依處理人分組。純邏輯。
+ * 看板「問題」分頁(同步自 MantisBT 的問題)的排序、篩選、依處理人分組。純邏輯。
  */
 import type { RiskStatus } from "@prisma/client";
 
@@ -112,7 +112,7 @@ export type HandlerGroup = StatusCounts & {
 };
 
 /**
- * 依處理人分組:誰手上有哪些議題。未結案多的在前,沒有處理人的放最後;組內照 sortIssues。
+ * 依處理人分組:誰手上有哪些問題。未結案多的在前,沒有處理人的放最後;組內照 sortIssues。
  */
 export function groupByHandler(rows: MantisIssueRow[]): HandlerGroup[] {
   const groups = new Map<string, HandlerGroup>();

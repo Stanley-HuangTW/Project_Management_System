@@ -59,7 +59,7 @@ export function BoardView({
   ownerDefaultPct: number;
   /** 已經被指到的外部前置,甘特圖用來畫那一列。 */
   externalPreds: ExternalPredecessor[];
-  /** 這個看板有連到 MantisBT:多一個「議題」分頁。 */
+  /** 這個看板有連到 MantisBT:多一個「問題」分頁。 */
   hasMantis: boolean;
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">("table");
@@ -221,7 +221,7 @@ export function BoardView({
                     : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 }`}
               >
-                <Bug size={14} /> <span className="hidden sm:inline">議題</span>
+                <Bug size={14} /> <span className="hidden sm:inline">問題</span>
               </button>
             )}
             <button

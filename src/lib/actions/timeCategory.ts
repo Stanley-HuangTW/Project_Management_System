@@ -86,7 +86,7 @@ export async function setTimeCategoryLinkIssue(id: string, linkIssue: boolean): 
   await logAudit(
     "SETTINGS",
     session.userId,
-    `工時類別「${existing.name}」${linkIssue ? "開啟" : "關閉"}連結議題`
+    `工時類別「${existing.name}」${linkIssue ? "開啟" : "關閉"}連結風險 / 議題`
   );
   revalidatePath("/settings");
   return {};
