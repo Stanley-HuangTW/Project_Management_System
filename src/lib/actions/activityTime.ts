@@ -42,6 +42,8 @@ export type ProjectDayEntry = {
   status: ApprovalStatus;
   /** 一天中的開始時間(從 00:00 起算的分鐘數),null = 沒排時間。 */
   startMinute: number | null;
+  /** 用「重複」一次建立的一批共用的識別;單獨登記的是 null。 */
+  seriesId: string | null;
   decisionNote: string | null;
   /** 待審時:可以核准的人(姓名與身分)。 */
   approvers: string[];
@@ -61,6 +63,7 @@ export type ActivityDayEntry = {
   boardId: string | null;
   boardName: string | null;
   startMinute: number | null;
+  seriesId: string | null;
   status: ApprovalStatus;
   decisionNote: string | null;
   approvers: string[];
@@ -160,6 +163,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           note: e.note ?? "",
           status: e.status,
           startMinute: e.startMinute,
+          seriesId: e.seriesId,
           decisionNote: e.decisionNote,
           approvers: approverText(`t:${e.id}`),
           decidedByName: e.decidedBy?.name ?? null,
@@ -177,6 +181,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           boardId: e.boardId,
           boardName: e.board?.name ?? null,
           startMinute: e.startMinute,
+          seriesId: e.seriesId,
           status: e.status,
           decisionNote: e.decisionNote,
           approvers: approverText(`a:${e.id}`),
@@ -236,6 +241,8 @@ type ActivityInput = {
   startMinute?: number | null;
   /** 從外部日曆匯入時的識別,只在登記時寫入。 */
   externalId?: string | null;
+  /** 用「重複」一次建立一批時共用的識別,只在登記時寫入。 */
+  seriesId?: string | null;
 };
 
 
@@ -314,6 +321,7 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
       riskEntryId: input.riskEntryId,
       startMinute: input.startMinute ?? null,
       externalId: input.externalId ?? null,
+      seriesId: input.seriesId ?? null,
       // 有對應專案的要主管核准才算進專案成本;沒有的登記即生效。
       boardId: input.boardId || null,
       status: input.boardId && !exempt ? "PENDING" : "APPROVED",

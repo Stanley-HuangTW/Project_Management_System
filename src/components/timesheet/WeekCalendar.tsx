@@ -371,7 +371,10 @@ export function WeekCalendar({
                         }}
                       >
                         <div className="flex items-center gap-1">
-                          <span className="min-w-0 flex-1 truncate font-medium">{event.title}</span>
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                          {event.seriesId && <span title="重複建立的">↻ </span>}
+                          {event.title}
+                        </span>
                           {event.status === "PENDING" && <span className="shrink-0 rounded bg-white/25 px-1 text-[9px]">待審</span>}
                           {event.status === "REJECTED" && <span className="shrink-0 text-[9px]">已退回</span>}
                         </div>

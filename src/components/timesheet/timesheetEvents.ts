@@ -9,6 +9,8 @@ export type CalendarEvent = {
   date: string;
   /** 一天中的開始時間(分鐘);null = 沒排時間,畫在日期底下的「未排時間」。 */
   startMinute: number | null;
+  /** 用「重複」建立的一批共用的識別。 */
+  seriesId: string | null;
   hours: number;
   title: string;
   subtitle: string;
@@ -29,6 +31,7 @@ export function eventsOfWeek(week: MyWeek): CalendarEvent[] {
         id: e.id,
         date: day.date,
         startMinute: e.startMinute,
+        seriesId: e.seriesId,
         hours: e.hours,
         title: e.itemName,
         subtitle: [e.boardName, e.note].filter(Boolean).join(" · "),
@@ -44,6 +47,7 @@ export function eventsOfWeek(week: MyWeek): CalendarEvent[] {
         id: e.id,
         date: day.date,
         startMinute: e.startMinute,
+        seriesId: e.seriesId,
         hours: e.hours,
         title: e.categoryName,
         subtitle: [e.boardName, e.riskTitle ? `議題:${e.riskTitle}` : "", e.note].filter(Boolean).join(" · "),

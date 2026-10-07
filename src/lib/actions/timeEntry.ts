@@ -76,7 +76,9 @@ export async function logTime(
   note: string,
   userId?: string,
   /** 一天中的開始時間(分鐘),行事曆用。 */
-  startMinute?: number | null
+  startMinute?: number | null,
+  /** 用「重複」一次建立一批時共用的識別。 */
+  seriesId?: string | null
 ): Promise<{ error?: string }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
@@ -102,6 +104,7 @@ export async function logTime(
       hours,
       note: note.trim() || null,
       startMinute: startMinute ?? null,
+      seriesId: seriesId ?? null,
       ...(exempt ? { status: "APPROVED" as const, decidedAt: new Date(), decisionNote: EXEMPT_DECISION_NOTE } : {}),
     },
   });

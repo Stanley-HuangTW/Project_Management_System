@@ -12,8 +12,7 @@ import {
   type TemplateKind,
 } from "@/lib/timeTemplates";
 import { weekRangeOf } from "@/lib/weeklyReport";
-import { logActivityTime } from "./activityTime";
-import { logTime } from "./timeEntry";
+import { applySpecs, type EntrySpec } from "@/lib/timesheetCreate";
 
 export type TimeTemplateRow = {
   id: string;
@@ -121,74 +120,6 @@ export async function deleteTimeTemplate(templateId: string): Promise<{ error?: 
   if (!mine && !sharedByAdmin) return { error: "只能刪除自己的範本(共用範本只有管理者能刪)" };
   await prisma.timeTemplate.delete({ where: { id: templateId } });
   return {};
-}
-
-/** 要建立的一筆工時,不含日期。 */
-type EntrySpec =
-  | { kind: "project"; itemId: string; startMinute: number | null; hours: number; note: string }
-  | {
-      kind: "activity";
-      categoryId: string;
-      boardId: string | null;
-      riskEntryId: string | null;
-      startMinute: number | null;
-      hours: number;
-      note: string;
-    };
-
-/**
- * 在某一天建立一筆工時。同一天已經有一樣的(同工作項/類別、專案、開始時間、時數)就不重複建立。
- * 走一般登記的 logTime / logActivityTime,所以審核、24 小時上限、免審核等規則都一樣。
- */
-async function createFromSpec(userId: string, date: string, spec: EntrySpec): Promise<"created" | "exists" | string> {
-  if (spec.kind === "project") {
-    const dup = await prisma.timeEntry.findFirst({
-      where: { userId, date, itemId: spec.itemId, startMinute: spec.startMinute, hours: spec.hours, status: { not: "REJECTED" } },
-      select: { id: true },
-    });
-    if (dup) return "exists";
-    try {
-      const { error } = await logTime(spec.itemId, date, spec.hours, spec.note, undefined, spec.startMinute);
-      return error ?? "created";
-    } catch (err) {
-      return err instanceof Error ? err.message : "建立失敗";
-    }
-  }
-  const dup = await prisma.activityTimeEntry.findFirst({
-    where: {
-      userId,
-      date,
-      categoryId: spec.categoryId,
-      boardId: spec.boardId,
-      startMinute: spec.startMinute,
-      hours: spec.hours,
-      status: { not: "REJECTED" },
-    },
-    select: { id: true },
-  });
-  if (dup) return "exists";
-  const { error } = await logActivityTime({
-    date,
-    hours: spec.hours,
-    categoryId: spec.categoryId,
-    note: spec.note,
-    riskEntryId: spec.riskEntryId,
-    boardId: spec.boardId,
-    startMinute: spec.startMinute,
-  });
-  return error ?? "created";
-}
-
-async function applySpecs(userId: string, items: { date: string; label: string; spec: EntrySpec }[]): Promise<ApplyResult> {
-  const result: ApplyResult = { created: 0, existing: 0, failed: [] };
-  // 依序建立:前面建好的會算進當天 24 小時上限。
-  for (const { date, label, spec } of items) {
-    const outcome = await createFromSpec(userId, date, spec);
-    if (outcome === "created") result.created++;
-    else if (outcome === "exists") result.existing++;
-    else result.failed.push(`${date} ${label}:${outcome}`);
-  }
-  return result;
 }
 
 function validWeekStart(weekStart: string): boolean {

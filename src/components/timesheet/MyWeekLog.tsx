@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/activityTime";
 import { deleteTimeEntry, logTime, updateTimeEntry } from "@/lib/actions/timeEntry";
 import { copyPreviousWeek } from "@/lib/actions/timeTemplate";
+import { createRecurringEntries, deleteSeriesFrom } from "@/lib/actions/recurringTime";
 import { describeApplyResult } from "@/lib/timeTemplates";
 import { addDaysIso, isValidIsoDate } from "@/lib/timesheet";
 import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
@@ -144,6 +145,37 @@ export function MyWeekLog({ today }: { today: string }) {
 
   /** 對話框儲存:回傳錯誤訊息就留在對話框。 */
   async function saveFromDialog(draft: EntryDraft, editing: CalendarEvent | null): Promise<string | null> {
+    // 新增時選了「重複」:一次建立一批。
+    if (!editing && draft.repeat) {
+      const result = await createRecurringEntries({
+        spec:
+          draft.kind === "project"
+            ? { kind: "project", itemId: draft.itemId, startMinute: draft.startMinute, hours: draft.hours, note: draft.note }
+            : {
+                kind: "activity",
+                categoryId: draft.categoryId,
+                boardId: draft.boardId || null,
+                riskEntryId: draft.riskEntryId || null,
+                startMinute: draft.startMinute,
+                hours: draft.hours,
+                note: draft.note,
+              },
+        startDate: draft.date,
+        rule: draft.repeat.rule,
+        until: draft.repeat.until,
+        label: draft.kind === "project" ? "專案工作項" : (options?.categories.find((c) => c.id === draft.categoryId)?.name ?? "工時"),
+      });
+      if ("error" in result) return result.error;
+      // 一筆都沒建、而且不是因為「本來就有」:全部都失敗,留在對話框讓使用者改。
+      if (result.created === 0 && result.existing === 0 && result.failed.length > 0) return result.failed.join("\n");
+      setDialog(null);
+      reload();
+      // 有略過或失敗的要說清楚,不然使用者以為整批都建好了。
+      if (result.failed.length > 0 || result.existing > 0) {
+        await notify([describeApplyResult(result), ...result.failed].join("\n"), { title: "重複登記" });
+      }
+      return null;
+    }
     let error: string | undefined;
     if (draft.kind === "project") {
       error = editing
@@ -224,6 +256,26 @@ export function MyWeekLog({ today }: { today: string }) {
       await notify(err instanceof Error ? err.message : "複製失敗", { title: "無法複製" });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function deleteSeriesFromDialog(event: CalendarEvent) {
+    const ok = await confirm(
+      "確定要刪除「" + event.title + "」這一筆,以及它之後(" + event.date + " 起)同一批用「重複」建立的工時嗎?",
+      { title: "刪除重複的工時", confirmLabel: "刪除", danger: true }
+    );
+    if (!ok) return;
+    try {
+      const result = await deleteSeriesFrom(event.kind, event.id);
+      if (result.error) {
+        await notify(result.error, { title: "無法刪除" });
+        return;
+      }
+      setDialog(null);
+      reload();
+      await notify("已刪除 " + result.deleted + " 筆。", { title: "刪除重複的工時" });
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "刪除失敗", { title: "無法刪除" });
     }
   }
 
@@ -352,6 +404,7 @@ export function MyWeekLog({ today }: { today: string }) {
         onClose={() => setDialog(null)}
         onSave={saveFromDialog}
         onDelete={deleteFromDialog}
+        onDeleteSeries={deleteSeriesFromDialog}
         onSaveAsTemplate={saveAsTemplate}
       />
       <GoogleCalendarDialog

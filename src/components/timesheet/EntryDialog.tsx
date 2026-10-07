@@ -9,6 +9,9 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import type { TimesheetOptions } from "@/lib/actions/activityTime";
 import { snapHours } from "@/lib/calendarLayout";
 import { formatMinute, parseMinute } from "@/lib/timeOfDay";
+import { describeRecurrence, recurrenceDates, validateRecurrence, weekdayOf, type RecurrenceRule } from "@/lib/recurrence";
+import { addDaysIso } from "@/lib/timesheet";
+import { WEEKDAY_NAMES } from "@/lib/timeTemplates";
 import { EntryStatusBadge } from "./EntryStatusBadge";
 import { useNoteSuggestions } from "./useNoteSuggestions";
 import type { CalendarEvent } from "./timesheetEvents";
@@ -27,6 +30,8 @@ export type EntryDraft = {
   categoryId: string;
   boardId: string;
   riskEntryId: string;
+  /** 新增時選了「重複」:一次建立一批,到 until 為止。修改既有的不會有。 */
+  repeat: { rule: RecurrenceRule; until: string } | null;
 };
 
 /** 新增:從行事曆點出來的時段(沒排時間的 startMinute 是 null);修改:被點開的那一筆。 */
@@ -40,6 +45,7 @@ export function EntryDialog({
   onClose,
   onSave,
   onDelete,
+  onDeleteSeries,
   onSaveAsTemplate,
 }: {
   target: EntryDialogTarget | null;
@@ -48,6 +54,8 @@ export function EntryDialog({
   /** 回傳錯誤訊息就留在對話框裡讓使用者改;沒有錯誤對話框才會關。 */
   onSave: (draft: EntryDraft, editing: CalendarEvent | null) => Promise<string | null>;
   onDelete: (event: CalendarEvent) => Promise<void>;
+  /** 刪掉這一筆和它之後同一批「重複」建立的。 */
+  onDeleteSeries: (event: CalendarEvent) => Promise<void>;
   onSaveAsTemplate: (event: CalendarEvent) => void;
 }) {
   return (
@@ -61,6 +69,7 @@ export function EntryDialog({
           onCancel={onClose}
           onSave={onSave}
           onDelete={onDelete}
+          onDeleteSeries={onDeleteSeries}
           onSaveAsTemplate={onSaveAsTemplate}
         />
       )}
@@ -74,6 +83,7 @@ function EntryForm({
   onCancel,
   onSave,
   onDelete,
+  onDeleteSeries,
   onSaveAsTemplate,
 }: {
   target: EntryDialogTarget;
@@ -81,6 +91,7 @@ function EntryForm({
   onCancel: () => void;
   onSave: (draft: EntryDraft, editing: CalendarEvent | null) => Promise<string | null>;
   onDelete: (event: CalendarEvent) => Promise<void>;
+  onDeleteSeries: (event: CalendarEvent) => Promise<void>;
   onSaveAsTemplate: (event: CalendarEvent) => void;
 }) {
   const editing = target.mode === "edit" ? target.event : null;
@@ -97,6 +108,10 @@ function EntryForm({
   const [riskEntryId, setRiskEntryId] = useState(editing?.activity?.riskEntryId ?? "");
   const [note, setNote] = useState(editing?.project?.note ?? editing?.activity?.note ?? "");
   const [busy, setBusy] = useState(false);
+  // 重複(只有新增時):不重複 / 每週(選星期) / 每月同一天,到哪一天為止。
+  const [repeatType, setRepeatType] = useState<"none" | "weekly" | "monthly">("none");
+  const [repeatWeekdays, setRepeatWeekdays] = useState<number[]>(() => (date ? [weekdayOf(date)] : [1]));
+  const [until, setUntil] = useState(() => (date ? addDaysIso(date, 56) : ""));
 
   // 修改一筆舊紀錄時,它的類別可能後來被停用了——選單裡還是要有它自己。
   const act = editing?.activity;
@@ -137,6 +152,15 @@ function EntryForm({
       ? formatMinute(Math.min(1439, startMinute + Math.round(parsedHours * 60)))
       : null;
 
+  const rule: RecurrenceRule | null =
+    repeatType === "weekly" ? { type: "weekly", weekdays: repeatWeekdays } : repeatType === "monthly" ? { type: "monthly" } : null;
+  const repeatError = rule && date ? validateRecurrence(date, rule, until) : null;
+  const repeatDates = rule && date && !repeatError ? recurrenceDates(date, rule, until) : [];
+
+  function toggleRepeatWeekday(d: number) {
+    setRepeatWeekdays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort((a, b) => a - b)));
+  }
+
   async function submit() {
     if (!Number.isFinite(parsedHours) || parsedHours <= 0) {
       await notify("工時必須大於 0", { title: "無法儲存" });
@@ -149,6 +173,14 @@ function EntryForm({
     if (kind === "project" && !effectiveItemId) {
       await notify("請選擇工作項", { title: "無法儲存" });
       return;
+    }
+    const repeat = !editing && rule ? { rule, until } : null;
+    if (repeat) {
+      const invalid = validateRecurrence(date, repeat.rule, repeat.until);
+      if (invalid) {
+        await notify(invalid, { title: "重複的設定有問題" });
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -163,6 +195,7 @@ function EntryForm({
           categoryId: effectiveCategoryId,
           boardId: category?.allowProject ? boardId : "",
           riskEntryId: category?.linkIssue ? riskEntryId : "",
+          repeat,
         },
         editing
       );
@@ -281,7 +314,15 @@ function EntryForm({
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-neutral-500 dark:text-neutral-400">
           日期
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${inputClass} mt-1 block`} />
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => {
+              setDate(e.target.value);
+              if (e.target.value && until < e.target.value) setUntil(addDaysIso(e.target.value, 56));
+            }}
+            className={`${inputClass} mt-1 block`}
+          />
         </label>
         <label className="text-xs text-neutral-500 dark:text-neutral-400">
           開始時間
@@ -314,6 +355,68 @@ function EntryForm({
         排定時間(取消勾選會列在日期底下的「未排時間」)
       </label>
 
+      {!editing && (
+        <div className="space-y-2 rounded-md bg-neutral-50 p-3 dark:bg-neutral-800/60">
+          <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            重複
+            <select
+              value={repeatType}
+              onChange={(e) => setRepeatType(e.target.value as "none" | "weekly" | "monthly")}
+              className={inputClass + " py-1"}
+            >
+              <option value="none">不重複</option>
+              <option value="weekly">每週</option>
+              <option value="monthly">每月同一天</option>
+            </select>
+          </label>
+          {repeatType === "weekly" && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {WEEKDAY_NAMES.map((label, i) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => toggleRepeatWeekday(i + 1)}
+                  aria-pressed={repeatWeekdays.includes(i + 1)}
+                  className={
+                    "rounded-md border px-2 py-1 " +
+                    (repeatWeekdays.includes(i + 1)
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-300")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setRepeatWeekdays([1, 2, 3, 4, 5])}
+                className="ml-1 rounded-md px-2 py-1 text-blue-600 hover:underline dark:text-blue-400"
+              >
+                工作日
+              </button>
+            </div>
+          )}
+          {repeatType !== "none" && (
+            <>
+              <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                重複到
+                <input type="date" value={until} min={date} onChange={(e) => setUntil(e.target.value)} className={inputClass + " py-1"} />
+              </label>
+              <p className={"text-xs " + (repeatError ? "text-red-600 dark:text-red-400" : "text-neutral-500 dark:text-neutral-400")}>
+                {repeatError ??
+                  (rule ? describeRecurrence(rule, until) : "") +
+                    ",共 " +
+                    repeatDates.length +
+                    " 筆(" +
+                    repeatDates[0] +
+                    (repeatDates.length > 1 ? " ~ " + repeatDates[repeatDates.length - 1] : "") +
+                    ")。每一筆都照一般登記:對應專案的要核准,一天超過 24 小時的會被略過並說明。"}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
       <label className="block text-xs text-neutral-500 dark:text-neutral-400">
         備註
         <NoteInput
@@ -333,7 +436,7 @@ function EntryForm({
           onClick={submit}
           className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {busy ? "儲存中..." : editing ? "儲存修改" : "登記"}
+          {busy ? "儲存中..." : editing ? "儲存修改" : rule && repeatDates.length > 0 ? "登記 " + repeatDates.length + " 筆" : "登記"}
         </button>
         <button
           type="button"
@@ -351,6 +454,17 @@ function EntryForm({
             title="把這筆存成範本,之後可以一次套用到任何一週"
           >
             存成範本
+          </button>
+        )}
+        {editing?.seriesId && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onDeleteSeries(editing)}
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+            title="這筆是用「重複」建立的:刪掉這一筆和它之後的所有重複"
+          >
+            <Trash2 size={14} /> 刪除這筆及之後的重複
           </button>
         )}
         {editing && (
