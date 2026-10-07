@@ -131,6 +131,10 @@ export type MappedIssue = {
   mantisStatus: string | null;
   mantisHandler: string | null;
   mantisUpdatedAt: Date | null;
+  mantisSeverity: string | null;
+  mantisPriority: string | null;
+  mantisCategory: string | null;
+  mantisReporter: string | null;
   title: string;
   description: string;
   status: RiskStatus;
@@ -143,6 +147,9 @@ export type MappedIssue = {
   createdAt: Date | null;
 };
 
+/** Mantis 的列舉值(狀態、嚴重度…):label 是依使用者語言翻過的顯示文字,沒有就用英文的 name。 */
+const enumText = (e: MantisEnum | undefined) => e?.label?.trim() || e?.name?.trim() || null;
+
 const toDate = (text: string | undefined) => {
   const ms = text ? Date.parse(text) : NaN;
   return Number.isNaN(ms) ? null : new Date(ms);
@@ -153,9 +160,13 @@ export function mapMantisIssue(issue: MantisIssue, baseUrl: string): MappedIssue
   return {
     mantisId: issue.id,
     mantisUrl: issueUrl(baseUrl, issue.id),
-    mantisStatus: issue.status?.name ?? issue.status?.label ?? null,
+    mantisStatus: enumText(issue.status),
     mantisHandler: handlerName || null,
     mantisUpdatedAt: toDate(issue.updated_at),
+    mantisSeverity: enumText(issue.severity),
+    mantisPriority: enumText(issue.priority),
+    mantisCategory: issue.category?.name?.trim() || null,
+    mantisReporter: personName(issue.reporter) || null,
     title: (issue.summary ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || `Mantis #${issue.id}`,
     description: buildDescription(issue),
     status: statusToRisk(issue.status?.id),

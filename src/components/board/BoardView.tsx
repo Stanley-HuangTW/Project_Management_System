@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, DoorOpen, FileDiff, Wallet } from "lucide-react";
+import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, Bug, DoorOpen, FileDiff, Wallet } from "lucide-react";
 import type { BoardWithData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
@@ -19,6 +19,7 @@ import { AutomationRulesModal } from "./AutomationRulesModal";
 import { TrashModal } from "./TrashModal";
 import { ProjectTemplateModal } from "./ProjectTemplateModal";
 import { BoardRisks } from "./BoardRisks";
+import { BoardMantisIssues } from "./BoardMantisIssues";
 import { BoardGates } from "./BoardGates";
 import { BoardChanges } from "./BoardChanges";
 import { BoardBudget } from "@/components/budget/BoardBudget";
@@ -39,6 +40,7 @@ export function BoardView({
   holidays,
   ownerDefaultPct,
   externalPreds,
+  hasMantis,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -56,8 +58,10 @@ export function BoardView({
   ownerDefaultPct: number;
   /** 已經被指到的外部前置,甘特圖用來畫那一列。 */
   externalPreds: ExternalPredecessor[];
+  /** 這個看板有連到 MantisBT:多一個「Issue」分頁。 */
+  hasMantis: boolean;
 }) {
-  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes" | "budget">("table");
+  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">("table");
   // A ?highlight= link (notifications, overdue tasks, workload detail) can
   // be clicked from any tab — jump to the table view so BoardTable actually
   // mounts and opens the item's card, instead of silently updating the URL
@@ -205,6 +209,19 @@ export function BoardView({
             >
               <ShieldAlert size={14} /> <span className="hidden sm:inline">風險</span>
             </button>
+            {hasMantis && (
+              <button
+                type="button"
+                onClick={() => setView("issues")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${
+                  view === "issues"
+                    ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                    : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                }`}
+              >
+                <Bug size={14} /> <span className="hidden sm:inline">Issue</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setView("gates")}
@@ -283,6 +300,9 @@ export function BoardView({
         )}
         {view === "risks" && (
           <BoardRisks board={board} users={users} currentUserId={currentUserId} />
+        )}
+        {view === "issues" && hasMantis && (
+          <BoardMantisIssues boardId={board.id} users={users} isAdmin={userRole === "ADMIN"} />
         )}
         {view === "changes" && <BoardChanges board={board} userRole={userRole} />}
         {view === "budget" && <BoardBudget board={board} />}

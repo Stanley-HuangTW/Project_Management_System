@@ -135,7 +135,19 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
   const [existingRows, users] = await Promise.all([
     prisma.riskEntry.findMany({
       where: { boardId: conn.boardId, mantisId: { in: mapped.map((m) => m.mantisId) } },
-      select: { id: true, mantisId: true, mantisUpdatedAt: true, title: true, status: true, ownerId: true, itemId: true },
+      select: {
+        id: true,
+        mantisId: true,
+        mantisUpdatedAt: true,
+        title: true,
+        status: true,
+        ownerId: true,
+        itemId: true,
+        mantisSeverity: true,
+        mantisPriority: true,
+        mantisCategory: true,
+        mantisReporter: true,
+      },
     }),
     prisma.user.findMany({ select: { id: true, email: true } }),
   ]);
@@ -158,6 +170,10 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
       mantisStatus: m.mantisStatus,
       mantisHandler: m.mantisHandler,
       mantisUpdatedAt: m.mantisUpdatedAt,
+      mantisSeverity: m.mantisSeverity,
+      mantisPriority: m.mantisPriority,
+      mantisCategory: m.mantisCategory,
+      mantisReporter: m.mantisReporter,
     };
     const old = existing.get(m.mantisId);
     try {
@@ -181,7 +197,11 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
         old.mantisUpdatedAt?.getTime() === m.mantisUpdatedAt?.getTime() &&
         old.title === m.title &&
         old.ownerId === ownerId &&
-        old.itemId === conn.issueItemId;
+        old.itemId === conn.issueItemId &&
+        old.mantisSeverity === m.mantisSeverity &&
+        old.mantisPriority === m.mantisPriority &&
+        old.mantisCategory === m.mantisCategory &&
+        old.mantisReporter === m.mantisReporter;
       if (same) {
         summary.unchanged++;
         continue;

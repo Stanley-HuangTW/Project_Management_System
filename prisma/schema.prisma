@@ -1067,6 +1067,11 @@ model RiskEntry {
   mantisStatus    String?
   mantisHandler   String?
   mantisUpdatedAt DateTime?
+  /// Issue 分頁顯示用的 Mantis 欄位原文(嚴重度、優先權、分類、回報人)。
+  mantisSeverity  String?
+  mantisPriority  String?
+  mantisCategory  String?
+  mantisReporter  String?
 
   createdById String?
   createdAt   DateTime @default(now())

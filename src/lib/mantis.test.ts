@@ -20,7 +20,10 @@ const issue = (over: Partial<MantisIssue> = {}): MantisIssue => ({
   summary: "主控板開機偶發當機",
   description: "冷開機約 1/20 機率卡在 bootloader",
   status: { id: 50, name: "assigned", label: "assigned" },
-  severity: { id: 60, name: "major" },
+  severity: { id: 60, name: "major", label: "嚴重" },
+  priority: { id: 40, name: "high" },
+  category: { id: 2, name: "韌體" },
+  reporter: { id: 2, name: "qa", real_name: "黃雅婷" },
   handler: { id: 7, name: "wchang", real_name: "張偉", email: "Wei.Chang@Example.com" },
   created_at: "2026-10-01T09:00:00+08:00",
   updated_at: "2026-10-05T16:30:00+08:00",
@@ -158,6 +161,16 @@ describe("mapMantisIssue", () => {
     expect(m.createdAt?.toISOString()).toBe("2026-10-01T01:00:00.000Z");
   });
 
+  it("Issue 分頁要顯示的欄位:嚴重度(用顯示文字)、優先權、分類、回報人", () => {
+    const m = mapMantisIssue(issue(), BASE);
+    expect(m).toMatchObject({ mantisSeverity: "嚴重", mantisPriority: "high", mantisCategory: "韌體", mantisReporter: "黃雅婷" });
+  });
+
+  it("狀態也用顯示文字(label),沒有就用 name", () => {
+    expect(mapMantisIssue(issue({ status: { id: 50, name: "assigned", label: "已分派" } }), BASE).mantisStatus).toBe("已分派");
+    expect(mapMantisIssue(issue({ status: { id: 50, name: "assigned" } }), BASE).mantisStatus).toBe("assigned");
+  });
+
   it("欄位都缺也不會壞:標題用 Mantis 編號、衝擊中等、沒有處理人", () => {
     const m = mapMantisIssue({ id: 7 }, BASE);
     expect(m).toMatchObject({
@@ -168,6 +181,10 @@ describe("mapMantisIssue", () => {
       mantisHandler: null,
       mantisStatus: null,
       mantisUpdatedAt: null,
+      mantisSeverity: null,
+      mantisPriority: null,
+      mantisCategory: null,
+      mantisReporter: null,
       createdAt: null,
     });
   });
