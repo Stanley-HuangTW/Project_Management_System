@@ -6,6 +6,7 @@ import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, Bug, Door
 import type { BoardWithData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
+import { resolveStatusColumn } from "@/lib/dashboard";
 import { EditHistoryProvider } from "./EditHistoryProvider";
 import { OwnerDefaultPctProvider } from "./OwnerDefaultPctContext";
 import { BoardTable } from "./BoardTable";
@@ -58,7 +59,7 @@ export function BoardView({
   ownerDefaultPct: number;
   /** 已經被指到的外部前置,甘特圖用來畫那一列。 */
   externalPreds: ExternalPredecessor[];
-  /** 這個看板有連到 MantisBT:多一個「Issue」分頁。 */
+  /** 這個看板有連到 MantisBT:多一個「議題」分頁。 */
   hasMantis: boolean;
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">("table");
@@ -87,8 +88,9 @@ export function BoardView({
   const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const statusColumns = board.columns.filter((c) => c.type === "STATUS");
+  // 看板檢視預設依名為「Status」的欄位分組(沒有就用第一個狀態欄位)。
   const [kanbanColumnId, setKanbanColumnId] = useState(
-    statusColumns[0]?.id ?? ""
+    resolveStatusColumn(board)?.id ?? ""
   );
   const progressColumn = board.columns.find(
     (c) => c.id === board.progressColumnId
@@ -219,7 +221,7 @@ export function BoardView({
                     : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 }`}
               >
-                <Bug size={14} /> <span className="hidden sm:inline">Issue</span>
+                <Bug size={14} /> <span className="hidden sm:inline">議題</span>
               </button>
             )}
             <button
