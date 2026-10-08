@@ -18,6 +18,9 @@ import {
 
 const line = (overrides: Partial<NreLineInput> = {}): NreLineInput => ({
   category: "TOOLING",
+  phaseId: "p1",
+  startDate: null,
+  endDate: null,
   description: "外殼塑膠射出鋼模",
   basis: "",
   vendor: "",
@@ -107,7 +110,7 @@ describe("summarizeNre", () => {
 });
 
 describe("類別設定", () => {
-  it("四大項都有名稱與欄位說明;研發人力的數量是工時、單價是時薪", () => {
+  it("每一大項都有名稱與欄位說明;研發人力的數量是工時、單價是時薪", () => {
     for (const c of NRE_CATEGORIES) {
       expect(NRE_LABELS[c]).toBeTruthy();
       expect(NRE_CATEGORY_GUIDE[c].hint).toBeTruthy();
@@ -131,6 +134,9 @@ describe("parseNumberField", () => {
 describe("匯入比對 planNreImport", () => {
   const existing = (overrides: Partial<NreExistingLine> & { id: string }): NreExistingLine => ({
     category: "TOOLING",
+    phaseId: "p1",
+    startDate: null,
+    endDate: null,
     description: "外殼塑膠射出鋼模",
     basis: "",
     vendor: "",
@@ -182,6 +188,9 @@ describe("sameNreContent / describeNreChange", () => {
   const before: NreExistingLine = {
     id: "a",
     category: "LABOUR",
+    phaseId: "p1",
+    startDate: null,
+    endDate: null,
     description: "設計",
     basis: "3 人 × 3 個月",
     vendor: "弘泰",
@@ -216,14 +225,81 @@ describe("summarizeNreByPhase(整個專案的 NRE)", () => {
       { phaseId: "p2", category: "CERTIFICATION", amount: 140000 },
     ]);
     expect(s.rows.map((r) => [r.phaseName, r.total])).toEqual([["POC", 950000], ["EVT", 200000], ["DVT", 0]]);
-    expect(s.rows[0].byCategory).toEqual({ LABOUR: 400000, TOOLING: 550000, PROTOTYPE: 0, CERTIFICATION: 0 });
-    expect(s.byCategory).toEqual({ LABOUR: 400000, TOOLING: 610000, PROTOTYPE: 0, CERTIFICATION: 140000 });
+    expect(s.rows[0].byCategory).toEqual({ LABOUR: 400000, COMMISSIONED: 0, TOOLING: 550000, PROTOTYPE: 0, CERTIFICATION: 0 });
+    expect(s.byCategory).toEqual({ LABOUR: 400000, COMMISSIONED: 0, TOOLING: 610000, PROTOTYPE: 0, CERTIFICATION: 140000 });
     expect(s.total).toBe(1150000);
   });
 
-  it("沒填報價單的階段也有一列(0);不屬於任何階段的資料不算", () => {
+  it("沒填報價單的階段也有一列(0);不屬於這個看板任何階段的資料不算", () => {
     const s = summarizeNreByPhase(phases, [{ phaseId: "gone", category: "TOOLING", amount: 999 }]);
     expect(s.rows).toHaveLength(3);
     expect(s.total).toBe(0);
+  });
+
+  it("涵蓋整個專案的委託開發(沒有階段)另外一列,而且算進全部的合計", () => {
+    const s = summarizeNreByPhase(phases, [
+      { phaseId: "p1", category: "COMMISSIONED", amount: 300000 },
+      { phaseId: null, category: "COMMISSIONED", amount: 900000 },
+      { phaseId: "p2", category: "TOOLING", amount: 60000 },
+    ]);
+    expect(s.projectWide).toEqual({ byCategory: { LABOUR: 0, COMMISSIONED: 900000, TOOLING: 0, PROTOTYPE: 0, CERTIFICATION: 0 }, total: 900000 });
+    expect(s.rows.map((r) => r.total)).toEqual([300000, 60000, 0]);
+    expect(s.byCategory.COMMISSIONED).toBe(1200000);
+    expect(s.total).toBe(1260000);
+  });
+});
+
+describe("委託開發", () => {
+  const commissioned = (overrides: Partial<NreLineInput> = {}) =>
+    line({ category: "COMMISSIONED", description: "主控板硬體設計", vendor: "弘泰工程", amount: 300000, ...overrides });
+
+  it("類別設定:委託單位、委託項目,排在研發人力之後", () => {
+    expect(NRE_LABELS.COMMISSIONED).toBe("委託開發");
+    expect(NRE_CATEGORY_GUIDE.COMMISSIONED.vendorLabel).toBe("委託單位");
+    expect(NRE_CATEGORY_GUIDE.COMMISSIONED.descriptionLabel).toBe("委託項目");
+    expect(NRE_CATEGORIES.indexOf("COMMISSIONED")).toBe(NRE_CATEGORIES.indexOf("LABOUR") + 1);
+  });
+
+  it("掛在某個階段、或涵蓋整個專案(phaseId 是 null)都可以;有時間範圍也可以", () => {
+    expect(validateNreLine(commissioned())).toBeNull();
+    expect(validateNreLine(commissioned({ phaseId: null }))).toBeNull();
+    expect(validateNreLine(commissioned({ phaseId: null, startDate: "2026-10-01", endDate: "2026-12-31" }))).toBeNull();
+    expect(validateNreLine(commissioned({ startDate: "2026-10-01", endDate: "2026-10-01" }))).toBeNull();
+  });
+
+  it("缺少的欄位提示用「委託項目」", () => {
+    expect(validateNreLine(commissioned({ description: " " }))).toContain("委託項目");
+  });
+
+  it("時間範圍:起訖要一起填、日期要正確、結束不能早於開始", () => {
+    expect(validateNreLine(commissioned({ startDate: "2026-10-01" }))).toContain("起訖");
+    expect(validateNreLine(commissioned({ endDate: "2026-10-01" }))).toContain("起訖");
+    expect(validateNreLine(commissioned({ startDate: "2026/10/01", endDate: "2026-12-31" }))).toContain("格式");
+    expect(validateNreLine(commissioned({ startDate: "2026-02-30", endDate: "2026-12-31" }))).toContain("格式");
+    expect(validateNreLine(commissioned({ startDate: "2026-12-31", endDate: "2026-10-01" }))).toContain("不能早於");
+  });
+
+  it("別的類別一定要屬於一個階段、也沒有時間範圍", () => {
+    expect(validateNreLine(line({ phaseId: null }))).toContain("只有委託開發");
+    expect(validateNreLine(line({ startDate: "2026-10-01", endDate: "2026-12-31" }))).toContain("只有委託開發");
+  });
+
+  it("匯入比對:同名的委託項目掛在不同範圍是兩列,不會互相蓋掉", () => {
+    const plan = planNreImport(
+      [{ id: "a", category: "COMMISSIONED", phaseId: "p1", startDate: null, endDate: null, description: "主控板硬體設計", basis: "", vendor: "弘泰工程", quantity: null, unitPrice: null, amount: 100, note: "" }],
+      [commissioned({ phaseId: null }), commissioned({ phaseId: "p1", amount: 100 })]
+    );
+    expect(plan.unchanged).toBe(1);
+    expect(plan.creates.map((c) => c.phaseId)).toEqual([null]);
+  });
+
+  it("改了時間範圍、範圍或委託單位:算有變動,並且說出改了什麼", () => {
+    const before: NreExistingLine = { id: "a", category: "COMMISSIONED", phaseId: "p1", startDate: "2026-10-01", endDate: "2026-12-31", description: "主控板硬體設計", basis: "", vendor: "弘泰工程", quantity: null, unitPrice: null, amount: 300000, note: "" };
+    expect(sameNreContent(commissioned({ startDate: "2026-10-01", endDate: "2026-12-31" }), before)).toBe(true);
+    const moved = commissioned({ phaseId: null, startDate: "2026-11-01", endDate: "2027-01-31" });
+    expect(sameNreContent(moved, before)).toBe(false);
+    expect(describeNreChange(before, moved, (id) => (id === null ? "整個專案" : "POC"))).toBe(
+      "範圍 POC → 整個專案、時間範圍 2026-10-01 ~ 2026-12-31 → 2026-11-01 ~ 2027-01-31"
+    );
   });
 });

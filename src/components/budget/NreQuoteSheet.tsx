@@ -12,12 +12,14 @@ import {
   importNreWorkbook,
   saveNreLine,
   type NreLineRow,
+  type NrePhase,
   type NreSheet,
 } from "@/lib/actions/nre";
 import {
   NRE_CATEGORIES,
   NRE_CATEGORY_GUIDE,
   NRE_LABELS,
+  WHOLE_PROJECT_LABEL,
   parseNumberField,
   resolveNreAmount,
   summarizeNre,
@@ -37,9 +39,29 @@ type Fields = {
   unitPrice: string;
   amount: string;
   note: string;
+  /** 時間範圍(只有委託開發),"YYYY-MM-DD" 或空白。 */
+  startDate: string;
+  endDate: string;
+  /** 範圍(只有委託開發):階段的 id;空字串 = 涵蓋整個專案。 */
+  scope: string;
 };
 
-const EMPTY_FIELDS: Fields = { description: "", basis: "", vendor: "", quantity: "", unitPrice: "", amount: "", note: "" };
+/** 畫面所在的階段,以及這個看板所有的階段(委託開發的範圍下拉要用)。 */
+type Context = { phaseId: string; phases: NrePhase[] };
+
+/** 新的一列:委託開發的範圍預設是現在這個階段。 */
+const emptyFields = (phaseId: string): Fields => ({
+  description: "",
+  basis: "",
+  vendor: "",
+  quantity: "",
+  unitPrice: "",
+  amount: "",
+  note: "",
+  startDate: "",
+  endDate: "",
+  scope: phaseId,
+});
 
 function toFields(line: NreLineRow): Fields {
   return {
@@ -50,19 +72,27 @@ function toFields(line: NreLineRow): Fields {
     unitPrice: line.unitPrice === null ? "" : String(line.unitPrice),
     amount: String(line.amount),
     note: line.note,
+    startDate: line.startDate ?? "",
+    endDate: line.endDate ?? "",
+    scope: line.phaseId ?? "",
   };
 }
 
 /** 輸入框的文字轉成要存的內容;數字欄位不是數字就回錯誤訊息。 */
-function toInput(category: NreCategoryKey, f: Fields): NreLineInput | string {
+function toInput(category: NreCategoryKey, f: Fields, phaseId: string): NreLineInput | string {
   const quantity = parseNumberField(f.quantity);
   const unitPrice = parseNumberField(f.unitPrice);
   const amount = parseNumberField(f.amount);
   if (Number.isNaN(quantity)) return "數量不是數字";
   if (Number.isNaN(unitPrice)) return "單價不是數字";
   if (Number.isNaN(amount)) return "金額不是數字";
+  // 範圍與時間範圍只有委託開發有;別類永遠掛在現在這個階段。
+  const commissioned = category === "COMMISSIONED";
   return {
     category,
+    phaseId: commissioned ? f.scope || null : phaseId,
+    startDate: commissioned ? f.startDate || null : null,
+    endDate: commissioned ? f.endDate || null : null,
     description: f.description,
     basis: f.basis,
     vendor: f.vendor,
@@ -81,7 +111,10 @@ function sameAsLine(input: NreLineInput, line: NreLineRow): boolean {
     input.quantity === line.quantity &&
     (input.unitPrice === null ? null : Math.round(input.unitPrice)) === line.unitPrice &&
     resolveNreAmount(input) === line.amount &&
-    input.note.trim() === line.note
+    input.note.trim() === line.note &&
+    input.phaseId === line.phaseId &&
+    input.startDate === line.startDate &&
+    input.endDate === line.endDate
   );
 }
 
@@ -94,35 +127,59 @@ function isComputed(f: Fields): boolean {
 
 function FieldCells({
   category,
+  context,
   fields,
   onChange,
   disabled,
 }: {
   category: NreCategoryKey;
+  context: Context;
   fields: Fields;
   onChange: (next: Fields) => void;
   disabled: boolean;
 }) {
   const guide = NRE_CATEGORY_GUIDE[category];
   const set = (key: keyof Fields) => (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...fields, [key]: e.target.value });
-  const input = toInput(category, fields);
+  // 委託開發的欄位多,輸入框的最小寬度縮一點,才放得進一個畫面。
+  const compact = category === "COMMISSIONED";
+  const input = toInput(category, fields, context.phaseId);
   const computed = isComputed(fields) && typeof input !== "string" ? resolveNreAmount(input) : null;
   return (
     <>
       <td className="px-1.5 py-1">
-        <input value={fields.description} onChange={set("description")} disabled={disabled} placeholder={guide.descriptionExample} className={`${fieldClass} min-w-[12rem]`} aria-label="細項說明" />
+        <input value={fields.description} onChange={set("description")} disabled={disabled} placeholder={guide.descriptionExample} className={`${fieldClass} ${compact ? "min-w-[10rem]" : "min-w-[12rem]"}`} aria-label={guide.descriptionLabel} />
       </td>
       <td className="px-1.5 py-1">
-        <input value={fields.basis} onChange={set("basis")} disabled={disabled} placeholder={guide.basisExample} className={`${fieldClass} min-w-[9rem]`} aria-label="估算基礎" />
+        <input value={fields.basis} onChange={set("basis")} disabled={disabled} placeholder={guide.basisExample} className={`${fieldClass} ${compact ? "min-w-[7rem]" : "min-w-[9rem]"}`} aria-label="估算基礎" />
       </td>
       <td className="px-1.5 py-1">
         <input value={fields.vendor} onChange={set("vendor")} disabled={disabled} placeholder={guide.vendorLabel} className={`${fieldClass} min-w-[7rem]`} aria-label={guide.vendorLabel} />
       </td>
+      {category === "COMMISSIONED" && (
+        <>
+          <td className="px-1.5 py-1">
+            <input type="date" value={fields.startDate} onChange={set("startDate")} disabled={disabled} max={fields.endDate || undefined} className={`${fieldClass} w-[7.75rem]`} aria-label="開始日" />
+          </td>
+          <td className="px-1.5 py-1">
+            <input type="date" value={fields.endDate} onChange={set("endDate")} disabled={disabled} min={fields.startDate || undefined} className={`${fieldClass} w-[7.75rem]`} aria-label="結束日" />
+          </td>
+          <td className="px-1.5 py-1">
+            <select value={fields.scope} onChange={(e) => onChange({ ...fields, scope: e.target.value })} disabled={disabled} className={`${fieldClass} min-w-[7rem]`} aria-label="範圍">
+              <option value="">{WHOLE_PROJECT_LABEL}</option>
+              {context.phases.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </td>
+        </>
+      )}
       <td className="px-1.5 py-1">
-        <input value={fields.quantity} onChange={set("quantity")} disabled={disabled} inputMode="decimal" placeholder={guide.quantityLabel} className={`${fieldClass} w-20 text-right tabular-nums`} aria-label={guide.quantityLabel} />
+        <input value={fields.quantity} onChange={set("quantity")} disabled={disabled} inputMode="decimal" placeholder={guide.quantityLabel} className={`${fieldClass} min-w-[4rem] text-right tabular-nums`} aria-label={guide.quantityLabel} />
       </td>
       <td className="px-1.5 py-1">
-        <input value={fields.unitPrice} onChange={set("unitPrice")} disabled={disabled} inputMode="numeric" placeholder={guide.unitPriceLabel} className={`${fieldClass} w-24 text-right tabular-nums`} aria-label={guide.unitPriceLabel} />
+        <input value={fields.unitPrice} onChange={set("unitPrice")} disabled={disabled} inputMode="numeric" placeholder={guide.unitPriceLabel} className={`${fieldClass} min-w-[5rem] text-right tabular-nums`} aria-label={guide.unitPriceLabel} />
       </td>
       <td className="px-1.5 py-1 text-right">
         {computed !== null ? (
@@ -134,7 +191,7 @@ function FieldCells({
         )}
       </td>
       <td className="px-1.5 py-1">
-        <input value={fields.note} onChange={set("note")} disabled={disabled} placeholder="備註" className={`${fieldClass} min-w-[8rem]`} aria-label="備註" />
+        <input value={fields.note} onChange={set("note")} disabled={disabled} placeholder="備註" className={`${fieldClass} ${compact ? "min-w-[6rem]" : "min-w-[8rem]"}`} aria-label="備註" />
       </td>
     </>
   );
@@ -145,12 +202,14 @@ type SaveResult = { error?: string };
 /** 已存在的一列:離開這一列(焦點移到別的地方)才存,在同一列的欄位之間移動不會存。 */
 function NreRow({
   category,
+  context,
   line,
   canEdit,
   onSave,
   onDelete,
 }: {
   category: NreCategoryKey;
+  context: Context;
   line: NreLineRow;
   canEdit: boolean;
   onSave: (input: NreLineInput & { id: string }) => Promise<SaveResult>;
@@ -167,7 +226,7 @@ function NreRow({
 
   async function commit() {
     if (!canEdit) return;
-    const input = toInput(category, fields);
+    const input = toInput(category, fields, context.phaseId);
     if (typeof input === "string") {
       await notify(input, { title: "無法儲存" });
       setFields(toFields(line));
@@ -187,7 +246,7 @@ function NreRow({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) void commit();
       }}
     >
-      <FieldCells category={category} fields={fields} onChange={setFields} disabled={!canEdit} />
+      <FieldCells category={category} context={context} fields={fields} onChange={setFields} disabled={!canEdit} />
       <td className="px-1.5 py-1 text-right">
         {canEdit && (
           <button
@@ -207,18 +266,20 @@ function NreRow({
 /** 最下面那一列空白:填好按「加入」(或在細項說明按 Enter)才新增。 */
 function NreDraftRow({
   category,
+  context,
   onAdd,
 }: {
   category: NreCategoryKey;
+  context: Context;
   onAdd: (input: NreLineInput) => Promise<SaveResult>;
 }) {
   const { notify } = useDialogs();
-  const [fields, setFields] = useState<Fields>(EMPTY_FIELDS);
+  const [fields, setFields] = useState<Fields>(() => emptyFields(context.phaseId));
   const [busy, setBusy] = useState(false);
 
   async function add() {
     if (busy) return;
-    const input = toInput(category, fields);
+    const input = toInput(category, fields, context.phaseId);
     if (typeof input === "string") {
       await notify(input, { title: "無法加入" });
       return;
@@ -227,7 +288,7 @@ function NreDraftRow({
     try {
       const result = await onAdd(input);
       if (result.error) await notify(result.error, { title: "無法加入" });
-      else setFields(EMPTY_FIELDS);
+      else setFields(emptyFields(context.phaseId));
     } finally {
       setBusy(false);
     }
@@ -243,7 +304,7 @@ function NreDraftRow({
         }
       }}
     >
-      <FieldCells category={category} fields={fields} onChange={setFields} disabled={busy} />
+      <FieldCells category={category} context={context} fields={fields} onChange={setFields} disabled={busy} />
       <td className="px-1.5 py-1 text-right">
         <button
           type="button"
@@ -260,6 +321,7 @@ function NreDraftRow({
 
 function NreSection({
   category,
+  context,
   lines,
   subtotal,
   canEdit,
@@ -268,6 +330,7 @@ function NreSection({
   onDelete,
 }: {
   category: NreCategoryKey;
+  context: Context;
   lines: NreLineRow[];
   subtotal: number;
   canEdit: boolean;
@@ -276,6 +339,8 @@ function NreSection({
   onDelete: (line: NreLineRow) => void;
 }) {
   const guide = NRE_CATEGORY_GUIDE[category];
+  const commissioned = category === "COMMISSIONED";
+  const columns = commissioned ? 12 : 8;
   return (
     <section className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900">
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-100 px-3 py-2 dark:border-neutral-800">
@@ -288,12 +353,19 @@ function NreSection({
         </p>
       </header>
       <HScrollPane>
-        <table className="w-full min-w-[960px] text-xs">
+        <table className={`w-full text-xs ${commissioned ? "min-w-[1200px]" : "min-w-[960px]"}`}>
           <thead className="text-neutral-500 dark:text-neutral-400">
             <tr>
-              <th className="px-1.5 py-1.5 text-left font-medium">細項說明</th>
+              <th className="px-1.5 py-1.5 text-left font-medium">{guide.descriptionLabel}</th>
               <th className="px-1.5 py-1.5 text-left font-medium">估算基礎</th>
               <th className="px-1.5 py-1.5 text-left font-medium">{guide.vendorLabel}</th>
+              {commissioned && (
+                <>
+                  <th className="px-1.5 py-1.5 text-left font-medium">開始日</th>
+                  <th className="px-1.5 py-1.5 text-left font-medium">結束日</th>
+                  <th className="px-1.5 py-1.5 text-left font-medium">範圍</th>
+                </>
+              )}
               <th className="px-1.5 py-1.5 text-right font-medium">{guide.quantityLabel}</th>
               <th className="px-1.5 py-1.5 text-right font-medium">{guide.unitPriceLabel}</th>
               <th className="px-1.5 py-1.5 text-right font-medium">金額(元)</th>
@@ -303,16 +375,16 @@ function NreSection({
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {lines.map((line) => (
-              <NreRow key={line.id} category={category} line={line} canEdit={canEdit} onSave={onSave} onDelete={onDelete} />
+              <NreRow key={line.id} category={category} context={context} line={line} canEdit={canEdit} onSave={onSave} onDelete={onDelete} />
             ))}
             {lines.length === 0 && !canEdit && (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-center text-neutral-400 dark:text-neutral-500">
+                <td colSpan={columns} className="px-3 py-4 text-center text-neutral-400 dark:text-neutral-500">
                   這一類還沒有項目。
                 </td>
               </tr>
             )}
-            {canEdit && <NreDraftRow category={category} onAdd={onAdd} />}
+            {canEdit && <NreDraftRow category={category} context={context} onAdd={onAdd} />}
           </tbody>
         </table>
       </HScrollPane>
@@ -321,8 +393,9 @@ function NreSection({
 }
 
 /**
- * NRE(一次性工程費用)報價單:照四大項逐列填細項說明、估算基礎、外部單位 / 人員、數量(研發人力是工時)、
- * 單價(研發人力是時薪)與金額,自動算各類小計與總計。
+ * NRE(一次性工程費用)報價單:照各大項逐列填細項說明、估算基礎、外部單位 / 人員、數量(研發人力是工時)、
+ * 單價(研發人力是時薪)與金額,自動算各類小計與總計。委託開發另外有委託單位、委託項目、時間範圍,
+ * 以及範圍(哪一個階段,或涵蓋整個專案)。
  *
  * 這是估算與報價的依據,不會寫進「階段預算」的核准預算——兩邊各自獨立。
  */
@@ -350,14 +423,24 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
   if (sheet === undefined) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (sheet === null) return <p className="text-sm text-neutral-400 dark:text-neutral-500">找不到這個階段。</p>;
 
+  const { boardId, phases } = sheet;
+  const context: Context = { phaseId, phases };
+
   async function reload() {
     setSheet(await getNreSheet(phaseId));
   }
 
   async function save(input: NreLineInput & { id?: string }): Promise<SaveResult> {
     try {
-      const result = await saveNreLine(phaseId, input);
-      if (!result.error) await reload();
+      const result = await saveNreLine(boardId, input);
+      if (!result.error) {
+        await reload();
+        // 委託開發選了別的階段:那一列屬於那個階段的報價單,不在這個畫面裡,說一聲免得以為不見了。
+        if (input.phaseId !== null && input.phaseId !== phaseId) {
+          const name = phases.find((p) => p.id === input.phaseId)?.name ?? "";
+          await notify(`「${input.description.trim()}」已存到「${name}」階段的報價單。`, { title: "已儲存" });
+        }
+      }
       return result;
     } catch {
       return { error: "儲存失敗,請重新整理後再試一次。" };
@@ -448,7 +531,7 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
   async function remove(line: NreLineRow) {
     if (!(await confirm(`刪除「${line.description}」(${formatMoney(line.amount)} 元)?`, { title: "刪除這一列", confirmLabel: "刪除", danger: true }))) return;
     try {
-      const result = await deleteNreLine(phaseId, line.id);
+      const result = await deleteNreLine(boardId, line.id);
       if (result.error) await notify(result.error, { title: "無法刪除" });
       else await reload();
     } catch {
@@ -460,7 +543,7 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="max-w-3xl text-xs text-neutral-500 dark:text-neutral-400">
-          照 NRE 的四大項逐列填,有數量跟單價就自動相乘,沒有就直接填金額;離開那一列時自動儲存。這是估算與報價的依據,
+          照 NRE 的各大項逐列填,有數量跟單價就自動相乘,沒有就直接填金額;離開那一列時自動儲存。這是估算與報價的依據,
           <b>不會寫進「階段預算」的核准預算</b>。
         </p>
         <div className="flex shrink-0 items-center gap-2">
@@ -510,6 +593,7 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
         <NreSection
           key={category}
           category={category}
+          context={context}
           lines={lines.filter((l) => l.category === category)}
           subtotal={summary.byCategory[category].total}
           canEdit={sheet.canEdit}

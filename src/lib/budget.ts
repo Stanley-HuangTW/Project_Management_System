@@ -26,7 +26,7 @@ export const CATEGORY_LABELS: Record<CostCategory, string> = {
   MATERIAL: "材料(打樣與樣品)",
   TOOLING: "模具與治具",
   CERTIFICATION: "驗證與認證",
-  OUTSOURCING: "委外",
+  OUTSOURCING: "委託開發",
   TRAVEL: "差旅",
   OTHER: "其他",
 };

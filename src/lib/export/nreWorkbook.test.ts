@@ -5,6 +5,9 @@ import { NRE_SHEET_NAME, buildNreWorkbook, parseNreWorkbook, type NreWorkbookLin
 
 const line = (overrides: Partial<NreWorkbookLine> = {}): NreWorkbookLine => ({
   category: "TOOLING",
+  startDate: null,
+  endDate: null,
+  scope: "",
   description: "外殼塑膠射出鋼模",
   basis: "",
   vendor: "",
@@ -104,6 +107,37 @@ describe("buildNreWorkbook", () => {
     expect(total?.formula).toMatch(/^SUM\(G6,G11,G\d+\)$/);
   });
 
+  it("委託開發:排在研發人力之後,表頭是委託項目 / 委託單位,多開始日、結束日、範圍三欄", async () => {
+    const ws = await build([
+      line({ category: "LABOUR", description: "設計", amount: 1000 }),
+      line({ category: "COMMISSIONED", description: "主控板硬體設計", vendor: "弘泰工程", startDate: "2026-10-01", endDate: "2026-12-31", scope: "POC", amount: 300000, note: "分三期付款" }),
+      line({ category: "COMMISSIONED", description: "韌體開發", vendor: "宏碁", quantity: 2, unitPrice: 50000, amount: 100000, scope: "整個專案", startDate: "2026-09-01", endDate: "2027-03-31" }),
+    ]);
+    expect(outline(ws).slice(0, 8)).toEqual([
+      "研發人力工時|細項說明",
+      "|設計",
+      "小計|",
+      "委託開發|委託項目",
+      "|主控板硬體設計",
+      "|韌體開發",
+      "小計|",
+      "NRE 總計|",
+    ]);
+    // 委託開發的表頭在第 8 列(研發人力的區塊 4–6 列,空一列)。
+    const header = Array.from({ length: 11 }, (_, i) => ws.getCell(8, i + 1).text);
+    expect(header).toEqual(["委託開發", "委託項目", "估算基礎", "委託單位", "數量", "單價(元)", "金額(元)", "備註", "開始日", "結束日", "範圍"]);
+    expect([4, 8, 9, 10, 11].map((c) => ws.getCell(9, c).text)).toEqual(["弘泰工程", "分三期付款", "2026-10-01", "2026-12-31", "POC"]);
+    expect([9, 10, 11].map((c) => ws.getCell(10, c).text)).toEqual(["2026-09-01", "2027-03-31", "整個專案"]);
+    expect((ws.getCell(10, 7).value as ExcelJS.CellFormulaValue).formula).toBe("ROUND(E10*F10,0)");
+  });
+
+  it("沒有委託開發時不多那三欄(標題合併 8 欄)", async () => {
+    const ws = await build(sample);
+    expect(ws.getCell(4, 9).text).toBe("");
+    expect(ws.getCell(1, 8).isMerged).toBe(true);
+    expect(ws.getCell(1, 9).isMerged).toBe(false);
+  });
+
   it("沒有任何項目:只有標題與總計 0,不會壞掉", async () => {
     const ws = await build([]);
     expect(outline(ws).some((l) => l.startsWith("NRE 總計"))).toBe(true);
@@ -125,7 +159,7 @@ describe("buildNreWorkbook", () => {
 });
 
 /** 手動做一份報價單 Excel:每一列是一個陣列,直接放進工作表。 */
-async function handMade(rows: (string | number | null | { formula: string; result: number })[][], sheetName = "隨便取的名字") {
+async function handMade(rows: (string | number | Date | null | { formula: string; result: number })[][], sheetName = "隨便取的名字") {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(sheetName);
   rows.forEach((values) => ws.addRow(values as ExcelJS.CellValue[]));
@@ -209,6 +243,67 @@ describe("parseNreWorkbook(匯入)", () => {
     expect(parsed.warnings[1]).toContain("「數量壞掉」的數量不是數字");
     expect(parsed.warnings[2]).toContain("金額必須是 0 或正數");
     expect(parsed.warnings[3]).toContain("太長");
+  });
+
+  describe("委託開發", () => {
+    const header = ["委託開發", "委託項目", "估算基礎", "委託單位", "數量", "單價(元)", "金額(元)", "備註", "開始日", "結束日", "範圍"];
+
+    it("匯出再匯入拿回同一份:委託單位、委託項目、時間範圍、範圍都在", async () => {
+      const commissioned: NreWorkbookLine[] = [
+        line({ category: "COMMISSIONED", description: "主控板硬體設計", vendor: "弘泰工程", startDate: "2026-10-01", endDate: "2026-12-31", scope: "POC", amount: 300000, note: "分三期付款" }),
+        line({ category: "COMMISSIONED", description: "韌體開發", vendor: "宏碁", quantity: 2, unitPrice: 50000, amount: 100000, scope: "整個專案", startDate: "2026-09-01", endDate: "2027-03-31" }),
+        line({ category: "COMMISSIONED", description: "沒填時間範圍", amount: 5, scope: "POC" }),
+        line({ category: "TOOLING", description: "鋼模", amount: 550000 }),
+      ];
+      const buffer = await buildNreWorkbook({ boardName: "示範專案", phaseName: "POC", exportedOn: "2026-10-08", lines: commissioned });
+      const parsed = await parseNreWorkbook(buffer);
+      expect(parsed.error).toBeUndefined();
+      expect(parsed.warnings).toEqual([]);
+      expect(parsed.lines.map(({ row, ...rest }) => { void row; return rest; })).toEqual(commissioned);
+    });
+
+    it("日期可以寫文字(2026/10/8)或真正的 Excel 日期;壞掉的日期整列略過", async () => {
+      const buffer = await handMade([
+        header,
+        [null, "文字日期", null, "甲", null, null, 100, null, "2026/10/8", "2026-12-31", "整個專案"],
+        [null, "Excel 日期", null, "乙", null, null, 200, null, new Date(Date.UTC(2026, 9, 1)), new Date(Date.UTC(2026, 11, 31)), "POC"],
+        [null, "壞日期", null, "丙", null, null, 300, null, "下個月", "2026-12-31", null],
+        [null, "只填開始", null, "丁", null, null, 400, null, "2026-10-01", null, null],
+        [null, "倒著填", null, "戊", null, null, 500, null, "2026-12-31", "2026-10-01", null],
+      ]);
+      const parsed = await parseNreWorkbook(buffer);
+      expect(parsed.lines.map((l) => [l.description, l.startDate, l.endDate, l.scope])).toEqual([
+        ["文字日期", "2026-10-08", "2026-12-31", "整個專案"],
+        ["Excel 日期", "2026-10-01", "2026-12-31", "POC"],
+      ]);
+      expect(parsed.warnings).toHaveLength(3);
+      expect(parsed.warnings[0]).toContain("「壞日期」的開始日不是日期");
+      expect(parsed.warnings[1]).toContain("起訖");
+      expect(parsed.warnings[2]).toContain("不能早於");
+    });
+
+    it("沒有開始日 / 結束日 / 範圍欄的委託開發也讀得進來(全部當作沒填)", async () => {
+      const buffer = await handMade([
+        ["委託開發", "委託項目", "估算基礎", "委託單位", "數量", "單價(元)", "金額(元)", "備註"],
+        [null, "只有基本欄位", null, "甲", null, null, 100, null],
+      ]);
+      const [l] = (await parseNreWorkbook(buffer)).lines;
+      expect(l).toMatchObject({ category: "COMMISSIONED", description: "只有基本欄位", vendor: "甲", startDate: null, endDate: null, scope: "" });
+    });
+
+    it("別的類別就算有開始日那幾欄也不讀", async () => {
+      const buffer = await handMade([
+        ["模具與治具", "細項說明", "估算基礎", "廠商", "數量", "單價(元)", "金額(元)", "備註", "開始日", "結束日", "範圍"],
+        [null, "鋼模", null, null, null, null, 100, null, "2026-10-01", "2026-12-31", "整個專案"],
+      ]);
+      const [l] = (await parseNreWorkbook(buffer)).lines;
+      expect(l).toMatchObject({ category: "TOOLING", startDate: null, endDate: null, scope: "" });
+    });
+
+    it("沒有委託項目的列:說明是缺「委託項目」", async () => {
+      const buffer = await handMade([header, [null, null, null, "甲", null, null, 100, null, null, null, null]]);
+      expect((await parseNreWorkbook(buffer)).warnings[0]).toContain("沒有委託項目");
+    });
   });
 
   it("不是 xlsx 的檔案:回錯誤,不會丟例外", async () => {

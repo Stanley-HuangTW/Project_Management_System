@@ -262,6 +262,7 @@ model Board {
   protoPlans     ProtoPlan[]
   bomLines       BomLine[]
   budgetProducts BudgetProduct[]
+  nreLines       NreLine[]
 
   @@index([deletedAt])
   activityTimeEntries ActivityTimeEntry[]
@@ -1574,16 +1575,25 @@ enum NreCategory {
   PROTOTYPE
   /// 驗證與認證:環境 / 壽命測試、法規認證。
   CERTIFICATION
+  /// 委託開發:委託外部單位開發的項目(委託單位、委託項目、時間範圍,哪一個階段或涵蓋整個專案)。
+  COMMISSIONED
 }
 
-/// NRE(一次性工程費用)報價單的一列,掛在預算階段上。
+/// NRE(一次性工程費用)報價單的一列。
+///
+/// 一般掛在一個預算階段上;委託開發那一類可以不掛階段(phaseId 是 null),代表涵蓋整個專案。
+/// 所以每一列都帶 boardId——整個專案的合計要靠它找得到那些沒有階段的列。
 ///
 /// 有數量跟單價時,金額就是兩者相乘(存的時候算好,所有加總讀 amount 一欄);
-/// 沒有的話金額直接填。研發人力那一類的 vendor 是外部單位或人員,數量是工時、單價是時薪。
+/// 沒有的話金額直接填。研發人力那一類的 vendor 是外部單位或人員,數量是工時、單價是時薪;
+/// 委託開發那一類的 vendor 是委託單位、description 是委託項目,並且有時間範圍。
 model NreLine {
-  id          String      @id @default(cuid())
-  phaseId     String
-  phase       BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  id          String       @id @default(cuid())
+  boardId     String
+  board       Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// null = 涵蓋整個專案(只有委託開發可以)。
+  phaseId     String?
+  phase       BudgetPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   category    NreCategory
   /// 同一類別裡的排列順序。
   order       Int         @default(0)
@@ -1598,6 +1608,9 @@ model NreLine {
   unitPrice   Int?
   /// 元,存的是算好的金額。
   amount      Int
+  /// 時間範圍,"YYYY-MM-DD"(委託開發用;起訖要一起填或一起空白)。
+  startDate   String?
+  endDate     String?
   note        String?
 
   createdById String?
@@ -1605,6 +1618,7 @@ model NreLine {
   updatedAt   DateTime @updatedAt
 
   @@index([phaseId, category, order])
+  @@index([boardId, category, order])
 }
 
 /// 一筆核准預算:由上而下的那個數字。
