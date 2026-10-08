@@ -1,5 +1,5 @@
 /**
- * MantisBT 議題 → 風險與議題。純邏輯:不打 Mantis、不碰資料庫,同步程式、設定畫面與測試共用。
+ * MantisBT 問題 → 風險與問題。純邏輯:不打 Mantis、不碰資料庫,同步程式、設定畫面與測試共用。
  *
  * 欄位名稱照 MantisBT REST API(/api/rest/issues)回傳的 JSON;每個欄位都當成可能沒有——
  * 不同版本、不同設定回來的欄位不完全一樣,缺了就用保守的預設值,不要整批同步失敗。
@@ -52,7 +52,7 @@ export function issueUrl(baseUrl: string, id: number): string {
   return `${baseUrl}/view.php?id=${id}`;
 }
 
-/** 一個連結如果是這個 Mantis 網站的議題頁(view.php?id=123),回議題編號,不是就 null。 */
+/** 一個連結如果是這個 Mantis 網站的問題頁(view.php?id=123),回問題編號,不是就 null。 */
 export function mantisIdFromUrl(url: string, baseUrl: string): number | null {
   let link: URL;
   let base: URL;
@@ -124,7 +124,7 @@ export function buildDescription(issue: MantisIssue): string {
   return text.length > MAX_DESCRIPTION ? `${text.slice(0, MAX_DESCRIPTION)}…` : text;
 }
 
-/** 同步下來之後,風險與議題上的欄位。 */
+/** 同步下來之後,風險與問題上的欄位。 */
 export type MappedIssue = {
   mantisId: number;
   mantisUrl: string;
@@ -138,7 +138,7 @@ export type MappedIssue = {
   title: string;
   description: string;
   status: RiskStatus;
-  /** 議題是已經發生的事,機率固定最高;排序靠衝擊(嚴重度)。 */
+  /** 問題是已經發生的事,機率固定最高;排序靠衝擊(嚴重度)。 */
   probability: number;
   impact: number;
   /** 處理人的 Email,拿去對應本系統的使用者(對不到就沒有負責人)。 */

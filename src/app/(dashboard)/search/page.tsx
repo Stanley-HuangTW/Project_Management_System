@@ -7,7 +7,7 @@ const KIND_META: Record<SearchHit["kind"], { label: string; Icon: typeof FileTex
   item: { label: "工作項", Icon: FileText },
   comment: { label: "留言", Icon: MessageSquare },
   attachment: { label: "附件", Icon: Paperclip },
-  risk: { label: "風險/議題", Icon: ShieldAlert },
+  risk: { label: "風險/問題", Icon: ShieldAlert },
 };
 
 export default async function SearchPage({
@@ -26,7 +26,7 @@ export default async function SearchPage({
 
       {query.length < 2 ? (
         <p className="mt-6 text-sm text-neutral-400 dark:text-neutral-500">
-          輸入至少兩個字,會搜尋你看得到的所有看板:工作項名稱、留言、附件檔名、風險與議題。
+          輸入至少兩個字,會搜尋你看得到的所有看板:工作項名稱、留言、附件檔名、風險與問題。
         </p>
       ) : hits.length === 0 ? (
         <p className="mt-6 text-sm text-neutral-400 dark:text-neutral-500">找不到「{query}」。</p>

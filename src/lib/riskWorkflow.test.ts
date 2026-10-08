@@ -126,7 +126,7 @@ describe("describeRiskChanges", () => {
       itemId: "7",
     };
     expect(describeRiskChanges(base, after, names)).toEqual([
-      "類型:風險 → 議題",
+      "類型:風險 → 問題",
       "狀態:未處理 → 處理中",
       "標題:「電池交期太長」→「電池交期太長,需要 4W 以上」",
       "機率:5 → 4",
@@ -149,7 +149,7 @@ describe("describeRiskChanges", () => {
   });
 });
 
-describe("從 Mantis 同步來的議題是唯讀的", () => {
+describe("從 Mantis 同步來的問題是唯讀的", () => {
   it("管理者、建立者、負責人、審核人都不能改內容、改狀態、走結案流程或刪除", () => {
     for (const userId of ["admin", "creator", "owner", "rev1"]) {
       const base = riskPermissions({ userId, role: userId === "admin" ? "ADMIN" : "MEMBER", status: "MITIGATING", actors });

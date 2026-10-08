@@ -32,10 +32,10 @@ export async function listItemLinks(itemId: string) {
   });
 }
 
-/** 連結是這個看板所連的 Mantis 網站的議題頁時,帶出同步到的狀態。 */
+/** 連結是這個看板所連的 Mantis 網站的問題頁時,帶出同步到的狀態。 */
 export type LinkMantisInfo = {
   mantisId: number;
-  /** 這個議題有沒有同步下來(不在連線的 Mantis 專案裡,或還沒同步到,就是 false)。 */
+  /** 這個問題有沒有同步下來(不在連線的 Mantis 專案裡,或還沒同步到,就是 false)。 */
   synced: boolean;
   /** Mantis 上的狀態原文,例如 assigned。 */
   status: string | null;

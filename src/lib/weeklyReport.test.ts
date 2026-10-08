@@ -362,7 +362,7 @@ describe("里程碑/要徑標記的變化", () => {
   });
 });
 
-describe("風險/議題變化", () => {
+describe("風險/問題變化", () => {
   it("上週名單裡沒有這個 id = 新增", () => {
     const diff = diffWeeks(snapshot([], [], [risk({ id: "r1" })]), snapshot([], [], []));
     expect(diff.riskAdded.map((r) => r.id)).toEqual(["r1"]);
@@ -459,18 +459,18 @@ describe("Markdown", () => {
     expect(md).toContain("🟣HIGH");
   });
 
-  it("風險/議題:有登記的會報目前狀態,也列這週的異動", () => {
+  it("風險/問題:有登記的會報目前狀態,也列這週的異動", () => {
     const now = snapshot([], [], [risk({ id: "r1", kind: "ISSUE", status: "MITIGATING", title: "供應商延遲交貨" })]);
     const diff = diffWeeks(now, snapshot([], [], [risk({ id: "r1", kind: "ISSUE", status: "OPEN", title: "供應商延遲交貨" })]));
     const md = renderWeeklyReportMarkdown(now, diff);
-    expect(md).toContain("### 風險與議題");
+    expect(md).toContain("### 風險與問題");
     expect(md).toContain("供應商延遲交貨");
     expect(md).toContain("未處理 → 處理中");
   });
 
-  it("沒有登記風險/議題時說清楚,不是留白", () => {
+  it("沒有登記風險/問題時說清楚,不是留白", () => {
     const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
-    expect(md).toContain("沒有登記風險或議題");
+    expect(md).toContain("沒有登記風險或問題");
   });
 
   it("已完成的里程碑不再列 —— 那一段問的是還沒到的", () => {
@@ -640,10 +640,11 @@ describe("Markdown", () => {
     expect(minimal).toContain("# 週報");
   });
 
-  it("清單太長會收尾,不會把幾百項全部貼進信裡", () => {
-    const many = Array.from({ length: 25 }, (_, i) => item({ id: `x${i}`, bucket: "overdue" }));
+  it("清單很長也全部列出,不會用「另外還有幾項」收尾", () => {
+    const many = Array.from({ length: 25 }, (_, i) => item({ id: `x${i}`, name: `逾期項目${i}`, bucket: "overdue" }));
     const md = renderWeeklyReportMarkdown(snapshot(many), noDiff);
-    expect(md).toContain("另外還有 10 項");
+    for (let i = 0; i < 25; i++) expect(md).toContain(`逾期項目${i}`);
+    expect(md).not.toContain("另外還有");
   });
 
   it("已完成的沒有到期日,不留一個空括號", () => {
@@ -737,14 +738,15 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     expect(md).toContain("・資訊更新 2");
   });
 
-  it("太多工作項時截斷並說還有幾個", () => {
+  it("很多工作項有更新時全部列出", () => {
     const data = snapshot([]);
     data.programs[0].itemUpdates = Array.from({ length: 25 }, (_, i) =>
-      update({ itemId: `i${i}`, wbsCode: `1.${i + 1}` })
+      update({ itemId: `i${i}`, wbsCode: `1.${i + 1}`, name: `有更新的工作項${i + 1}` })
     );
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
     expect(md).toContain("### 工作項資訊更新(25)");
-    expect(md).toContain("……另外還有 5 個工作項");
+    for (let i = 1; i <= 25; i++) expect(md).toContain(`有更新的工作項${i}`);
+    expect(md).not.toContain("另外還有");
   });
 });
 
@@ -802,13 +804,15 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
     expect(person).not.toContain("還在等廠商");
   });
 
-  it("一個工作項的更新太多時只列前幾筆,其餘說還有幾筆", () => {
+  it("一個工作項的更新很多時全部列出", () => {
     const { now, diff } = setup();
     now.programs[0].itemUpdates = Array.from({ length: 8 }, (_, i) =>
       update({ itemId: "done", name: "ME 3D 出圖", text: `第 ${i + 1} 則`, date: `2026-09-${String(15 + (i % 3)).padStart(2, "0")}` })
     );
     const md = renderWeeklyReportMarkdown(now, diff);
-    expect(md).toContain("  - ……另外還有 3 筆");
+    const done = md.slice(md.indexOf("**完成(1)**"), md.indexOf("### 工作項資訊更新"));
+    for (let i = 1; i <= 8; i++) expect(done).toContain(`第 ${i} 則`);
+    expect(md).not.toContain("另外還有");
   });
 
   it("完成的工作項這週沒有任何更新就不多出東西", () => {
@@ -820,20 +824,20 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
   });
 });
 
-describe("風險與議題明細", () => {
+describe("風險與問題明細", () => {
   const md = (risks: RiskLine[]) => {
     const data = snapshot([], [], risks);
     return renderWeeklyReportMarkdown(data, diffWeeks(data, null));
   };
 
-  it("逐筆列出名稱、狀態、負責人與到期日,類型標風險或議題", () => {
+  it("逐筆列出名稱、狀態、負責人與到期日,類型標風險或問題", () => {
     const out = md([
       risk({ id: "r1", title: "電源模組可能缺貨", status: "MITIGATING", ownerName: "王小明", dueDate: "2026-10-20" }),
       risk({ id: "r2", kind: "ISSUE", title: "現場通訊中斷", status: "OPEN" }),
     ]);
-    expect(out).toContain("**風險與議題明細**");
+    expect(out).toContain("**風險與問題明細**");
     expect(out).toContain("- [風險] 電源模組可能缺貨 — 處理中(分數 9)・負責:王小明・到期 2026-10-20");
-    expect(out).toContain("- [議題] 現場通訊中斷 — 未處理(分數 9)");
+    expect(out).toContain("- [問題] 現場通訊中斷 — 未處理(分數 9)");
   });
 
   it("帶出看板、說明、對策,Mantis 來的標編號並附網址", () => {
@@ -872,12 +876,11 @@ describe("風險與議題明細", () => {
     expect(block).not.toContain("最近一次更新");
   });
 
-  it("一筆的進度更新太多時只列前 5 則,其餘說還有幾則", () => {
+  it("一筆的進度更新很多時全部列出", () => {
     const updates = Array.from({ length: 8 }, (_, i) => ({ authorName: "王小明", date: "2026-09-16", text: `第 ${i + 1} 則` }));
     const out = md([risk({ id: "r1", updates })]);
-    expect(out).toContain("第 5 則");
-    expect(out).not.toContain("第 6 則");
-    expect(out).toContain("……另外還有 3 則更新");
+    for (let i = 1; i <= 8; i++) expect(out).toContain(`第 ${i} 則`);
+    expect(out).not.toContain("另外還有");
   });
 
   it("已結案的只列這一週才動過的;分數高的在前,已結案的排最後", () => {
@@ -893,10 +896,11 @@ describe("風險與議題明細", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it("太多筆時截斷並說還有幾項", () => {
+  it("很多筆時全部列出,不截斷", () => {
     const many = Array.from({ length: 25 }, (_, i) => risk({ id: `x${i}`, title: `風險 ${i}` }));
     const out = md(many);
-    expect(out).toContain("- ……另外還有 5 項");
+    for (let i = 0; i < 25; i++) expect(out).toContain(`] 風險 ${i} — `);
+    expect(out).not.toContain("另外還有");
   });
 
   it("舊版快照(沒有明細欄位)照樣排得出來,不會多出空的段落", () => {
@@ -906,8 +910,8 @@ describe("風險與議題明細", () => {
     expect(out).not.toContain("最近一次更新");
   });
 
-  it("沒有任何風險議題時不出現明細段落", () => {
-    expect(md([])).not.toContain("風險與議題明細");
+  it("沒有任何風險問題時不出現明細段落", () => {
+    expect(md([])).not.toContain("風險與問題明細");
   });
 });
 

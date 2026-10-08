@@ -85,7 +85,7 @@ export type PersonSection = {
   upcoming: ReportItem[];
 };
 
-/** 風險/議題上的一則進度更新(負責人寫的時間軸)。 */
+/** 風險/問題上的一則進度更新(負責人寫的時間軸)。 */
 export type RiskUpdateLine = {
   authorName: string;
   /** "YYYY-MM-DD"(台灣時間) */
@@ -94,7 +94,7 @@ export type RiskUpdateLine = {
   text: string;
 };
 
-/** 風險/議題登記簿(RiskEntry)在快照裡的樣子。 */
+/** 風險/問題登記簿(RiskEntry)在快照裡的樣子。 */
 export type RiskLine = {
   id: string;
   boardName: string;
@@ -326,17 +326,12 @@ function allBudgets(data: { programs: ProgramSection[] }): BudgetLine[] {
   return data.programs.flatMap((p) => p.budgets);
 }
 
-/** 週報裡逐筆列出最多幾筆風險/議題;多的只說還有幾筆。 */
-export const MAX_RISKS_LISTED = 20;
-/** 一筆風險/議題底下最多列幾則這週的進度更新。 */
-export const MAX_RISK_UPDATES_LISTED = 5;
-
 function taipeiDate(iso: string): string {
   return new Date(Date.parse(iso) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 /**
- * 週報裡逐筆列出的風險/議題:還沒結案的全部、已結案的只列這一週才動過的(剛結案的);
+ * 週報裡逐筆列出的風險/問題:還沒結案的全部、已結案的只列這一週才動過的(剛結案的);
  * 分數高的在前,已結案的排最後。
  */
 export function risksToList(risks: RiskLine[], weekStart: string, weekEnd: string): RiskLine[] {
@@ -354,7 +349,7 @@ export function risksToList(risks: RiskLine[], weekStart: string, weekEnd: strin
     );
 }
 
-/** 一筆風險/議題的標題列:類型標記(風險 / 議題 / Mantis #編號)、名稱、狀態、負責人、到期日。 */
+/** 一筆風險/問題的標題列:類型標記(風險 / 問題 / Mantis #編號)、名稱、狀態、負責人、到期日。 */
 export function riskHeadline(r: RiskLine): string {
   const owner = r.ownerName ? `・負責:${r.ownerName}` : "";
   const due = r.dueDate ? `・到期 ${r.dueDate}` : "";
@@ -370,8 +365,7 @@ export function riskDetailLines(r: RiskLine): string[] {
   if (r.mantisUrl) out.push(`Mantis:<${r.mantisUrl}>`);
   const updates = r.updates ?? [];
   if (updates.length > 0) {
-    for (const u of updates.slice(0, MAX_RISK_UPDATES_LISTED)) out.push(`💬 更新(${u.authorName} ${u.date.slice(5)}):${u.text}`);
-    if (updates.length > MAX_RISK_UPDATES_LISTED) out.push(`……另外還有 ${updates.length - MAX_RISK_UPDATES_LISTED} 則更新`);
+    for (const u of updates) out.push(`💬 更新(${u.authorName} ${u.date.slice(5)}):${u.text}`);
   } else if (r.latestUpdate) {
     out.push(`最近一次更新(${r.latestUpdate.authorName} ${r.latestUpdate.date.slice(5)}):${r.latestUpdate.text}`);
   }
@@ -381,12 +375,11 @@ export function riskDetailLines(r: RiskLine): string[] {
 function renderRiskList(risks: RiskLine[], weekStart: string, weekEnd: string): string[] {
   const list = risksToList(risks, weekStart, weekEnd);
   if (list.length === 0) return [];
-  const out: string[] = ["", "**風險與議題明細**"];
-  for (const r of list.slice(0, MAX_RISKS_LISTED)) {
+  const out: string[] = ["", "**風險與問題明細**"];
+  for (const r of list) {
     out.push(`- ${riskHeadline(r)}`);
     out.push(...riskDetailLines(r).map((line) => `  - ${line}`));
   }
-  if (list.length > MAX_RISKS_LISTED) out.push(`- ……另外還有 ${list.length - MAX_RISKS_LISTED} 項`);
   return out;
 }
 
@@ -580,9 +573,6 @@ export function updatesByItem(updates: ItemUpdateLine[] | undefined): Map<string
   return new Map(groupItemUpdates(updates ?? []).map((g) => [g.itemId, g.updates]));
 }
 
-/** 掛在單一工作項底下時,最多列幾筆;其餘只說還有幾筆。 */
-export const MAX_UPDATES_PER_ITEM = 5;
-
 /** 有新增資訊的工作項有幾個(同一個工作項新增好幾筆只算一個)。 */
 export function countItemsWithUpdates(programs: { itemUpdates?: ItemUpdateLine[] }[]): number {
   return new Set(programs.flatMap((p) => (p.itemUpdates ?? []).map((u) => u.itemId))).size;
@@ -597,13 +587,13 @@ function updateLine(u: ItemUpdateLine): string {
   return `  - ${UPDATE_ICON[u.kind]} ${ITEM_UPDATE_LABELS[u.kind]}(${who}):${detail}`;
 }
 
-function renderItemUpdates(groups: ItemUpdateGroup[], limit = 20): string[] {
+/** 全部列出,不截斷——週報要把內容完整交給看的人,不是「另外還有幾項」。 */
+function renderItemUpdates(groups: ItemUpdateGroup[]): string[] {
   const out: string[] = [];
-  for (const g of groups.slice(0, limit)) {
+  for (const g of groups) {
     out.push(`- ${g.boardName} · ${g.wbsCode ? `${g.wbsCode} ` : ""}${g.name}`);
     out.push(...g.updates.map(updateLine));
   }
-  if (groups.length > limit) out.push(`- ……另外還有 ${groups.length - limit} 個工作項`);
   return out;
 }
 
@@ -662,19 +652,13 @@ function itemLine(i: ReportItem): string {
 
 /** 一個工作項底下的資訊更新(縮排的子項目);沒有就是空的。 */
 function updateLinesOf(list: ItemUpdateLine[] | undefined): string[] {
-  if (!list || list.length === 0) return [];
-  const lines = list.slice(0, MAX_UPDATES_PER_ITEM).map(updateLine);
-  if (list.length > MAX_UPDATES_PER_ITEM) lines.push(`  - ……另外還有 ${list.length - MAX_UPDATES_PER_ITEM} 筆`);
-  return lines;
+  return (list ?? []).map(updateLine);
 }
 
-/** 依 Priority 排序後再截斷——CRITICAL/HIGH 的項目優先被看到,不會被排序前面但
- *  不重要的項目擠出清單。updates 有給的話,每個工作項底下接著列它這週的留言、連結、附件。 */
-function itemLines(items: ReportItem[], limit = 15, updates?: Map<string, ItemUpdateLine[]>): string[] {
-  const shown = byPriority(items).slice(0, limit);
-  const lines = shown.flatMap((i) => [itemLine(i), ...updateLinesOf(updates?.get(i.id))]);
-  if (items.length > shown.length) lines.push(`- ……另外還有 ${items.length - shown.length} 項`);
-  return lines;
+/** 依 Priority 排序後全部列出(不截斷)——CRITICAL/HIGH 的項目排在前面。
+ *  updates 有給的話,每個工作項底下接著列它這週的留言、連結、附件。 */
+function itemLines(items: ReportItem[], updates?: Map<string, ItemUpdateLine[]>): string[] {
+  return byPriority(items).flatMap((i) => [itemLine(i), ...updateLinesOf(updates?.get(i.id))]);
 }
 
 /** 只放某個專案的那幾項。差異是整份算的,分專案顯示時才切開。 */
@@ -791,9 +775,9 @@ function renderDepartments(people: PersonSection[], upcomingDays: number, update
     for (const person of group) {
       out.push("", `**[${ROLE_LABEL[person.role]}] ${person.userName}**`);
       out.push(
-        ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue, 10)),
-        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, 10, updates)),
-        ...section(`**接下來 ${upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming, 10))
+        ...section(`**逾期(${person.overdue.length})**`, itemLines(person.overdue)),
+        ...section(`**這週已完成(${person.completedThisWeek.length})**`, itemLines(person.completedThisWeek, updates)),
+        ...section(`**接下來 ${upcomingDays} 天(${person.upcoming.length})**`, itemLines(person.upcoming))
       );
       if (person.overdue.length + person.completedThisWeek.length + person.upcoming.length === 0) {
         out.push("", "目前沒有逾期、這週完成或近期到期的工作項。");
@@ -830,27 +814,22 @@ function renderProgram(
     const scheduleChanged = inProgram(diff.scheduleChanged, name);
 
     const body = [
-      ...section(`**完成(${completed.length})**`, itemLines(completed, 15, updates)),
+      ...section(`**完成(${completed.length})**`, itemLines(completed, updates)),
       ...section(`**新逾期(${newlyOverdue.length})**`, itemLines(newlyOverdue)),
       ...section(`**脫離逾期(${recovered.length})**`, itemLines(recovered)),
       ...section(
         `**狀態更新(${statusChanged.length})**`,
-        statusChanged
-          .slice(0, 15)
-          .map(
-            (c) =>
-              `- ${c.item.wbsCode} ${c.item.name}:${c.from ?? "未設定"} → ${c.to ?? "未設定"}`
-          )
+        statusChanged.map(
+          (c) => `- ${c.item.wbsCode} ${c.item.name}:${c.from ?? "未設定"} → ${c.to ?? "未設定"}`
+        )
       ),
       ...section(
         `**時程變化(${scheduleChanged.length})**`,
-        scheduleChanged
-          .slice(0, 15)
-          .map((c) => {
-            const slip =
-              c.slipDays === null ? "" : c.slipDays > 0 ? `,延後 ${c.slipDays} 天` : c.slipDays < 0 ? `,提前 ${-c.slipDays} 天` : "";
-            return `- ${c.item.wbsCode} ${c.item.name}:${c.fromStart ?? "—"}~${c.fromEnd ?? "—"} → ${c.toStart ?? "—"}~${c.toEnd ?? "—"}${slip}`;
-          })
+        scheduleChanged.map((c) => {
+          const slip =
+            c.slipDays === null ? "" : c.slipDays > 0 ? `,延後 ${c.slipDays} 天` : c.slipDays < 0 ? `,提前 ${-c.slipDays} 天` : "";
+          return `- ${c.item.wbsCode} ${c.item.name}:${c.fromStart ?? "—"}~${c.fromEnd ?? "—"} → ${c.toStart ?? "—"}~${c.toEnd ?? "—"}${slip}`;
+        })
       ),
     ];
     out.push("", "### 這一週");
@@ -879,7 +858,7 @@ function renderProgram(
   out.push(upcoming.length === 0 ? `${upcomingDays} 天內沒有到期的。` : itemLines(upcoming).join("\n"));
 
   out.push("", `### 里程碑(${milestones.length})`, "");
-  out.push(milestones.length === 0 ? "沒有未完成的里程碑。" : itemLines(milestones, 20).join("\n"));
+  out.push(milestones.length === 0 ? "沒有未完成的里程碑。" : itemLines(milestones).join("\n"));
 
   if (!diff.firstEver) {
     const flagged = diff.milestoneFlagged.filter((i) => i.programName === name);
@@ -903,7 +882,7 @@ function renderProgram(
   out.push(
     critical.length === 0
       ? "沒有要徑工作項,或這個專案還沒設好前置依賴。"
-      : itemLines(critical, 20).join("\n")
+      : itemLines(critical).join("\n")
   );
 
   if (!diff.firstEver) {
@@ -924,10 +903,10 @@ function renderProgram(
     if (flagged.length + changed.length + rescheduled.length === 0) out.push("", "這週要徑沒有變化。");
   }
 
-  out.push("", `### 風險與議題`, "");
+  out.push("", `### 風險與問題`, "");
   const risks = program.risks ?? [];
   if (risks.length === 0) {
-    out.push("沒有登記風險或議題。");
+    out.push("沒有登記風險或問題。");
   } else {
     const open = risks.filter((r) => r.status !== "CLOSED");
     out.push(
@@ -957,7 +936,7 @@ function renderProgram(
         updated.map((r) => `- [${RISK_KIND_LABELS[r.kind]}] ${r.title}`)
       )
     );
-    if (added.length + statusChanged.length + updated.length === 0) out.push("", "這週風險/議題登記沒有變化。");
+    if (added.length + statusChanged.length + updated.length === 0) out.push("", "這週風險/問題登記沒有變化。");
   }
 
   if (program.delays.length > 0) {

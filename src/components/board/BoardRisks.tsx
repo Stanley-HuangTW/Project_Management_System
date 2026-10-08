@@ -59,7 +59,7 @@ const TABS = [
 const LEVELS = [1, 2, 3, 4, 5];
 
 /**
- * 風險與議題登錄簿 — the register the NUDD reviews already run on paper.
+ * 風險與問題登錄簿 — the register the NUDD reviews already run on paper.
  *
  * Sorted by 機率×衝擊 with the closed entries at the bottom, so the top of
  * the list is always the thing to talk about first.
@@ -216,7 +216,7 @@ export function BoardRisks({
           onClick={() => openEditor({ id: null, input: { ...EMPTY, ownerId: currentUserId } })}
           className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
         >
-          <Plus size={14} /> 新增風險 / 議題
+          <Plus size={14} /> 新增風險 / 問題
         </button>
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
           未結案 {openCount} 筆{highCount > 0 && `,其中 ${highCount} 筆極高`}
@@ -275,7 +275,7 @@ export function BoardRisks({
         <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>
       ) : sorted.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-10 text-center text-sm text-neutral-400 dark:text-neutral-500">
-          還沒有紀錄。NUDD 會議上談到的風險與議題,記在這裡才追得下去。
+          還沒有紀錄。NUDD 會議上談到的風險與問題,記在這裡才追得下去。
         </p>
       ) : (
 <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700">
@@ -420,7 +420,7 @@ export function BoardRisks({
       <Modal
         open={!!editing}
         onOpenChange={(open) => !open && setEditing(null)}
-        title={editing?.id ? "編輯風險 / 議題" : "新增風險 / 議題"}
+        title={editing?.id ? "編輯風險 / 問題" : "新增風險 / 問題"}
         size="lg"
       >
         {editing && (

@@ -60,7 +60,7 @@ export type ActivityDayEntry = {
   categoryName: string;
   riskEntryId: string | null;
   riskTitle: string | null;
-  /** 連結的風險/議題是什麼:風險、議題,或 Mantis 編號。 */
+  /** 連結的風險/問題是什麼:風險、問題,或 Mantis 編號。 */
   riskTag: string | null;
   /** 對應的專案;有的話要主管核准才計入那個專案的成本。 */
   boardId: string | null;
@@ -92,7 +92,7 @@ export type TimesheetOptions = {
   items: { id: string; name: string; boardName: string }[];
   /** 我看得到的專案(看板),給「對應專案」選。 */
   boards: { id: string; name: string }[];
-  /** 我看得到的看板上的風險與議題(含從 Mantis 同步來的),給「連結風險 / 議題」選。 */
+  /** 我看得到的看板上的風險與問題(含從 Mantis 同步來的),給「連結風險 / 問題」選。 */
   risks: { id: string; title: string; boardName: string; closed: boolean; tag: string }[];
 };
 
@@ -281,12 +281,12 @@ async function validateActivityInput(
   }
 
   if (input.riskEntryId) {
-    if (!category.linkIssue) return "這個類別不能連結風險或議題";
+    if (!category.linkIssue) return "這個類別不能連結風險或問題";
     const risk = await prisma.riskEntry.findFirst({
       where: { id: input.riskEntryId, board: accessibleBoardWhere(session) },
       select: { id: true },
     });
-    if (!risk) return "找不到這個風險或議題,或你沒有它所在看板的存取權限";
+    if (!risk) return "找不到這個風險或問題,或你沒有它所在看板的存取權限";
   }
 
   const already = await hoursAlreadyLoggedOn(userId, input.date, { activityEntryId: excludeActivityId });

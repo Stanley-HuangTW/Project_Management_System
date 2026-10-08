@@ -8,7 +8,7 @@ export type MantisIssueRow = {
   mantisId: number;
   url: string | null;
   title: string;
-  /** 對應到風險與議題的狀態:未處理 / 處理中 / 已結案。 */
+  /** 對應到風險與問題的狀態:未處理 / 處理中 / 已結案。 */
   status: RiskStatus;
   /** Mantis 上的狀態文字。 */
   mantisStatus: string | null;

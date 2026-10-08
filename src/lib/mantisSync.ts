@@ -11,9 +11,9 @@ import {
 } from "@/lib/mantis";
 
 /**
- * MantisBT → 風險與議題的單向同步(伺服器端)。
+ * MantisBT → 風險與問題的單向同步(伺服器端)。
  *
- * 只讀 Mantis(GET),從不寫回去。同步下來的議題在這邊是唯讀的:下一次同步會用 Mantis 上的內容蓋回來。
+ * 只讀 Mantis(GET),從不寫回去。同步下來的問題在這邊是唯讀的:下一次同步會用 Mantis 上的內容蓋回來。
  * 每一步失敗都回「看得懂的原因」而不是丟例外——排程跑完只回一句成功、其實什麼都沒同步,比沒有同步更糟。
  */
 
@@ -226,7 +226,7 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
             riskId: created.id,
             boardId: conn.boardId,
             category: "RISK",
-            message: `從 Mantis 同步建立議題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})`,
+            message: `從 Mantis 同步建立問題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})`,
           },
         });
         summary.created++;
@@ -258,7 +258,7 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
       }
       summary.updated++;
     } catch (err) {
-      // 同一個議題被兩個同步同時建立(排程與「立即同步」撞在一起):唯一鍵擋下來,算沒變。
+      // 同一個問題被兩個同步同時建立(排程與「立即同步」撞在一起):唯一鍵擋下來,算沒變。
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         summary.unchanged++;
         continue;

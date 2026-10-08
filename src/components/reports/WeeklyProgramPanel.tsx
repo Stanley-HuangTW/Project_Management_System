@@ -1,8 +1,6 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   ITEM_UPDATE_LABELS,
-  MAX_RISK_UPDATES_LISTED,
-  MAX_UPDATES_PER_ITEM,
   byPriority,
   groupItemUpdates,
   risksToList,
@@ -66,43 +64,29 @@ function ItemRow({ item, updates }: { item: ReportItem; updates?: ItemUpdateLine
       <PriorityBadge priority={item.priority} />
       {updates && updates.length > 0 && (
         <div className="basis-full">
-          <UpdateRows updates={updates} max={MAX_UPDATES_PER_ITEM} />
+          <UpdateRows updates={updates} />
         </div>
       )}
     </li>
   );
 }
 
+/** 全部列出,不收合、不截斷。 */
 function ItemList({
   items,
-  limit = 15,
   updates,
 }: {
   items: ReportItem[];
-  limit?: number;
   /** 有給的話,每個工作項底下列出它這週的留言、連結、附件(這週已完成的用)。 */
   updates?: Map<string, ItemUpdateLine[]>;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const sorted = byPriority(items);
-  const shown = expanded ? sorted : sorted.slice(0, limit);
-  if (shown.length === 0) return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">沒有項目。</p>;
+  if (sorted.length === 0) return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">沒有項目。</p>;
   return (
     <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-      {shown.map((i) => (
+      {sorted.map((i) => (
         <ItemRow key={i.id} item={i} updates={updates?.get(i.id)} />
       ))}
-      {!expanded && sorted.length > shown.length && (
-        <li className="py-1">
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-          >
-            ……另外還有 {sorted.length - shown.length} 項(點擊展開)
-          </button>
-        </li>
-      )}
     </ul>
   );
 }
@@ -114,12 +98,11 @@ function safeHref(url: string | null): string | null {
   return url && /^https?:\/\//i.test(url) ? url : null;
 }
 
-/** 一個工作項這週新增的留言、連結、附件;max 有給的話只列前幾筆,其餘說還有幾筆。 */
-function UpdateRows({ updates, max }: { updates: ItemUpdateLine[]; max?: number }) {
-  const shown = max === undefined ? updates : updates.slice(0, max);
+/** 一個工作項這週新增的留言、連結、附件,全部列出。 */
+function UpdateRows({ updates }: { updates: ItemUpdateLine[] }) {
   return (
     <ul className="mt-0.5 space-y-0.5 pl-3">
-      {shown.map((u, idx) => {
+      {updates.map((u, idx) => {
         const href = safeHref(u.url);
         return (
           <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
@@ -142,24 +125,19 @@ function UpdateRows({ updates, max }: { updates: ItemUpdateLine[]; max?: number 
           </li>
         );
       })}
-      {shown.length < updates.length && (
-        <li className="text-xs text-neutral-400 dark:text-neutral-500">……另外還有 {updates.length - shown.length} 筆</li>
-      )}
     </ul>
   );
 }
 
-/** 這一週工作項上新增的留言、連結、附件,一個工作項一組。 */
-function ItemUpdateList({ updates, limit = 10 }: { updates: ItemUpdateLine[]; limit?: number }) {
-  const [expanded, setExpanded] = useState(false);
+/** 這一週工作項上新增的留言、連結、附件,一個工作項一組,全部列出。 */
+function ItemUpdateList({ updates }: { updates: ItemUpdateLine[] }) {
   const groups = groupItemUpdates(updates);
   if (groups.length === 0) {
     return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週沒有工作項新增留言、連結或附件。</p>;
   }
-  const shown = expanded ? groups : groups.slice(0, limit);
   return (
     <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-      {shown.map((g) => (
+      {groups.map((g) => (
         <li key={g.itemId} className="py-1.5">
           <p className="text-sm text-neutral-700 dark:text-neutral-100">
             <span className="text-neutral-400 dark:text-neutral-500">{g.boardName} / </span>
@@ -169,17 +147,6 @@ function ItemUpdateList({ updates, limit = 10 }: { updates: ItemUpdateLine[]; li
           <UpdateRows updates={g.updates} />
         </li>
       ))}
-      {!expanded && groups.length > shown.length && (
-        <li className="py-1">
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-          >
-            ……另外還有 {groups.length - shown.length} 個工作項(點擊展開)
-          </button>
-        </li>
-      )}
     </ul>
   );
 }
@@ -233,17 +200,13 @@ function Changes({
   );
 }
 
-const RISK_LIST_LIMIT = 10;
-
-/** 風險/議題逐筆列出:名稱、狀態、負責人、到期日,底下是說明、對策、Mantis 連結與進度更新。 */
+/** 風險/問題逐筆列出(全部,不收合):名稱、狀態、負責人、到期日,底下是說明、對策、Mantis 連結與進度更新。 */
 function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; weekStart: string; weekEnd: string }) {
-  const [expanded, setExpanded] = useState(false);
   const list = risksToList(risks, weekStart, weekEnd);
   if (list.length === 0) return null;
-  const shown = expanded ? list : list.slice(0, RISK_LIST_LIMIT);
   return (
     <ul className="divide-y divide-neutral-100 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-700">
-      {shown.map((r) => {
+      {list.map((r) => {
         const updates = r.updates ?? [];
         const href = safeHref(r.mantisUrl ?? null);
         return (
@@ -271,7 +234,7 @@ function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; week
                   </a>
                 </li>
               )}
-              {updates.slice(0, MAX_RISK_UPDATES_LISTED).map((u, idx) => (
+              {updates.map((u, idx) => (
                 <li key={idx} className="flex flex-wrap items-baseline gap-1">
                   <span title="這週的進度更新">💬</span>
                   <span className="text-neutral-400 dark:text-neutral-500">
@@ -280,9 +243,6 @@ function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; week
                   <span className="break-words">{u.text}</span>
                 </li>
               ))}
-              {updates.length > MAX_RISK_UPDATES_LISTED && (
-                <li className="text-neutral-400 dark:text-neutral-500">……另外還有 {updates.length - MAX_RISK_UPDATES_LISTED} 則更新</li>
-              )}
               {updates.length === 0 && r.latestUpdate && (
                 <li className="flex flex-wrap items-baseline gap-1">
                   <span title="最近一次進度更新(不是這一週)">💬</span>
@@ -296,13 +256,6 @@ function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; week
           </li>
         );
       })}
-      {!expanded && list.length > shown.length && (
-        <li className="px-2 py-1">
-          <button type="button" onClick={() => setExpanded(true)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
-            ……另外還有 {list.length - shown.length} 項(點擊展開)
-          </button>
-        </li>
-      )}
     </ul>
   );
 }
@@ -327,7 +280,7 @@ function RiskList({
     <div className="space-y-1.5">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         {risks.length === 0
-          ? "沒有登記風險或議題。"
+          ? "沒有登記風險或問題。"
           : `${RISK_KIND_LABELS.RISK} ${risks.filter((r) => r.kind === "RISK").length} 項、` +
             `${RISK_KIND_LABELS.ISSUE} ${risks.filter((r) => r.kind === "ISSUE").length} 項,` +
             `尚未結案 ${open.length} 項。`}
@@ -398,17 +351,17 @@ function DepartmentBlock({
                 <div className="grid grid-cols-1 gap-y-1 pl-2 sm:grid-cols-3">
                   <div className="sm:pr-3">
                     <p className="text-[11px] text-neutral-400">逾期({person.overdue.length})</p>
-                    <ItemList items={person.overdue} limit={5} />
+                    <ItemList items={person.overdue} />
                   </div>
                   <div className="sm:border-l sm:border-neutral-200 sm:px-3 dark:sm:border-neutral-800">
                     <p className="text-[11px] text-neutral-400">這週已完成({person.completedThisWeek.length})</p>
-                    <ItemList items={person.completedThisWeek} limit={5} updates={updates} />
+                    <ItemList items={person.completedThisWeek} updates={updates} />
                   </div>
                   <div className="sm:border-l sm:border-neutral-200 sm:pl-3 dark:sm:border-neutral-800">
                     <p className="text-[11px] text-neutral-400">
                       接下來 {upcomingDays} 天({person.upcoming.length})
                     </p>
-                    <ItemList items={person.upcoming} limit={5} />
+                    <ItemList items={person.upcoming} />
                   </div>
                 </div>
               </div>
@@ -421,7 +374,7 @@ function DepartmentBlock({
 }
 
 /** 一個專案群組分頁籤的內容——依職能的工作項(依 Priority 排序)→ 里程碑/要徑/
- *  風險議題異動 → 預算 → 看板進度,是 renderWeeklyReportMarkdown 裡 renderProgram
+ *  風險問題異動 → 預算 → 看板進度,是 renderWeeklyReportMarkdown 裡 renderProgram
  *  的畫面版本,資料來源完全相同(同一份 ProgramSection + WeeklyReportDiff)。 */
 export function WeeklyProgramPanel({
   program,
@@ -481,7 +434,7 @@ export function WeeklyProgramPanel({
       </Block>
 
       <Block title="里程碑" count={milestones.length}>
-        <ItemList items={milestones} limit={20} />
+        <ItemList items={milestones} />
         {!diff.firstEver && (
           <div className="mt-1.5">
             <Changes
@@ -494,7 +447,7 @@ export function WeeklyProgramPanel({
       </Block>
 
       <Block title="要徑" count={critical.length}>
-        <ItemList items={critical} limit={20} />
+        <ItemList items={critical} />
         {!diff.firstEver && (
           <div className="mt-1.5">
             <Changes
@@ -506,7 +459,7 @@ export function WeeklyProgramPanel({
         )}
       </Block>
 
-      <Block title="風險與議題">
+      <Block title="風險與問題">
         <RiskList
           risks={risks}
           weekStart={weekStart}

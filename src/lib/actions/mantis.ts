@@ -22,7 +22,7 @@ export type MantisConnectionRow = {
   projectName: string;
   enabled: boolean;
   issueItemId: string | null;
-  /** 這個看板上來自 Mantis 的議題數、其中未結案的。 */
+  /** 這個看板上來自 Mantis 的問題數、其中未結案的。 */
   issueCount: number;
   openCount: number;
   lastSyncAt: string | null;
@@ -96,7 +96,7 @@ export async function loadMantisProjects(input: {
   }
 }
 
-/** 同步下來的議題都掛在看板上一個叫「ISSUE」的工作項底下;沒有就建立(放在第一個分組)。 */
+/** 同步下來的問題都掛在看板上一個叫「ISSUE」的工作項底下;沒有就建立(放在第一個分組)。 */
 async function ensureIssueItem(boardId: string, currentId: string | null): Promise<string | null> {
   if (currentId) {
     const still = await prisma.item.findFirst({ where: { id: currentId, deletedAt: null }, select: { id: true } });
@@ -130,7 +130,7 @@ export async function saveMantisConnection(input: {
   const board = await prisma.board.findFirst({ where: { id: input.boardId, deletedAt: null }, select: { id: true, name: true } });
   if (!board) return { error: "找不到這個看板" };
 
-  // 一個 Mantis 專案只對應一個看板——兩個看板各抓一份,同一個議題會重複出現在兩邊。
+  // 一個 Mantis 專案只對應一個看板——兩個看板各抓一份,同一個問題會重複出現在兩邊。
   const taken = await prisma.mantisConnection.findFirst({
     where: { baseUrl: normalized.url, projectId: input.projectId, boardId: { not: input.boardId } },
     include: { board: { select: { name: true } } },
@@ -191,7 +191,7 @@ export async function syncMantisNow(boardId: string): Promise<{ error?: string; 
 }
 
 /**
- * 刪除連線。已經同步下來的議題保留,但不再是唯讀、也不再同步——變成一般的議題,可以自己維護。
+ * 刪除連線。已經同步下來的問題保留,但不再是唯讀、也不再同步——變成一般的問題,可以自己維護。
  */
 export async function deleteMantisConnection(boardId: string): Promise<{ error?: string }> {
   const session = await requireAdmin();
@@ -204,7 +204,7 @@ export async function deleteMantisConnection(boardId: string): Promise<{ error?:
     }),
     prisma.mantisConnection.delete({ where: { boardId } }),
   ]);
-  await logAudit("BOARD", session.userId, `刪除與 Mantis 的連線:看板「${conn.board.name}」(已同步的議題保留成一般議題)`, boardId);
+  await logAudit("BOARD", session.userId, `刪除與 Mantis 的連線:看板「${conn.board.name}」(已同步的問題保留成一般問題)`, boardId);
   revalidatePath("/settings");
   revalidatePath(`/boards/${boardId}`);
   return {};

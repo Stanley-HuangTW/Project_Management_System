@@ -55,7 +55,7 @@ describe("normalizeBaseUrl", () => {
 });
 
 describe("mantisIdFromUrl", () => {
-  it("認得同一個 Mantis 網站的議題頁", () => {
+  it("認得同一個 Mantis 網站的問題頁", () => {
     expect(mantisIdFromUrl("https://mantis.example.com/view.php?id=123", BASE)).toBe(123);
     expect(mantisIdFromUrl(issueUrl(BASE, 45), BASE)).toBe(45);
   });
@@ -143,7 +143,7 @@ describe("buildDescription", () => {
 });
 
 describe("mapMantisIssue", () => {
-  it("一筆完整的議題", () => {
+  it("一筆完整的問題", () => {
     const m = mapMantisIssue(issue(), BASE);
     expect(m).toMatchObject({
       mantisId: 123,

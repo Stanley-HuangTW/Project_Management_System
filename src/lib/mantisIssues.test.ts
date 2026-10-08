@@ -14,7 +14,7 @@ import {
 const row = (over: Partial<MantisIssueRow> & { mantisId: number }): MantisIssueRow => ({
   riskId: `r${over.mantisId}`,
   url: `https://m.example.com/view.php?id=${over.mantisId}`,
-  title: `議題 ${over.mantisId}`,
+  title: `問題 ${over.mantisId}`,
   status: "OPEN",
   mantisStatus: "new",
   severity: "minor",
@@ -146,7 +146,7 @@ describe("groupByHandler", () => {
     expect(groupByHandler(rows).find((x) => x.key === "u1")!.issues.map((i) => i.mantisId)).toEqual([2, 1]);
   });
 
-  it("沒有議題就沒有組", () => {
+  it("沒有問題就沒有組", () => {
     expect(groupByHandler([])).toEqual([]);
   });
 });
