@@ -16,6 +16,8 @@ import {
 import {
   ChevronDown,
   ChevronRight,
+  IndentDecrease,
+  IndentIncrease,
   Star,
   MessageSquare,
   UserPlus,
@@ -71,9 +73,11 @@ import { SavedViewBar } from "./SavedViewBar";
 import { ConstraintBadge } from "./ConstraintBadge";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { useRecordedItemMove } from "./useRecordedItemMove";
+import { useChangeLevel, levelDirectionOfKey, type LevelDirection } from "./useChangeLevel";
+import { LevelButtons } from "./LevelButtons";
 import { BulkStructureBar } from "./BulkStructureActions";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
-import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
+import { classifyDropZone, indentTarget, outdentTarget, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import type { UndoResult } from "@/lib/editHistory";
 import { DropIndicator } from "./DropIndicator";
 import { UndoRedoButtons } from "./UndoRedoButtons";
@@ -313,6 +317,7 @@ export function BoardGantt({
   const [dragOverTarget, setDragOverTarget] = useState<DragOverState | null>(null);
   const dragActivatorRef = useRef<{ x: number; y: number } | null>(null);
   const moveRecorded = useRecordedItemMove();
+  const changeLevel = useChangeLevel(board.id);
 
   // 勾選的項目(複製/移動/刪除用)。甘特圖整個換掉資料時,已經不存在的 id 會在
   // liveSelectedIds 被濾掉,不會留下「已選 0 項」的空列。
@@ -431,6 +436,13 @@ export function BoardGantt({
   const linkColumnId = board.linkColumnId;
   const lagColumnId = board.lagColumnId;
   const typeColumnId = board.typeColumnId;
+
+  // 升階 / 降階每一列都要算一次「同一個分組的全部項目」,先分好組,不要每一列各掃一遍整個看板。
+  const itemsByGroup = useMemo(() => {
+    const map = new Map<string, ItemData[]>();
+    for (const i of board.items) map.set(i.groupId, [...(map.get(i.groupId) ?? []), i]);
+    return map;
+  }, [board.items]);
 
   const lockedScheduleFields = useMemo(() => {
     const linkColumn = board.columns.find((c) => c.id === linkColumnId);
@@ -885,6 +897,21 @@ export function BoardGantt({
     }))
     .filter((section) => section.roots.length > 0);
 
+  /** 升階 / 降階:跟拖曳同一個搬移,只在這個分組的項目裡算。 */
+  function runLevel(item: ItemData, direction: LevelDirection, refocus = false) {
+    return changeLevel(
+      direction,
+      { id: item.id, groupId: item.groupId },
+      itemsByGroup.get(item.groupId) ?? [],
+      {
+        expandParent: (parentId) => {
+          if (collapsed.has(parentId)) toggleCollapsed(parentId);
+        },
+        refocus,
+      }
+    );
+  }
+
   function toggleCollapsed(itemId: string) {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -972,6 +999,10 @@ export function BoardGantt({
       // 拖曳途中,被拖的這一列顯示「放開後會變成的 WBS 編號」。
       const previewCode =
         dragOverTarget?.draggedId === item.id ? (dragOverTarget.preview?.newCode ?? null) : null;
+      // 升階 / 降階:有這個分組的結構權限才給;做不到的方向(沒有前一項、已經最上層)是 null。
+      const levelItems = canEditItemStructure(item) ? (itemsByGroup.get(item.groupId) ?? []) : null;
+      const indent = levelItems ? indentTarget(levelItems, item.id) : null;
+      const outdent = levelItems ? outdentTarget(levelItems, item.id) : null;
 
       const row = (
         <div key={item.id} className="flex items-stretch border-b border-neutral-100 dark:border-neutral-700">
@@ -1004,6 +1035,13 @@ export function BoardGantt({
                 setDetailItem(item);
               }}
               title={item.name}
+              data-item-name-button={item.id}
+              onKeyDown={(e) => {
+                const direction = levelDirectionOfKey(e);
+                if (!direction || !(direction === "indent" ? indent : outdent)) return;
+                e.preventDefault();
+                void runLevel(item, direction, true);
+              }}
               className="min-w-0 flex-1 truncate text-left hover:text-blue-600 hover:underline"
               style={nameColor ? { color: nameColor } : undefined}
             >
@@ -1017,6 +1055,13 @@ export function BoardGantt({
               {item.name}
             </button>
             <ConstraintBadge item={item} />
+            <LevelButtons
+              canIndent={!!indent}
+              canOutdent={!!outdent}
+              onIndent={() => void runLevel(item, "indent")}
+              onOutdent={() => void runLevel(item, "outdent")}
+              size={12}
+            />
             <button
               type="button"
               onClick={() => setDetailItem(item)}
@@ -1068,6 +1113,20 @@ export function BoardGantt({
                         <ArrowDownToLine size={14} /> 下方插入項目
                       </span>
                     </RowMenuItem>
+                    {outdent && (
+                      <RowMenuItem onSelect={() => void runLevel(item, "outdent")}>
+                        <span className="flex items-center gap-2">
+                          <IndentDecrease size={14} /> 升階
+                        </span>
+                      </RowMenuItem>
+                    )}
+                    {indent && (
+                      <RowMenuItem onSelect={() => void runLevel(item, "indent")}>
+                        <span className="flex items-center gap-2">
+                          <IndentIncrease size={14} /> 降階
+                        </span>
+                      </RowMenuItem>
+                    )}
                   </>
                 )}
                 {canEditItemSchedule(item) && (
@@ -1617,7 +1676,7 @@ function GanttDraggableLabel({
         e.stopPropagation();
         listeners?.onPointerDown?.(e);
       }}
-      className={`sticky left-0 z-10 flex shrink-0 items-center gap-1 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm relative ${
+      className={`group sticky left-0 z-10 flex shrink-0 items-center gap-1 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm relative ${
         disabled ? "" : isDragging ? "cursor-grabbing" : "cursor-grab"
       }`}
       style={{

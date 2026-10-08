@@ -3,6 +3,9 @@ import {
   buildMoveInverse,
   classifyDropZone,
   computeLvlDelta,
+  indentTarget,
+  outdentTarget,
+  parentAfterMove,
   previewDrop,
   resolveItemMove,
   type DropZone,
@@ -294,5 +297,102 @@ describe("computeLvlDelta", () => {
 
   it("差值為零時回傳 0", () => {
     expect(computeLvlDelta(2, 1)).toBe(0);
+  });
+});
+
+describe("升階 / 降階", () => {
+  // 1 root
+  // ├─ 1.1 a
+  // │  └─ 1.1.1 a1
+  // ├─ 1.2 b
+  // └─ 1.3 c
+  // 2 other
+  const tree: MoveItemLike[] = [
+    { id: "root", parentId: null, order: 0 },
+    { id: "a", parentId: "root", order: 0 },
+    { id: "a1", parentId: "a", order: 0 },
+    { id: "b", parentId: "root", order: 1 },
+    { id: "c", parentId: "root", order: 2 },
+    { id: "other", parentId: null, order: 1 },
+  ];
+  const apply = (items: MoveItemLike[], writes: { id: string; parentId: string | null; order: number }[]) => {
+    const byId = new Map(writes.map((w) => [w.id, w]));
+    return items.map((i) => (byId.has(i.id) ? { ...i, ...byId.get(i.id)! } : i));
+  };
+  const move = (items: MoveItemLike[], id: string, t: { targetId: string; zone: DropZone } | null) => {
+    expect(t).not.toBeNull();
+    const r = resolveItemMove(items, id, t!.targetId, t!.zone);
+    expect(r.ok).toBe(true);
+    return r.ok ? apply(items, r.writes) : items;
+  };
+  const pos = (items: MoveItemLike[], id: string) => {
+    const i = items.find((x) => x.id === id)!;
+    return { parentId: i.parentId, order: i.order };
+  };
+
+  it("降階:變成前一個同層項目的最後一個子項", () => {
+    expect(indentTarget(tree, "b")).toEqual({ targetId: "a", zone: "child" });
+    const after = move(tree, "b", indentTarget(tree, "b"));
+    expect(pos(after, "b")).toEqual({ parentId: "a", order: 1 });
+    // 原本的子項不動,舊父層的兄弟重新編號成連續的。
+    expect(pos(after, "a1")).toEqual({ parentId: "a", order: 0 });
+    expect(pos(after, "c")).toEqual({ parentId: "root", order: 1 });
+  });
+
+  it("第一個同層項目不能降階(前面沒有誰可以當父項),最上層第一個也一樣", () => {
+    expect(indentTarget(tree, "a")).toBeNull();
+    expect(indentTarget(tree, "root")).toBeNull();
+    expect(indentTarget(tree, "a1")).toBeNull();
+  });
+
+  it("降階時整棵子樹跟著走", () => {
+    const after = move(tree, "other", indentTarget(tree, "other"));
+    expect(pos(after, "other")).toEqual({ parentId: "root", order: 3 });
+    const withKid = [...tree, { id: "k", parentId: "other", order: 0 }];
+    const moved = move(withKid, "other", indentTarget(withKid, "other"));
+    expect(pos(moved, "k")).toEqual({ parentId: "other", order: 0 });
+  });
+
+  it("升階:變成父項的同層項目,緊接在父項後面", () => {
+    expect(outdentTarget(tree, "b")).toEqual({ targetId: "root", zone: "after" });
+    const after = move(tree, "b", outdentTarget(tree, "b"));
+    expect(pos(after, "b")).toEqual({ parentId: null, order: 1 });
+    expect(pos(after, "other")).toEqual({ parentId: null, order: 2 });
+    expect(pos(after, "c")).toEqual({ parentId: "root", order: 1 });
+  });
+
+  it("升階後再降階,位置關係(父項與兄弟順序)回到原樣——只要它是最後一個子項", () => {
+    const after = move(tree, "c", outdentTarget(tree, "c"));
+    const back = move(after, "c", indentTarget(after, "c"));
+    expect(pos(back, "c")).toEqual(pos(tree, "c"));
+  });
+
+  it("最上層不能升階;找不到的項目兩邊都是 null", () => {
+    expect(outdentTarget(tree, "root")).toBeNull();
+    expect(outdentTarget(tree, "nope")).toBeNull();
+    expect(indentTarget(tree, "nope")).toBeNull();
+  });
+});
+
+describe("parentAfterMove", () => {
+  it("搬到最上層時是 null,不能退回舊父項(那會讓 Lvl 與 Summary 連動被跳過)", () => {
+    expect(parentAfterMove([{ id: "x", parentId: null, order: 1 }], "x", "p")).toBeNull();
+  });
+
+  it("換了父項就是新的父項;這次搬移沒有動到它就是原本的", () => {
+    expect(parentAfterMove([{ id: "x", parentId: "q", order: 0 }], "x", "p")).toBe("q");
+    expect(parentAfterMove([{ id: "other", parentId: "q", order: 0 }], "x", "p")).toBe("p");
+    expect(parentAfterMove([], "x", null)).toBeNull();
+  });
+
+  it("用真的升階算出來的寫入:升到最上層後父項是 null", () => {
+    const tree: MoveItemLike[] = [
+      { id: "root", parentId: null, order: 0 },
+      { id: "kid", parentId: "root", order: 0 },
+    ];
+    const move = outdentTarget(tree, "kid")!;
+    const r = resolveItemMove(tree, "kid", move.targetId, move.zone);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(parentAfterMove(r.writes, "kid", "root")).toBeNull();
   });
 });

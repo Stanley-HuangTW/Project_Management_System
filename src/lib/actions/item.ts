@@ -21,7 +21,7 @@ import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { getItemDateRange } from "@/lib/gantt";
 import { loadTypeOptionIds, flipParentToSummary, restoreParentTypeIfChildless } from "@/lib/summaryType";
 import { collectSubtreeIds, type PredSnapshotEntry } from "@/lib/trash";
-import { resolveItemMove, computeLvlDelta, type DropZone } from "@/lib/dragReorder";
+import { resolveItemMove, computeLvlDelta, parentAfterMove, type DropZone } from "@/lib/dragReorder";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { SessionPayload } from "@/lib/jwt";
@@ -337,7 +337,7 @@ export async function moveItemWithinGroup(
   }
 
   const oldParentId = groupItems.find((i) => i.id === draggedItemId)?.parentId ?? null;
-  const newParentId = result.writes.find((w) => w.id === draggedItemId)?.parentId ?? oldParentId;
+  const newParentId = parentAfterMove(result.writes, draggedItemId, oldParentId);
 
   await prisma.$transaction(
     result.writes.map((w) => prisma.item.update({ where: { id: w.id }, data: { parentId: w.parentId, order: w.order } }))

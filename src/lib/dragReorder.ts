@@ -160,6 +160,37 @@ export function buildMoveInverse<T extends MoveItemLike>(
   return null;
 }
 
+/**
+ * 降階(縮排):變成前一個同層項目的最後一個子項,整棵子樹跟著走。第一個同層項目前面沒有誰可以當父項,
+ * 不能降階,回傳 null。用的是跟拖曳同一個搬移(resolveItemMove 的 "child"),Lvl 與 Summary 連動都一樣。
+ */
+export function indentTarget(items: MoveItemLike[], itemId: string): { targetId: string; zone: DropZone } | null {
+  const item = items.find((i) => i.id === itemId);
+  if (!item) return null;
+  const siblings = items.filter((i) => i.parentId === item.parentId).sort((a, b) => a.order - b.order);
+  const index = siblings.findIndex((i) => i.id === itemId);
+  return index > 0 ? { targetId: siblings[index - 1].id, zone: "child" } : null;
+}
+
+/**
+ * 升階(凸排):提升一階,變成父項的同層項目、緊接在父項後面(跟拖曳往左拖的 "outdent" 落點一樣)。
+ * 最上層沒有父項,不能升階,回傳 null。
+ */
+export function outdentTarget(items: MoveItemLike[], itemId: string): { targetId: string; zone: DropZone } | null {
+  const item = items.find((i) => i.id === itemId);
+  return item?.parentId ? { targetId: item.parentId, zone: "after" } : null;
+}
+
+/**
+ * 搬移之後被搬項目的父項 id(搬到最上層是 null);這次搬移沒有動到它就是原本的。
+ * 不能寫成 `find(...)?.parentId ?? 原本`——搬到最上層時 parentId 本來就是 null,會被當成「沒有寫入」而退回舊父項,
+ * 連帶讓 Lvl 與 Summary 類型的連動整段被跳過。
+ */
+export function parentAfterMove(writes: MoveWrite[], draggedId: string, oldParentId: string | null): string | null {
+  const write = writes.find((w) => w.id === draggedId);
+  return write ? write.parentId : oldParentId;
+}
+
 export type DropPreview = {
   /** 放開之後被拖項目的 WBS 編號——拖曳途中直接顯示在它那一列上。 */
   newCode: string | null;

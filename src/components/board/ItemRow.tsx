@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
   ChevronDown,
   ChevronRight,
+  IndentDecrease,
+  IndentIncrease,
   Lock,
   MessageSquare,
   Plus,
@@ -25,6 +27,8 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { useDeleteItem } from "./useDeleteItem";
+import { useChangeLevel, levelDirectionOfKey, type LevelDirection } from "./useChangeLevel";
+import { LevelButtons } from "./LevelButtons";
 import { computeItemProgress } from "@/lib/progress";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
@@ -33,7 +37,7 @@ import { ConstraintBadge } from "./ConstraintBadge";
 import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
-import type { DragOverState } from "@/lib/dragReorder";
+import { indentTarget, outdentTarget, type DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
 
 export function ItemRow({
@@ -148,6 +152,18 @@ export function ItemRow({
   const [visibilityOpen, setVisibilityOpen] = useState(false);
   const { notify } = useDialogs();
   const requestDelete = useDeleteItem();
+  // 升階 / 降階:只有項目列(frozen pane)用得到;沒有結構權限的人也不會有這兩個動作。
+  const changeLevel = useChangeLevel(boardId);
+  const canLevel = pane === "frozen" && canEditStructure;
+  const indent = useMemo(() => (canLevel ? indentTarget(allGroupItems, item.id) : null), [canLevel, allGroupItems, item.id]);
+  const outdent = useMemo(() => (canLevel ? outdentTarget(allGroupItems, item.id) : null), [canLevel, allGroupItems, item.id]);
+  const runLevel = (direction: LevelDirection, refocus = false) =>
+    changeLevel(direction, { id: item.id, groupId }, allGroupItems, {
+      expandParent: (parentId) => {
+        if (collapsedIds.has(parentId)) onToggleCollapse(parentId);
+      },
+      refocus,
+    });
   const [detailTab, setDetailTab] = useState<"updates" | "card">("updates");
   const [assignOpen, setAssignOpen] = useState(false);
   const [newChildItem, setNewChildItem] = useState<ItemData | null>(null);
@@ -363,11 +379,24 @@ export function ItemRow({
                 setDetailOpen(true);
               }}
               title="編輯此項目所有欄位"
+              data-item-name-button={item.id}
+              onKeyDown={(e) => {
+                const direction = levelDirectionOfKey(e);
+                if (!direction || !(direction === "indent" ? indent : outdent)) return;
+                e.preventDefault();
+                void runLevel(direction, true);
+              }}
               style={nameColors?.get(item.id) ? { color: nameColors.get(item.id) } : undefined}
               className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm outline-none hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400"
             >
               {item.name}
             </button>
+            <LevelButtons
+              canIndent={!!indent}
+              canOutdent={!!outdent}
+              onIndent={() => void runLevel("indent")}
+              onOutdent={() => void runLevel("outdent")}
+            />
             <button
               type="button"
               onClick={() => {
@@ -413,6 +442,20 @@ export function ItemRow({
                     <ArrowDownToLine size={14} /> 下方插入項目
                   </span>
                 </RowMenuItem>
+                {outdent && (
+                  <RowMenuItem onSelect={() => void runLevel("outdent")}>
+                    <span className="flex items-center gap-2">
+                      <IndentDecrease size={14} /> 升階
+                    </span>
+                  </RowMenuItem>
+                )}
+                {indent && (
+                  <RowMenuItem onSelect={() => void runLevel("indent")}>
+                    <span className="flex items-center gap-2">
+                      <IndentIncrease size={14} /> 降階
+                    </span>
+                  </RowMenuItem>
+                )}
                 <RowMenuItem onSelect={() => setVisibilityOpen(true)}>
                   <span className="flex items-center gap-2">
                     <Lock size={14} /> 可見範圍
