@@ -684,6 +684,7 @@ model BudgetPhase {
   reserves    Reserve[]
   labourPlans LabourPlan[]
   bomLines    BomLine[]
+  nreLines    NreLine[]
 
   @@index([boardId, order])
 }
@@ -1542,6 +1543,51 @@ enum CostCategory {
   OUTSOURCING
   TRAVEL
   OTHER
+  /// 驗證與認證:環境、壽命測試與法規認證(CE、FCC、BSMI)的實驗室費用與規費。
+  CERTIFICATION
+}
+
+/// NRE 報價單的四大項(跟預算的各類別是兩套:報價單是估算與報價的依據,不會寫進核准預算)。
+enum NreCategory {
+  /// 研發人力工時 —— 外部單位 / 人員投入的工時。
+  LABOUR
+  /// 模具與治具:外殼鋼模、組裝治具、測試夾具。
+  TOOLING
+  /// 打樣與測試樣品:PCB 打樣、3D 列印、CNC、小批量試產。
+  PROTOTYPE
+  /// 驗證與認證:環境 / 壽命測試、法規認證。
+  CERTIFICATION
+}
+
+/// NRE(一次性工程費用)報價單的一列,掛在預算階段上。
+///
+/// 有數量跟單價時,金額就是兩者相乘(存的時候算好,所有加總讀 amount 一欄);
+/// 沒有的話金額直接填。研發人力那一類的 vendor 是外部單位或人員,數量是工時、單價是時薪。
+model NreLine {
+  id          String      @id @default(cuid())
+  phaseId     String
+  phase       BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  category    NreCategory
+  /// 同一類別裡的排列順序。
+  order       Int         @default(0)
+  /// 細項說明。
+  description String
+  /// 估算基礎 / 數量的文字說明,例如「3 位工程師 × 3 個月」。
+  basis       String?
+  /// 外部單位或人員(研發人力用),也可以是模具廠、實驗室。
+  vendor      String?
+  quantity    Float?
+  /// 元。
+  unitPrice   Int?
+  /// 元,存的是算好的金額。
+  amount      Int
+  note        String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([phaseId, category, order])
 }
 
 /// 一筆核准預算:由上而下的那個數字。

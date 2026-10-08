@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { BoardWithData } from "@/types/board";
 import { listBudgetPhases } from "@/lib/actions/labourSheet";
 import { BudgetPanel } from "./BudgetPanel";
+import { NreQuoteSheet } from "./NreQuoteSheet";
 import { LabourPlanTable } from "./LabourPlanTable";
 import { LabourSheet } from "./LabourSheet";
 import { ProtoPlanTable } from "./ProtoPlanTable";
@@ -26,7 +27,7 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
   const [phases, setPhases] = useState<PhaseOption[] | null>(null);
   const [phaseId, setPhaseId] = useState("");
   // 人力規劃橫跨所有階段,所以它不在階段面板裡面,而是跟它並排的另一個視圖。
-  const [view, setView] = useState<"phase" | "sheet" | "proto" | "bom" | "labour">("phase");
+  const [view, setView] = useState<"phase" | "nre" | "sheet" | "proto" | "bom" | "labour">("phase");
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +52,7 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
         {(
           [
             ["phase", "階段預算"],
+            ["nre", "NRE 報價單"],
             ["sheet", "人力表"],
             ["proto", "樣機計畫"],
             ["bom", "樣機 BOM"],
@@ -91,7 +93,9 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">預算管控</h2>
+            <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+              {view === "nre" ? "NRE 報價單" : "預算管控"}
+            </h2>
             <select
               value={phaseId}
               onChange={(e) => setPhaseId(e.target.value)}
@@ -104,24 +108,35 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              預算按「人力表」上的階段核准。實際花費記在對應到的那一列工作項底下,沒對應的階段
-              只有預估、還沒有實際數字可以對。整個專案的總預算在
-              {board.programId ? (
-                <Link
-                  href={`/programs/${board.programId}`}
-                  className="mx-0.5 text-blue-600 hover:underline"
-                >
-                  專案群組
-                </Link>
-              ) : (
-                <span className="mx-0.5">專案群組</span>
-              )}
-              頁面。
-            </p>
+            {view === "nre" ? (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                報價單按「人力表」上的階段各填一份。
+              </p>
+            ) : (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                預算按「人力表」上的階段核准。實際花費記在對應到的那一列工作項底下,沒對應的階段
+                只有預估、還沒有實際數字可以對。整個專案的總預算在
+                {board.programId ? (
+                  <Link
+                    href={`/programs/${board.programId}`}
+                    className="mx-0.5 text-blue-600 hover:underline"
+                  >
+                    專案群組
+                  </Link>
+                ) : (
+                  <span className="mx-0.5">專案群組</span>
+                )}
+                頁面。
+              </p>
+            )}
           </div>
 
-          {phaseId && <BudgetPanel key={phaseId} scope={{ kind: "phase", id: phaseId }} />}
+          {phaseId &&
+            (view === "nre" ? (
+              <NreQuoteSheet key={phaseId} phaseId={phaseId} />
+            ) : (
+              <BudgetPanel key={phaseId} scope={{ kind: "phase", id: phaseId }} />
+            ))}
         </>
       )}
     </div>

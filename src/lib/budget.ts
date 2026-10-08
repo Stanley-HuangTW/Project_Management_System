@@ -14,6 +14,7 @@ export const COST_CATEGORIES: CostCategory[] = [
   "LABOUR",
   "MATERIAL",
   "TOOLING",
+  "CERTIFICATION",
   "OUTSOURCING",
   "TRAVEL",
   "OTHER",
@@ -21,8 +22,10 @@ export const COST_CATEGORIES: CostCategory[] = [
 
 export const CATEGORY_LABELS: Record<CostCategory, string> = {
   LABOUR: "人力",
-  MATERIAL: "材料",
-  TOOLING: "模具",
+  // 跟 NRE 的四大項對得上:人力 = 研發人力、材料 = 打樣與樣品、模具與治具、驗證與認證。
+  MATERIAL: "材料(打樣與樣品)",
+  TOOLING: "模具與治具",
+  CERTIFICATION: "驗證與認證",
   OUTSOURCING: "委外",
   TRAVEL: "差旅",
   OTHER: "其他",
