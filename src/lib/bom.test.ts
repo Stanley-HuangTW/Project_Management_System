@@ -4,6 +4,8 @@ import {
   flattenBom,
   bomMaterialBudget,
   reconstructBomTree,
+  unionProducts,
+  validateProductName,
   type BomLineInput,
   type IndentedBomLine,
 } from "./bom";
@@ -261,5 +263,21 @@ describe("reconstructBomTree", () => {
     }));
     // leaf: 3*10=30 一組;mod 用兩組 = 60。
     expect(summariseBom(asInput).unitCostTwd).toBe(60);
+  });
+});
+
+describe("產品名稱", () => {
+  it("validateProductName:空白、太長、有換行或 Tab 都不行", () => {
+    expect(validateProductName("M3")).toBeNull();
+    expect(validateProductName("P100_EVT1 充電站")).toBeNull();
+    expect(validateProductName("")).toContain("不可為空");
+    expect(validateProductName("字".repeat(61))).toContain("太長");
+    expect(validateProductName("a\nb")).toContain("換行");
+    expect(validateProductName("a\tb")).toContain("Tab");
+  });
+
+  it("unionProducts:三份名字聯集、去重、排序", () => {
+    expect(unionProducts(["M3", "充電站"], ["M3", "AMR"], [])).toEqual(["AMR", "M3", "充電站"]);
+    expect(unionProducts([], [], [])).toEqual([]);
   });
 });

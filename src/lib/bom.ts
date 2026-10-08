@@ -219,3 +219,18 @@ export function reconstructBomTree(lines: IndentedBomLine[]): {
 
   return { rows, warnings };
 }
+
+export const MAX_PRODUCT_NAME_LENGTH = 60;
+
+/** 產品名稱的檢查——回傳錯誤訊息,沒問題回 null。前後空白由呼叫端先去掉。 */
+export function validateProductName(name: string): string | null {
+  if (name === "") return "產品名稱不可為空";
+  if (name.length > MAX_PRODUCT_NAME_LENGTH) return `產品名稱太長了(上限 ${MAX_PRODUCT_NAME_LENGTH} 字)`;
+  if (/[\t\r\n]/.test(name)) return "產品名稱不能有換行或 Tab";
+  return null;
+}
+
+/** 產品清單:單獨建立的、樣機計畫用到的、BOM 用到的三份名字的聯集,去重後排序。 */
+export function unionProducts(...lists: string[][]): string[] {
+  return [...new Set(lists.flat())].sort();
+}

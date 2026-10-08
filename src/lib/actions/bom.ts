@@ -6,7 +6,15 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
-import { summariseBom, flattenBom, bomMaterialBudget, type BomLineInput, type BomNode } from "@/lib/bom";
+import {
+  summariseBom,
+  flattenBom,
+  bomMaterialBudget,
+  unionProducts,
+  validateProductName,
+  type BomLineInput,
+  type BomNode,
+} from "@/lib/bom";
 
 /**
  * 樣機 BOM:某個產品、某個階段一份表,列廠商/型號/名稱/子集,算出一台裝置
@@ -37,7 +45,7 @@ async function requireBomAdmin(boardId: string) {
 
 export type BomContext = {
   phases: { id: string; name: string }[];
-  /** 已經在用的產品名稱(樣機計畫 + BOM 兩邊的聯集),給下拉選單當候選。 */
+  /** 產品名稱:單獨新增的、樣機計畫用到的、BOM 用到的三者的聯集,給下拉選單當候選。 */
   products: string[];
   /** 整塊看板層級的編輯權——跟選了哪個產品/階段無關,匯入 Excel(動到整
    *  塊看板的 BOM)這種操作用得到,不用等使用者選了某個產品才知道能不能匯入。 */
@@ -51,7 +59,7 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
   if (!board) return null;
 
-  const [phases, protoProducts, bomProducts, first] = await Promise.all([
+  const [phases, protoProducts, bomProducts, ownProducts, first] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -59,6 +67,7 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
     }),
     prisma.protoPlan.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
     prisma.bomLine.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
+    prisma.budgetProduct.findMany({ where: { boardId }, select: { name: true } }),
     prisma.item.findFirst({
       where: { boardId, parentId: null, deletedAt: null },
       orderBy: { order: "asc" },
@@ -66,11 +75,98 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
     }),
   ]);
 
-  const products = [...new Set([...protoProducts, ...bomProducts].map((p) => p.product))].sort();
+  const products = unionProducts(
+    ownProducts.map((p) => p.name),
+    protoProducts.map((p) => p.product),
+    bomProducts.map((p) => p.product)
+  );
   const canEdit = first
     ? await canEditBudget({ kind: "item", id: first.id }, session)
     : session.role === "ADMIN";
   return { phases, products, canEdit };
+}
+
+/** 做產品的新增與刪除這類動作時,把「沒有權限」轉成回傳的錯誤訊息(丟出的例外在正式環境會被遮掉)。 */
+async function productAdmin(boardId: string) {
+  try {
+    return { session: await requireBomAdmin(boardId) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "權限不足" };
+  }
+}
+
+/**
+ * 新增一個產品。產品可以單獨存在——先建好產品,再慢慢填它的 BOM 與樣機計畫;不必先有一列才算有這個產品。
+ * 名稱已經在用(不論是單獨建立的、樣機計畫或 BOM 用到的)就回錯誤,不重複建。
+ */
+export async function addProduct(boardId: string, name: string): Promise<{ error?: string }> {
+  const guard = await productAdmin(boardId);
+  if ("error" in guard) return { error: guard.error };
+  const product = name.trim();
+  const invalid = validateProductName(product);
+  if (invalid) return { error: invalid };
+
+  const [own, proto, bom] = await Promise.all([
+    prisma.budgetProduct.findUnique({ where: { boardId_name: { boardId, name: product } }, select: { id: true } }),
+    prisma.protoPlan.findFirst({ where: { boardId, product }, select: { id: true } }),
+    prisma.bomLine.findFirst({ where: { boardId, product }, select: { id: true } }),
+  ]);
+  if (own || proto || bom) return { error: `已經有「${product}」這個產品了` };
+
+  await prisma.budgetProduct.create({ data: { boardId, name: product, createdById: guard.session.userId } });
+  await logAudit("COST", guard.session.userId, `新增產品「${product}」`, boardId);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+export type ProductUsage = { bomLines: number; protoRows: number; phases: number };
+
+/** 刪除一個產品之前先看它底下有多少東西——給確認視窗說「會一併刪掉什麼」。 */
+export async function getProductUsage(boardId: string, product: string): Promise<ProductUsage | { error: string }> {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+  const [bomLines, protoRows, bomPhases, protoPhases] = await Promise.all([
+    prisma.bomLine.count({ where: { boardId, product } }),
+    prisma.protoPlan.findMany({ where: { boardId, product }, select: { unit: true }, distinct: ["unit"] }),
+    prisma.bomLine.findMany({ where: { boardId, product }, select: { phaseId: true }, distinct: ["phaseId"] }),
+    prisma.protoPlan.findMany({ where: { boardId, product }, select: { phaseId: true }, distinct: ["phaseId"] }),
+  ]);
+  return {
+    bomLines,
+    protoRows: protoRows.length,
+    phases: new Set([...bomPhases, ...protoPhases].map((p) => p.phaseId)).size,
+  };
+}
+
+/**
+ * 刪除一個產品:它在各階段的 BOM(含子項目)、樣機計畫的各列、以及產品本身一起刪掉,無法復原。
+ * 受影響階段的材料預算(由 BOM 算出來的那一格)會重算。
+ */
+export async function deleteProduct(boardId: string, product: string): Promise<{ error?: string; bomLines?: number; protoRows?: number }> {
+  const guard = await productAdmin(boardId);
+  if ("error" in guard) return { error: guard.error };
+
+  const [bomPhases, protoPhases] = await Promise.all([
+    prisma.bomLine.findMany({ where: { boardId, product }, select: { phaseId: true }, distinct: ["phaseId"] }),
+    prisma.protoPlan.findMany({ where: { boardId, product }, select: { phaseId: true }, distinct: ["phaseId"] }),
+  ]);
+  const [bom, proto] = await prisma.$transaction([
+    // 子項目靠外鍵連帶刪除,所以只刪最上層那幾列再算筆數不準——直接刪整個產品的所有列。
+    prisma.bomLine.deleteMany({ where: { boardId, product } }),
+    prisma.protoPlan.deleteMany({ where: { boardId, product } }),
+    prisma.budgetProduct.deleteMany({ where: { boardId, name: product } }),
+  ]);
+  await logAudit(
+    "COST",
+    guard.session.userId,
+    `刪除產品「${product}」(${bom.count} 筆 BOM、${proto.count} 個樣機計畫台數)`,
+    boardId
+  );
+  for (const phaseId of new Set([...bomPhases, ...protoPhases].map((p) => p.phaseId))) {
+    await resyncBomMaterial(boardId, phaseId);
+  }
+  revalidatePath(`/boards/${boardId}`);
+  return { bomLines: bom.count, protoRows: proto.count };
 }
 
 export type BomLineRow = BomNode;

@@ -11,6 +11,7 @@ import {
   type NreExistingLine,
   resolveNreAmount,
   summarizeNre,
+  summarizeNreByPhase,
   validateNreLine,
   type NreLineInput,
 } from "./nre";
@@ -197,5 +198,32 @@ describe("sameNreContent / describeNreChange", () => {
   it("說出改了哪些欄位", () => {
     const changed = line({ category: "LABOUR", description: "設計", basis: "3 人 × 3 個月", vendor: "弘泰", quantity: 600, unitPrice: 800, amount: 0, note: "加量" });
     expect(describeNreChange(before, changed)).toBe("數量 500 → 600、金額 400,000 → 480,000、備註 (空白) → 加量");
+  });
+});
+
+describe("summarizeNreByPhase(整個專案的 NRE)", () => {
+  const phases = [
+    { id: "p1", name: "POC" },
+    { id: "p2", name: "EVT" },
+    { id: "p3", name: "DVT" },
+  ];
+
+  it("每個階段每一類的小計、每個階段的合計,以及全部階段加起來", () => {
+    const s = summarizeNreByPhase(phases, [
+      { phaseId: "p1", category: "TOOLING", amount: 550000 },
+      { phaseId: "p1", category: "LABOUR", amount: 400000 },
+      { phaseId: "p2", category: "TOOLING", amount: 60000 },
+      { phaseId: "p2", category: "CERTIFICATION", amount: 140000 },
+    ]);
+    expect(s.rows.map((r) => [r.phaseName, r.total])).toEqual([["POC", 950000], ["EVT", 200000], ["DVT", 0]]);
+    expect(s.rows[0].byCategory).toEqual({ LABOUR: 400000, TOOLING: 550000, PROTOTYPE: 0, CERTIFICATION: 0 });
+    expect(s.byCategory).toEqual({ LABOUR: 400000, TOOLING: 610000, PROTOTYPE: 0, CERTIFICATION: 140000 });
+    expect(s.total).toBe(1150000);
+  });
+
+  it("沒填報價單的階段也有一列(0);不屬於任何階段的資料不算", () => {
+    const s = summarizeNreByPhase(phases, [{ phaseId: "gone", category: "TOOLING", amount: 999 }]);
+    expect(s.rows).toHaveLength(3);
+    expect(s.total).toBe(0);
   });
 });

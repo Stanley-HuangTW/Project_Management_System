@@ -40,22 +40,37 @@ import { effectiveRateMap } from "@/lib/labourRate";
 export type BudgetScope =
   | { kind: "phase"; id: string }
   | { kind: "item"; id: string }
-  | { kind: "program"; id: string };
+  | { kind: "program"; id: string }
+  /**
+   * 整個看板(專案)所有階段的合計,**唯讀**:id 是看板的 id。核准預算與準備金是各階段加總,沒有
+   * 自己的一份可以設定;實際花費與訂單是這個看板上所有工作項的(包含沒有對應到任何階段的)。
+   */
+  | { kind: "board"; id: string };
+
+const BOARD_SCOPE_READ_ONLY = "整個專案是各階段的合計,沒有自己的預算可以設定——請選單一階段";
 
 /** 這個範圍的預算/準備金掛在哪個外鍵上。 */
 function scopeKey(scope: BudgetScope) {
+  if (scope.kind === "board") throw new Error(BOARD_SCOPE_READ_ONLY);
   if (scope.kind === "phase") return { phaseId: scope.id };
   if (scope.kind === "item") return { itemId: scope.id };
   return { programId: scope.id };
 }
 
+/** 讀預算與準備金時用的條件:整個專案是它底下所有階段的那幾列,其他範圍是自己的外鍵。 */
+function scopeReadWhere(scope: BudgetScope) {
+  return scope.kind === "board" ? { phase: { boardId: scope.id } } : scopeKey(scope);
+}
+
 function budgetWhereUnique(scope: BudgetScope, category: CostCategory) {
+  if (scope.kind === "board") throw new Error(BOARD_SCOPE_READ_ONLY);
   if (scope.kind === "phase") return { phaseId_category: { phaseId: scope.id, category } };
   if (scope.kind === "item") return { itemId_category: { itemId: scope.id, category } };
   return { programId_category: { programId: scope.id, category } };
 }
 
 function reserveWhereUnique(scope: BudgetScope, kind: ReserveKind) {
+  if (scope.kind === "board") throw new Error(BOARD_SCOPE_READ_ONLY);
   if (scope.kind === "phase") return { phaseId_kind: { phaseId: scope.id, kind } };
   if (scope.kind === "item") return { itemId_kind: { itemId: scope.id, kind } };
   return { programId_kind: { programId: scope.id, kind } };
@@ -204,6 +219,33 @@ async function resolveScope(
     });
     const subtree = collectSubtree(root.id, all, root.boardId, root.board.name);
     return { name: root.name, itemIds: subtree.map((i) => i.id), items: subtree };
+  }
+
+  if (scope.kind === "board") {
+    const board = await prisma.board.findUnique({ where: { id: scope.id }, select: { id: true, name: true } });
+    if (!board) return null;
+    await requireBoardAccess(board.id, session);
+    const [all, phases] = await Promise.all([
+      prisma.item.findMany({
+        where: { boardId: board.id, deletedAt: null },
+        select: { id: true, name: true, parentId: true, order: true },
+        orderBy: { order: "asc" },
+      }),
+      prisma.budgetPhase.findMany({ where: { boardId: board.id }, select: { startDate: true, endDate: true } }),
+    ]);
+    const items: BudgetView["items"] = [];
+    for (const root of all.filter((i) => i.parentId === null)) {
+      items.push(...collectSubtree(root.id, all, board.id, board.name));
+    }
+    // 計畫支出的備用期間:所有階段排的起訖日的最早到最晚。
+    const starts = phases.map((p) => p.startDate).sort();
+    const ends = phases.map((p) => p.endDate).sort();
+    return {
+      name: `${board.name}(整個專案)`,
+      itemIds: items.map((i) => i.id),
+      items,
+      plannedRange: starts.length > 0 ? { start: starts[0], end: ends[ends.length - 1] } : undefined,
+    };
   }
 
   const program = await prisma.program.findUnique({
@@ -357,7 +399,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
 
   const [budgets, commitments, expenses, labour] = await Promise.all([
     prisma.budget.findMany({
-      where: scopeKey(scope),
+      where: scopeReadWhere(scope),
       select: { category: true, amount: true },
     }),
     prisma.commitment.findMany({
@@ -408,7 +450,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
   );
 
   const reserveRows = await prisma.reserve.findMany({
-    where: scopeKey(scope),
+    where: scopeReadWhere(scope),
     include: {
       draws: {
         orderBy: { createdAt: "desc" },
@@ -465,15 +507,19 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
     labourFromPlan:
       scope.kind === "phase"
         ? (await prisma.labourPlan.count({ where: { phaseId: scope.id } })) > 0
-        : scope.kind === "item" &&
-          (await prisma.labourPlan.count({ where: { phase: { itemId: scope.id } } })) > 0,
+        : scope.kind === "board"
+          ? (await prisma.labourPlan.count({ where: { phase: { boardId: scope.id } } })) > 0
+          : scope.kind === "item" &&
+            (await prisma.labourPlan.count({ where: { phase: { itemId: scope.id } } })) > 0,
     // 同一個道理:材料是不是由 BOM 驅動,看的是這個階段有沒有任何一筆
     // BomLine——不是看目前算出來的金額是不是 0(0 也可能是 BOM 算出來的)。
     materialFromBom:
       scope.kind === "phase"
         ? (await prisma.bomLine.count({ where: { phaseId: scope.id } })) > 0
-        : scope.kind === "item" &&
-          (await prisma.bomLine.count({ where: { phase: { itemId: scope.id } } })) > 0,
+        : scope.kind === "board"
+          ? (await prisma.bomLine.count({ where: { boardId: scope.id } })) > 0
+          : scope.kind === "item" &&
+            (await prisma.bomLine.count({ where: { phase: { itemId: scope.id } } })) > 0,
     // Same rule the write paths enforce — see canEditBudget.
     canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({
@@ -524,6 +570,8 @@ export async function canEditBudget(
   scope: BudgetScope,
   session: Awaited<ReturnType<typeof requireSession>>
 ): Promise<boolean> {
+  // 整個專案是各階段的合計,連管理者都沒有地方可以寫——放在管理者的捷徑之前。
+  if (scope.kind === "board") return false;
   if (session.role === "ADMIN") return true;
 
   if (scope.kind === "phase") {

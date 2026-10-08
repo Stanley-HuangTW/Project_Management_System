@@ -91,6 +91,34 @@ export function validateNreLine(input: NreLineInput): string | null {
   return null;
 }
 
+export type NreProjectSummary = {
+  /** 每個階段一列(照階段的順序,沒填報價單的階段也在,金額是 0)。 */
+  rows: { phaseId: string; phaseName: string; byCategory: Record<NreCategoryKey, number>; total: number }[];
+  byCategory: Record<NreCategoryKey, number>;
+  total: number;
+};
+
+/** 整個專案的 NRE:各階段報價單的每一類小計與合計,以及全部階段加起來。 */
+export function summarizeNreByPhase(
+  phases: { id: string; name: string }[],
+  lines: { phaseId: string; category: NreCategoryKey; amount: number }[]
+): NreProjectSummary {
+  const zero = () => Object.fromEntries(NRE_CATEGORIES.map((c) => [c, 0])) as Record<NreCategoryKey, number>;
+  const rows = phases.map((p) => ({ phaseId: p.id, phaseName: p.name, byCategory: zero(), total: 0 }));
+  const byPhase = new Map(rows.map((r) => [r.phaseId, r]));
+  const byCategory = zero();
+  let total = 0;
+  for (const line of lines) {
+    const row = byPhase.get(line.phaseId);
+    if (!row) continue;
+    row.byCategory[line.category] += line.amount;
+    row.total += line.amount;
+    byCategory[line.category] += line.amount;
+    total += line.amount;
+  }
+  return { rows, byCategory, total };
+}
+
 export type NreSummary = {
   byCategory: Record<NreCategoryKey, { count: number; total: number }>;
   count: number;

@@ -6,12 +6,16 @@ import type { BoardWithData } from "@/types/board";
 import { listBudgetPhases } from "@/lib/actions/labourSheet";
 import { BudgetPanel } from "./BudgetPanel";
 import { NreQuoteSheet } from "./NreQuoteSheet";
+import { NreProjectTable } from "./NreProjectTable";
 import { LabourPlanTable } from "./LabourPlanTable";
 import { LabourSheet } from "./LabourSheet";
 import { ProtoPlanTable } from "./ProtoPlanTable";
 import { BomTable } from "./BomTable";
 
 type PhaseOption = { id: string; name: string; itemId: string | null };
+
+/** 階段下拉裡「整個專案(全部階段合計)」那一項的值——不是任何一個階段的 id。 */
+const WHOLE_PROJECT = "__project__";
 
 /**
  * 預算 on a board: one 預算階段 at a time.
@@ -101,6 +105,7 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
               onChange={(e) => setPhaseId(e.target.value)}
               className="rounded-md border border-neutral-300 px-2 py-1 text-sm outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
             >
+              <option value={WHOLE_PROJECT}>整個專案(全部階段合計)</option>
               {phases.map((phase) => (
                 <option key={phase.id} value={phase.id}>
                   {phase.name}
@@ -108,7 +113,13 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
                 </option>
               ))}
             </select>
-            {view === "nre" ? (
+            {phaseId === WHOLE_PROJECT ? (
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                {view === "nre"
+                  ? "全部階段的報價單合計。"
+                  : "全部階段合計,唯讀:核准預算是各階段核准金額加總,實際花費是這個看板上所有工作項的。"}
+              </p>
+            ) : view === "nre" ? (
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 報價單按「人力表」上的階段各填一份。
               </p>
@@ -131,12 +142,25 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
             )}
           </div>
 
-          {phaseId &&
+          {phaseId === WHOLE_PROJECT ? (
+            view === "nre" ? (
+              <NreProjectTable key={phaseId} boardId={board.id} />
+            ) : (
+              <>
+                <p className="rounded-md border border-dashed border-neutral-300 p-2 text-xs text-neutral-500 dark:border-neutral-600 dark:text-neutral-400">
+                  這是整個專案的合計,不能在這裡設定預算、登記訂單或支出。要編輯請在上面選單一階段。
+                </p>
+                <BudgetPanel key={phaseId} scope={{ kind: "board", id: board.id }} />
+              </>
+            )
+          ) : (
+            phaseId &&
             (view === "nre" ? (
               <NreQuoteSheet key={phaseId} phaseId={phaseId} />
             ) : (
               <BudgetPanel key={phaseId} scope={{ kind: "phase", id: phaseId }} />
-            ))}
+            ))
+          )}
         </>
       )}
     </div>

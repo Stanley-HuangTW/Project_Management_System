@@ -6,8 +6,11 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import {
+  addProduct,
+  deleteProduct,
   getBomContext,
   getBomView,
+  getProductUsage,
   upsertBomLine,
   deleteBomLine,
   copyBomLines,
@@ -170,7 +173,7 @@ function BomNodeRows({
  * 列在等,打了名稱就變成一筆新項目。
  */
 export function BomTable({ boardId }: { boardId: string }) {
-  const { notify, confirm } = useDialogs();
+  const { notify, confirm, prompt } = useDialogs();
   const [ctx, setCtx] = useState<BomContext | null>(null);
   const [product, setProduct] = useState("");
   const [phaseId, setPhaseId] = useState("");
@@ -275,6 +278,41 @@ export function BomTable({ boardId }: { boardId: string }) {
     if (ok) await run(() => deleteBomLine(boardId, line.id), "無法刪除");
   }
 
+  /** 新增產品:問名字、建起來、切過去——產品可以先建、之後再填 BOM。 */
+  async function addNewProduct() {
+    const name = await prompt("產品名稱?(例如 M3、充電站)", {
+      title: "新增產品",
+      placeholder: "產品名稱",
+      required: true,
+      confirmLabel: "新增",
+    });
+    if (name === null || name.trim() === "") return;
+    if (await run(() => addProduct(boardId, name), "無法新增產品")) setProduct(name.trim());
+  }
+
+  /** 刪除產品:先說會一併刪掉多少 BOM 與樣機計畫,確認了才刪。 */
+  async function removeProduct() {
+    const usage = await getProductUsage(boardId, product);
+    if ("error" in usage) {
+      await notify(usage.error, { title: "無法刪除產品" });
+      return;
+    }
+    const detail =
+      usage.bomLines + usage.protoRows === 0
+        ? "這個產品還沒有 BOM 與樣機計畫。"
+        : `會一併刪掉它在 ${usage.phases} 個階段的 ${usage.bomLines} 筆 BOM(含子項目)與 ${usage.protoRows} 列樣機計畫,無法復原。`;
+    const ok = await confirm(`刪除產品「${product}」?\n\n${detail}`, {
+      title: "刪除產品",
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
+    if (await run(() => deleteProduct(boardId, product), "無法刪除產品")) {
+      const fresh = await getBomContext(boardId);
+      setProduct(fresh?.products[0] ?? "");
+    }
+  }
+
   async function doCopy() {
     if (!copyFrom) return;
     const ok = await confirm(
@@ -332,6 +370,27 @@ export function BomTable({ boardId }: { boardId: string }) {
             ))}
           </datalist>
         </label>
+        {ctx.canEdit && (
+          <>
+            <button
+              type="button"
+              onClick={() => void addNewProduct()}
+              disabled={busy}
+              className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            >
+              <Plus size={12} /> 新增產品
+            </button>
+            <button
+              type="button"
+              onClick={() => void removeProduct()}
+              disabled={busy || !product || !ctx.products.includes(product)}
+              title={product && !ctx.products.includes(product) ? "這個名字還不是一個產品" : "連同它的 BOM 與樣機計畫一起刪除"}
+              className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-neutral-600 dark:text-red-400 dark:hover:bg-red-950/30"
+            >
+              <Trash2 size={12} /> 刪除產品
+            </button>
+          </>
+        )}
         <label className="block">
           <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">階段</span>
           <select

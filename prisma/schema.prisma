@@ -261,6 +261,7 @@ model Board {
   labourSlots    LabourSlot[]
   protoPlans     ProtoPlan[]
   bomLines       BomLine[]
+  budgetProducts BudgetProduct[]
 
   @@index([deletedAt])
   activityTimeEntries ActivityTimeEntry[]
@@ -802,6 +803,22 @@ model ProtoPlan {
 
   @@unique([boardId, product, unit, phaseId])
   @@index([boardId, product])
+}
+
+/// 看板的產品清單(樣機計畫與樣機 BOM 共用)。
+///
+/// 產品原本只是樣機計畫、BOM 每一列上的一個名字,沒有任何一列用到它就不存在,所以「先新增一個產品、
+/// 再慢慢填 BOM」做不到,刪掉一個產品也要一列一列刪。這張表讓產品可以單獨存在;
+/// 清單上看到的產品是它、樣機計畫與 BOM 裡用到的名字三者的聯集。
+model BudgetProduct {
+  id          String   @id @default(cuid())
+  boardId     String
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name        String
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([boardId, name])
 }
 
 /// 樣機 BOM:某個產品、某個階段,一台裝置要用哪些料。

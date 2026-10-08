@@ -14,6 +14,8 @@ import {
   describeNreChange,
   planNreImport,
   resolveNreAmount,
+  summarizeNreByPhase,
+  type NreProjectSummary,
   validateNreLine,
   type NreCategoryKey,
   type NreLineInput,
@@ -67,6 +69,25 @@ function toRow(l: {
     amount: l.amount,
     note: l.note ?? "",
   };
+}
+
+/**
+ * 整個專案的 NRE:每個階段、每一類的小計與合計(唯讀)。看得到這個看板的人都看得到。
+ * 要編輯、匯入、匯出請選單一階段。
+ */
+export async function getNreProjectSummary(boardId: string): Promise<NreProjectSummary | null> {
+  const session = await requireSession();
+  const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
+  if (!board) return null;
+  await requireBoardAccess(boardId, session);
+  const [phases, groups] = await Promise.all([
+    prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" }, select: { id: true, name: true } }),
+    prisma.nreLine.groupBy({ by: ["phaseId", "category"], where: { phase: { boardId } }, _sum: { amount: true } }),
+  ]);
+  return summarizeNreByPhase(
+    phases,
+    groups.map((g) => ({ phaseId: g.phaseId, category: g.category, amount: g._sum.amount ?? 0 }))
+  );
 }
 
 export async function getNreSheet(phaseId: string): Promise<NreSheet | null> {
