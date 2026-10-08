@@ -10,7 +10,7 @@
  * 不假裝比得出來,直接說這是第一份。
  */
 
-import { RISK_KIND_LABELS, RISK_STATUS_LABELS } from "@/lib/riskRegister";
+import { RISK_KIND_LABELS, RISK_STATUS_LABELS, riskLinkTag, riskScore } from "@/lib/riskRegister";
 
 /** 一個工作項在快照裡的樣子。存得下整份名單,差異才算得出來。 */
 export type ReportItem = {
@@ -85,6 +85,15 @@ export type PersonSection = {
   upcoming: ReportItem[];
 };
 
+/** 風險/議題上的一則進度更新(負責人寫的時間軸)。 */
+export type RiskUpdateLine = {
+  authorName: string;
+  /** "YYYY-MM-DD"(台灣時間) */
+  date: string;
+  /** 已截短。 */
+  text: string;
+};
+
 /** 風險/議題登記簿(RiskEntry)在快照裡的樣子。 */
 export type RiskLine = {
   id: string;
@@ -99,6 +108,17 @@ export type RiskLine = {
   dueDate: string | null;
   /** ISO 字串——拿來判斷「狀態沒變,但其他欄位這週動過」。 */
   updatedAt: string;
+  // 以下是逐筆列出時用的詳細資訊,舊版快照沒有。
+  /** 說明、對策(已截短)。 */
+  description?: string | null;
+  mitigation?: string | null;
+  /** 從 Mantis 同步來的有編號與網址。 */
+  mantisId?: number | null;
+  mantisUrl?: string | null;
+  /** 這一週新增的進度更新,依日期由舊到新。 */
+  updates?: RiskUpdateLine[];
+  /** 最近一次進度更新(不限這一週);從來沒有更新就是 null。 */
+  latestUpdate?: RiskUpdateLine | null;
 };
 
 /** 這一週工作項上新增的資訊:留言、連結(網址)、附件。 */
@@ -304,6 +324,70 @@ export function allItems(data: { programs: ProgramSection[] }): ReportItem[] {
 
 function allBudgets(data: { programs: ProgramSection[] }): BudgetLine[] {
   return data.programs.flatMap((p) => p.budgets);
+}
+
+/** 週報裡逐筆列出最多幾筆風險/議題;多的只說還有幾筆。 */
+export const MAX_RISKS_LISTED = 20;
+/** 一筆風險/議題底下最多列幾則這週的進度更新。 */
+export const MAX_RISK_UPDATES_LISTED = 5;
+
+function taipeiDate(iso: string): string {
+  return new Date(Date.parse(iso) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * 週報裡逐筆列出的風險/議題:還沒結案的全部、已結案的只列這一週才動過的(剛結案的);
+ * 分數高的在前,已結案的排最後。
+ */
+export function risksToList(risks: RiskLine[], weekStart: string, weekEnd: string): RiskLine[] {
+  const touchedThisWeek = (r: RiskLine) => {
+    const day = taipeiDate(r.updatedAt);
+    return day >= weekStart && day <= weekEnd;
+  };
+  return risks
+    .filter((r) => r.status !== "CLOSED" || touchedThisWeek(r))
+    .sort(
+      (a, b) =>
+        Number(a.status === "CLOSED") - Number(b.status === "CLOSED") ||
+        riskScore(b.probability, b.impact) - riskScore(a.probability, a.impact) ||
+        a.title.localeCompare(b.title, "zh-TW")
+    );
+}
+
+/** 一筆風險/議題的標題列:類型標記(風險 / 議題 / Mantis #編號)、名稱、狀態、負責人、到期日。 */
+export function riskHeadline(r: RiskLine): string {
+  const owner = r.ownerName ? `・負責:${r.ownerName}` : "";
+  const due = r.dueDate ? `・到期 ${r.dueDate}` : "";
+  return `[${riskLinkTag({ kind: r.kind, mantisId: r.mantisId ?? null })}] ${r.title} — ${RISK_STATUS_LABELS[r.status]}(分數 ${riskScore(r.probability, r.impact)})${owner}${due}`;
+}
+
+/** 標題列底下的詳細資訊:看板、說明、對策、Mantis 網址、這週的更新(沒有就放最近一次)。 */
+export function riskDetailLines(r: RiskLine): string[] {
+  const out: string[] = [];
+  if (r.boardName) out.push(`看板:${r.boardName}`);
+  if (r.description) out.push(`說明:${r.description}`);
+  if (r.mitigation) out.push(`對策:${r.mitigation}`);
+  if (r.mantisUrl) out.push(`Mantis:<${r.mantisUrl}>`);
+  const updates = r.updates ?? [];
+  if (updates.length > 0) {
+    for (const u of updates.slice(0, MAX_RISK_UPDATES_LISTED)) out.push(`💬 更新(${u.authorName} ${u.date.slice(5)}):${u.text}`);
+    if (updates.length > MAX_RISK_UPDATES_LISTED) out.push(`……另外還有 ${updates.length - MAX_RISK_UPDATES_LISTED} 則更新`);
+  } else if (r.latestUpdate) {
+    out.push(`最近一次更新(${r.latestUpdate.authorName} ${r.latestUpdate.date.slice(5)}):${r.latestUpdate.text}`);
+  }
+  return out;
+}
+
+function renderRiskList(risks: RiskLine[], weekStart: string, weekEnd: string): string[] {
+  const list = risksToList(risks, weekStart, weekEnd);
+  if (list.length === 0) return [];
+  const out: string[] = ["", "**風險與議題明細**"];
+  for (const r of list.slice(0, MAX_RISKS_LISTED)) {
+    out.push(`- ${riskHeadline(r)}`);
+    out.push(...riskDetailLines(r).map((line) => `  - ${line}`));
+  }
+  if (list.length > MAX_RISKS_LISTED) out.push(`- ……另外還有 ${list.length - MAX_RISKS_LISTED} 項`);
+  return out;
 }
 
 function allRisks(data: { programs: ProgramSection[] }): RiskLine[] {
@@ -665,7 +749,9 @@ export function renderWeeklyReportMarkdown(
   if (includePrograms) {
     for (const program of data.programs) {
       out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
-      out.push(...renderProgram(program, diff, data.upcomingDays, data.departments, includeDepartments));
+      out.push(
+        ...renderProgram(program, diff, data.upcomingDays, data.departments, includeDepartments, data.weekStart, data.weekEnd)
+      );
       out.push("");
     }
   }
@@ -722,7 +808,9 @@ function renderProgram(
   diff: WeeklyReportDiff,
   upcomingDays: number,
   departments: PersonSection[],
-  includeDepartments: boolean
+  includeDepartments: boolean,
+  weekStart: string,
+  weekEnd: string
 ): string[] {
   const out: string[] = [];
   const name = program.programName;
@@ -847,6 +935,7 @@ function renderProgram(
         `${RISK_KIND_LABELS.ISSUE} ${risks.filter((r) => r.kind === "ISSUE").length} 項,` +
         `尚未結案 ${open.length} 項。`
     );
+    out.push(...renderRiskList(risks, weekStart, weekEnd));
   }
   if (!diff.firstEver) {
     const added = diff.riskAdded.filter((r) => r.programName === name);

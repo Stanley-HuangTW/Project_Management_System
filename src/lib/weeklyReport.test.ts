@@ -820,6 +820,97 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
   });
 });
 
+describe("風險與議題明細", () => {
+  const md = (risks: RiskLine[]) => {
+    const data = snapshot([], [], risks);
+    return renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+  };
+
+  it("逐筆列出名稱、狀態、負責人與到期日,類型標風險或議題", () => {
+    const out = md([
+      risk({ id: "r1", title: "電源模組可能缺貨", status: "MITIGATING", ownerName: "王小明", dueDate: "2026-10-20" }),
+      risk({ id: "r2", kind: "ISSUE", title: "現場通訊中斷", status: "OPEN" }),
+    ]);
+    expect(out).toContain("**風險與議題明細**");
+    expect(out).toContain("- [風險] 電源模組可能缺貨 — 處理中(分數 9)・負責:王小明・到期 2026-10-20");
+    expect(out).toContain("- [議題] 現場通訊中斷 — 未處理(分數 9)");
+  });
+
+  it("帶出看板、說明、對策,Mantis 來的標編號並附網址", () => {
+    const out = md([
+      risk({ id: "r1", description: "供應商說交期延到十月底", mitigation: "找第二家供應商報價" }),
+      risk({ id: "r2", kind: "ISSUE", mantisId: 321, mantisUrl: "https://mantis.example.com/view.php?id=321", title: "韌體升級後重開機" }),
+    ]);
+    expect(out).toContain("看板:M3專案");
+    expect(out).toContain("說明:供應商說交期延到十月底");
+    expect(out).toContain("對策:找第二家供應商報價");
+    expect(out).toContain("[Mantis #321] 韌體升級後重開機");
+    expect(out).toContain("Mantis:<https://mantis.example.com/view.php?id=321>");
+  });
+
+  it("這週有進度更新就列出來;沒有就放最近一次更新,說清楚不是這週的", () => {
+    const out = md([
+      risk({
+        id: "r1",
+        title: "有更新的",
+        updates: [
+          { authorName: "王小明", date: "2026-09-16", text: "已跟供應商確認" },
+          { authorName: "李小華", date: "2026-09-18", text: "第二家報價回來了" },
+        ],
+        latestUpdate: { authorName: "李小華", date: "2026-09-18", text: "第二家報價回來了" },
+      }),
+      risk({ id: "r2", title: "這週沒更新的", latestUpdate: { authorName: "陳小美", date: "2026-08-30", text: "等客戶回覆" } }),
+      risk({ id: "r3", title: "從來沒更新的" }),
+    ]);
+    expect(out).toContain("💬 更新(王小明 09-16):已跟供應商確認");
+    expect(out).toContain("💬 更新(李小華 09-18):第二家報價回來了");
+    expect(out).toContain("最近一次更新(陳小美 08-30):等客戶回覆");
+    // 只看「從來沒更新的」那一筆自己的區塊(標題列加上縮排的子行),不要把後面別筆的更新算進來。
+    const block = out.match(/- \[風險\] 從來沒更新的[^\n]*\n(?:  - [^\n]*\n?)*/)?.[0] ?? "";
+    expect(block).toContain("從來沒更新的");
+    expect(block).not.toContain("更新(");
+    expect(block).not.toContain("最近一次更新");
+  });
+
+  it("一筆的進度更新太多時只列前 5 則,其餘說還有幾則", () => {
+    const updates = Array.from({ length: 8 }, (_, i) => ({ authorName: "王小明", date: "2026-09-16", text: `第 ${i + 1} 則` }));
+    const out = md([risk({ id: "r1", updates })]);
+    expect(out).toContain("第 5 則");
+    expect(out).not.toContain("第 6 則");
+    expect(out).toContain("……另外還有 3 則更新");
+  });
+
+  it("已結案的只列這一週才動過的;分數高的在前,已結案的排最後", () => {
+    const out = md([
+      risk({ id: "old", title: "很久以前結案", status: "CLOSED", updatedAt: "2026-08-01T00:00:00.000Z" }),
+      risk({ id: "fresh", title: "這週剛結案", status: "CLOSED", updatedAt: "2026-09-17T00:00:00.000Z" }),
+      risk({ id: "low", title: "低分的", probability: 1, impact: 1 }),
+      risk({ id: "high", title: "高分的", probability: 5, impact: 5 }),
+    ]);
+    expect(out).not.toContain("很久以前結案");
+    const order = ["高分的", "低分的", "這週剛結案"].map((t) => out.indexOf(`] ${t}`));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("太多筆時截斷並說還有幾項", () => {
+    const many = Array.from({ length: 25 }, (_, i) => risk({ id: `x${i}`, title: `風險 ${i}` }));
+    const out = md(many);
+    expect(out).toContain("- ……另外還有 5 項");
+  });
+
+  it("舊版快照(沒有明細欄位)照樣排得出來,不會多出空的段落", () => {
+    const out = md([risk({ id: "r1", title: "舊的" })]);
+    expect(out).toContain("[風險] 舊的 — 未處理");
+    expect(out).not.toContain("說明:");
+    expect(out).not.toContain("最近一次更新");
+  });
+
+  it("沒有任何風險議題時不出現明細段落", () => {
+    expect(md([])).not.toContain("風險與議題明細");
+  });
+});
+
 describe("分專案寄信", () => {
   const person = (programName: string | null): PersonSection => ({
     userId: "u1",

@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from "react";
 import {
   ITEM_UPDATE_LABELS,
+  MAX_RISK_UPDATES_LISTED,
   MAX_UPDATES_PER_ITEM,
   byPriority,
   groupItemUpdates,
+  risksToList,
   updatesByItem,
   type ItemUpdateLine,
   type ProgramSection,
@@ -12,7 +14,7 @@ import {
   type RiskLine,
   type WeeklyReportDiff,
 } from "@/lib/weeklyReport";
-import { RISK_KIND_LABELS, RISK_STATUS_LABELS } from "@/lib/riskRegister";
+import { RISK_KIND_LABELS, RISK_STATUS_LABELS, riskLinkTag, riskScore } from "@/lib/riskRegister";
 import { PRIORITY_OPTIONS } from "@/lib/statusDefaults";
 
 const PRIORITY_COLOR: Record<string, string> = Object.fromEntries(
@@ -231,13 +233,91 @@ function Changes({
   );
 }
 
+const RISK_LIST_LIMIT = 10;
+
+/** 風險/議題逐筆列出:名稱、狀態、負責人、到期日,底下是說明、對策、Mantis 連結與進度更新。 */
+function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; weekStart: string; weekEnd: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const list = risksToList(risks, weekStart, weekEnd);
+  if (list.length === 0) return null;
+  const shown = expanded ? list : list.slice(0, RISK_LIST_LIMIT);
+  return (
+    <ul className="divide-y divide-neutral-100 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-700">
+      {shown.map((r) => {
+        const updates = r.updates ?? [];
+        const href = safeHref(r.mantisUrl ?? null);
+        return (
+          <li key={r.id} className="px-2 py-1.5">
+            <p className="flex flex-wrap items-baseline gap-1.5 text-sm text-neutral-700 dark:text-neutral-100">
+              <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                {riskLinkTag({ kind: r.kind, mantisId: r.mantisId ?? null })}
+              </span>
+              <span className="font-medium">{r.title}</span>
+              <span className="rounded border border-neutral-200 px-1.5 text-[11px] text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                {RISK_STATUS_LABELS[r.status]}
+              </span>
+              <span className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">分數 {riskScore(r.probability, r.impact)}</span>
+              {r.ownerName && <span className="text-xs text-neutral-400 dark:text-neutral-500">負責:{r.ownerName}</span>}
+              {r.dueDate && <span className="text-xs text-neutral-400 dark:text-neutral-500">到期 {r.dueDate}</span>}
+            </p>
+            <ul className="mt-0.5 space-y-0.5 pl-3 text-xs text-neutral-600 dark:text-neutral-300">
+              {r.boardName && <li className="text-neutral-400 dark:text-neutral-500">看板:{r.boardName}</li>}
+              {r.description && <li className="break-words">說明:{r.description}</li>}
+              {r.mitigation && <li className="break-words">對策:{r.mitigation}</li>}
+              {href && (
+                <li>
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="break-all text-blue-600 hover:underline dark:text-blue-400">
+                    在 Mantis 開啟
+                  </a>
+                </li>
+              )}
+              {updates.slice(0, MAX_RISK_UPDATES_LISTED).map((u, idx) => (
+                <li key={idx} className="flex flex-wrap items-baseline gap-1">
+                  <span title="這週的進度更新">💬</span>
+                  <span className="text-neutral-400 dark:text-neutral-500">
+                    {u.authorName} {u.date.slice(5)}
+                  </span>
+                  <span className="break-words">{u.text}</span>
+                </li>
+              ))}
+              {updates.length > MAX_RISK_UPDATES_LISTED && (
+                <li className="text-neutral-400 dark:text-neutral-500">……另外還有 {updates.length - MAX_RISK_UPDATES_LISTED} 則更新</li>
+              )}
+              {updates.length === 0 && r.latestUpdate && (
+                <li className="flex flex-wrap items-baseline gap-1">
+                  <span title="最近一次進度更新(不是這一週)">💬</span>
+                  <span className="text-neutral-400 dark:text-neutral-500">
+                    最近一次更新 {r.latestUpdate.authorName} {r.latestUpdate.date.slice(5)}
+                  </span>
+                  <span className="break-words">{r.latestUpdate.text}</span>
+                </li>
+              )}
+            </ul>
+          </li>
+        );
+      })}
+      {!expanded && list.length > shown.length && (
+        <li className="px-2 py-1">
+          <button type="button" onClick={() => setExpanded(true)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+            ……另外還有 {list.length - shown.length} 項(點擊展開)
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
 function RiskList({
   risks,
+  weekStart,
+  weekEnd,
   added,
   statusChanged,
   updated,
 }: {
   risks: RiskLine[];
+  weekStart: string;
+  weekEnd: string;
   added: RiskLine[];
   statusChanged: { line: RiskLine; from: RiskLine["status"]; to: RiskLine["status"] }[];
   updated: RiskLine[];
@@ -252,6 +332,7 @@ function RiskList({
             `${RISK_KIND_LABELS.ISSUE} ${risks.filter((r) => r.kind === "ISSUE").length} 項,` +
             `尚未結案 ${open.length} 項。`}
       </p>
+      <RiskDetailList risks={risks} weekStart={weekStart} weekEnd={weekEnd} />
       {added.length + statusChanged.length + updated.length > 0 && (
         <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-300">
           {added.map((r) => (
@@ -347,11 +428,15 @@ export function WeeklyProgramPanel({
   departments,
   diff,
   upcomingDays,
+  weekStart,
+  weekEnd,
 }: {
   program: ProgramSection;
   departments: PersonSection[];
   diff: WeeklyReportDiff;
   upcomingDays: number;
+  weekStart: string;
+  weekEnd: string;
 }) {
   const name = program.programName;
   const items = program.items;
@@ -424,6 +509,8 @@ export function WeeklyProgramPanel({
       <Block title="風險與議題">
         <RiskList
           risks={risks}
+          weekStart={weekStart}
+          weekEnd={weekEnd}
           added={diff.firstEver ? [] : diff.riskAdded.filter((r) => r.programName === name)}
           statusChanged={diff.firstEver ? [] : diff.riskStatusChanged.filter((r) => r.line.programName === name)}
           updated={diff.firstEver ? [] : diff.riskUpdated.filter((r) => r.programName === name)}

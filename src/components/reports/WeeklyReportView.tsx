@@ -185,6 +185,8 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
                     departments={current.data.departments}
                     diff={current.diff}
                     upcomingDays={current.data.upcomingDays}
+                    weekStart={current.data.weekStart}
+                    weekEnd={current.data.weekEnd}
                   />
                 )}
               </>

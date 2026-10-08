@@ -22,6 +22,7 @@ import {
   type ReportRangeConfig,
   type ItemBucket,
   type ItemUpdateLine,
+  type RiskUpdateLine,
   type ProgramSection,
   type ReportItem,
   type RiskLine,
@@ -124,7 +125,7 @@ export async function buildWeeklyReport(
       items,
       budgets: await gatherBudgets(mine),
       delays: await gatherDelays(mine, session),
-      risks: await gatherRisks(mine, program.name),
+      risks: await gatherRisks(mine, program.name, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
     });
   }
@@ -139,7 +140,7 @@ export async function buildWeeklyReport(
       items,
       budgets: await gatherBudgets(orphans),
       delays: await gatherDelays(orphans, session),
-      risks: await gatherRisks(orphans, null),
+      risks: await gatherRisks(orphans, null, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
     });
   }
@@ -409,30 +410,61 @@ async function gatherDelays(boards: BoardWithData[], session: SessionPayload): P
   ];
 }
 
-/** 這個專案群組底下所有看板的風險/議題登記。 */
-async function gatherRisks(boards: BoardWithData[], programName: string | null): Promise<RiskLine[]> {
+/**
+ * 這個專案群組底下所有看板的風險/議題登記,連同逐筆列出要用的說明、對策、Mantis 網址與進度更新。
+ * 進度更新分兩種:這一週新增的(週的邊界照台灣時間,跟工作項資訊更新一致),與最近一次(不限這一週)。
+ */
+async function gatherRisks(
+  boards: BoardWithData[],
+  programName: string | null,
+  weekStart: string,
+  weekEnd: string
+): Promise<RiskLine[]> {
   const boardIds = boards.map((b) => b.id);
   if (boardIds.length === 0) return [];
   const boardName = new Map(boards.map((b) => [b.id, b.name]));
+  const from = new Date(`${weekStart}T00:00:00+08:00`).getTime();
+  const to = new Date(`${weekEnd}T00:00:00+08:00`).getTime() + 86_400_000;
+  const dateOf = (d: Date) => new Date(d.getTime() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
 
   const risks = await prisma.riskEntry.findMany({
     where: { boardId: { in: boardIds } },
-    include: { owner: { select: { name: true } } },
+    include: {
+      owner: { select: { name: true } },
+      updates: { orderBy: { createdAt: "desc" }, take: 30, include: { author: { select: { name: true } } } },
+    },
   });
 
-  return risks.map((r) => ({
-    id: r.id,
-    boardName: boardName.get(r.boardId) ?? "",
-    programName,
-    kind: r.kind,
-    status: r.status,
-    title: r.title,
-    probability: r.probability,
-    impact: r.impact,
-    ownerName: r.owner?.name ?? null,
-    dueDate: r.dueDate,
-    updatedAt: r.updatedAt.toISOString(),
-  }));
+  return risks.map((r) => {
+    const line = (u: (typeof r.updates)[number]): RiskUpdateLine => ({
+      authorName: u.author?.name ?? "(已刪除的使用者)",
+      date: dateOf(u.createdAt),
+      text: excerpt(u.body, 160),
+    });
+    const thisWeek = r.updates
+      .filter((u) => u.createdAt.getTime() >= from && u.createdAt.getTime() < to)
+      .reverse()
+      .map(line);
+    return {
+      id: r.id,
+      boardName: boardName.get(r.boardId) ?? "",
+      programName,
+      kind: r.kind,
+      status: r.status,
+      title: r.title,
+      probability: r.probability,
+      impact: r.impact,
+      ownerName: r.owner?.name ?? null,
+      dueDate: r.dueDate,
+      updatedAt: r.updatedAt.toISOString(),
+      description: r.description ? excerpt(r.description, 160) : null,
+      mitigation: r.mitigation ? excerpt(r.mitigation, 160) : null,
+      mantisId: r.mantisId,
+      mantisUrl: r.mantisUrl,
+      updates: thisWeek,
+      latestUpdate: r.updates[0] ? line(r.updates[0]) : null,
+    };
+  });
 }
 
 /**
@@ -776,7 +808,7 @@ export async function buildProgramWeeklyReportData(
       items,
       budgets: await gatherBudgets(boards),
       delays: await gatherDelays(boards, systemSession),
-      risks: await gatherRisks(boards, program.name),
+      risks: await gatherRisks(boards, program.name, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
     },
   ];
