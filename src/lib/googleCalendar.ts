@@ -129,6 +129,40 @@ export function explainGoogleForbidden(body: unknown): { message: string; reauth
   return { message: `Google 拒絕讀取日曆(403):${googleMessage || "Google 沒有說明原因"}`, reauthorize: false };
 }
 
+/**
+ * 授權(OAuth 回呼)失敗時,回呼網址帶回的原因代碼(reason)與細節(detail)——翻成使用者與管理者看得懂、
+ * 知道要做什麼的說明。reason 沒有或不認得就退回籠統的說法(舊的連結、或之後新增的原因)。
+ */
+export function explainGoogleAuthFailure(reason: string | null, detail: string | null, redirectUri?: string | null): string {
+  const d = (detail ?? "").trim();
+  switch (reason) {
+    case "session":
+      return "系統的登入已經過期,請重新登入之後再連結 Google 日曆。";
+    case "denied":
+      return d === "access_denied"
+        ? "Google 授權畫面上按了取消,或這個 Google 帳號不被允許授權。如果 Google Cloud 的「OAuth 同意畫面」還在「測試中」,只有加進「測試使用者」的帳號才能授權,請管理者把你的 Google 帳號加進去。"
+        : `Google 沒有完成授權(${d || "沒有說明原因"})。`;
+    case "state":
+      return d === "nocookie"
+        ? "瀏覽器沒有帶回授權用的暫存資料(cookie)。多半是你開系統的網址,跟伺服器設定的網址(APP_BASE_URL)不是同一個——請改用管理者設定的那個網址再連結一次;或是瀏覽器擋了 cookie。"
+        : "授權的驗證碼對不上,可能是同時開了好幾個分頁在連結。請關掉其他分頁,重新連結一次。";
+    case "config":
+      return "伺服器還沒有設定 Google 登入(GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET),請管理者設定。";
+    case "network":
+      return "伺服器連不上 Google(oauth2.googleapis.com)。公司內部的伺服器要允許對外連線到 Google,請管理者檢查防火牆或代理設定。";
+    case "token":
+      if (d.startsWith("invalid_client")) return "Google 認不得這組用戶端(invalid_client):伺服器上的 GOOGLE_CLIENT_ID 或 GOOGLE_CLIENT_SECRET 設錯了,請管理者檢查。";
+      if (d.startsWith("redirect_uri_mismatch"))
+        return `Google Cloud 的「已授權的重新導向 URI」沒有登記這個網址${redirectUri ? `:${redirectUri}` : ""}。請管理者到 Google Cloud 的 OAuth 用戶端設定加上去(一字不差,含 http / https)。`;
+      if (d.startsWith("invalid_grant")) return "這次的授權碼已經失效(重複使用或逾時),請重新連結一次。";
+      return `Google 拒絕了授權(${d || "沒有說明原因"})。`;
+    case "notoken":
+      return "Google 沒有回傳存取憑證,請重新連結一次。";
+    default:
+      return "Google 授權失敗,請重新嘗試。";
+  }
+}
+
 /** 對齊後會超過午夜的(例如 23:50 開始、開 1 小時)要把時數縮到午夜,不然存不進去。 */
 export function clampToMidnight(startMinute: number, hours: number): number {
   return Math.min(hours, (MINUTES_PER_DAY - startMinute) / 60);

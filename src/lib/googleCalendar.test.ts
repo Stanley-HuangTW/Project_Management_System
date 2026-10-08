@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToMidnight, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, type GoogleEvent } from "./googleCalendar";
+import { clampToMidnight, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
 
 const ev = (over: Partial<GoogleEvent> & { id: string }): GoogleEvent => ({
   summary: "部門週會",
@@ -167,5 +167,41 @@ describe("explainGoogleForbidden(Google 回 403 的原因)", () => {
   it("回應不是預期的格式也不會壞", () => {
     expect(explainGoogleForbidden(null).message).toContain("Google 沒有說明原因");
     expect(explainGoogleForbidden("oops").message).toContain("403");
+  });
+});
+
+describe("explainGoogleAuthFailure(授權失敗的原因說明)", () => {
+  it("伺服器連不上 Google:請管理者檢查對外連線", () => {
+    expect(explainGoogleAuthFailure("network", null)).toContain("連不上 Google");
+    expect(explainGoogleAuthFailure("network", null)).toContain("防火牆");
+  });
+
+  it("用戶端設定錯、網址沒登記、授權碼失效,各有各的說明", () => {
+    expect(explainGoogleAuthFailure("token", "invalid_client: Unauthorized")).toContain("GOOGLE_CLIENT_SECRET");
+    const uri = explainGoogleAuthFailure("token", "redirect_uri_mismatch", "https://pm.example.com/api/auth/google/callback");
+    expect(uri).toContain("已授權的重新導向 URI");
+    expect(uri).toContain("https://pm.example.com/api/auth/google/callback");
+    expect(explainGoogleAuthFailure("token", "invalid_grant: Bad Request")).toContain("重新連結");
+  });
+
+  it("按了取消或帳號不在測試名單:說明測試使用者", () => {
+    expect(explainGoogleAuthFailure("denied", "access_denied")).toContain("測試使用者");
+    expect(explainGoogleAuthFailure("denied", "server_error")).toContain("server_error");
+  });
+
+  it("cookie 沒帶回來(網址跟 APP_BASE_URL 不同)與驗證碼對不上是兩種說法", () => {
+    expect(explainGoogleAuthFailure("state", "nocookie")).toContain("APP_BASE_URL");
+    expect(explainGoogleAuthFailure("state", "mismatch")).toContain("分頁");
+  });
+
+  it("沒設定、登入過期、沒拿到憑證", () => {
+    expect(explainGoogleAuthFailure("config", null)).toContain("GOOGLE_CLIENT_ID");
+    expect(explainGoogleAuthFailure("session", null)).toContain("登入");
+    expect(explainGoogleAuthFailure("notoken", null)).toContain("存取憑證");
+  });
+
+  it("不認得的原因、或舊的連結(沒有原因):退回籠統說法", () => {
+    expect(explainGoogleAuthFailure(null, null)).toBe("Google 授權失敗,請重新嘗試。");
+    expect(explainGoogleAuthFailure("something-new", "x")).toBe("Google 授權失敗,請重新嘗試。");
   });
 });

@@ -17,6 +17,7 @@ import { copyPreviousWeek } from "@/lib/actions/timeTemplate";
 import { createRecurringEntries, deleteSeriesFrom } from "@/lib/actions/recurringTime";
 import { describeApplyResult } from "@/lib/timeTemplates";
 import { addDaysIso, isValidIsoDate } from "@/lib/timesheet";
+import { explainGoogleAuthFailure } from "@/lib/googleCalendar";
 import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
 import { EntryDialog, type EntryDialogTarget, type EntryDraft } from "./EntryDialog";
 import { GoogleCalendarDialog } from "./GoogleCalendarDialog";
@@ -46,7 +47,10 @@ export function MyWeekLog({ today }: { today: string }) {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("googleCalendarAuth");
     if (!status) return;
-    params.delete("googleCalendarAuth");
+    const reason = params.get("googleAuthReason");
+    const detail = params.get("googleAuthDetail");
+    const uri = params.get("googleAuthUri");
+    for (const key of ["googleCalendarAuth", "googleAuthReason", "googleAuthDetail", "googleAuthUri"]) params.delete(key);
     const search = params.toString();
     window.history.replaceState({}, "", window.location.pathname + (search ? `?${search}` : ""));
     const savedWeek = sessionStorage.getItem("gcalReturnWeek");
@@ -55,7 +59,7 @@ export function MyWeekLog({ today }: { today: string }) {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (savedWeek && isValidIsoDate(savedWeek)) setWeekStart(weekRangeOf(savedWeek).weekStart);
     if (status === "success") setGcalOpen(true);
-    else void notify("Google 授權失敗,請重新嘗試。", { title: "無法連結 Google 日曆" });
+    else void notify(explainGoogleAuthFailure(reason, detail, uri), { title: "無法連結 Google 日曆" });
     /* eslint-enable react-hooks/set-state-in-effect */
     // 只在載入時處理一次。
     // eslint-disable-next-line react-hooks/exhaustive-deps
