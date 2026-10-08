@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Download, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { formatMoney } from "@/lib/cost";
-import { deleteNreLine, getNreSheet, saveNreLine, type NreLineRow, type NreSheet } from "@/lib/actions/nre";
+import { deleteNreLine, exportNreWorkbook, getNreSheet, saveNreLine, type NreLineRow, type NreSheet } from "@/lib/actions/nre";
 import {
   NRE_CATEGORIES,
   NRE_CATEGORY_GUIDE,
@@ -321,6 +321,7 @@ function NreSection({
 export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
   const { confirm, notify } = useDialogs();
   const [sheet, setSheet] = useState<NreSheet | null | undefined>(undefined);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -353,6 +354,31 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
     }
   }
 
+  /** 匯出成 Excel 並下載。 */
+  async function download() {
+    setExporting(true);
+    try {
+      const out = await exportNreWorkbook(phaseId);
+      if ("error" in out) {
+        await notify(out.error, { title: "無法匯出" });
+        return;
+      }
+      const bytes = Uint8Array.from(atob(out.base64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(
+        new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = out.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      await notify("匯出失敗,請重新整理後再試一次。", { title: "無法匯出" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function remove(line: NreLineRow) {
     if (!(await confirm(`刪除「${line.description}」(${formatMoney(line.amount)} 元)?`, { title: "刪除這一列", confirmLabel: "刪除", danger: true }))) return;
     try {
@@ -366,10 +392,21 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        照 NRE 的四大項逐列填,有數量跟單價就自動相乘,沒有就直接填金額;離開那一列時自動儲存。這是估算與報價的依據,
-        <b>不會寫進「階段預算」的核准預算</b>。
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="max-w-3xl text-xs text-neutral-500 dark:text-neutral-400">
+          照 NRE 的四大項逐列填,有數量跟單價就自動相乘,沒有就直接填金額;離開那一列時自動儲存。這是估算與報價的依據,
+          <b>不會寫進「階段預算」的核准預算</b>。
+        </p>
+        <button
+          type="button"
+          onClick={() => void download()}
+          disabled={exporting || lines.length === 0}
+          title={lines.length === 0 ? "還沒有任何項目" : "把這個階段的報價單匯出成 Excel"}
+          className="flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
+        >
+          <Download size={13} /> {exporting ? "匯出中..." : "匯出 Excel"}
+        </button>
+      </div>
 
       {!sheet.canEdit && (
         <p className="rounded-md border border-dashed border-neutral-300 p-2 text-xs text-neutral-500 dark:border-neutral-600 dark:text-neutral-400">

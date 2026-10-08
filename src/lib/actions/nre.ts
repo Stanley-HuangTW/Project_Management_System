@@ -6,6 +6,8 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
+import { buildNreWorkbook } from "@/lib/export/nreWorkbook";
+import { taipeiTodayIso } from "@/lib/timesheet";
 import { MAX_NRE_LINES_PER_PHASE, resolveNreAmount, validateNreLine, type NreCategoryKey, type NreLineInput } from "@/lib/nre";
 
 /**
@@ -72,6 +74,36 @@ export async function getNreSheet(phaseId: string): Promise<NreSheet | null> {
     lines: lines.map(toRow),
     canEdit: await canEditBudget({ kind: "phase", id: phaseId }, session),
   };
+}
+
+/**
+ * 匯出這個階段的報價單成 Excel(.xlsx)。看得到看板的人都能匯出——跟看得到報價單同一條規則;
+ * 沒有任何項目就不產檔案,請使用者先填。
+ */
+export async function exportNreWorkbook(phaseId: string): Promise<{ filename: string; base64: string } | { error: string }> {
+  const session = await requireSession();
+  const phase = await prisma.budgetPhase.findUnique({
+    where: { id: phaseId },
+    select: { name: true, boardId: true, board: { select: { name: true } } },
+  });
+  if (!phase) return { error: "找不到這個階段" };
+  await requireBoardAccess(phase.boardId, session);
+
+  const lines = await prisma.nreLine.findMany({
+    where: { phaseId },
+    orderBy: [{ category: "asc" }, { order: "asc" }, { createdAt: "asc" }],
+  });
+  if (lines.length === 0) return { error: "報價單還沒有任何項目,沒有東西可以匯出。" };
+
+  const buffer = await buildNreWorkbook({
+    boardName: phase.board.name,
+    phaseName: phase.name,
+    exportedOn: taipeiTodayIso(),
+    lines: lines.map(toRow),
+  });
+  await logAudit("COST", session.userId, `匯出「${phase.board.name}」${phase.name} 的 NRE 報價單 Excel`, phase.boardId);
+  const safe = (name: string) => name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 60);
+  return { filename: `${safe(phase.board.name)}-${safe(phase.name)}-NRE報價單.xlsx`, base64: buffer.toString("base64") };
 }
 
 async function requireEdit(phaseId: string) {
