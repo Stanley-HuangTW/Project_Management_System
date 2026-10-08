@@ -50,3 +50,13 @@ input[type="time"] {
 .dark input[type="time"] {
   color-scheme: dark;
 }
+
+/* 表格裡框選的儲存格(useCellRangeSelection):淡藍底加藍框;拖曳框選的時候整頁不要選到文字。 */
+[data-range-selected] {
+  background-color: rgba(37, 99, 235, 0.14) !important;
+  box-shadow: inset 0 0 0 2px rgb(37, 99, 235);
+}
+body.cell-range-dragging,
+body.cell-range-dragging * {
+  user-select: none !important;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   PointerSensor,
@@ -23,6 +24,9 @@ import { renameGroup, deleteGroup } from "@/lib/actions/group";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { createItem } from "@/lib/actions/item";
+import { pasteNewItems } from "@/lib/actions/paste";
+import { parseClipboardTable } from "@/lib/clipboardTable";
+import { MAX_PASTE_ROWS, columnPasteSkipReason, planNewItems } from "@/lib/pasteValues";
 import { useRecordedItemMove } from "./useRecordedItemMove";
 import { VisibilityModal } from "./VisibilityModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
@@ -30,6 +34,9 @@ import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
 import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
+
+/** 貼上新增項目時,每一批送多少列給伺服器。 */
+const PASTE_BATCH = 20;
 
 export function GroupSection({
   boardId,
@@ -144,7 +151,8 @@ export function GroupSection({
   const [collapsed, setCollapsed] = useState(false);
   const [name, setName] = useState(group.name);
   const [newItemName, setNewItemName] = useState("");
-  const { notify } = useDialogs();
+  const { notify, confirm } = useDialogs();
+  const router = useRouter();
   const [visibilityOpen, setVisibilityOpen] = useState(false);
   const scrollPaneKey = `group:${group.id}`;
 
@@ -163,6 +171,73 @@ export function GroupSection({
   }
 
   const [adding, setAdding] = useState(false);
+  const [pasteProgress, setPasteProgress] = useState<string | null>(null);
+
+  /**
+   * 在「+ 新增項目」貼上從試算表複製的多行 / 多欄:每一列建一個項目,第一欄是名稱,其餘欄依序對應到
+   * 表格由左到右的欄位。先列出對應讓人確認,再分批建立(一批一批送,才有進度,也不會一個請求跑太久)。
+   */
+  async function handlePasteItems(text: string) {
+    if (adding) return;
+    const table = parseClipboardTable(text);
+    if (table.length > MAX_PASTE_ROWS) {
+      await notify(`一次最多貼上 ${MAX_PASTE_ROWS} 列(你貼了 ${table.length} 列),請分幾次貼。`, { title: "貼上的內容太多" });
+      return;
+    }
+    const plan = planNewItems({
+      table,
+      columns: columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options })),
+      skipReason: (c) => columnPasteSkipReason(c, { predColumnId: predColumnId ?? null }),
+      ctx: { users, progressColumnId },
+    });
+    if (plan.rows.length === 0) {
+      await notify("貼上的內容裡沒有可以建立的項目(第一欄要是項目名稱)。", { title: "無法貼上" });
+      return;
+    }
+    const lines = [`要在「${group.name}」建立 ${plan.rows.length} 個項目嗎?`];
+    if (plan.mapping.length > 1) {
+      lines.push("", "欄位對應(貼上的第幾欄 → 表格欄位):");
+      for (const m of plan.mapping) {
+        lines.push(`第 ${m.clipboardColumn} 欄 → ${m.target}${m.skipReason ? `(略過:${m.skipReason})` : ""}`);
+      }
+    }
+    if (plan.problems.length > 0) {
+      lines.push("", `有 ${plan.problems.length} 個地方轉不過去,那些格子會留空:`);
+      lines.push(...plan.problems.slice(0, 8).map((p) => `• ${p}`));
+      if (plan.problems.length > 8) lines.push(`……還有 ${plan.problems.length - 8} 個`);
+    }
+    if (!(await confirm(lines.join("\n"), { title: "貼上新增項目", confirmLabel: "建立" }))) return;
+
+    setAdding(true);
+    const failures: string[] = [];
+    let created = 0;
+    try {
+      for (let i = 0; i < plan.rows.length; i += PASTE_BATCH) {
+        setPasteProgress(`建立中 ${created} / ${plan.rows.length}…`);
+        const result = await pasteNewItems(boardId, group.id, plan.rows.slice(i, i + PASTE_BATCH));
+        created += result.created.length;
+        failures.push(...result.failed.map((f) => `「${f.name}」:${f.error}`));
+        if (result.error) {
+          failures.push(result.error);
+          break;
+        }
+      }
+    } catch (err) {
+      failures.push(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : "貼上失敗,請重新整理後再試一次。");
+    } finally {
+      setAdding(false);
+      setPasteProgress(null);
+    }
+    router.refresh();
+    if (failures.length > 0) {
+      await notify(
+        `已建立 ${created} 個項目。\n\n有 ${failures.length} 個地方沒有成功:\n` +
+          failures.slice(0, 10).map((f) => `• ${f}`).join("\n") +
+          (failures.length > 10 ? `\n……還有 ${failures.length - 10} 個` : ""),
+        { title: "貼上完成,但有些沒成功" }
+      );
+    }
+  }
 
   async function handleAddItem() {
     if (!newItemName.trim() || adding) return;
@@ -415,7 +490,15 @@ export function GroupSection({
                   onChange={(e) => setNewItemName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
                   onBlur={handleAddItem}
-                  placeholder="+ 新增項目"
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData("text/plain");
+                    // 一行普通文字照常貼進輸入框;多行或多欄(試算表複製的範圍)才當成一次新增很多項目。
+                    if (!/[\n\t]/.test(text.replace(/\r?\n$/, ""))) return;
+                    e.preventDefault();
+                    void handlePasteItems(text);
+                  }}
+                  disabled={adding && pasteProgress !== null}
+                  placeholder={pasteProgress ?? "+ 新增項目"}
                   className="ml-8 min-w-0 flex-1 rounded bg-white dark:bg-neutral-900 px-2 py-1 text-sm text-neutral-500 dark:text-neutral-400 outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:text-neutral-900 dark:focus:text-neutral-100 focus:ring-1 focus:ring-blue-400"
                 />
               </div>

@@ -34,6 +34,8 @@ import { GroupSection } from "./GroupSection";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
 import { UndoRedoButtons } from "./UndoRedoButtons";
+import { useCellRangeSelection } from "./useCellRangeSelection";
+import { usePasteIntoRange } from "./usePasteIntoRange";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import {
@@ -409,6 +411,12 @@ export function BoardTable({
     tryScroll();
   }
 
+  // 框選一欄的一段儲存格,Ctrl+V 把試算表複製的內容換進去(見 usePasteIntoRange)。
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const pasteIntoRange = usePasteIntoRange({ board, users });
+  const { range: cellRange } = useCellRangeSelection(rowsRef, pasteIntoRange);
+  const rangeColumnName = cellRange ? (board.columns.find((c) => c.id === cellRange.columnId)?.name ?? "") : "";
+
   function startNameColumnResize(e: React.PointerEvent) {
     e.preventDefault();
     const startX = e.clientX;
@@ -549,7 +557,7 @@ export function BoardTable({
         </DndContext>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div ref={rowsRef} className="flex-1 overflow-y-auto p-2">
       <DndContext
         id="board-groups-dnd"
         sensors={sensors}
@@ -619,6 +627,15 @@ export function BoardTable({
       )}
       </div>
       </div>
+
+      {cellRange && (
+        <div
+          role="status"
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full bg-neutral-900 px-4 py-1.5 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900"
+        >
+          已框選「{rangeColumnName}」欄 {cellRange.itemIds.length} 格・按 Ctrl+V 貼上・Esc 取消
+        </div>
+      )}
 
       <ItemDetailModal
         boardId={board.id}

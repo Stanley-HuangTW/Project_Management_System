@@ -626,6 +626,8 @@ export function ItemRow({
           return (
             <div
               key={col.id}
+              data-cell-item={item.id}
+              data-cell-col={col.id}
               className={`border-r border-neutral-100 dark:border-neutral-700 px-1 ${scheduleBlockedReason ? "cursor-not-allowed" : ""}`}
               style={isLockedField ? { backgroundColor: "#f3f4f6" } : undefined}
               title={isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined}
