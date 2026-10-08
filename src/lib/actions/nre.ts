@@ -6,9 +6,18 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
-import { buildNreWorkbook } from "@/lib/export/nreWorkbook";
+import { buildNreWorkbook, parseNreWorkbook } from "@/lib/export/nreWorkbook";
 import { taipeiTodayIso } from "@/lib/timesheet";
-import { MAX_NRE_LINES_PER_PHASE, resolveNreAmount, validateNreLine, type NreCategoryKey, type NreLineInput } from "@/lib/nre";
+import {
+  MAX_NRE_LINES_PER_PHASE,
+  NRE_LABELS,
+  describeNreChange,
+  planNreImport,
+  resolveNreAmount,
+  validateNreLine,
+  type NreCategoryKey,
+  type NreLineInput,
+} from "@/lib/nre";
 
 /**
  * NRE 報價單(掛在預算階段上)。
@@ -117,6 +126,20 @@ async function requireEdit(phaseId: string) {
   return { session, phase };
 }
 
+/** 要寫進資料庫的欄位:數量與單價都有時,金額以相乘為準,存的是算好的金額。 */
+function lineData(input: NreLineInput) {
+  return {
+    category: input.category,
+    description: input.description.trim(),
+    basis: input.basis.trim() || null,
+    vendor: input.vendor.trim() || null,
+    quantity: input.quantity,
+    unitPrice: input.unitPrice === null ? null : Math.round(input.unitPrice),
+    amount: resolveNreAmount(input),
+    note: input.note.trim() || null,
+  };
+}
+
 /** 新增(沒有 id)或修改(有 id)一列。數量與單價都有時,金額以相乘為準,存的是算好的金額。 */
 export async function saveNreLine(
   phaseId: string,
@@ -128,17 +151,8 @@ export async function saveNreLine(
 
   const invalid = validateNreLine(input);
   if (invalid) return { error: invalid };
-  const amount = resolveNreAmount(input);
-  const data = {
-    category: input.category,
-    description: input.description.trim(),
-    basis: input.basis.trim() || null,
-    vendor: input.vendor.trim() || null,
-    quantity: input.quantity,
-    unitPrice: input.unitPrice === null ? null : Math.round(input.unitPrice),
-    amount,
-    note: input.note.trim() || null,
-  };
+  const data = lineData(input);
+  const amount = data.amount;
 
   if (input.id) {
     const existing = await prisma.nreLine.findUnique({ where: { id: input.id }, select: { phaseId: true, amount: true } });
@@ -169,4 +183,100 @@ export async function deleteNreLine(phaseId: string, lineId: string): Promise<{ 
   await prisma.nreLine.delete({ where: { id: lineId } });
   await logAudit("COST", session.userId, `${phase.name} 的 NRE 報價單刪除「${existing.description}」${existing.amount} 元`);
   return {};
+}
+
+export type NreImportResult = {
+  /** false = 只是預覽,什麼都還沒寫。 */
+  applied: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  /** 報價單裡有、Excel 完全沒提到的列數(維持原樣,不刪)。 */
+  untouched: number;
+  /** 逐筆的變動說明(新增、更新改了什麼),給匯入前的確認用。 */
+  changes: string[];
+  /** 讀不進來的列(整列略過)與原因。 */
+  warnings: string[];
+  error?: string;
+};
+
+/** 20MB,跟其他匯入上限一致。 */
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+function importFailure(error: string, warnings: string[] = []): NreImportResult {
+  return { applied: false, created: 0, updated: 0, unchanged: 0, untouched: 0, changes: [], warnings, error };
+}
+
+/**
+ * 匯入報價單 Excel(匯出的版面)。比對規則:同一類別、同一個細項說明是同一列——
+ * 內容一樣不動、不一樣就更新、Excel 才有的新增;報價單裡有、Excel 沒提到的列維持原樣,不刪。
+ *
+ * apply = false 只算出會變什麼(預覽),給畫面確認;確認之後再用 apply = true 真的寫入。
+ * 只有能編預算的人可以匯入。
+ */
+export async function importNreWorkbook(phaseId: string, base64: string, apply: boolean): Promise<NreImportResult> {
+  const guard = await requireEdit(phaseId);
+  if ("error" in guard) return importFailure(guard.error ?? "無法匯入");
+  const { session, phase } = guard;
+
+  if (base64.length * 0.75 > MAX_UPLOAD_BYTES) return importFailure("檔案太大了(上限 20MB)");
+  const parsed = await parseNreWorkbook(Buffer.from(base64, "base64"));
+  if (parsed.error) return importFailure(parsed.error);
+  if (parsed.lines.length === 0) {
+    return importFailure(
+      "這份 Excel 裡找不到報價單的項目。請用「匯出 Excel」下載的檔案改好之後再匯入(每一類的區塊表頭,第一格要是類別名稱,例如「模具與治具」)。",
+      parsed.warnings
+    );
+  }
+
+  const rows = await prisma.nreLine.findMany({
+    where: { phaseId },
+    orderBy: [{ category: "asc" }, { order: "asc" }, { createdAt: "asc" }],
+  });
+  const existing = rows.map(toRow);
+  const incoming: NreLineInput[] = parsed.lines.map(({ row, ...input }) => {
+    void row;
+    return input;
+  });
+  const plan = planNreImport(existing, incoming);
+
+  if (existing.length + plan.creates.length > MAX_NRE_LINES_PER_PHASE) {
+    return importFailure(`匯入之後會超過上限(一個階段的報價單最多 ${MAX_NRE_LINES_PER_PHASE} 列,現有 ${existing.length} 列、要新增 ${plan.creates.length} 列)`, parsed.warnings);
+  }
+
+  const money = (n: number) => Math.round(n).toLocaleString("zh-TW");
+  const changes = [
+    ...plan.creates.map((c) => `新增:[${NRE_LABELS[c.category]}] ${c.description.trim()} — ${money(resolveNreAmount(c))} 元`),
+    ...plan.updates.map((u) => `更新:[${NRE_LABELS[u.input.category]}] ${u.input.description.trim()}(${describeNreChange(u.before, u.input)})`),
+  ];
+  const result: NreImportResult = {
+    applied: false,
+    created: plan.creates.length,
+    updated: plan.updates.length,
+    unchanged: plan.unchanged,
+    untouched: plan.untouched.length,
+    changes,
+    warnings: parsed.warnings,
+  };
+  if (!apply || (plan.creates.length === 0 && plan.updates.length === 0)) return result;
+
+  // 新增的排在該類別現有的最後面,維持 Excel 裡的先後。
+  const nextOrder = new Map<NreCategoryKey, number>();
+  const maxOrder = await prisma.nreLine.groupBy({ by: ["category"], where: { phaseId }, _max: { order: true } });
+  for (const m of maxOrder) nextOrder.set(m.category, (m._max.order ?? -1) + 1);
+
+  await prisma.$transaction([
+    ...plan.updates.map((u) => prisma.nreLine.update({ where: { id: u.id }, data: lineData(u.input) })),
+    ...plan.creates.map((input) => {
+      const order = nextOrder.get(input.category) ?? 0;
+      nextOrder.set(input.category, order + 1);
+      return prisma.nreLine.create({ data: { ...lineData(input), phaseId, order, createdById: session.userId } });
+    }),
+  ]);
+  await logAudit(
+    "COST",
+    session.userId,
+    `${phase.name} 匯入 NRE 報價單 Excel:新增 ${plan.creates.length} 列、更新 ${plan.updates.length} 列`
+  );
+  return { ...result, applied: true };
 }

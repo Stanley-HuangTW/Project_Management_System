@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
-import { NRE_SHEET_NAME, buildNreWorkbook, type NreWorkbookLine } from "./nreWorkbook";
+import { resolveNreAmount } from "@/lib/nre";
+import { NRE_SHEET_NAME, buildNreWorkbook, parseNreWorkbook, type NreWorkbookLine } from "./nreWorkbook";
 
 const line = (overrides: Partial<NreWorkbookLine> = {}): NreWorkbookLine => ({
   category: "TOOLING",
@@ -120,5 +121,105 @@ describe("buildNreWorkbook", () => {
     ]);
     expect(ws.getCell(5, 7).value).toBe(1234);
     expect(ws.getCell(6, 7).value).toBe(5678);
+  });
+});
+
+/** 手動做一份報價單 Excel:每一列是一個陣列,直接放進工作表。 */
+async function handMade(rows: (string | number | null | { formula: string; result: number })[][], sheetName = "隨便取的名字") {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName);
+  rows.forEach((values) => ws.addRow(values as ExcelJS.CellValue[]));
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+describe("parseNreWorkbook(匯入)", () => {
+  const sample: NreWorkbookLine[] = [
+    line({ category: "LABOUR", description: "機構 / 電路設計", basis: "3 位工程師 × 3 個月", vendor: "弘泰工程", quantity: 500, unitPrice: 800, amount: 400000, note: "依專案複雜度調整" }),
+    line({ category: "TOOLING", description: "外殼塑膠射出鋼模", amount: 550000 }),
+    line({ category: "TOOLING", description: "組裝治具與電測夾具", quantity: 2, unitPrice: 30000, amount: 60000 }),
+    line({ category: "PROTOTYPE", description: "PCB 快速打樣", vendor: "嘉隆", amount: 30000, note: "5 片" }),
+    line({ category: "CERTIFICATION", description: "法規安規認證(CE / FCC)", basis: "專案打包", amount: 140000 }),
+  ];
+
+  it("匯出再匯入拿回同一份(往返):每一列的類別、說明、廠商、數量、單價、金額、備註都一樣", async () => {
+    const buffer = await buildNreWorkbook({ boardName: "示範專案", phaseName: "POC", exportedOn: "2026-10-08", lines: sample });
+    const parsed = await parseNreWorkbook(buffer);
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.lines.map(({ row, ...rest }) => { void row; return rest; })).toEqual(
+      sample.map((l) => ({ ...l, amount: l.amount }))
+    );
+  });
+
+  it("數量與單價都有就以相乘為準;只有金額就讀金額(公式讀算好的值)", async () => {
+    const buffer = await handMade([
+      ["標題"],
+      [],
+      ["模具與治具", "細項說明", "估算基礎", "廠商", "數量", "單價(元)", "金額(元)", "備註"],
+      [null, "A", null, null, 2, 30000, { formula: "E4*F4", result: 1 }, null],
+      [null, "B", null, null, null, null, { formula: "100+200", result: 300 }, null],
+      [null, "C", null, null, null, null, "1,250", null],
+    ]);
+    const parsed = await parseNreWorkbook(buffer);
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.lines.map((l) => [l.description, resolveNreAmount(l)])).toEqual([["A", 60000], ["B", 300], ["C", 1250]]);
+  });
+
+  it("欄位照表頭的文字找:順序換了、研發人力用工時與時薪都讀得到", async () => {
+    const buffer = await handMade([
+      ["研發人力工時", "備註", "金額(元)", "時薪(元)", "工時(小時)", "外部單位 / 人員", "估算基礎", "細項說明"],
+      [null, "加急", 400000, 800, 500, "弘泰工程", "3 人 × 3 個月", "設計"],
+    ]);
+    const [l] = (await parseNreWorkbook(buffer)).lines;
+    expect(l).toMatchObject({ category: "LABOUR", description: "設計", basis: "3 人 × 3 個月", vendor: "弘泰工程", quantity: 500, unitPrice: 800, amount: 400000, note: "加急" });
+  });
+
+  it("工作表名稱不是「NRE 報價單」就讀第一張", async () => {
+    const buffer = await handMade([["驗證與認證", "細項說明", "估算基礎", "實驗室 / 代辦", "數量", "單價(元)", "金額(元)", "備註"], [null, "環境測試", null, null, null, null, 50000, null]], "Sheet1");
+    expect((await parseNreWorkbook(buffer)).lines.map((l) => l.description)).toEqual(["環境測試"]);
+  });
+
+  it("小計、總計之後的列、區塊之外的列不讀", async () => {
+    const buffer = await handMade([
+      ["標題列"],
+      [null, "表頭之前的雜訊", null, null, null, null, 999, null],
+      ["打樣與樣品", "細項說明", "估算基礎", "廠商", "數量", "單價(元)", "金額(元)", "備註"],
+      [null, "PCB", null, null, null, null, 100, null],
+      ["小計", null, null, null, null, null, 100, null],
+      [null, "小計之後的雜訊", null, null, null, null, 5, null],
+      ["NRE 總計", null, null, null, null, null, 100, null],
+    ]);
+    expect((await parseNreWorkbook(buffer)).lines.map((l) => l.description)).toEqual(["PCB"]);
+  });
+
+  it("有問題的列整列略過並說明原因,其他列照讀", async () => {
+    const buffer = await handMade([
+      ["模具與治具", "細項說明", "估算基礎", "廠商", "數量", "單價(元)", "金額(元)", "備註"],
+      [null, "好的一列", null, null, null, null, 100, null],
+      [null, null, "只有估算基礎", null, null, null, 50, null],
+      [null, "數量壞掉", null, null, "abc", 10, null, null],
+      [null, "負數金額", null, null, null, null, -5, null],
+      [null, "字".repeat(201), null, null, null, null, 1, null],
+      [],
+    ]);
+    const parsed = await parseNreWorkbook(buffer);
+    expect(parsed.lines.map((l) => l.description)).toEqual(["好的一列"]);
+    expect(parsed.warnings).toHaveLength(4);
+    expect(parsed.warnings[0]).toContain("第 3 列沒有細項說明");
+    expect(parsed.warnings[1]).toContain("「數量壞掉」的數量不是數字");
+    expect(parsed.warnings[2]).toContain("金額必須是 0 或正數");
+    expect(parsed.warnings[3]).toContain("太長");
+  });
+
+  it("不是 xlsx 的檔案:回錯誤,不會丟例外", async () => {
+    const parsed = await parseNreWorkbook(Buffer.from("這不是 Excel"));
+    expect(parsed.error).toContain("不是有效的 Excel");
+    expect(parsed.lines).toEqual([]);
+  });
+
+  it("一個類別都認不出來(表頭不對):沒有任何列,不報錯", async () => {
+    const parsed = await parseNreWorkbook(await handMade([["隨便", "亂寫"], [1, 2]]));
+    expect(parsed.lines).toEqual([]);
+    expect(parsed.error).toBeUndefined();
   });
 });

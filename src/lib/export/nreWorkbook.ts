@@ -1,5 +1,13 @@
 import ExcelJS from "exceljs";
-import { NRE_CATEGORIES, NRE_CATEGORY_GUIDE, NRE_LABELS, resolveNreAmount, type NreCategoryKey } from "@/lib/nre";
+import {
+  NRE_CATEGORIES,
+  NRE_CATEGORY_GUIDE,
+  NRE_LABELS,
+  resolveNreAmount,
+  validateNreLine,
+  type NreCategoryKey,
+  type NreLineInput,
+} from "@/lib/nre";
 
 /**
  * NRE 報價單的 Excel 匯出。
@@ -8,6 +16,9 @@ import { NRE_CATEGORIES, NRE_CATEGORY_GUIDE, NRE_LABELS, resolveNreAmount, type 
  * 逐列明細、一列小計;最後是 NRE 總計。數量乘單價的金額與各小計、總計都是公式(並附上算好的值,
  * 沒有重算的檢視器也看得到數字),在 Excel 裡改數量或單價,金額會跟著變。
  * 沒有任何項目的類別整塊省略,報價單上不放空白的區塊。
+ *
+ * 匯入讀的就是這個版面(parseNreWorkbook):靠每個區塊表頭那一列(第一格是類別名稱、同一列裡有「細項說明」)
+ * 認出「從這裡開始是哪一類」,欄位照表頭的文字找,所以欄位順序變了也讀得到。
  */
 
 export const NRE_SHEET_NAME = "NRE 報價單";
@@ -126,4 +137,139 @@ export async function buildNreWorkbook(input: NreWorkbookInput): Promise<Buffer>
   for (let c = 1; c <= COLUMNS; c++) total.getCell(c).border = { top: { style: "thin" }, bottom: { style: "double" } };
 
   return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+// ---------------------------------------------------------------- 匯入
+
+export type ParsedNreLine = NreLineInput & {
+  /** 在 Excel 的第幾列,警告訊息用。 */
+  row: number;
+};
+
+export type ParsedNreWorkbook = {
+  lines: ParsedNreLine[];
+  /** 讀不進來的列(沒有細項說明、數字不是數字、欄位太長…)——整列略過,原因在這裡。 */
+  warnings: string[];
+  error?: string;
+};
+
+function textOf(value: ExcelJS.CellValue): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  if (typeof value === "object") {
+    const v = value as unknown as Record<string, unknown>;
+    if (Array.isArray(v.richText)) return (v.richText as { text: string }[]).map((t) => t.text).join("").trim();
+    if ("result" in v) return textOf(v.result as ExcelJS.CellValue);
+    if ("text" in v) return String(v.text).trim();
+  }
+  return "";
+}
+
+/** 空白是 null;數字(含公式算出來的值、「1,250」這種文字)回數字;其他回 NaN。 */
+function numberOf(value: ExcelJS.CellValue): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value;
+  const text = textOf(value).replace(/[,\s]/g, "");
+  if (text === "") return null;
+  return Number(text);
+}
+
+type ColumnMap = { description: number; basis: number; vendor: number; quantity: number; unitPrice: number; amount: number; note: number };
+
+/** 區塊表頭那一列:照文字找每個欄位在第幾欄,找不到的用匯出的預設位置。 */
+function mapColumns(row: ExcelJS.Row): ColumnMap {
+  const cols: ColumnMap = { description: 2, basis: 3, vendor: 4, quantity: 5, unitPrice: 6, amount: 7, note: 8 };
+  const vendorLabels = new Set(Object.values(NRE_CATEGORY_GUIDE).map((g) => g.vendorLabel));
+  for (let c = 2; c <= 20; c++) {
+    const text = textOf(row.getCell(c).value);
+    if (!text) continue;
+    if (text === "細項說明") cols.description = c;
+    else if (text === "估算基礎") cols.basis = c;
+    else if (vendorLabels.has(text)) cols.vendor = c;
+    else if (text.startsWith("金額")) cols.amount = c;
+    else if (text === "備註") cols.note = c;
+    else if (text === "數量" || text.includes("工時")) cols.quantity = c;
+    else if (text.includes("單價") || text.includes("時薪")) cols.unitPrice = c;
+  }
+  return cols;
+}
+
+/**
+ * 讀回報價單 Excel(匯出的版面,或照那個版面手動做的)。
+ *
+ * 區塊表頭那一列(第一格是類別名稱,例如「模具與治具」,同一列裡有「細項說明」)開始一個類別,
+ * 底下每一列有細項說明的就是一筆,到「小計」或「NRE 總計」那一列為止。數量與單價都有就以相乘為準
+ * (跟畫面的規則一樣),否則讀金額那一格(公式讀它算好的值)。有問題的列整列略過並說明原因,
+ * 不會因為一列壞掉就整份讀不進來。
+ */
+export async function parseNreWorkbook(data: Buffer): Promise<ParsedNreWorkbook> {
+  const wb = new ExcelJS.Workbook();
+  try {
+    await wb.xlsx.load(data as unknown as ArrayBuffer);
+  } catch {
+    return { lines: [], warnings: [], error: "這不是有效的 Excel 檔案(.xlsx),請用匯出的報價單檔案改好之後再匯入。" };
+  }
+  const ws = wb.getWorksheet(NRE_SHEET_NAME) ?? wb.worksheets[0];
+  if (!ws) return { lines: [], warnings: [], error: "這份 Excel 裡沒有工作表。" };
+
+  const categoryOfLabel = new Map<string, NreCategoryKey>(NRE_CATEGORIES.map((c) => [NRE_LABELS[c], c]));
+  const lines: ParsedNreLine[] = [];
+  const warnings: string[] = [];
+  let current: { category: NreCategoryKey; cols: ColumnMap } | null = null;
+
+  ws.eachRow((row, rowNumber) => {
+    const first = textOf(row.getCell(1).value);
+    const category = categoryOfLabel.get(first);
+    if (category && Array.from({ length: 11 }, (_, i) => textOf(row.getCell(i + 2).value)).includes("細項說明")) {
+      current = { category, cols: mapColumns(row) };
+      return;
+    }
+    if (first === "小計" || first.startsWith("NRE 總計")) {
+      current = null;
+      return;
+    }
+    if (!current) return;
+
+    const { cols } = current;
+    const description = textOf(row.getCell(cols.description).value);
+    const quantity = numberOf(row.getCell(cols.quantity).value);
+    const unitPrice = numberOf(row.getCell(cols.unitPrice).value);
+    const amount = numberOf(row.getCell(cols.amount).value);
+    const basis = textOf(row.getCell(cols.basis).value);
+    const vendor = textOf(row.getCell(cols.vendor).value);
+    const note = textOf(row.getCell(cols.note).value);
+
+    if (description === "") {
+      // 完全空白的列(排版用)不提;有別的內容卻沒有細項說明才要說。
+      if ([basis, vendor, note].some((t) => t !== "") || [quantity, unitPrice, amount].some((n) => n !== null)) {
+        warnings.push(`第 ${rowNumber} 列沒有細項說明,略過。`);
+      }
+      return;
+    }
+    for (const [label, n] of [["數量", quantity], ["單價", unitPrice], ["金額", amount]] as const) {
+      if (n !== null && !Number.isFinite(n)) {
+        warnings.push(`第 ${rowNumber} 列「${description}」的${label}不是數字,略過。`);
+        return;
+      }
+    }
+    const input: NreLineInput = {
+      category: current.category,
+      description,
+      basis,
+      vendor,
+      quantity,
+      unitPrice,
+      amount: amount ?? 0,
+      note,
+    };
+    const invalid = validateNreLine(input);
+    if (invalid) {
+      warnings.push(`第 ${rowNumber} 列「${description}」:${invalid},略過。`);
+      return;
+    }
+    lines.push({ ...input, row: rowNumber });
+  });
+
+  return { lines, warnings };
 }

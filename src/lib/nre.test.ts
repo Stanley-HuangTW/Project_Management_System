@@ -4,7 +4,11 @@ import {
   NRE_CATEGORIES,
   NRE_CATEGORY_GUIDE,
   NRE_LABELS,
+  describeNreChange,
   parseNumberField,
+  planNreImport,
+  sameNreContent,
+  type NreExistingLine,
   resolveNreAmount,
   summarizeNre,
   validateNreLine,
@@ -120,5 +124,78 @@ describe("parseNumberField", () => {
     expect(parseNumberField("1,250,000")).toBe(1250000);
     expect(parseNumberField("2.5")).toBe(2.5);
     expect(Number.isNaN(parseNumberField("abc"))).toBe(true);
+  });
+});
+
+describe("匯入比對 planNreImport", () => {
+  const existing = (overrides: Partial<NreExistingLine> & { id: string }): NreExistingLine => ({
+    category: "TOOLING",
+    description: "外殼塑膠射出鋼模",
+    basis: "",
+    vendor: "",
+    quantity: null,
+    unitPrice: null,
+    amount: 550000,
+    note: "",
+    ...overrides,
+  });
+
+  it("同類別、同細項說明是同一列:內容一樣不動、不一樣就更新、沒有就新增", () => {
+    const plan = planNreImport(
+      [existing({ id: "a" }), existing({ id: "b", description: "組裝治具", amount: 60000 })],
+      [line({ amount: 550000 }), line({ description: "組裝治具", amount: 70000 }), line({ description: "新的治具", amount: 1000 })]
+    );
+    expect(plan.unchanged).toBe(1);
+    expect(plan.updates.map((u) => u.id)).toEqual(["b"]);
+    expect(plan.creates.map((c) => c.description)).toEqual(["新的治具"]);
+    expect(plan.untouched).toEqual([]);
+  });
+
+  it("Excel 沒提到的現有列維持原樣(不刪)", () => {
+    const plan = planNreImport([existing({ id: "a" }), existing({ id: "b", description: "沒在 Excel 的" })], [line()]);
+    expect(plan.untouched.map((l) => l.id)).toEqual(["b"]);
+  });
+
+  it("不同類別的同名細項是兩列,不會互相對到", () => {
+    const plan = planNreImport([existing({ id: "a", category: "PROTOTYPE" })], [line({ category: "TOOLING" })]);
+    expect(plan.creates).toHaveLength(1);
+    expect(plan.untouched.map((l) => l.id)).toEqual(["a"]);
+  });
+
+  it("同一類別有好幾列細項說明一樣:依先後順序一對一,多的 Excel 列是新增", () => {
+    const plan = planNreImport(
+      [existing({ id: "a", amount: 100 }), existing({ id: "b", amount: 200 })],
+      [line({ amount: 111 }), line({ amount: 222 }), line({ amount: 333 })]
+    );
+    expect(plan.updates.map((u) => [u.id, resolveNreAmount(u.input)])).toEqual([["a", 111], ["b", 222]]);
+    expect(plan.creates).toHaveLength(1);
+  });
+
+  it("細項說明的頭尾空白不影響對應", () => {
+    const plan = planNreImport([existing({ id: "a" })], [line({ description: "  外殼塑膠射出鋼模 " })]);
+    expect(plan.unchanged).toBe(1);
+  });
+});
+
+describe("sameNreContent / describeNreChange", () => {
+  const before: NreExistingLine = {
+    id: "a",
+    category: "LABOUR",
+    description: "設計",
+    basis: "3 人 × 3 個月",
+    vendor: "弘泰",
+    quantity: 500,
+    unitPrice: 800,
+    amount: 400000,
+    note: "",
+  };
+
+  it("數量 × 單價算出來的金額一樣就算沒變", () => {
+    expect(sameNreContent(line({ category: "LABOUR", description: "設計", basis: "3 人 × 3 個月", vendor: "弘泰", quantity: 500, unitPrice: 800, amount: 0 }), before)).toBe(true);
+  });
+
+  it("說出改了哪些欄位", () => {
+    const changed = line({ category: "LABOUR", description: "設計", basis: "3 人 × 3 個月", vendor: "弘泰", quantity: 600, unitPrice: 800, amount: 0, note: "加量" });
+    expect(describeNreChange(before, changed)).toBe("數量 500 → 600、金額 400,000 → 480,000、備註 (空白) → 加量");
   });
 });

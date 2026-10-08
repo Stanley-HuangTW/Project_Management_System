@@ -108,6 +108,88 @@ export function summarizeNre(lines: { category: NreCategoryKey; amount: number }
   return { byCategory, count: lines.length, total };
 }
 
+/** 資料庫裡已經存在的一列(匯入比對用)。 */
+export type NreExistingLine = {
+  id: string;
+  category: NreCategoryKey;
+  description: string;
+  basis: string;
+  vendor: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  amount: number;
+  note: string;
+};
+
+/** 兩邊的內容(算好的金額、去掉頭尾空白之後)是不是完全一樣。 */
+export function sameNreContent(input: NreLineInput, line: NreExistingLine): boolean {
+  return (
+    input.description.trim() === line.description &&
+    input.basis.trim() === line.basis &&
+    input.vendor.trim() === line.vendor &&
+    input.quantity === line.quantity &&
+    (input.unitPrice === null ? null : Math.round(input.unitPrice)) === line.unitPrice &&
+    resolveNreAmount(input) === line.amount &&
+    input.note.trim() === line.note
+  );
+}
+
+/** 這一列改了哪些欄位,寫成一句話,給匯入前的確認用。 */
+export function describeNreChange(before: NreExistingLine, input: NreLineInput): string {
+  const money = (n: number) => Math.round(n).toLocaleString("zh-TW");
+  const text = (s: string) => (s === "" ? "(空白)" : s);
+  const num = (n: number | null) => (n === null ? "(空白)" : String(n));
+  const parts: string[] = [];
+  if (input.basis.trim() !== before.basis) parts.push(`估算基礎 ${text(before.basis)} → ${text(input.basis.trim())}`);
+  if (input.vendor.trim() !== before.vendor) parts.push(`廠商 / 人員 ${text(before.vendor)} → ${text(input.vendor.trim())}`);
+  if (input.quantity !== before.quantity) parts.push(`數量 ${num(before.quantity)} → ${num(input.quantity)}`);
+  const price = input.unitPrice === null ? null : Math.round(input.unitPrice);
+  if (price !== before.unitPrice) parts.push(`單價 ${num(before.unitPrice)} → ${num(price)}`);
+  const amount = resolveNreAmount(input);
+  if (amount !== before.amount) parts.push(`金額 ${money(before.amount)} → ${money(amount)}`);
+  if (input.note.trim() !== before.note) parts.push(`備註 ${text(before.note)} → ${text(input.note.trim())}`);
+  return parts.join("、");
+}
+
+export type NreImportPlan = {
+  creates: NreLineInput[];
+  updates: { id: string; before: NreExistingLine; input: NreLineInput }[];
+  /** 內容跟現有的完全一樣,不用動。 */
+  unchanged: number;
+  /** 報價單裡有、但這份 Excel 完全沒提到的——刻意不刪(Excel 裡隱藏或漏掉一列,不該把談好的數字沖掉)。 */
+  untouched: NreExistingLine[];
+};
+
+/**
+ * 匯入的比對:同一類別、同一個細項說明就是同一列——在 Excel 裡改金額、備註之後匯回來,是更新那一列,不是多一列。
+ * 同一類別裡有好幾列細項說明一樣時,依先後順序一對一對應;對不到的 Excel 列是新增,
+ * 報價單裡沒被對到的列維持原樣。
+ */
+export function planNreImport(existing: NreExistingLine[], incoming: NreLineInput[]): NreImportPlan {
+  const keyOf = (category: string, description: string) => `${category}\u0000${description.trim()}`;
+  const pool = new Map<string, NreExistingLine[]>();
+  for (const line of existing) {
+    const key = keyOf(line.category, line.description);
+    pool.set(key, [...(pool.get(key) ?? []), line]);
+  }
+  const matched = new Set<string>();
+  const creates: NreLineInput[] = [];
+  const updates: NreImportPlan["updates"] = [];
+  let unchanged = 0;
+  for (const input of incoming) {
+    const candidates = pool.get(keyOf(input.category, input.description));
+    const hit = candidates?.shift();
+    if (!hit) {
+      creates.push(input);
+      continue;
+    }
+    matched.add(hit.id);
+    if (sameNreContent(input, hit)) unchanged++;
+    else updates.push({ id: hit.id, before: hit, input });
+  }
+  return { creates, updates, unchanged, untouched: existing.filter((l) => !matched.has(l.id)) };
+}
+
 /** 輸入框的文字轉數字:空白是 null;逗號、空白可以有;不是數字回 NaN。 */
 export function parseNumberField(text: string): number | null {
   const cleaned = text.replace(/[,\s]/g, "");

@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, Plus, Trash2, Upload } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { formatMoney } from "@/lib/cost";
-import { deleteNreLine, exportNreWorkbook, getNreSheet, saveNreLine, type NreLineRow, type NreSheet } from "@/lib/actions/nre";
+import {
+  deleteNreLine,
+  exportNreWorkbook,
+  getNreSheet,
+  importNreWorkbook,
+  saveNreLine,
+  type NreLineRow,
+  type NreSheet,
+} from "@/lib/actions/nre";
 import {
   NRE_CATEGORIES,
   NRE_CATEGORY_GUIDE,
@@ -322,6 +330,8 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
   const { confirm, notify } = useDialogs();
   const [sheet, setSheet] = useState<NreSheet | null | undefined>(undefined);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -379,6 +389,62 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
     }
   }
 
+  /**
+   * 匯入 Excel:先讀檔、算出會新增與更新哪些(預覽,還沒寫),列給使用者確認,確認了才真的寫入。
+   * 只新增與更新,報價單裡 Excel 沒提到的列不會被刪。
+   */
+  async function upload(file: File) {
+    setImporting(true);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const base64 = btoa(binary);
+
+      const preview = await importNreWorkbook(phaseId, base64, false);
+      if (preview.error) {
+        await notify([preview.error, ...preview.warnings.slice(0, 8).map((w) => `• ${w}`)].join("\n"), { title: "無法匯入" });
+        return;
+      }
+      const warningLines = (extra = "") =>
+        preview.warnings.length === 0
+          ? []
+          : ["", `有 ${preview.warnings.length} 列讀不進來,那幾列會略過${extra}:`, ...preview.warnings.slice(0, 8).map((w) => `• ${w}`), ...(preview.warnings.length > 8 ? [`……還有 ${preview.warnings.length - 8} 列`] : [])];
+      if (preview.created + preview.updated === 0) {
+        await notify(
+          ["這份 Excel 跟目前的報價單內容一樣,沒有需要匯入的變動。", ...warningLines()].join("\n"),
+          { title: "匯入報價單" }
+        );
+        return;
+      }
+      const shown = preview.changes.slice(0, 12);
+      const message = [
+        `要匯入這份 Excel 嗎?`,
+        "",
+        `• 新增 ${preview.created} 列`,
+        `• 更新 ${preview.updated} 列`,
+        `• 沒有變動 ${preview.unchanged} 列`,
+        ...(preview.untouched > 0 ? [`• 報價單裡有、Excel 沒提到的 ${preview.untouched} 列維持原樣(匯入不會刪列)`] : []),
+        "",
+        ...shown.map((c) => `• ${c}`),
+        ...(preview.changes.length > shown.length ? [`……還有 ${preview.changes.length - shown.length} 筆變動`] : []),
+        ...warningLines(),
+      ].join("\n");
+      if (!(await confirm(message, { title: "匯入報價單", confirmLabel: "匯入" }))) return;
+
+      const result = await importNreWorkbook(phaseId, base64, true);
+      if (result.error) {
+        await notify(result.error, { title: "無法匯入" });
+        return;
+      }
+      await reload();
+    } catch {
+      await notify("匯入失敗,請重新整理後再試一次。", { title: "無法匯入" });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function remove(line: NreLineRow) {
     if (!(await confirm(`刪除「${line.description}」(${formatMoney(line.amount)} 元)?`, { title: "刪除這一列", confirmLabel: "刪除", danger: true }))) return;
     try {
@@ -397,15 +463,41 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
           照 NRE 的四大項逐列填,有數量跟單價就自動相乘,沒有就直接填金額;離開那一列時自動儲存。這是估算與報價的依據,
           <b>不會寫進「階段預算」的核准預算</b>。
         </p>
-        <button
-          type="button"
-          onClick={() => void download()}
-          disabled={exporting || lines.length === 0}
-          title={lines.length === 0 ? "還沒有任何項目" : "把這個階段的報價單匯出成 Excel"}
-          className="flex shrink-0 items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
-        >
-          <Download size={13} /> {exporting ? "匯出中..." : "匯出 Excel"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void download()}
+            disabled={exporting || lines.length === 0}
+            title={lines.length === 0 ? "還沒有任何項目" : "把這個階段的報價單匯出成 Excel"}
+            className="flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
+          >
+            <Download size={13} /> {exporting ? "匯出中..." : "匯出 Excel"}
+          </button>
+          {sheet.canEdit && (
+            <>
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={importing}
+                title="匯入「匯出 Excel」下載的檔案(改好之後)——只新增與更新,不會刪列"
+                className="flex items-center gap-1.5 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              >
+                <Upload size={13} /> {importing ? "匯入中..." : "匯入 Excel"}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void upload(file);
+                }}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       {!sheet.canEdit && (
