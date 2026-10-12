@@ -1,3 +1,4 @@
+import type { CostCategory } from "@prisma/client";
 import { isValidIsoDate } from "@/lib/timesheet";
 
 /**
@@ -20,6 +21,33 @@ export const NRE_LABELS: Record<NreCategoryKey, string> = {
   PROTOTYPE: "打樣與樣品",
   CERTIFICATION: "驗證與認證",
 };
+
+/**
+ * NRE 報價單的每一類,對到預算的哪一個費用類別(階段預算「各類別」那張表)。
+ * 研發人力 → 人力、打樣與樣品 → 材料(打樣與樣品)、委託開發 → 委託開發,其他同名。
+ */
+export const NRE_COST_CATEGORY: Record<NreCategoryKey, CostCategory> = {
+  LABOUR: "LABOUR",
+  COMMISSIONED: "OUTSOURCING",
+  TOOLING: "TOOLING",
+  PROTOTYPE: "MATERIAL",
+  CERTIFICATION: "CERTIFICATION",
+};
+
+/** 報價單各類的金額(同一類可以有好幾筆),換成預算的費用類別;沒有的類別不出現。 */
+export function nreByCostCategory(groups: { category: NreCategoryKey; amount: number }[]): {
+  byCategory: Partial<Record<CostCategory, number>>;
+  total: number;
+} {
+  const byCategory: Partial<Record<CostCategory, number>> = {};
+  let total = 0;
+  for (const g of groups) {
+    const target = NRE_COST_CATEGORY[g.category];
+    byCategory[target] = (byCategory[target] ?? 0) + g.amount;
+    total += g.amount;
+  }
+  return { byCategory, total };
+}
 
 /** 每一類的說明與欄位名稱——研發人力是外部單位的工時,數量放工時、單價放時薪。 */
 export const NRE_CATEGORY_GUIDE: Record<

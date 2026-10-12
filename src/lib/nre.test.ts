@@ -5,6 +5,8 @@ import {
   NRE_CATEGORY_GUIDE,
   NRE_LABELS,
   describeNreChange,
+  nreByCostCategory,
+  NRE_COST_CATEGORY,
   parseNumberField,
   planNreImport,
   sameNreContent,
@@ -301,5 +303,33 @@ describe("委託開發", () => {
     expect(describeNreChange(before, moved, (id) => (id === null ? "整個專案" : "POC"))).toBe(
       "範圍 POC → 整個專案、時間範圍 2026-10-01 ~ 2026-12-31 → 2026-11-01 ~ 2027-01-31"
     );
+  });
+});
+
+describe("nreByCostCategory(NRE 報價 → 預算的費用類別)", () => {
+  it("每一類報價對到預算的費用類別:研發人力 → 人力、打樣與樣品 → 材料、委託開發 → 委託開發", () => {
+    expect(NRE_COST_CATEGORY).toEqual({
+      LABOUR: "LABOUR",
+      COMMISSIONED: "OUTSOURCING",
+      TOOLING: "TOOLING",
+      PROTOTYPE: "MATERIAL",
+      CERTIFICATION: "CERTIFICATION",
+    });
+  });
+
+  it("金額照費用類別加起來,總計是全部的報價", () => {
+    const out = nreByCostCategory([
+      { category: "LABOUR", amount: 400000 },
+      { category: "TOOLING", amount: 550000 },
+      { category: "TOOLING", amount: 60000 },
+      { category: "PROTOTYPE", amount: 50000 },
+      { category: "COMMISSIONED", amount: 300000 },
+    ]);
+    expect(out.byCategory).toEqual({ LABOUR: 400000, TOOLING: 610000, MATERIAL: 50000, OUTSOURCING: 300000 });
+    expect(out.total).toBe(1360000);
+  });
+
+  it("沒有報價:空的、總計 0", () => {
+    expect(nreByCostCategory([])).toEqual({ byCategory: {}, total: 0 });
   });
 });

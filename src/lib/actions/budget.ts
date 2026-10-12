@@ -27,6 +27,7 @@ import { logAudit } from "@/lib/activityLog";
 import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
 import { effectiveRateMap } from "@/lib/labourRate";
 import { refreshBomMaterial } from "@/lib/bomMaterial";
+import { nreByCostCategory } from "@/lib/nre";
 
 /**
  * 預算核准的三個層級:預算階段、看板上的一列工作項,或整個專案群組。
@@ -129,6 +130,12 @@ export type BudgetView = {
   labourFromPlan: boolean;
   /** 材料核准金額是不是樣機 BOM 算出來的 —— 是的話就不該再手填。 */
   materialFromBom: boolean;
+  /**
+   * NRE 報價單的估算金額,換成預算的費用類別(見 NRE_COST_CATEGORY)。只是估算,不計入核准預算。
+   * 單一階段:那個階段的報價單;整個專案:全部(含涵蓋整個專案的委託開發);projectWide 是單一階段看不到、
+   * 但屬於這個專案的涵蓋整個專案的委託開發金額。
+   */
+  nre: { byCategory: Partial<Record<CostCategory, number>>; total: number; projectWide: number };
   /** 照這樣下去會花多少 — see budgetForecast.ts. */
   forecast: BudgetForecast;
   /** 目前可選的幣別與匯率,用來預填輸入框。 */
@@ -392,6 +399,31 @@ async function labourActualFor(itemIds: string[]): Promise<number> {
   return entries.reduce((total, e) => total + Number(e.hours) * (rate.get(e.userId) ?? 0), 0);
 }
 
+/** 這個範圍的 NRE 報價單金額。看得到預算的人就看得到報價單(跟 NRE 報價單分頁同一個規則)。 */
+async function nreFor(scope: BudgetScope, boardIds: string[]): Promise<BudgetView["nre"]> {
+  const where =
+    scope.kind === "phase"
+      ? { phaseId: scope.id }
+      : scope.kind === "board"
+        ? { boardId: scope.id }
+        : scope.kind === "item"
+          ? { phase: { itemId: scope.id } }
+          : { boardId: { in: boardIds } };
+  const groups = await prisma.nreLine.groupBy({ by: ["category"], where, _sum: { amount: true } });
+  const { byCategory, total } = nreByCostCategory(groups.map((g) => ({ category: g.category, amount: g._sum.amount ?? 0 })));
+
+  // 單一階段看不到「涵蓋整個專案」的列(它不屬於任何階段),另外說一聲,免得以為漏了。
+  let projectWide = 0;
+  if (scope.kind === "phase") {
+    const phase = await prisma.budgetPhase.findUnique({ where: { id: scope.id }, select: { boardId: true } });
+    if (phase) {
+      const wide = await prisma.nreLine.aggregate({ where: { boardId: phase.boardId, phaseId: null }, _sum: { amount: true } });
+      projectWide = wide._sum.amount ?? 0;
+    }
+  }
+  return { byCategory, total, projectWide };
+}
+
 export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | null> {
   const session = await requireSession();
   const resolved = await resolveScope(scope, session);
@@ -532,6 +564,7 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
           ? (await prisma.bomLine.count({ where: { boardId: scope.id } })) > 0
           : scope.kind === "item" &&
             (await prisma.bomLine.count({ where: { phase: { itemId: scope.id } } })) > 0,
+    nre: await nreFor(scope, boardIds),
     // Same rule the write paths enforce — see canEditBudget.
     canEdit: await canEditBudget(scope, session),
     commitments: commitments.map((c) => ({

@@ -89,6 +89,8 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
   if (!view) return null;
 
   const { summary } = view;
+  // NRE 報價單有金額(這個範圍的,或涵蓋整個專案的)才多出報價的卡片與欄位。
+  const hasNre = view.nre.total > 0;
   const open = view.commitments.filter((c) => !c.settled);
 
   return (
@@ -137,8 +139,15 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-3 ${hasNre ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
         <Tile label="核准預算" value={formatMoney(summary.total.budget)} />
+        {hasNre && (
+          <Tile
+            label="NRE 報價(估算)"
+            value={formatMoney(view.nre.total)}
+            hint="來自「NRE 報價單」,只是估算,不計入核准預算"
+          />
+        )}
         <Tile
           label="已花費"
           value={formatMoney(summary.total.actual)}
@@ -701,6 +710,7 @@ function CategoryTable({
   prompt: Prompt;
 }) {
   const byCategory = new Map(view.summary.lines.map((l) => [l.category, l]));
+  const hasNre = view.nre.total > 0;
 
   async function edit(category: CostCategory) {
     const current = byCategory.get(category)?.budget ?? 0;
@@ -722,12 +732,21 @@ function CategoryTable({
   }
 
   return (
+    <>
     <HScrollPane className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
       <table className="w-full text-xs">
         <thead className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400">
           <tr>
             <th className="px-3 py-2 text-left font-medium">類別</th>
             <th className="px-3 py-2 text-right font-medium">核准預算</th>
+            {hasNre && (
+              <th
+                className="px-3 py-2 text-right font-medium"
+                title="NRE 報價單的估算金額(研發人力 → 人力、打樣與樣品 → 材料、其餘同名),只是估算,不計入核准預算"
+              >
+                NRE 報價
+              </th>
+            )}
             <th className="px-3 py-2 text-right font-medium">已花費</th>
             <th className="px-3 py-2 text-right font-medium">已下單</th>
             <th className="px-3 py-2 text-right font-medium">剩餘</th>
@@ -738,7 +757,7 @@ function CategoryTable({
         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {COST_CATEGORIES.map((category) => {
             const row = byCategory.get(category);
-            if (!row && !view.canEdit) return null;
+            if (!row && !view.canEdit && !view.nre.byCategory[category]) return null;
             const budget = row?.budget ?? 0;
             const actual = row?.actual ?? 0;
             const committed = row?.committed ?? 0;
@@ -762,6 +781,11 @@ function CategoryTable({
                 <td className="px-3 py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
                   {budget ? formatMoney(budget) : "—"}
                 </td>
+                {hasNre && (
+                  <td className="px-3 py-1.5 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
+                    {view.nre.byCategory[category] ? formatMoney(view.nre.byCategory[category]!) : "—"}
+                  </td>
+                )}
                 <td className="px-3 py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
                   {actual ? formatMoney(actual) : "—"}
                 </td>
@@ -818,6 +842,9 @@ function CategoryTable({
           <tr>
             <td className="px-3 py-2 text-neutral-800 dark:text-neutral-100">合計</td>
             <td className="px-3 py-2 text-right tabular-nums">{formatMoney(view.summary.total.budget)}</td>
+            {hasNre && (
+              <td className="px-3 py-2 text-right tabular-nums text-neutral-500 dark:text-neutral-400">{formatMoney(view.nre.total)}</td>
+            )}
             <td className="px-3 py-2 text-right tabular-nums">{formatMoney(view.summary.total.actual)}</td>
             <td className="px-3 py-2 text-right tabular-nums">
               {formatMoney(view.summary.total.committed)}
@@ -837,6 +864,17 @@ function CategoryTable({
         </tfoot>
       </table>
     </HScrollPane>
+    {view.nre.projectWide > 0 && (
+      <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+        NRE 報價單另有涵蓋整個專案的委託開發 {formatMoney(view.nre.projectWide)} 元,不屬於單一階段,選「整個專案」才看得到。
+      </p>
+    )}
+    {hasNre && (
+      <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+        「NRE 報價」來自「NRE 報價單」分頁的估算(研發人力 → 人力、打樣與樣品 → 材料),不計入核准預算;要改請到那個分頁。
+      </p>
+    )}
+    </>
   );
 }
 
