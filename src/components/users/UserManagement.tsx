@@ -128,7 +128,7 @@ function SalaryInput({ user }: { user: UserRow }) {
       onBlur={save}
       inputMode="numeric"
       placeholder="未設定"
-      title="月薪(元)。時薪有填的話仍然以時薪為準。"
+      title="月薪(元)。人力表裡指到這個人的名額,人力預算用這個月薪算;實際工時成本則是時薪有填的話以時薪為準。"
       className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500 disabled:opacity-50"
     />
   );

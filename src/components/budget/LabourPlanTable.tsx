@@ -43,7 +43,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
     <div className="space-y-3">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         這張是彙總,不是輸入:人月由「人力表」每個名額逐月的投入加總而來,哪個月算哪個階段由日期決定。
-        要改人月請到人力表。乘上單位標準月薪就是金額,會直接寫進「各類別」的人力那一列。
+        要改人月請到人力表。乘上月薪就是金額,會直接寫進「各類別」的人力那一列:人力表裡指到人、而且在使用者管理設了月薪的名額,用他的月薪算;其他名額用單位標準月薪。
       </p>
 
       {/* 整張表都是「—」的時候,最常見的原因是階段沒對應到看板的階段列 ——
@@ -64,7 +64,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <p>
             {summary.unpricedDisciplines.map((d) => unitLabel(view.units, d)).join("、")}
-            有排人月,但還沒有標準月薪,所以那幾格算不出金額。請先到系統設定填上標準月薪。
+            有排人月,但還沒有標準月薪(也沒有指到設了個人月薪的人),所以那幾格算不出金額。請先到系統設定填上標準月薪。
           </p>
         </div>
       )}

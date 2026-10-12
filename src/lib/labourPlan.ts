@@ -165,6 +165,35 @@ export function summariseLabourPlan(
   };
 }
 
+/**
+ * 用人力表算出來的金額換掉彙總表裡的金額。人力表有名額是用個人月薪算的(見 slotRatesFromSalaries),
+ * 階段 × 單位的人月乘單位標準月薪就不是那些格子的錢了——人月不變,金額與「算不出錢的單位」以人力表為準。
+ */
+export function applySheetAmounts(
+  summary: LabourPlanSummary,
+  sheet: {
+    byPhase: { phaseId: string; byDiscipline: { discipline: Discipline; amount: number }[] }[];
+    unpricedDisciplines: Discipline[];
+  }
+): LabourPlanSummary {
+  const amountOf = new Map(sheet.byPhase.flatMap((p) => p.byDiscipline.map((d) => [`${p.phaseId}:${d.discipline}`, d.amount] as const)));
+  const rows = summary.rows.map((row) => {
+    const cells = row.cells.map((c) => ({ ...c, amount: amountOf.get(`${row.rowId}:${c.discipline}`) ?? c.amount }));
+    return { ...row, cells, amount: Math.round(cells.reduce((t, c) => t + c.amount, 0)) };
+  });
+  const byDiscipline = summary.byDiscipline.map((d) => ({
+    ...d,
+    amount: Math.round(rows.reduce((t, r) => t + (r.cells.find((c) => c.discipline === d.discipline)?.amount ?? 0), 0)),
+  }));
+  return {
+    ...summary,
+    rows,
+    byDiscipline,
+    totalAmount: Math.round(byDiscipline.reduce((t, d) => t + d.amount, 0)),
+    unpricedDisciplines: sheet.unpricedDisciplines,
+  };
+}
+
 /** 人月換算成工時 —— 拿來跟工時制的實際成本比對。 */
 export function personMonthsToHours(personMonths: number, factors: WorkFactors): number {
   return personMonths * factors.workingDaysPerMonth * factors.hoursPerDay;

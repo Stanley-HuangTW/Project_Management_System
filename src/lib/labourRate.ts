@@ -1,6 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { effectiveHourlyRate } from "@/lib/labourPlan";
+import { slotRatesFromSalaries } from "@/lib/labourSheet";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
+
+/**
+ * 人力表的名額 → 指到的那個人的個人月薪(只有設了月薪的人;見 slotRatesFromSalaries),拿來算人力預算。
+ * 薪資是敏感資料,這支只在伺服器端用、結果只用來算金額,不要原樣送到畫面。
+ */
+export async function loadSlotRates(slots: { id: string; userId: string | null }[]): Promise<Record<string, number>> {
+  const userIds = [...new Set(slots.map((s) => s.userId).filter((id): id is string => !!id))];
+  if (userIds.length === 0) return {};
+  const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, monthlySalary: true } });
+  return slotRatesFromSalaries(slots, Object.fromEntries(users.map((u) => [u.id, u.monthlySalary ? Number(u.monthlySalary) : 0])));
+}
 
 /**
  * 每個人算實際成本用的時薪,一張表查完。

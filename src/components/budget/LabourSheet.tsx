@@ -407,7 +407,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
             {sheet.unpricedDisciplines.length > 0 && (
               <p>
                 {sheet.unpricedDisciplines.map((d) => unitLabel(units, d)).join("、")}
-                有排人月,但還沒有標準月薪,那些人月算不出金額。標準月薪在系統設定裡。
+                有排人月,但還沒有標準月薪(也沒有指到設了個人月薪的人),那些人月算不出金額。標準月薪在系統設定裡,個人月薪在使用者管理。
               </p>
             )}
             {sheet.monthsOutsideAnyPhase.length > 0 && (
@@ -684,7 +684,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                   <div className="flex-1 px-2 py-1 text-right text-xs tabular-nums text-neutral-700 dark:text-neutral-200">
                     {total.personMonths} 人月
                     <span className="ml-2 text-neutral-400 dark:text-neutral-500">
-                      {rateOf.get(discipline) ? formatMoney(total.amount) : "未定價"}
+                      {rateOf.get(discipline) || total.amount > 0 ? formatMoney(total.amount) : "未定價"}
                     </span>
                   </div>
                 </div>
@@ -782,8 +782,12 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                         <span className="text-xs tabular-nums text-neutral-700 dark:text-neutral-200">
                           {rowTotal?.personMonths ?? 0}
                         </span>
-                        <span className="w-24 text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+                        <span
+                          className="w-24 text-right text-xs tabular-nums text-neutral-500 dark:text-neutral-400"
+                          title={rowTotal?.personal ? "用指到的那個人的個人月薪算(不是單位標準月薪)" : undefined}
+                        >
                           {rowTotal?.amount ? formatMoney(rowTotal.amount) : "—"}
+                          {rowTotal?.personal && rowTotal.amount > 0 ? "*" : ""}
                         </span>
                       </div>
                     </div>
@@ -834,7 +838,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       {d.personMonths} 人月
                     </td>
                     <td className="py-1 text-right tabular-nums text-neutral-800 dark:text-neutral-100">
-                      {rateOf.get(d.discipline) ? formatMoney(d.amount) : "未定價"}
+                      {rateOf.get(d.discipline) || d.amount > 0 ? formatMoney(d.amount) : "未定價"}
                     </td>
                   </tr>
                 ))}
@@ -982,7 +986,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
       {hasAnyEditRight && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
           點階段帶可以改期間,點格子填投入,滑到一列名額旁邊可以整列填滿或刪除。人月加總會自動寫回各階段的
-          人力預算,所以「各類別」的人力那一列不用手填。
+          人力預算,所以「各類別」的人力那一列不用手填。金額後面有「*」的名額,是用指到的那個人的個人月薪算的(使用者管理設定),其他用單位標準月薪。
         </p>
       )}
       {!hasAnyEditRight && (

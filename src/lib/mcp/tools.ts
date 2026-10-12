@@ -13,6 +13,7 @@ import { analyzeDelays } from "@/lib/delayAnalysis";
 import { computeCriticalPathAcross } from "@/lib/criticalPath";
 import { summarizeBudget, CATEGORY_LABELS } from "@/lib/budget";
 import { buildLabourSheet, type PhaseRow, type SlotRow } from "@/lib/labourSheet";
+import { loadSlotRates } from "@/lib/labourRate";
 import { summariseProtoPlan } from "@/lib/protoPlan";
 import { unitLabel } from "@/lib/orgUnits";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
@@ -533,8 +534,11 @@ async function getLabourSheetTool(session: SessionPayload, args: Json) {
   }));
 
   const units = await loadOrgUnits();
-  const sheet = buildLabourSheet(phases, slots, rates, units);
-  const totalOf = new Map(sheet.slotTotals.map((t) => [t.slotId, t]));
+  const sheet = buildLabourSheet(phases, slots, rates, units, await loadSlotRates(slots));
+  // 個人月薪只有管理者看得到:每個名額的金額 = 月薪 × 人月,所以不是管理者的金鑰看不到用個人月薪算的名額的金額(合計照給)。
+  const totalOf = new Map(
+    sheet.slotTotals.map((t) => [t.slotId, session.role !== "ADMIN" && t.personal ? { ...t, amount: 0 } : t])
+  );
 
   return {
     months: sheet.months,

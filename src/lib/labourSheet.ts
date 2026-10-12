@@ -1,5 +1,4 @@
 import type { Discipline } from "@/lib/labourPlan";
-import { personMonthCost } from "@/lib/labourPlan";
 import type { OrgUnit } from "@/lib/orgUnits";
 
 /**
@@ -75,7 +74,32 @@ export function phaseOfMonth(phases: PhaseRow[], month: MonthKey): PhaseRow | nu
   );
 }
 
-export type SlotTotal = { slotId: string; personMonths: number; amount: number };
+export type SlotTotal = {
+  slotId: string;
+  personMonths: number;
+  amount: number;
+  /** true = 這個名額用指到的那個人的個人月薪算,不是單位標準月薪。 */
+  personal: boolean;
+};
+
+/**
+ * 有指到人、而且那個人設了個人月薪(> 0)的名額 → 用他的月薪算人力預算;其他的名額(還沒指人、
+ * 或那個人沒設月薪)維持用單位標準月薪。回傳 名額 id → 月薪,只有前一種會出現。
+ *
+ * 只看月薪、不看時薪:規劃是「幾個人月 × 一個月多少錢」,月薪就是那個月的錢;時薪是算實際工時成本用的
+ * (見 labourPlan.ts 的 effectiveHourlyRate),兩邊本來就分開。
+ */
+export function slotRatesFromSalaries(
+  slots: { id: string; userId: string | null }[],
+  salaryByUser: Record<string, number>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const slot of slots) {
+    const salary = slot.userId ? (salaryByUser[slot.userId] ?? 0) : 0;
+    if (salary > 0) out[slot.id] = salary;
+  }
+  return out;
+}
 
 export type DisciplineTotal = {
   discipline: Discipline;
@@ -117,20 +141,28 @@ export function buildLabourSheet(
   phases: PhaseRow[],
   slots: SlotRow[],
   disciplineRates: Partial<Record<Discipline, number>>,
-  units: OrgUnit[]
+  units: OrgUnit[],
+  /** 名額 id → 個人月薪(見 slotRatesFromSalaries);有的名額用它、其他的用單位標準月薪。 */
+  slotRates: Record<string, number> = {}
 ): LabourSheet {
   const DISCIPLINES = units.map((u) => u.code);
   const months = monthAxis(phases);
   const unpriced = new Set<Discipline>();
   const orphanMonths = new Set<MonthKey>();
 
+  /** 這個名額一個月多少錢:個人月薪優先,沒有就是單位標準月薪,再沒有就是 0(算不出錢)。 */
+  const rateOfSlot = (slot: SlotRow): number => slotRates[slot.id] ?? disciplineRates[slot.discipline] ?? 0;
+  const cost = (personMonths: number, rate: number): number => (personMonths > 0 && rate > 0 ? personMonths * rate : 0);
+
   const slotTotals: SlotTotal[] = slots.map((slot) => {
     const personMonths = Object.values(slot.months).reduce((t, fte) => t + fte, 0);
-    if (personMonths > 0 && !(disciplineRates[slot.discipline] ?? 0)) unpriced.add(slot.discipline);
+    const rate = rateOfSlot(slot);
+    if (personMonths > 0 && rate <= 0) unpriced.add(slot.discipline);
     return {
       slotId: slot.id,
       personMonths: round2(personMonths),
-      amount: Math.round(personMonthCost(personMonths, slot.discipline, disciplineRates)),
+      amount: Math.round(cost(personMonths, rate)),
+      personal: slot.id in slotRates,
     };
   });
 
@@ -139,19 +171,22 @@ export function buildLabourSheet(
     const mine = slots.filter((s) => s.discipline === discipline);
     const byMonth: Record<MonthKey, number> = {};
     let personMonths = 0;
+    let amount = 0;
     for (const slot of mine) {
+      const rate = rateOfSlot(slot);
       for (const [month, fte] of Object.entries(slot.months)) {
         if (fte <= 0) continue;
         byMonth[month] = round2((byMonth[month] ?? 0) + fte);
         headcountByMonth[month] = round2((headcountByMonth[month] ?? 0) + fte);
         personMonths += fte;
+        amount += cost(fte, rate);
         if (!phaseOfMonth(phases, month)) orphanMonths.add(month);
       }
     }
     return {
       discipline,
       personMonths: round2(personMonths),
-      amount: Math.round(personMonthCost(personMonths, discipline, disciplineRates)),
+      amount: Math.round(amount),
       byMonth,
     };
   });
@@ -160,17 +195,20 @@ export function buildLabourSheet(
   const byPhase: PhaseTotal[] = phases.map((phase) => {
     const perDiscipline = DISCIPLINES.map((discipline) => {
       let personMonths = 0;
+      let amount = 0;
       for (const slot of slots.filter((s) => s.discipline === discipline)) {
+        const rate = rateOfSlot(slot);
         for (const [month, fte] of Object.entries(slot.months)) {
           // 重疊的階段只算一次,歸給先排到的那個。
           if (fte <= 0 || phaseOfMonth(phases, month)?.id !== phase.id) continue;
           personMonths += fte;
+          amount += cost(fte, rate);
         }
       }
       return {
         discipline,
         personMonths: round2(personMonths),
-        amount: Math.round(personMonthCost(personMonths, discipline, disciplineRates)),
+        amount: Math.round(amount),
       };
     });
     return {

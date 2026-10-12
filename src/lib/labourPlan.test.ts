@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applySheetAmounts,
   effectiveHourlyRate,
   hourlyRateSource,
   personMonthCost,
@@ -153,5 +154,43 @@ describe("personMonthsToHours", () => {
   it("一個人月 = 每月工作天 × 每日工時", () => {
     expect(personMonthsToHours(1, factors)).toBe(168);
     expect(personMonthsToHours(2.5, factors)).toBe(420);
+  });
+});
+
+describe("applySheetAmounts(人力表有名額用個人月薪算)", () => {
+  const phases = [{ id: "p1", name: "EFS" }, { id: "p2", name: "EVT" }];
+  const cells = [
+    { rowId: "p1", discipline: "EE", personMonths: 3 },
+    { rowId: "p2", discipline: "EE", personMonths: 2 },
+    { rowId: "p2", discipline: "ME", personMonths: 1 },
+  ];
+  const base = summariseLabourPlan(phases, cells, rates, UNITS);
+  const sheet = {
+    byPhase: [
+      { phaseId: "p1", byDiscipline: [{ discipline: "EE", amount: 450_000 }, { discipline: "ME", amount: 0 }] },
+      { phaseId: "p2", byDiscipline: [{ discipline: "EE", amount: 300_000 }, { discipline: "ME", amount: 84_000 }] },
+    ],
+    unpricedDisciplines: [],
+  };
+
+  it("人月不變,格子的金額、階段合計、單位合計、總計都以人力表為準", () => {
+    // 單位標準月薪的算法:EE 5 × 168,000 = 840,000;ME 1 × 84,000。
+    expect(base.totalAmount).toBe(5 * 168_000 + 84_000);
+    const out = applySheetAmounts(base, sheet);
+    expect(out.rows[0].cells.find((c) => c.discipline === "EE")).toMatchObject({ personMonths: 3, amount: 450_000 });
+    expect(out.rows[0].amount).toBe(450_000);
+    expect(out.rows[1].amount).toBe(384_000);
+    expect(out.byDiscipline.find((d) => d.discipline === "EE")).toMatchObject({ personMonths: 5, amount: 750_000 });
+    expect(out.totalAmount).toBe(834_000);
+    expect(out.totalPersonMonths).toBe(base.totalPersonMonths);
+  });
+
+  it("算不出錢的單位以人力表的判斷為準", () => {
+    expect(applySheetAmounts(base, { ...sheet, unpricedDisciplines: ["OTHER"] }).unpricedDisciplines).toEqual(["OTHER"]);
+  });
+
+  it("人力表裡沒有的格子維持原本的金額", () => {
+    const out = applySheetAmounts(base, { byPhase: [], unpricedDisciplines: [] });
+    expect(out.totalAmount).toBe(base.totalAmount);
   });
 });

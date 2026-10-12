@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildLabourSheet,
+  slotRatesFromSalaries,
   monthAxis,
   monthKeyOf,
   phaseOfMonth,
@@ -197,6 +198,65 @@ describe("buildLabourSheet", () => {
     expect(sheet.totalPersonMonths).toBe(0);
     expect(sheet.totalAmount).toBe(0);
     expect(sheet.months).toHaveLength(6);
+  });
+});
+
+describe("個人月薪(有指到人、設了月薪的名額用他的月薪算)", () => {
+  const slots = [
+    // EE1 三到八月全職 = 6 人月,指到某個人
+    slot("ee1", "EE", { "2026-03": 1, "2026-04": 1, "2026-05": 1, "2026-06": 1, "2026-07": 1, "2026-08": 1 }),
+    // EE2 還沒指人:EVT 三個月半個人 = 1.5 人月,用單位標準月薪
+    slot("ee2", "EE", { "2026-06": 0.5, "2026-07": 0.5, "2026-08": 0.5 }),
+  ];
+
+  it("slotRatesFromSalaries:只有指到人而且設了月薪(> 0)的名額會出現", () => {
+    const withUser = (id: string, userId: string | null) => ({ id, userId });
+    expect(
+      slotRatesFromSalaries([withUser("a", "u1"), withUser("b", "u2"), withUser("c", null), withUser("d", "u3")], {
+        u1: 150_000,
+        u2: 0,
+        u3: 90_000,
+      })
+    ).toEqual({ a: 150_000, d: 90_000 });
+  });
+
+  it("名額的金額 = 人月 × 那個人的月薪,不是單位標準月薪;沒指人的還是單位標準", () => {
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS, { ee1: 150_000 });
+    const total = (id: string) => sheet.slotTotals.find((t) => t.slotId === id)!;
+    expect(total("ee1")).toMatchObject({ personMonths: 6, amount: 900_000, personal: true });
+    expect(total("ee2")).toMatchObject({ personMonths: 1.5, amount: 252_000, personal: false }); // 1.5 × 168,000
+  });
+
+  it("單位小計、階段 × 單位、總計都跟著:一個單位裡兩種算法的名額加起來", () => {
+    const sheet = buildLabourSheet(phases, slots, rates, UNITS, { ee1: 150_000 });
+    expect(sheet.byDiscipline.find((d) => d.discipline === "EE")!.amount).toBe(900_000 + 252_000);
+    // EFS(三到五月):ee1 三個月 = 450,000;EVT(六到八月):ee1 450,000 + ee2 1.5 × 168,000
+    const efs = sheet.byPhase.find((p) => p.phaseId === "efs")!;
+    const evt = sheet.byPhase.find((p) => p.phaseId === "evt")!;
+    expect(efs.amount).toBe(450_000);
+    expect(evt.amount).toBe(450_000 + 252_000);
+    expect(sheet.totalAmount).toBe(efs.amount + evt.amount);
+  });
+
+  it("改了月薪,金額就變——這就是改月薪人力預算要跟著變", () => {
+    const at = (salary: number) => buildLabourSheet(phases, slots, rates, UNITS, { ee1: salary }).totalAmount;
+    expect(at(200_000) - at(150_000)).toBe(6 * 50_000);
+  });
+
+  it("沒有給個人月薪時,跟原本一樣(單位標準月薪)", () => {
+    expect(buildLabourSheet(phases, slots, rates, UNITS).totalAmount).toBe(buildLabourSheet(phases, slots, rates, UNITS, {}).totalAmount);
+    expect(buildLabourSheet(phases, slots, rates, UNITS).totalAmount).toBe(7.5 * 168_000);
+  });
+
+  it("單位沒有標準月薪,但名額指到有月薪的人:算得出錢,不算「未定價」", () => {
+    const sheet = buildLabourSheet(phases, [slot("sw1", "SW", { "2026-06": 2 })], rates, UNITS, { sw1: 120_000 });
+    expect(sheet.byDiscipline.find((d) => d.discipline === "SW")!.amount).toBe(240_000);
+    expect(sheet.unpricedDisciplines).toEqual([]);
+  });
+
+  it("單位沒有標準月薪、名額也沒有個人月薪:還是點名未定價", () => {
+    const sheet = buildLabourSheet(phases, [slot("sw1", "SW", { "2026-06": 2 })], rates, UNITS, {});
+    expect(sheet.unpricedDisciplines).toEqual(["SW"]);
   });
 });
 

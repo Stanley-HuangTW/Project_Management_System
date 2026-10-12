@@ -45,6 +45,8 @@ export async function exportLabourWorkbook(boardId: string): Promise<LabourExpor
     slots: view.slots,
     units: view.units,
     rates: view.rates,
+    slotRates: view.slotRates,
+    hasPersonalSlots: view.sheet.slotTotals.some((t) => t.personal),
     milestoneTypes: view.milestoneTypes,
     milestones: view.milestones,
   });

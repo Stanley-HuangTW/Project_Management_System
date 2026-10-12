@@ -49,6 +49,13 @@ export type LabourWorkbookInput = {
   units: OrgUnit[];
   /** 單位標準月薪,元/月。用來在表尾算金額。 */
   rates: { discipline: string; monthlySalary: number }[];
+  /**
+   * 名額 id → 個人月薪(有指到人、而且設了月薪的名額用它算金額,其他的用單位標準月薪)。
+   * 沒給 = 全部用單位標準月薪;不是管理者匯出時是空的,因為個人月薪不該寫進檔案給別人看。
+   */
+  slotRates?: Record<string, number>;
+  /** 這塊看板有名額是用個人月薪算的(不論這份檔案有沒有用到)——合計表底下才寫得出哪邊的金額跟畫面不同。 */
+  hasPersonalSlots?: boolean;
   /** 里程碑類型,照排序 —— 一個類型一列,列在階段列下面。 */
   milestoneTypes?: MilestoneTypeRow[];
   milestones?: MilestoneRow[];
@@ -106,7 +113,7 @@ function textOf(value: ExcelJS.CellValue): string {
 }
 
 export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<Buffer> {
-  const { months, phases, slots, units, rates, milestoneTypes = [], milestones = [] } = input;
+  const { months, phases, slots, units, rates, milestoneTypes = [], milestones = [], slotRates = {}, hasPersonalSlots = false } = input;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "工作管理平台";
@@ -223,8 +230,19 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
       slotRows.length > 0
         ? { formula: slotRows.map((n) => `${SHEET_NAME}!${letter(totalCol)}${n}`).join("+") }
         : 0;
-    row.getCell(3).value = rateOf.get(unit.code) ?? 0;
-    row.getCell(4).value = { formula: `B${row.number}*C${row.number}` };
+    const unitRate = rateOf.get(unit.code) ?? 0;
+    row.getCell(3).value = unitRate;
+    // 這個單位有名額用個人月薪算:金額逐個名額乘各自的月薪;沒有的話就是人月 × 單位標準月薪。
+    const hasPersonal = slots.some((s) => s.discipline === unit.code && slotRates[s.id] !== undefined);
+    row.getCell(4).value =
+      hasPersonal
+        ? {
+            formula: slots
+              .map((s, n) => (s.discipline === unit.code ? `${SHEET_NAME}!${letter(totalCol)}${firstSlot + n}*${slotRates[s.id] ?? unitRate}` : null))
+              .filter((t): t is string => t !== null)
+              .join("+"),
+          }
+        : { formula: `B${row.number}*C${row.number}` };
   });
 
   const totalRow = sum.getRow(2 + units.length);
@@ -232,6 +250,15 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
   totalRow.getCell(2).value = { formula: `SUM(B2:B${1 + units.length})` };
   totalRow.getCell(4).value = { formula: `SUM(D2:D${1 + units.length})` };
   totalRow.font = { bold: true };
+
+  if (hasPersonalSlots) {
+    const personalNote = sum.getRow(totalRow.number + 4);
+    personalNote.getCell(1).value =
+      Object.keys(slotRates).length > 0
+        ? "有指到人、而且設了個人月薪的名額,金額用他的月薪算,不是單位標準月薪(所以那個單位的金額不等於人月 × 月薪欄)。"
+        : "這塊看板有名額是用指到的那個人的個人月薪算的,個人月薪只有管理者看得到,所以這份檔案的金額一律用單位標準月薪列,跟程式畫面上的人力預算不同。";
+    personalNote.getCell(1).font = { italic: true, color: { argb: "FF808080" } };
+  }
 
   const note = sum.getRow(totalRow.number + 2);
   note.getCell(1).value =

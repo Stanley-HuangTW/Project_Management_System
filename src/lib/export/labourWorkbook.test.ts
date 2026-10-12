@@ -226,6 +226,55 @@ describe("人力表 Excel 往返", () => {
     expect((sum.getCell(2, 4).value as { formula?: string }).formula).toBe("B2*C2");
   });
 
+  describe("個人月薪", () => {
+    async function summary(extra: { slotRates?: Record<string, number>; hasPersonalSlots?: boolean }) {
+      const wb = new ExcelJS.Workbook();
+      // @ts-expect-error - 同上
+      await wb.xlsx.load(await buildLabourWorkbook({ boardName: "M3專案", months, phases, slots, units, rates, ...extra }));
+      return wb.getWorksheet(SUMMARY_SHEET_NAME)!;
+    }
+    const formula = (c: ExcelJS.Cell) => (c.value as { formula?: string }).formula;
+
+    it("有名額用個人月薪:那個單位的金額逐個名額乘各自的月薪;其他單位照人月 × 單位月薪", async () => {
+      const sum = await summary({ slotRates: { s2: 120000 }, hasPersonalSlots: true });
+      expect(formula(sum.getCell(2, 4))).toBe("B2*C2"); // EE:沒有個人月薪
+      // SW:只有 s2 一個名額,用 120000(單位標準是 90000);月薪欄仍是單位標準。
+      expect(sum.getCell(3, 3).value).toBe(90000);
+      expect(formula(sum.getCell(3, 4))).toMatch(/^manpower![A-Z]+[0-9]+\*120000$/);
+    });
+
+    it("同一個單位有的名額用個人月薪、有的用單位標準:各乘各的", async () => {
+      const mixed: SlotRow[] = [...slots, { ...slots[1], id: "s3", label: "SW2", userId: null, months: { "2026-06": 1 } }];
+      const wb = new ExcelJS.Workbook();
+      // @ts-expect-error - 同上
+      await wb.xlsx.load(await buildLabourWorkbook({ boardName: "M3專案", months, phases, slots: mixed, units, rates, slotRates: { s2: 120000 }, hasPersonalSlots: true }));
+      const f = (wb.getWorksheet(SUMMARY_SHEET_NAME)!.getCell(3, 4).value as { formula?: string }).formula!;
+      expect(f.split("+")).toHaveLength(2);
+      expect(f).toContain("*120000");
+      expect(f).toContain("*90000");
+    });
+
+    it("沒給個人月薪(例如不是管理者匯出):照單位標準月薪,並在合計表底下說明跟畫面不同", async () => {
+      const sum = await summary({ hasPersonalSlots: true });
+      expect(formula(sum.getCell(3, 4))).toBe("B3*C3");
+      let note = "";
+      sum.eachRow((row) => {
+        const text = String(row.getCell(1).value ?? "");
+        if (text.includes("個人月薪")) note = text;
+      });
+      expect(note).toContain("單位標準月薪");
+    });
+
+    it("沒有名額用個人月薪時,合計表跟原本一樣、沒有說明", async () => {
+      const sum = await summary({});
+      let found = false;
+      sum.eachRow((row) => {
+        if (String(row.getCell(1).value ?? "").includes("個人月薪")) found = true;
+      });
+      expect(found).toBe(false);
+    });
+  });
+
   describe("里程碑資訊", () => {
     const milestoneTypes = [
       { id: "t1", name: "SW milestones" },

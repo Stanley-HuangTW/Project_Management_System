@@ -7,6 +7,7 @@ import type { Discipline } from "@/lib/labourPlan";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
+import { resyncBoardLabour } from "@/lib/actions/labourSheet";
 import type { UserRole } from "@prisma/client";
 
 export async function listUsers() {
@@ -120,9 +121,18 @@ export async function updateUserTimesheetNoApproval(userId: string, noApproval: 
   revalidatePath("/timesheet");
 }
 
+/** 這個人被指到的人力表名額所在的看板。他的月薪(或他這個人)一變,那些看板的人力預算要重算。 */
+async function boardsWithSlotsOf(userId: string): Promise<string[]> {
+  const slots = await prisma.labourSlot.findMany({ where: { userId }, select: { boardId: true }, distinct: ["boardId"] });
+  return slots.map((s) => s.boardId);
+}
+
 /**
- * 月薪。時薪有填的時候仍然優先,所以填月薪不會動到現有的成本數字 ——
+ * 月薪。時薪有填的時候仍然優先,所以填月薪不會動到現有的實際工時成本 ——
  * 換算順序見 labourPlan.ts 的 effectiveHourlyRate。
+ *
+ * 人力表裡指到這個人的名額,人力預算改用他的月薪算(沒設月薪的名額維持單位標準月薪),
+ * 所以月薪一改,那些看板的人力預算(階段預算裡「人力」那一列)就跟著重算。
  */
 export async function updateUserMonthlySalary(userId: string, salary: number | null) {
   const session = await requireSession();
@@ -137,12 +147,15 @@ export async function updateUserMonthlySalary(userId: string, salary: number | n
     select: { name: true, monthlySalary: true },
   });
   await prisma.user.update({ where: { id: userId }, data: { monthlySalary: salary } });
+  const boardIds = await boardsWithSlotsOf(userId);
+  for (const boardId of boardIds) await resyncBoardLabour(boardId);
   await logAudit(
     "COST",
     session.userId,
-    `${target?.name ?? userId} 的月薪:${target?.monthlySalary ? Number(target.monthlySalary) : "(未設定)"} → ${salary ?? "(未設定)"}`
+    `${target?.name ?? userId} 的月薪:${target?.monthlySalary ? Number(target.monthlySalary) : "(未設定)"} → ${salary ?? "(未設定)"}${boardIds.length > 0 ? `,連動重算 ${boardIds.length} 塊看板的人力預算` : ""}`
   );
   revalidatePath("/users");
+  revalidatePath("/dashboard");
 }
 
 /**
@@ -325,7 +338,10 @@ export async function deleteUser(userId: string) {
     throw new Error("此使用者仍有留言或上傳檔案紀錄,無法刪除");
   }
 
+  // 被指到的人力表名額會變成沒指定人(外鍵 SetNull),它的人力預算就改回單位標準月薪。
+  const slotBoardIds = await boardsWithSlotsOf(userId);
   await prisma.user.delete({ where: { id: userId } });
+  for (const boardId of slotBoardIds) await resyncBoardLabour(boardId);
 
   revalidatePath("/users");
 }

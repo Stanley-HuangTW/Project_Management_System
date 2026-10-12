@@ -9,7 +9,10 @@ import { logAudit } from "@/lib/activityLog";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { canEditBudget } from "@/lib/actions/budget";
 import { resyncBoardLabour } from "@/lib/actions/labourSheet";
+import { loadSlotRates } from "@/lib/labourRate";
+import { buildLabourSheet, type SlotRow } from "@/lib/labourSheet";
 import {
+  applySheetAmounts,
   summariseLabourPlan,
   type LabourPlanSummary,
   type WorkFactors,
@@ -70,7 +73,7 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     select: { id: true, name: true },
   });
 
-  const [cells, rates, settings, units] = await Promise.all([
+  const [cells, rates, settings, units, slotRows, phaseRows] = await Promise.all([
     prisma.labourPlan.findMany({
       where: { phaseId: { in: phases.map((p) => p.id) } },
       select: { phaseId: true, discipline: true, personMonths: true },
@@ -78,6 +81,8 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     disciplineRateMap(),
     getSystemSettings(),
     loadOrgUnits(),
+    prisma.labourSlot.findMany({ where: { boardId }, include: { months: true } }),
+    prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
   ]);
 
   const factors = {
@@ -85,18 +90,40 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     hoursPerDay: settings.hoursPerDay,
   };
 
+  // 金額以人力表為準:有指到人、設了個人月薪的名額用他的月薪算(跟寫進預算的數字同一套)。
+  const slots: SlotRow[] = slotRows.map((s) => ({
+    id: s.id,
+    discipline: s.discipline,
+    label: s.label,
+    func: s.func,
+    userId: s.userId,
+    ownerName: "",
+    description: "",
+    months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
+  }));
+  const sheet = buildLabourSheet(
+    phaseRows.map((p) => ({ id: p.id, name: p.name, startDate: p.startDate, endDate: p.endDate, itemId: p.itemId })),
+    slots,
+    rates,
+    units,
+    await loadSlotRates(slots)
+  );
+
   return {
     boardName: board.name,
     // Decimal cannot cross the RSC boundary — turn it into a number here.
-    summary: summariseLabourPlan(
-      phases,
-      cells.map((c) => ({
-        rowId: c.phaseId,
-        discipline: c.discipline,
-        personMonths: Number(c.personMonths),
-      })),
-      rates,
-      units
+    summary: applySheetAmounts(
+      summariseLabourPlan(
+        phases,
+        cells.map((c) => ({
+          rowId: c.phaseId,
+          discipline: c.discipline,
+          personMonths: Number(c.personMonths),
+        })),
+        rates,
+        units
+      ),
+      sheet
     ),
     rates: Object.entries(rates).map(([discipline, monthlySalary]) => ({
       discipline: discipline as Discipline,

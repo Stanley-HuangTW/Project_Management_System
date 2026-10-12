@@ -16,6 +16,7 @@ import {
 } from "@/lib/groupRoles";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { MAX_FTE, FTE_CAP_MESSAGE } from "@/lib/labourSheet";
+import { loadSlotRates } from "@/lib/labourRate";
 import { boardWithDataArgs } from "@/types/board";
 import {
   buildLabourSheet,
@@ -52,6 +53,11 @@ export type LabourSheetView = {
   units: OrgUnit[];
   /** 名額可以指給誰 —— 名額常常先掛 TBH,招到人再指過去。 */
   assignableUsers: { id: string; name: string }[];
+  /**
+   * 名額 id → 個人月薪,Excel 匯出算金額用。薪資只有管理者看得到,所以其他人拿到的是空的
+   * (他們的匯出檔,有指到人的名額就照單位標準月薪列,金額與畫面不同)。
+   */
+  slotRates: Record<string, number>;
   /** 國定假日。對話框要算工作天,規則得跟甘特圖同一套。 */
   holidays: string[];
   /** 時程規劃(階段帶、里程碑、里程碑類型)——Team Leader/PMD/管理者。 */
@@ -209,7 +215,14 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     canEdit: canEditLabourSlot(access, s.discipline),
   }));
 
-  const sheet = buildLabourSheet(phases, slots, rates, units);
+  const allSlotRates = await loadSlotRates(slots);
+  const sheet = buildLabourSheet(phases, slots, rates, units, allSlotRates);
+  // 個人月薪只有管理者看得到(設定月薪本來就只有管理者):每個名額自己的金額 = 他的月薪 × 人月,等於把月薪
+  // 送到畫面上。其他人只看得到單位、階段的合計(跟原本一樣,合計是看不出誰的)。
+  const isAdmin = session.role === "ADMIN";
+  if (!isAdmin) {
+    sheet.slotTotals = sheet.slotTotals.map((t) => (t.personal ? { ...t, amount: 0 } : t));
+  }
 
   return {
     boardName: board.name,
@@ -227,6 +240,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     milestoneTypes: milestoneTypes.map((t) => ({ id: t.id, name: t.name })),
     assignableUsers,
     holidays: holidayRows.map((h) => h.date),
+    slotRates: isAdmin ? allSlotRates : {},
     slots,
     sheet,
     variances: phaseVariances(phases, sheet.byPhase, actual),
@@ -273,7 +287,7 @@ async function syncFromSheet(boardId: string) {
     months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
   }));
 
-  const { byPhase } = buildLabourSheet(phases, slots, rates, units);
+  const { byPhase } = buildLabourSheet(phases, slots, rates, units, await loadSlotRates(slots));
 
   /**
    * 一個預算階段寫一列,不再按「對應到哪一列工作項」去併。
