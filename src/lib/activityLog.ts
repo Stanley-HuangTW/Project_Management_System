@@ -2,6 +2,7 @@ import type { AuditCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { attributeAudit } from "@/lib/impersonation";
+import type { ItemEventKind, StatusKind } from "@/lib/itemEvents";
 
 /**
  * 管理者以別人的身分操作時,紀錄要記真正動手的管理者並註記。不在請求裡(排程、MCP 之類
@@ -15,6 +16,9 @@ async function attributed(actorId: string | null, message: string) {
   }
 }
 
+/** 活動紀錄的結構化資訊:什麼種類的事;狀態切換再加切到哪個選項、算進行中還是完成。沒給就當一般的欄位修改。 */
+export type ActivityDetail = { kind: ItemEventKind; statusKind?: StatusKind; statusLabel?: string };
+
 /**
  * 工作項上的一筆活動紀錄.
  *
@@ -23,11 +27,20 @@ async function attributed(actorId: string | null, message: string) {
  * making forty call sites carry it would be forty chances to pass the wrong
  * one.
  */
-export async function logActivity(itemId: string, actorId: string | null, message: string) {
+export async function logActivity(itemId: string, actorId: string | null, message: string, detail?: ActivityDetail) {
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
   const entry = await attributed(actorId, message);
   await prisma.activityLogEntry.create({
-    data: { itemId, boardId: item?.boardId ?? null, actorId: entry.actorId, message: entry.message, category: "ITEM" },
+    data: {
+      itemId,
+      boardId: item?.boardId ?? null,
+      actorId: entry.actorId,
+      message: entry.message,
+      category: "ITEM",
+      eventKind: detail?.kind ?? "FIELD",
+      statusKind: detail?.statusKind ?? null,
+      statusLabel: detail?.statusLabel ?? null,
+    },
   });
 }
 

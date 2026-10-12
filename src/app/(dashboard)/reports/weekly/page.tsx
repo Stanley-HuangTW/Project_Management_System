@@ -29,8 +29,8 @@ export default async function WeeklyReportPage() {
     <div className="p-6">
       <h1 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">週報</h1>
       <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
-        一週一份,涵蓋範圍跟你登入時看得到的看板一樣。「這週完成了什麼」是拿這一份跟上一週那一份比出來的,
-        所以第一份不會有差異數字。排程每週自動產一份,也可以在這裡手動補。
+        一週一份,涵蓋範圍跟你登入時看得到的看板一樣。「這週完成了什麼」以實際把狀態切成完成的時間為準(沒有切換紀錄的舊資料才拿這一份跟上一週那一份比);
+        其他差異是拿這一份跟上一週那一份比出來的,所以第一份沒有那些差異數字。排程每週自動產一份,也可以在這裡手動補。
       </p>
       <WeeklyReportView
         reports={reports.map((r) => {
@@ -42,7 +42,12 @@ export default async function WeeklyReportPage() {
             markdown: r.markdown,
             createdAt: r.createdAt.toISOString().slice(0, 16).replace("T", " "),
             data,
-            diff: data ? diffWeeks({ programs: data.programs }, previous ? { programs: previous.programs } : null) : null,
+            diff: data
+              ? diffWeeks(
+                  { programs: data.programs, weekStart: data.weekStart, weekEnd: data.weekEnd },
+                  previous ? { programs: previous.programs } : null
+                )
+              : null,
           };
         })}
       />

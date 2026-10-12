@@ -10,7 +10,9 @@ import { analyzeDelays } from "@/lib/delayAnalysis";
 import { summarizeBudget } from "@/lib/budget";
 import { getProgramView } from "@/lib/programView";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
+import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import {
+  DEFAULT_WEEKLY_INFO,
   diffWeeks,
   renderWeeklyReportMarkdown,
   reportRangeOf,
@@ -28,6 +30,7 @@ import {
   type RiskLine,
   type WeeklyReportData,
   type WeeklyReportDiff,
+  type WeeklyInfoOptions,
   type WeeklyReportSections,
 } from "@/lib/weeklyReport";
 
@@ -73,7 +76,8 @@ export async function getReportRange(): Promise<ReportRangeConfig> {
 export async function buildWeeklyReport(
   session: SessionPayload,
   weekStartIso: string,
-  upcomingDays = 7
+  upcomingDays = 7,
+  info: WeeklyInfoOptions = DEFAULT_WEEKLY_INFO
 ): Promise<{ snapshot: WeeklyReportSnapshot; diff: WeeklyReportDiff; markdown: string }> {
   const { weekStart, weekEnd } = reportRangeOf(weekStartIso, await getReportRange());
 
@@ -126,7 +130,7 @@ export async function buildWeeklyReport(
       budgets: await gatherBudgets(mine),
       delays: await gatherDelays(mine, session),
       risks: await gatherRisks(mine, program.name, weekStart, weekEnd),
-      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
+      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, info),
     });
   }
 
@@ -141,15 +145,18 @@ export async function buildWeeklyReport(
       budgets: await gatherBudgets(orphans),
       delays: await gatherDelays(orphans, session),
       risks: await gatherRisks(orphans, null, weekStart, weekEnd),
-      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
+      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, info),
     });
   }
+
+  // 已完成的項目標上實際切成完成的時間,「這週完成」才以它為準。
+  await stampCompletions(boards, sections);
 
   // diff 要先算出來,才有「這週已完成」的名單可以分給各部門/各人——見
   // gatherPersonSections 的說明。diffWeeks 只讀 current.programs,所以在
   // snapshot 組完整之前先用 sections 算是等價的。
   const previous = await loadSnapshot(session.userId, previousReportWeekStart(weekStart));
-  const diff = diffWeeks({ programs: sections }, previous);
+  const diff = diffWeeks({ programs: sections, weekStart, weekEnd }, previous);
 
   const snapshot: WeeklyReportSnapshot = {
     weekStart,
@@ -601,13 +608,39 @@ function excerpt(text: string, max = 120): string {
 }
 
 /**
- * 這一週工作項上新增的資訊:留言、連結(網址)、附件。
+ * 已完成的項目標上「實際切成完成的時間」(最近一次切成完成,來自活動紀錄的結構化資料)。
+ * 沒有紀錄的(舊資料、不是靠狀態欄完成的)維持沒有,「這週完成」那時才退回拿上週的快照比。
+ */
+async function stampCompletions(boards: BoardWithData[], sections: ProgramSection[]): Promise<void> {
+  const doneIds = new Set(sections.flatMap((s) => s.items.filter((i) => i.bucket === "done").map((i) => i.id)));
+  if (doneIds.size === 0) return;
+  const summaries = await loadItemEventSummaries(
+    boards.map((b) => b.id),
+    doneIds
+  );
+  for (const section of sections) {
+    for (const item of section.items) {
+      if (item.bucket === "done") item.completedAt = summaries[item.id]?.completedAt ?? null;
+    }
+  }
+}
+
+/**
+ * 這一週工作項上新增的資訊:更新(留言)、連結(網址)、附件、待辦事項、狀態變化。
  *
  * 直接查資料庫,不跟上週的快照比:這些是「這週發生了」的事,不是狀態。只看 items 裡有的工作項,
  * 所以看不到的(私人)工作項不會透過這裡漏出去。報銷憑證(掛在費用或承諾上的附件)不算。
  * 週的邊界照台灣時間(UTC+8)——跟工時、排程用同一個時區。
+ *
+ * info 是產生週報時的勾選:更新(留言)、連結(含附件)、待辦事項,沒勾的不附;狀態變化(切成進行中、完成……)一定附。
+ * 待辦事項與狀態變化讀的是活動紀錄上的結構化種類(ActivityLogEntry.eventKind)。
  */
-async function gatherItemUpdates(items: ReportItem[], weekStart: string, weekEnd: string): Promise<ItemUpdateLine[]> {
+async function gatherItemUpdates(
+  items: ReportItem[],
+  weekStart: string,
+  weekEnd: string,
+  info: WeeklyInfoOptions
+): Promise<ItemUpdateLine[]> {
   if (items.length === 0) return [];
   const itemById = new Map(items.map((i) => [i.id, i]));
   const itemIds = [...itemById.keys()];
@@ -617,18 +650,32 @@ async function gatherItemUpdates(items: ReportItem[], weekStart: string, weekEnd
   };
   const dateOf = (d: Date) => new Date(d.getTime() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
 
-  const [comments, links, attachments] = await Promise.all([
-    prisma.comment.findMany({
-      where: { itemId: { in: itemIds }, createdAt },
-      select: { itemId: true, body: true, createdAt: true, author: { select: { name: true } } },
-    }),
-    prisma.itemLink.findMany({
-      where: { itemId: { in: itemIds }, createdAt },
-      select: { itemId: true, url: true, label: true, createdAt: true, createdBy: { select: { name: true } } },
-    }),
-    prisma.attachment.findMany({
-      where: { itemId: { in: itemIds }, createdAt, expenseId: null, commitmentId: null },
-      select: { itemId: true, fileName: true, url: true, createdAt: true, uploader: { select: { name: true } } },
+  const [comments, links, attachments, events] = await Promise.all([
+    info.updates
+      ? prisma.comment.findMany({
+          where: { itemId: { in: itemIds }, createdAt },
+          select: { itemId: true, body: true, createdAt: true, author: { select: { name: true } } },
+        })
+      : [],
+    info.links
+      ? prisma.itemLink.findMany({
+          where: { itemId: { in: itemIds }, createdAt },
+          select: { itemId: true, url: true, label: true, createdAt: true, createdBy: { select: { name: true } } },
+        })
+      : [],
+    info.links
+      ? prisma.attachment.findMany({
+          where: { itemId: { in: itemIds }, createdAt, expenseId: null, commitmentId: null },
+          select: { itemId: true, fileName: true, url: true, createdAt: true, uploader: { select: { name: true } } },
+        })
+      : [],
+    prisma.activityLogEntry.findMany({
+      where: {
+        itemId: { in: itemIds },
+        createdAt,
+        eventKind: { in: info.todos ? ["STATUS", "TODO"] : ["STATUS"] },
+      },
+      select: { itemId: true, eventKind: true, message: true, createdAt: true, actor: { select: { name: true } } },
     }),
   ]);
 
@@ -657,6 +704,9 @@ async function gatherItemUpdates(items: ReportItem[], weekStart: string, weekEnd
     ...comments.map((c) => line(c.itemId, "COMMENT", excerpt(c.body), null, c.author.name, c.createdAt)),
     ...links.map((l) => line(l.itemId, "LINK", l.label?.trim() || l.url, absoluteUrl(l.url), l.createdBy.name, l.createdAt)),
     ...attachments.map((a) => line(a.itemId, "ATTACHMENT", a.fileName, absoluteUrl(a.url), a.uploader.name, a.createdAt)),
+    ...events.flatMap((e) =>
+      e.itemId ? [line(e.itemId, e.eventKind === "TODO" ? "TODO" : "STATUS", e.message, null, e.actor?.name ?? "系統", e.createdAt)] : []
+    ),
   ];
 }
 
@@ -705,8 +755,12 @@ async function loadSnapshot(userId: string, weekStart: string): Promise<WeeklyRe
 }
 
 /** 產出並存檔。同一個人同一週再跑一次就覆蓋,不會長出第二份。 */
-export async function generateAndStoreWeeklyReport(session: SessionPayload, weekStartIso: string) {
-  const { snapshot, diff, markdown } = await buildWeeklyReport(session, weekStartIso);
+export async function generateAndStoreWeeklyReport(
+  session: SessionPayload,
+  weekStartIso: string,
+  info: WeeklyInfoOptions = DEFAULT_WEEKLY_INFO
+) {
+  const { snapshot, diff, markdown } = await buildWeeklyReport(session, weekStartIso, 7, info);
   await prisma.weeklyReport.upsert({
     where: { userId_weekStart: { userId: session.userId, weekStart: snapshot.weekStart } },
     create: {
@@ -809,12 +863,13 @@ export async function buildProgramWeeklyReportData(
       budgets: await gatherBudgets(boards),
       delays: await gatherDelays(boards, systemSession),
       risks: await gatherRisks(boards, program.name, weekStart, weekEnd),
-      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd),
+      itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, DEFAULT_WEEKLY_INFO),
     },
   ];
+  await stampCompletions(boards, sections);
 
   const previous = await loadProgramSnapshot(programId, previousReportWeekStart(weekStart));
-  const diff = diffWeeks({ programs: sections }, previous);
+  const diff = diffWeeks({ programs: sections, weekStart, weekEnd }, previous);
 
   const snapshot: WeeklyReportSnapshot = {
     weekStart,

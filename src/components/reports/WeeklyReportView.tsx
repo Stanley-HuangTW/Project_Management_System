@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { reportWeekLabel, type WeeklyReportData, type WeeklyReportDiff } from "@/lib/weeklyReport";
+import { DEFAULT_WEEKLY_INFO, reportWeekLabel, type WeeklyInfoOptions, type WeeklyReportData, type WeeklyReportDiff } from "@/lib/weeklyReport";
 import { WeeklyProgramPanel } from "@/components/reports/WeeklyProgramPanel";
 
 export type WeeklyReportRow = {
@@ -33,6 +33,8 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
   const [busy, setBusy] = useState(false);
   const [activeProgramTab, setActiveProgramTab] = useState<string>(NO_PROGRAM_TAB);
   const [fullscreen, setFullscreen] = useState(false);
+  // 工作項底下要附哪些資訊:更新(留言)、連結(含附件)、待辦事項,預設都附;狀態變化(進行中、完成)一定會附。
+  const [info, setInfo] = useState<WeeklyInfoOptions>(DEFAULT_WEEKLY_INFO);
 
   // 全螢幕時按 Esc 退出——跟瀏覽器原生全螢幕的習慣一致。
   useEffect(() => {
@@ -56,7 +58,8 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
   async function generate(week: "last" | "this") {
     setBusy(true);
     try {
-      const response = await fetch(`/api/reports/weekly?week=${week}&deliver=1`, { method: "POST" });
+      const flags = (Object.keys(info) as (keyof WeeklyInfoOptions)[]).map((k) => `${k}=${info[k] ? 1 : 0}`).join("&");
+      const response = await fetch(`/api/reports/weekly?week=${week}&deliver=1&${flags}`, { method: "POST" });
       const body = await response.json();
       if (!response.ok) {
         await notify(body.error ?? "產生週報失敗", { title: "無法產生" });
@@ -121,6 +124,21 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
           <RefreshCw size={12} />
           產生這一週(到目前為止)
         </button>
+        <span className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+          <span className="text-neutral-500 dark:text-neutral-400">工作項底下附上:</span>
+          {(
+            [
+              ["updates", "更新"],
+              ["links", "連結"],
+              ["todos", "待辦事項"],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-1">
+              <input type="checkbox" checked={info[key]} disabled={busy} onChange={(e) => setInfo((cur) => ({ ...cur, [key]: e.target.checked }))} />
+              {label}
+            </label>
+          ))}
+        </span>
         {current && (
           <button type="button" onClick={download} className={button}>
             <Download size={12} />

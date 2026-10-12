@@ -26,7 +26,7 @@ export async function addTodoItem(
 
   const count = await prisma.todoItem.count({ where: { itemId } });
   await prisma.todoItem.create({ data: { itemId, text: trimmed, order: count } });
-  await logActivity(itemId, session.userId, `新增待辦事項:「${trimmed}」`);
+  await logActivity(itemId, session.userId, `新增待辦事項:「${trimmed}」`, { kind: "TODO" });
   revalidatePath(`/boards/${boardId}`);
 }
 
@@ -47,7 +47,8 @@ export async function toggleTodoItem(
   await logActivity(
     itemId,
     session.userId,
-    `${done ? "完成" : "取消完成"}待辦事項:「${todo.text}」`
+    `${done ? "完成" : "取消完成"}待辦事項:「${todo.text}」`,
+    { kind: "TODO" }
   );
   revalidatePath(`/boards/${boardId}`);
 }

@@ -34,6 +34,7 @@ import { buildSupervisorParentTree, buildFullParentTree } from "@/lib/parentTask
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { applyVisibilityToBoards } from "@/lib/applyVisibility";
 import { loadDmScopeSettings } from "@/lib/dmScopeServer";
+import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import { leaveDaysByUser } from "@/lib/actions/leave";
 
 export default async function DashboardPage({
@@ -106,6 +107,14 @@ export default async function DashboardPage({
   const teamWorkloadWeek = computeTeamWorkload(boards, workloadScope, "week", holidays, ownerDefaultAllocationPct);
   const teamWorkloadMonth = computeTeamWorkload(boards, workloadScope, "month", holidays, ownerDefaultAllocationPct);
   const boardProgress = computeBoardProgressOverview(boards);
+  // 本週完成:以實際切成完成的時間為準(只問看得到的項目)。
+  const eventSummaries = await loadItemEventSummaries(
+    boards.map((b) => b.id),
+    new Set(boards.flatMap((b) => b.items.map((i) => i.id)))
+  );
+  const completedAtByItem = Object.fromEntries(
+    Object.entries(eventSummaries).flatMap(([id, s]) => (s.completedAt ? [[id, s.completedAt]] : []))
+  );
   const { overdue, completedThisWeek, upcoming7, upcoming30 } = computeDashboardDueLists(
     boards,
     isSupervisor
@@ -113,7 +122,8 @@ export default async function DashboardPage({
       : isAdmin
         ? undefined
         : withManagedResourceIds([session.userId]),
-    holidays
+    holidays,
+    completedAtByItem
   );
   const personalItems = computePersonalItems(boards, [session.userId], userById, holidays);
   const myResourceIds = resourceIdsByManager.get(session.userId) ?? [];

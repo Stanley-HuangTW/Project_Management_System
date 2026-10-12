@@ -44,7 +44,7 @@ export async function createComment(
     );
   }
 
-  await logActivity(itemId, session.userId, "新增留言");
+  await logActivity(itemId, session.userId, "新增留言", { kind: "UPDATE" });
 
   revalidatePath(`/boards/${boardId}`);
   return comment;

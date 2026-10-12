@@ -91,7 +91,7 @@ function ItemList({
   );
 }
 
-const UPDATE_ICON: Record<ItemUpdateLine["kind"], string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎" };
+const UPDATE_ICON: Record<ItemUpdateLine["kind"], string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄" };
 
 /** 只有 http(s) 的網址才做成可以點的連結;其他(例如 javascript:)只顯示文字。 */
 function safeHref(url: string | null): string | null {
@@ -133,7 +133,7 @@ function UpdateRows({ updates }: { updates: ItemUpdateLine[] }) {
 function ItemUpdateList({ updates }: { updates: ItemUpdateLine[] }) {
   const groups = groupItemUpdates(updates);
   if (groups.length === 0) {
-    return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週沒有工作項新增留言、連結或附件。</p>;
+    return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)。</p>;
   }
   return (
     <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -399,19 +399,31 @@ export function WeeklyProgramPanel({
   const critical = items.filter((i) => i.isCritical && i.bucket !== "done");
   const risks = program.risks ?? [];
   const myPeople = departments.filter((p) => p.programName === name);
+  const completedHere = diff.completed.filter((i) => i.programName === name);
 
   return (
     <div>
-      {!diff.firstEver && (
+      {/* 第一份週報沒有上一週可比,只有「完成」(靠實際切成完成的時間判斷)能列;其他差異不顯示。 */}
+      {(!diff.firstEver || completedHere.length > 0) && (
         <Block title="這一週">
           <p className="text-xs text-neutral-600 dark:text-neutral-300">
-            完成 {diff.completed.filter((i) => i.programName === name).length}・
-            新逾期 {diff.newlyOverdue.filter((i) => i.programName === name).length}・
-            脫離逾期 {diff.recovered.filter((i) => i.programName === name).length}・
-            狀態更新 {inProgram(diff.statusChanged, name).length}・
-            時程變化 {inProgram(diff.scheduleChanged, name).length}
+            完成 {completedHere.length}
+            {!diff.firstEver && (
+              <>
+                ・新逾期 {diff.newlyOverdue.filter((i) => i.programName === name).length}・
+                脫離逾期 {diff.recovered.filter((i) => i.programName === name).length}・
+                狀態更新 {inProgram(diff.statusChanged, name).length}・
+                時程變化 {inProgram(diff.scheduleChanged, name).length}
+              </>
+            )}
             {program.itemUpdates && <>・資訊更新 {groupItemUpdates(program.itemUpdates).length}</>}
           </p>
+          {completedHere.length > 0 && (
+            <div className="mt-1.5">
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">這週完成({completedHere.length})</p>
+              <ItemList items={completedHere} updates={updatesByItem(program.itemUpdates)} />
+            </div>
+          )}
         </Block>
       )}
 

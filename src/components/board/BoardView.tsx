@@ -10,6 +10,7 @@ import { resolveStatusColumn } from "@/lib/dashboard";
 import { EditHistoryProvider } from "./EditHistoryProvider";
 import { OwnerDefaultPctProvider } from "./OwnerDefaultPctContext";
 import { BoardTable } from "./BoardTable";
+import type { ItemEventSummary } from "@/lib/itemEvents";
 import { BoardKanban } from "./BoardKanban";
 import { BoardGantt } from "./BoardGantt";
 import { BoardReport } from "./BoardReport";
@@ -42,6 +43,7 @@ export function BoardView({
   ownerDefaultPct,
   externalPreds,
   hasMantis,
+  eventSummaries,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -61,8 +63,14 @@ export function BoardView({
   externalPreds: ExternalPredecessor[];
   /** 這個看板有連到 MantisBT:多一個「問題」分頁。 */
   hasMantis: boolean;
-}) {
+  /** 表格最右邊「進行中時間、完成時間、更新記錄」三欄的資料(只含看得到的項目)。 */
+  eventSummaries?: Record<string, ItemEventSummary>;}) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">("table");
+  // 看板欄的「本週完成」以實際切成完成的時間為準。
+  const completedAtByItem = useMemo(
+    () => Object.fromEntries(Object.entries(eventSummaries ?? {}).flatMap(([id, s]) => (s.completedAt ? [[id, s.completedAt]] : []))),
+    [eventSummaries]
+  );
   // A ?highlight= link (notifications, overdue tasks, workload detail) can
   // be clicked from any tab — jump to the table view so BoardTable actually
   // mounts and opens the item's card, instead of silently updating the URL
@@ -274,6 +282,7 @@ export function BoardView({
             highlightItemId={highlightItemId}
             highlightNonce={highlightNonce}
             holidays={holidays}
+            eventSummaries={eventSummaries}
           />
         )}
         {view === "kanban" && (
@@ -286,6 +295,7 @@ export function BoardView({
             userRole={userRole}
             currentUserId={currentUserId}
             holidays={holidays}
+            completedAtByItem={completedAtByItem}
           />
         )}
         {ganttMounted && (

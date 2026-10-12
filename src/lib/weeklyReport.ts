@@ -11,6 +11,7 @@
  */
 
 import { RISK_KIND_LABELS, RISK_STATUS_LABELS, riskLinkTag, riskScore } from "@/lib/riskRegister";
+import { taipeiDateOf } from "@/lib/itemEvents";
 
 /** 一個工作項在快照裡的樣子。存得下整份名單,差異才算得出來。 */
 export type ReportItem = {
@@ -33,6 +34,8 @@ export type ReportItem = {
   priority: string | null;
   /** 產出當下落在哪一桶 —— 差異就是拿它跟上週比。 */
   bucket: ItemBucket;
+  /** 實際切成完成的時間(ISO)。有的話「這週完成」就以它為準,不必拿上週的快照去猜;舊版快照與沒有切換紀錄的是 undefined / null。 */
+  completedAt?: string | null;
 };
 
 export type ItemBucket = "done" | "overdue" | "upcoming" | "other";
@@ -121,14 +124,20 @@ export type RiskLine = {
   latestUpdate?: RiskUpdateLine | null;
 };
 
-/** 這一週工作項上新增的資訊:留言、連結(網址)、附件。 */
-export type ItemUpdateKind = "COMMENT" | "LINK" | "ATTACHMENT";
+/** 這一週工作項上新增的資訊:更新(留言)、連結(網址)、附件、待辦事項、狀態變化。 */
+export type ItemUpdateKind = "COMMENT" | "LINK" | "ATTACHMENT" | "TODO" | "STATUS";
 
 export const ITEM_UPDATE_LABELS: Record<ItemUpdateKind, string> = {
-  COMMENT: "留言",
+  COMMENT: "更新",
   LINK: "連結",
   ATTACHMENT: "附件",
+  TODO: "待辦事項",
+  STATUS: "狀態",
 };
+
+/** 產生週報時,工作項底下要附哪幾種資訊(狀態變化一定會附)。預設全部都附。 */
+export type WeeklyInfoOptions = { updates: boolean; links: boolean; todos: boolean };
+export const DEFAULT_WEEKLY_INFO: WeeklyInfoOptions = { updates: true, links: true, todos: true };
 
 export type ItemUpdateLine = {
   itemId: string;
@@ -401,7 +410,8 @@ function daysBetween(from: string, to: string): number {
  * 不是「從無變成有」,否則改版當週會生出一份每一項都在變的假報告。
  */
 export function diffWeeks(
-  current: { programs: ProgramSection[] },
+  /** weekStart / weekEnd 有給,而且工作項有實際完成的時間(completedAt),「這週完成」就以那個時間落在不在這週為準。 */
+  current: { programs: ProgramSection[]; weekStart?: string; weekEnd?: string },
   previous: { programs: ProgramSection[] } | null
 ): WeeklyReportDiff {
   const empty: WeeklyReportDiff = {
@@ -418,7 +428,14 @@ export function diffWeeks(
     riskStatusChanged: [],
     riskUpdated: [],
   };
-  if (!previous) return empty;
+  // 實際完成的時間落在這一週(台灣時間)——有這個時間就不必靠上週的快照去猜,第一份週報也列得出來。
+  const range = current.weekStart && current.weekEnd ? { start: current.weekStart, end: current.weekEnd } : null;
+  const stampedIn = (item: ReportItem): boolean | null => {
+    if (!range || item.bucket !== "done" || !item.completedAt) return null;
+    const day = taipeiDateOf(item.completedAt);
+    return day >= range.start && day <= range.end;
+  };
+  if (!previous) return { ...empty, completed: allItems(current).filter((i) => stampedIn(i) === true) };
 
   const now = allItems(current);
   const before = allItems(previous);
@@ -437,9 +454,12 @@ export function diffWeeks(
 
   for (const item of now) {
     const old = was.get(item.id);
+    const stamped = stampedIn(item);
+    // 有實際完成的時間:這週切成完成的就算(這週才新增的項目也算);沒有才拿上週的快照比。
+    if (stamped === true) completed.push(item);
     if (!old) continue; // 這週才新增的,沒有「變化」可談。
 
-    if (item.bucket === "done" && old.bucket !== "done") completed.push(item);
+    if (stamped === null && item.bucket === "done" && old.bucket !== "done") completed.push(item);
     if (item.bucket === "overdue" && old.bucket !== "overdue") newlyOverdue.push(item);
 
     // 狀態變成完成的那一筆已經在「完成」裡了,不重複講第二次。
@@ -540,7 +560,7 @@ export type ItemUpdateGroup = {
   updates: ItemUpdateLine[];
 };
 
-const UPDATE_KIND_ORDER: Record<ItemUpdateKind, number> = { COMMENT: 0, LINK: 1, ATTACHMENT: 2 };
+const UPDATE_KIND_ORDER: Record<ItemUpdateKind, number> = { STATUS: 0, COMMENT: 1, LINK: 2, ATTACHMENT: 3, TODO: 4 };
 
 /** 照工作項分組,工作項依 WBS 編號排(1.2 在 1.10 前面),組內依日期、再依留言/連結/附件。 */
 export function groupItemUpdates(updates: ItemUpdateLine[]): ItemUpdateGroup[] {
@@ -578,7 +598,7 @@ export function countItemsWithUpdates(programs: { itemUpdates?: ItemUpdateLine[]
   return new Set(programs.flatMap((p) => (p.itemUpdates ?? []).map((u) => u.itemId))).size;
 }
 
-const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎" };
+const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄" };
 
 /** 網址用 <…> 包起來:Markdown 與純文字信件都會把它當成可以點的連結。 */
 function updateLine(u: ItemUpdateLine): string {
@@ -713,7 +733,9 @@ export function renderWeeklyReportMarkdown(
     const infoItems = data.programs.some((p) => p.itemUpdates) ? countItemsWithUpdates(data.programs) : null;
     if (diff.firstEver) {
       out.push("這是第一份週報,沒有上一週可以比,所以下面只有目前的狀態。");
-      if (infoItems) out.push("", `這週有 ${infoItems} 個工作項新增了留言、連結或附件。`);
+      // 有實際切成完成的時間的項目不必靠上一週去猜,第一份也列得出這週完成了哪些。
+      if (diff.completed.length > 0) out.push("", `這週完成 ${diff.completed.length} 項(以實際切成完成的時間為準)。`);
+      if (infoItems) out.push("", `這週有 ${infoItems} 個工作項有更新(狀態變化、留言、連結、待辦事項或附件)。`);
     } else {
       out.push(
         `完成 ${diff.completed.length}・新逾期 ${diff.newlyOverdue.length}・` +
@@ -806,7 +828,8 @@ function renderProgram(
   const milestones = items.filter((i) => i.isMilestone && i.bucket !== "done");
   const critical = items.filter((i) => i.isCritical && i.bucket !== "done");
 
-  if (!diff.firstEver) {
+  // 第一份週報沒有上一週可比,其他差異都是空的;但有實際完成時間的項目照樣列出這週完成了哪些。
+  if (!diff.firstEver || diff.completed.length > 0) {
     const completed = diff.completed.filter((i) => i.programName === name);
     const newlyOverdue = diff.newlyOverdue.filter((i) => i.programName === name);
     const recovered = diff.recovered.filter((i) => i.programName === name);
@@ -841,7 +864,7 @@ function renderProgram(
     out.push("", `### 工作項資訊更新(${groups.length})`, "");
     out.push(
       groups.length === 0
-        ? "這週沒有工作項新增留言、連結或附件。"
+        ? "這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)。"
         : renderItemUpdates(groups).join("\n")
     );
   }

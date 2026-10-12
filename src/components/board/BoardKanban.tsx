@@ -159,6 +159,7 @@ export function BoardKanban({
   userRole,
   currentUserId,
   holidays,
+  completedAtByItem,
 }: {
   board: BoardWithData;
   statusColumns: ColumnData[];
@@ -168,6 +169,8 @@ export function BoardKanban({
   userRole: UserRole;
   currentUserId: string;
   holidays: Holiday[];
+  /** 工作項實際切成完成的時間(ISO),「本週完成」那一欄以它為準。 */
+  completedAtByItem?: Record<string, string>;
 }) {
   const isDueMode = columnId === DUE_MODE;
   const column = isDueMode ? undefined : statusColumns.find((c) => c.id === columnId) ?? statusColumns[0];
@@ -266,8 +269,8 @@ export function BoardKanban({
   // this to divide each lane's cards into the same 已逾期/本週完成/未來 7
   // 天/未來 30 天 sections, so both views agree on the same classification.
   const dueLists = useMemo(
-    () => computeDashboardDueLists([board], effectiveTeamIds ?? undefined, holidaySet),
-    [board, effectiveTeamIds, holidaySet]
+    () => computeDashboardDueLists([board], effectiveTeamIds ?? undefined, holidaySet, completedAtByItem),
+    [board, effectiveTeamIds, holidaySet, completedAtByItem]
   );
   const dueBucketByItemId = useMemo(() => {
     const map = new Map<string, number>();

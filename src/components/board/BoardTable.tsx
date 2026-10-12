@@ -19,6 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Search, Target, Trash2 } from "lucide-react";
+import { getStatusOptions } from "@/types/column";
+import { classifyStatusOption, completedAtOf, type ItemEventSummary } from "@/lib/itemEvents";
 import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageStructure } from "@/lib/permissions";
@@ -37,6 +39,8 @@ import { UndoRedoButtons } from "./UndoRedoButtons";
 import { useCellRangeSelection } from "./useCellRangeSelection";
 import { usePasteIntoRange } from "./usePasteIntoRange";
 import { ItemDetailModal } from "./ItemDetailModal";
+import { ItemEventsProvider } from "./ItemEventsContext";
+import { EVENT_COLUMN_LABELS } from "./gridTemplate";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import {
   gridTemplate,
@@ -124,6 +128,8 @@ function allParentIds(items: ItemData[]): Set<string> {
   return parentIds;
 }
 
+const NO_EVENTS: Record<string, ItemEventSummary> = {};
+
 export function BoardTable({
   board,
   users,
@@ -133,6 +139,7 @@ export function BoardTable({
   highlightItemId,
   highlightNonce,
   holidays,
+  eventSummaries = NO_EVENTS,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -142,6 +149,8 @@ export function BoardTable({
   onAddColumn: () => void;
   highlightItemId?: string | null;
   holidays: Holiday[];
+  /** 每個工作項最近切成進行中、完成的時間與最近一筆更新,給最右邊三個唯讀欄位用。 */
+  eventSummaries?: Record<string, ItemEventSummary>;
 }) {
   const canEditStructure = canManageStructure(userRole);
   const router = useRouter();
@@ -417,6 +426,22 @@ export function BoardTable({
   const { range: cellRange } = useCellRangeSelection(rowsRef, pasteIntoRange);
   const rangeColumnName = cellRange ? (board.columns.find((c) => c.id === cellRange.columnId)?.name ?? "") : "";
 
+  // 完成時間要看「現在是不是完成狀態」:切回別的狀態就清掉。狀態判斷跟儀表板同一套。
+  const statusColumn = resolveStatusColumn(board);
+  const summaries = useMemo(() => {
+    const options = statusColumn ? getStatusOptions(statusColumn.options) : [];
+    const out: Record<string, ItemEventSummary> = {};
+    for (const item of board.items) {
+      const summary = eventSummaries[item.id];
+      if (!summary) continue;
+      const value = statusColumn ? item.cellValues.find((cv) => cv.columnId === statusColumn.id)?.value : null;
+      const option = options.find((o) => o.id === value);
+      const doneNow = option ? classifyStatusOption(option, board.reportDoneOptionIds) === "done" : false;
+      out[item.id] = { ...summary, completedAt: completedAtOf(summary, doneNow) };
+    }
+    return out;
+  }, [board.items, board.reportDoneOptionIds, statusColumn, eventSummaries]);
+
   function startNameColumnResize(e: React.PointerEvent) {
     e.preventDefault();
     const startX = e.clientX;
@@ -434,6 +459,7 @@ export function BoardTable({
   }
 
   return (
+    <ItemEventsProvider summaries={summaries}>
     <div className="flex h-full flex-col">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <span className="shrink-0 whitespace-nowrap text-neutral-500 dark:text-neutral-400">專案(分組)</span>
@@ -542,6 +568,15 @@ export function BoardTable({
                   />
                 ))}
               </SortableContext>
+              {EVENT_COLUMN_LABELS.map((label) => (
+                <div
+                  key={label}
+                  title="系統自動記錄,不能編輯"
+                  className="flex items-center border-r border-neutral-200 px-2 dark:border-neutral-700"
+                >
+                  <span className="truncate">{label}</span>
+                </div>
+              ))}
               {canEditStructure && (
                 <button
                   type="button"
@@ -659,5 +694,6 @@ export function BoardTable({
         initialTab="updates"
       />
     </div>
+    </ItemEventsProvider>
   );
 }

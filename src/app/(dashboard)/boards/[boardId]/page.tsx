@@ -8,6 +8,7 @@ import { listHolidays } from "@/lib/holidays";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { applyVisibility } from "@/lib/applyVisibility";
 import { loadDmScopeSettings } from "@/lib/dmScopeServer";
+import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import { externalPredecessors } from "@/lib/externalPredecessors";
 
 export default async function BoardPage({
@@ -59,6 +60,11 @@ export default async function BoardPage({
 
   // Private groups and items the caller is not on never reach the client.
   const visibleBoard = applyVisibility(board, session, await loadDmScopeSettings());
+  // 表格最右邊三欄(進行中時間、完成時間、更新記錄)的資料——只給看得到的項目。
+  const eventSummaries = await loadItemEventSummaries(
+    [boardId],
+    new Set(visibleBoard.items.map((i) => i.id))
+  );
 
   return (
     <BoardView
@@ -72,6 +78,7 @@ export default async function BoardPage({
       holidays={holidays}
       externalPreds={externalPreds}
       hasMantis={hasMantis}
+      eventSummaries={eventSummaries}
       ownerDefaultPct={(await getSystemSettings()).ownerDefaultAllocationPct}
     />
   );

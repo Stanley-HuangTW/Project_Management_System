@@ -38,6 +38,9 @@ import { ConstraintBadge } from "./ConstraintBadge";
 import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
+import { ItemEventCells } from "./ItemEventCells";
+import { useItemEvents } from "./ItemEventsContext";
+import type { ItemDetailTab } from "@/lib/itemEvents";
 import { indentTarget, outdentTarget, type DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
 
@@ -165,7 +168,17 @@ export function ItemRow({
       },
       refocus,
     });
-  const [detailTab, setDetailTab] = useState<"updates" | "card">("updates");
+  const [detailTab, setDetailTab] = useState<ItemDetailTab>("updates");
+  // 資料欄那邊的「更新記錄」「完成時間」等儲存格點下去,是請這一列(左邊項目名稱那塊)開項目視窗、跳到指定分頁。
+  // 在 render 當下處理,不放進 effect——跟這個檔案裡其他「對齊外部狀態」的寫法一樣。
+  const itemEvents = useItemEvents();
+  const [handledOpenNonce, setHandledOpenNonce] = useState(0);
+  const openRequest = itemEvents?.openRequest;
+  if (pane === "frozen" && openRequest && openRequest.itemId === item.id && openRequest.nonce !== handledOpenNonce) {
+    setHandledOpenNonce(openRequest.nonce);
+    setDetailTab(openRequest.tab);
+    setDetailOpen(true);
+  }
   const [assignOpen, setAssignOpen] = useState(false);
   const [newChildItem, setNewChildItem] = useState<ItemData | null>(null);
   const [insertedItem, setInsertedItem] = useState<ItemData | null>(null);
@@ -701,6 +714,7 @@ export function ItemRow({
             </div>
           );
         })}
+        <ItemEventCells itemId={item.id} />
       </div>
       {childRows}
     </>

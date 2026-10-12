@@ -92,7 +92,7 @@ export async function addItemLink(
     },
   });
 
-  await logActivity(itemId, session.userId, `新增連結「${trimmedLabel || normalized}」`);
+  await logActivity(itemId, session.userId, `新增連結「${trimmedLabel || normalized}」`, { kind: "LINK" });
   revalidatePath(`/boards/${boardId}`);
   return link;
 }
@@ -110,6 +110,6 @@ export async function deleteItemLink(
   if (!link || link.itemId !== itemId) return;
 
   await prisma.itemLink.delete({ where: { id: linkId } });
-  await logActivity(itemId, session.userId, `刪除連結「${link.label || link.url}」`);
+  await logActivity(itemId, session.userId, `刪除連結「${link.label || link.url}」`, { kind: "LINK" });
   revalidatePath(`/boards/${boardId}`);
 }

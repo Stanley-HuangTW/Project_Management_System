@@ -11,6 +11,7 @@ import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
+import { statusActivityDetail } from "@/lib/statusEvent";
 import { shiftDate } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { CellValueJson } from "@/types/column";
@@ -142,13 +143,14 @@ export async function bulkSetCellValue(
   }
 
   const jsonValue = value === null ? Prisma.JsonNull : value;
+  const statusDetail = await statusActivityDetail(boardId, column, value);
   for (const itemId of changed) {
     await prisma.cellValue.upsert({
       where: { itemId_columnId: { itemId, columnId } },
       create: { itemId, columnId, value: jsonValue },
       update: { value: jsonValue },
     });
-    await logActivity(itemId, session.userId, `「${column.name}」已批次更新`);
+    await logActivity(itemId, session.userId, `「${column.name}」已批次更新`, statusDetail);
   }
 
   // Once at the end rather than per item: a cascade re-entered 200 times would

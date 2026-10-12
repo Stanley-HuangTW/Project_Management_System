@@ -17,6 +17,7 @@ import { canEditCellValue, canModifyItemSchedule } from "@/lib/permissions";
 import { notifyDependentsWhenDone } from "@/lib/predReadyNotify";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
+import { statusActivityDetail } from "@/lib/statusEvent";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { getPersonIds, getStatusOptions, type CellValueJson } from "@/types/column";
@@ -204,7 +205,12 @@ export async function upsertCellValue(
       if (changed) {
         const oldLabel = formatCellValueForLog(column, existing?.value ?? null);
         const newLabel = formatCellValueForLog(column, value);
-        await logActivity(itemId, session.userId, `「${column.name}」已更新:${oldLabel} → ${newLabel}`);
+        await logActivity(
+          itemId,
+          session.userId,
+          `「${column.name}」已更新:${oldLabel} → ${newLabel}`,
+          await statusActivityDetail(boardId, column, value)
+        );
         await notifyItemAssignees(
           prisma,
           itemId,

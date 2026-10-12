@@ -10,6 +10,7 @@ import { computeItemProgress } from "@/lib/progress";
 import { resolveLockedScheduleFields, type ScheduleLock } from "@/lib/predecessorLink";
 import { computeWbsCodes } from "@/lib/wbs";
 import { weekRangeOf } from "@/lib/weeklyReport";
+import { taipeiDateOf } from "@/lib/itemEvents";
 
 export type WorkloadPeriod = "day" | "week" | "month";
 
@@ -403,15 +404,22 @@ export type DashboardDueLists = {
  * 不去改 computeOverdueUpcoming 本身——那個函式週報、MCP 工具都在用,語意
  * 是「這個時間範圍內,完成的跟還沒完成的」,跟這裡「依照時間分成四段」是
  * 不同的需求。
+ *
+ * 「本週完成」以**實際切成完成的時間**為準(completedAtByItem:工作項 id → ISO 時間,台灣時間算哪一天),
+ * 不管它的計畫完成日是哪天;沒有切換紀錄的(舊資料、不是靠狀態欄完成的)才退回用計畫完成日在本週的判斷。
  */
 export function computeDashboardDueLists(
   boards: BoardWithData[],
   userIds?: string[],
-  holidays: Set<string> = new Set()
+  holidays: Set<string> = new Set(),
+  completedAtByItem: Record<string, string> = {}
 ): DashboardDueLists {
   const today = todayUtc();
   const { weekStart } = weekRangeOf(toIsoDate(today));
   const weekStartDate = new Date(weekStart);
+  // 實際完成的時間用台灣時間算哪一天,週的邊界也照台灣時間(跟工時、週報同一個時區)。
+  const todayTaipei = taipeiDateOf(new Date().toISOString());
+  const weekStartTaipei = weekRangeOf(todayTaipei).weekStart;
   const in7 = addDays(today, 7);
   const in30 = addDays(today, 30);
   const idSet = userIds ? new Set(userIds) : null;
@@ -462,7 +470,13 @@ export function computeDashboardDueLists(
       };
 
       if (isItemComplete(item, board, statusColumn)) {
-        if (range.end >= weekStartDate && range.end <= today) completedThisWeek.push(entry);
+        const doneAt = completedAtByItem[item.id];
+        if (doneAt) {
+          const doneDay = taipeiDateOf(doneAt);
+          if (doneDay >= weekStartTaipei && doneDay <= todayTaipei) completedThisWeek.push({ ...entry, end: new Date(doneDay) });
+        } else if (range.end >= weekStartDate && range.end <= today) {
+          completedThisWeek.push(entry);
+        }
       } else if (range.end < today) {
         overdue.push(entry);
       } else if (range.end <= in7) {

@@ -704,7 +704,7 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     expect(md).toContain("### 工作項資訊更新(1)");
     expect(md).toContain("1.4 韌體開發");
     expect(md).toContain("🔗 連結(Henry 09-16):設計文件 <https://example.com/doc>");
-    expect(md).toContain("💬 留言(Henry 09-16):已更新到 v2");
+    expect(md).toContain("💬 更新(Henry 09-16):已更新到 v2");
   });
 
   it("連結沒有取名字就只放網址", () => {
@@ -719,7 +719,7 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     const data = snapshot([]);
     data.programs[0].itemUpdates = [];
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
-    expect(md).toContain("這週沒有工作項新增留言、連結或附件");
+    expect(md).toContain("這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)");
   });
 
   it("舊版快照沒有這個欄位就不顯示這一段", () => {
@@ -775,7 +775,7 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
     const md = renderWeeklyReportMarkdown(now, diff);
     const done = md.slice(md.indexOf("**完成(1)**"), md.indexOf("### 工作項資訊更新"));
     expect(done).toContain("ME 3D 出圖");
-    expect(done).toContain("💬 留言(Henry 09-16):已更新圖紙");
+    expect(done).toContain("💬 更新(Henry 09-16):已更新圖紙");
     expect(done).toContain("🔗 連結(Henry 09-16):3D 圖檔 <https://example.com/3d>");
     expect(done).not.toContain("還在等廠商");
   });
@@ -798,7 +798,7 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
     ];
     const md = renderWeeklyReportMarkdown(now, diff);
     const person = md.slice(md.indexOf("**這週已完成(1)**"), md.indexOf("### 目前逾期"));
-    expect(person).toContain("💬 留言(Henry 09-16):已更新圖紙");
+    expect(person).toContain("💬 更新(Henry 09-16):已更新圖紙");
     expect(person).toContain("<https://example.com/3d>");
     // 逾期的不附(只有「這週已完成」附)。
     expect(person).not.toContain("還在等廠商");
@@ -1053,5 +1053,133 @@ describe("週報涵蓋的範圍(從星期幾到星期幾)", () => {
     data.weekStart = "2026-09-30";
     data.weekEnd = "2026-10-06";
     expect(renderWeeklyReportMarkdown(data, diffWeeks(data, null)).startsWith("# 週報 2026 W41(2026-09-30 ~ 2026-10-06)")).toBe(true);
+  });
+});
+
+describe("這週完成:以實際切成完成的時間為準", () => {
+  // snapshot() 的這一週是 2026-09-14 ~ 2026-09-20
+  it("實際完成的時間落在這週就算,不必拿上週的快照去猜——第一份週報也列得出來", () => {
+    const diff = diffWeeks(snapshot([item({ id: "a", bucket: "done", completedAt: "2026-09-16T01:00:00.000Z" })]), null);
+    expect(diff.firstEver).toBe(true);
+    expect(diff.completed.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("這週才新增的項目、這週就切成完成,也算(它沒有「之前」,但有完成的時間)", () => {
+    const diff = diffWeeks(
+      snapshot([item({ id: "a", bucket: "done" }), item({ id: "new", bucket: "done", completedAt: "2026-09-17T08:00:00.000Z" })]),
+      snapshot([item({ id: "a", bucket: "done" })])
+    );
+    expect(diff.completed.map((i) => i.id)).toEqual(["new"]);
+  });
+
+  it("有完成時間、但不在這週:不算這週完成,即使上週的快照裡它還不是完成", () => {
+    const diff = diffWeeks(
+      snapshot([item({ id: "a", bucket: "done", completedAt: "2026-09-10T01:00:00.000Z" })]),
+      snapshot([item({ id: "a", bucket: "other" })])
+    );
+    expect(diff.completed).toEqual([]);
+  });
+
+  it("沒有完成時間(舊資料):維持原來的做法,拿上週的快照比", () => {
+    const diff = diffWeeks(
+      snapshot([item({ id: "a", bucket: "done" })]),
+      snapshot([item({ id: "a", bucket: "other" })])
+    );
+    expect(diff.completed.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("週的邊界照台灣時間:台灣週一凌晨 1:30(UTC 週日 17:30)完成,算新的這一週", () => {
+    const diff = diffWeeks(snapshot([item({ id: "a", bucket: "done", completedAt: "2026-09-13T17:30:00.000Z" })]), null);
+    expect(diff.completed.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  it("還沒完成的項目就算帶著舊的完成時間也不會被算成完成", () => {
+    const diff = diffWeeks(snapshot([item({ id: "a", bucket: "overdue", completedAt: "2026-09-16T01:00:00.000Z" })]), null);
+    expect(diff.completed).toEqual([]);
+  });
+});
+
+describe("工作項資訊更新:待辦事項與狀態變化", () => {
+  const line = (over: Partial<ItemUpdateLine>): ItemUpdateLine => ({
+    itemId: "a",
+    wbsCode: "1.1",
+    name: "VCU選用",
+    boardName: "AMR",
+    kind: "COMMENT",
+    text: "x",
+    url: null,
+    authorName: "Schumi Su",
+    date: "2026-09-16",
+    ...over,
+  });
+
+  it("狀態變化排在最前面,接著更新、連結、附件、待辦事項", () => {
+    const groups = groupItemUpdates([
+      line({ kind: "TODO", text: "完成待辦事項:「驗收」" }),
+      line({ kind: "LINK", text: "規格書" }),
+      line({ kind: "STATUS", text: "「Status」已更新:Planned → Completed" }),
+      line({ kind: "COMMENT", text: "已選用" }),
+    ]);
+    expect(groups[0].updates.map((u) => u.kind)).toEqual(["STATUS", "COMMENT", "LINK", "TODO"]);
+  });
+
+  it("Markdown:狀態變化與待辦事項各自有標籤與符號", () => {
+    const data: WeeklyReportData = {
+      ...snapshot([item({ id: "a", bucket: "done" })]),
+      programs: [
+        {
+          ...program([item({ id: "a", bucket: "done" })]),
+          itemUpdates: [
+            line({ kind: "STATUS", text: "「Status」已更新:In Progress → Completed" }),
+            line({ kind: "TODO", text: "完成待辦事項:「驗收」" }),
+          ],
+        },
+      ],
+    };
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("🔄 狀態(Schumi Su 09-16):「Status」已更新:In Progress → Completed");
+    expect(md).toContain("☑️ 待辦事項(Schumi Su 09-16):完成待辦事項:「驗收」");
+  });
+});
+
+describe("第一份週報:有實際完成時間的項目照樣列出這週完成了哪些", () => {
+  it("Markdown 摘要與專案段都有「完成」,而且底下接著它的資訊更新", () => {
+    const done = item({ id: "a", name: "VCU選用", bucket: "done", completedAt: "2026-09-16T01:00:00.000Z" });
+    const data: WeeklyReportData = {
+      ...snapshot([done]),
+      programs: [
+        {
+          ...program([done]),
+          itemUpdates: [
+            {
+              itemId: "a",
+              wbsCode: "1.1",
+              name: "VCU選用",
+              boardName: "M3專案",
+              kind: "STATUS",
+              text: "「Status」已更新:In Progress → Completed",
+              url: null,
+              authorName: "Schumi Su",
+              date: "2026-09-16",
+            },
+          ],
+        },
+      ],
+    };
+    const diff = diffWeeks(data, null);
+    expect(diff.firstEver).toBe(true);
+    const md = renderWeeklyReportMarkdown(data, diff);
+    expect(md).toContain("這是第一份週報");
+    expect(md).toContain("這週完成 1 項(以實際切成完成的時間為準)");
+    expect(md).toContain("**完成(1)**");
+    expect(md).toContain("VCU選用");
+    expect(md).toContain("🔄 狀態(Schumi Su 09-16)");
+  });
+
+  it("沒有實際完成時間的第一份週報:跟以前一樣不宣稱任何完成", () => {
+    const data = snapshot([item({ id: "a", bucket: "done" })]);
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).not.toContain("**完成(");
+    expect(md).not.toContain("這週完成");
   });
 });

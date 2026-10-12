@@ -533,10 +533,17 @@ model ActivityLogEntry {
   actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
   message   String
   createdAt DateTime      @default(now())
+  /// 工作項事件的種類:STATUS 狀態切換、UPDATE 更新(留言)、LINK 連結、TODO 待辦事項、FIELD 其他欄位。
+  /// 給「更新記錄」欄、本週完成與週報用,不必去解析上面那句中文。比較舊的紀錄沒有,遷移時從訊息文字補了。
+  eventKind   String?
+  /// 狀態切換:切到的是進行中(inProgress)、完成(done)還是其他(other),以及切到的選項標籤。
+  statusKind  String?
+  statusLabel String?
 
   @@index([itemId])
   @@index([riskId])
   @@index([boardId, createdAt])
+  @@index([boardId, eventKind, createdAt])
   @@index([category, createdAt])
 }
 

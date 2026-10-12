@@ -9,8 +9,12 @@ export const AUTO_FIT_MAX_NAME_COLUMN_WIDTH = 400;
 /** Grid template for the data-columns pane only (everything except the
  * frozen checkbox+name columns, which live in a separate non-scrolling pane
  * — see FrozenPane/DataPane in BoardTable.tsx). */
+/** 資料欄後面三個唯讀的欄位:進行中時間、完成時間、更新記錄(寬度)。 */
+export const EVENT_COLUMN_LABELS = ["進行中時間", "完成時間", "更新記錄"] as const;
+const EVENT_COLUMN_WIDTHS = [150, 150, 280];
+
 export function gridTemplate(columnCount: number) {
-  return `repeat(${columnCount}, 160px) 40px`;
+  return `repeat(${columnCount}, 160px) ${EVENT_COLUMN_WIDTHS.map((w) => `${w}px`).join(" ")} 40px`;
 }
 
 export function frozenPaneWidth(nameWidth: number) {
