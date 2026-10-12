@@ -20,7 +20,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus, Search, Target, Trash2 } from "lucide-react";
 import { getStatusOptions } from "@/types/column";
-import { classifyStatusOption, completedAtOf, type ItemEventSummary } from "@/lib/itemEvents";
+import { classifyStatusOption, completedAtOf, type ItemDetailTab, type ItemEventSummary } from "@/lib/itemEvents";
 import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageStructure } from "@/lib/permissions";
@@ -53,7 +53,7 @@ import {
 import { createGroup, reorderGroups } from "@/lib/actions/group";
 import { deleteColumn, setProgressColumn, reorderColumns } from "@/lib/actions/column";
 
-const NAME_CELL_CHROME_WIDTH = 132; // input padding + 留言/指派/更多操作 icons + gaps + measurement margin
+const NAME_CELL_CHROME_WIDTH = 182; // input padding + 留言/更新記錄/指派/更多操作 icons + gaps + measurement margin(實測約 178)
 
 function SortableColumnHeader({
   col,
@@ -138,6 +138,7 @@ export function BoardTable({
   onAddColumn,
   highlightItemId,
   highlightNonce,
+  highlightTab,
   holidays,
   eventSummaries = NO_EVENTS,
 }: {
@@ -146,6 +147,8 @@ export function BoardTable({
   userRole: UserRole;
   currentUserId: string;
   highlightNonce?: string | null;
+  /** 自動打開的項目停在哪一個分頁;不認得的值就當作「更新」。 */
+  highlightTab?: string | null;
   onAddColumn: () => void;
   highlightItemId?: string | null;
   holidays: Holiday[];
@@ -303,7 +306,7 @@ export function BoardTable({
     if (highlightItemId) setAutoOpenItemId(highlightItemId);
   }
   const autoOpenItem = autoOpenItemId ? (board.items.find((i) => i.id === autoOpenItemId) ?? null) : null;
-  const lockedScheduleFields = useMemo(() => {
+  const autoOpenTab: ItemDetailTab = (["updates", "files", "links", "activity", "card", "checklist", "cost"] as const).find((t) => t === highlightTab) ?? "updates";  const lockedScheduleFields = useMemo(() => {
     const linkColumn = board.columns.find((c) => c.id === board.linkColumnId);
     const typeColumn = board.columns.find((c) => c.id === board.typeColumnId);
     return resolveLockedScheduleFields(
@@ -691,7 +694,7 @@ export function BoardTable({
         currentUserId={currentUserId}
         open={autoOpenItem !== null}
         onOpenChange={(open) => !open && setAutoOpenItemId(null)}
-        initialTab="updates"
+        initialTab={autoOpenTab}
       />
     </div>
     </ItemEventsProvider>

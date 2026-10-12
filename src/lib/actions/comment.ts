@@ -44,7 +44,9 @@ export async function createComment(
     );
   }
 
-  await logActivity(itemId, session.userId, "新增留言", { kind: "UPDATE" });
+  // 活動紀錄與「更新記錄」欄要看得出留言寫了什麼:帶上內容摘要(換行壓成空白、太長截短)。
+  const flat = trimmed.replace(/\s+/g, " ").trim();
+  await logActivity(itemId, session.userId, `新增留言:${flat.length > 80 ? `${flat.slice(0, 80)}…` : flat}`, { kind: "UPDATE" });
 
   revalidatePath(`/boards/${boardId}`);
   return comment;

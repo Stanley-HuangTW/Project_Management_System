@@ -25,6 +25,7 @@ import {
   ClipboardCheck,
   ScrollText,
   FileText,
+  History,
   Clock,
   DatabaseBackup,
 } from "lucide-react";
@@ -342,6 +343,17 @@ export function BoardSidebar({
         >
           <FileText size={14} className="shrink-0" />
           週報
+        </Link>
+        <Link
+          href="/updates"
+          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+            pathname === "/updates"
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <History size={14} className="shrink-0" />
+          更新記錄
         </Link>
         <Link
           href="/timesheet"

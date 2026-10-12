@@ -11,16 +11,7 @@ import {
   markAllNotificationsRead,
 } from "@/lib/actions/notification";
 import { NotificationPreferencesModal } from "./NotificationPreferencesModal";
-
-/** 標籤與顏色一起,新增/刪除要能一眼從一排更新裡挑出來。 */
-const NOTIFICATION_TYPE: Record<string, { label: string; className: string }> = {
-  CREATED: { label: "新增", className: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300" },
-  DELETED: { label: "刪除", className: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300" },
-  UPDATED: { label: "修改", className: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" },
-  ASSIGNED: { label: "指派", className: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300" },
-  COMMENTED: { label: "留言", className: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300" },
-  AUTOMATION: { label: "自動化", className: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300" },
-};
+import { NOTIFICATION_TYPE_STYLES as NOTIFICATION_TYPE } from "./typeStyles";
 
 function formatWhen(value: Date | string): string {
   const date = new Date(value);

@@ -7,6 +7,7 @@ import {
   ArrowUpToLine,
   ChevronDown,
   ChevronRight,
+  History,
   IndentDecrease,
   IndentIncrease,
   Lock,
@@ -39,6 +40,7 @@ import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { ItemEventCells } from "./ItemEventCells";
+import { ItemEventLogModal } from "./ItemEventLogModal";
 import { useItemEvents } from "./ItemEventsContext";
 import type { ItemDetailTab } from "@/lib/itemEvents";
 import { indentTarget, outdentTarget, type DragOverState } from "@/lib/dragReorder";
@@ -154,6 +156,7 @@ export function ItemRow({
   const expanded = !collapsedIds.has(item.id) || isAncestorOfHighlight;
   const [detailOpen, setDetailOpen] = useState(false);
   const [visibilityOpen, setVisibilityOpen] = useState(false);
+  const [eventLogOpen, setEventLogOpen] = useState(false);
   const { notify } = useDialogs();
   const requestDelete = useDeleteItem();
   // 升階 / 降階:只有項目列(frozen pane)用得到;沒有結構權限的人也不會有這兩個動作。
@@ -425,6 +428,15 @@ export function ItemRow({
               <MessageSquare size={14} />
               {commentCount > 0 && <span>{commentCount}</span>}
             </button>
+            <button
+              type="button"
+              onClick={() => setEventLogOpen(true)}
+              title="更新記錄:這個項目所有的更新與變化"
+              className="flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-xs text-neutral-300 hover:bg-neutral-100 hover:text-neutral-600 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-400"
+              aria-label="更新記錄"
+            >
+              <History size={14} />
+            </button>
             {canEditStructure && (
               <button
                 type="button"
@@ -486,6 +498,17 @@ export function ItemRow({
             )}
           </div>
         </div>
+        <ItemEventLogModal
+          itemId={item.id}
+          itemName={item.name}
+          open={eventLogOpen}
+          onOpenChange={setEventLogOpen}
+          onPick={(tab) => {
+            setEventLogOpen(false);
+            setDetailTab(tab);
+            setDetailOpen(true);
+          }}
+        />
         <VisibilityModal
           target={visibilityOpen ? { kind: "item", id: item.id, name: item.name } : null}
           users={users}

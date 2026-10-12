@@ -38,6 +38,7 @@ export function BoardView({
   currentUserId,
   highlightItemId,
   highlightNonce,
+  highlightTab,
   openAction,
   holidays,
   ownerDefaultPct,
@@ -53,7 +54,8 @@ export function BoardView({
   /** 隨每次點擊都不同的值(時間戳記)——同一個項目被連點兩次,highlightItemId
    *  本身不會變,得靠這個才分得出「又點了一次」跟「沒事」。 */
   highlightNonce?: string | null;
-  /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
+  /** 打開 highlight 那個項目時停在哪一個分頁(updates / card / links / checklist……);沒給就是「更新」。 */
+  highlightTab?: string | null;  /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
    *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
   openAction?: string | null;
   holidays: Holiday[];
@@ -281,6 +283,7 @@ export function BoardView({
             onAddColumn={() => setAddColumnOpen(true)}
             highlightItemId={highlightItemId}
             highlightNonce={highlightNonce}
+            highlightTab={highlightTab}
             holidays={holidays}
             eventSummaries={eventSummaries}
           />

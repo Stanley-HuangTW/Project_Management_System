@@ -74,6 +74,30 @@ export function completedAtOf(summary: ItemEventSummary | undefined, isCompleteN
   return isCompleteNow ? (summary?.completedAt ?? null) : null;
 }
 
+/** 標籤的顏色:跟通知列表同一組(修改藍、指派紫、留言黃);連結與待辦事項沒有對應的通知,用中性色。 */
+export type EventTone = "UPDATED" | "ASSIGNED" | "COMMENTED" | "NEUTRAL";
+
+/**
+ * 「更新記錄」那一格顯示什麼——跟通知列表同一套:一個類型標籤(修改 / 指派 / 留言,連結與待辦事項另標)、
+ * 改了什麼(通知的寫法,例如「「Status」:Planned → Completed」)。誰做的、什麼時候另外顯示。
+ * 管理者代操作時活動紀錄尾端的註記只留在滑鼠停上去的完整說明裡,格子裡不佔位置。
+ */
+export function describeEvent(line: ItemEventLine): { label: string; tone: EventTone; message: string } {
+  const text = line.summary.replace(/〔管理者以「[^」]*」的身分操作〕$/, "").trim();
+  switch (line.kind) {
+    case "UPDATE":
+      return { label: "留言", tone: "COMMENTED", message: text.replace(/^新增留言:?/, "").trim() || "新增留言" };
+    case "LINK":
+      return { label: "連結", tone: "NEUTRAL", message: text };
+    case "TODO":
+      return { label: "待辦事項", tone: "NEUTRAL", message: text };
+    default:
+      // 指派(負責人、人員分配)通知叫「指派」;其餘欄位修改叫「修改」,訊息把「已更新:」改成通知的「:」。
+      if (/指派給|人員分配/.test(text)) return { label: "指派", tone: "ASSIGNED", message: text };
+      return { label: "修改", tone: "UPDATED", message: text.replace(/^(「[^」]*」)已更新:/, "$1:") };
+  }
+}
+
 /** 台灣時間(UTC+8)的日期 "YYYY-MM-DD"。 */
 export function taipeiDateOf(iso: string): string {
   return new Date(new Date(iso).getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
