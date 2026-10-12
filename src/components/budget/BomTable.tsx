@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import {
   addProduct,
   deleteProduct,
+  renameProduct,
   getBomContext,
   getBomView,
   getProductUsage,
@@ -290,6 +291,18 @@ export function BomTable({ boardId }: { boardId: string }) {
     if (await run(() => addProduct(boardId, name), "無法新增產品")) setProduct(name.trim());
   }
 
+  /** 修改產品名稱:問新名字,看板上用到這個名字的地方(BOM、樣機計畫)一起換,然後切到新名字。 */
+  async function renameCurrentProduct() {
+    const name = await prompt(`把產品「${product}」改名為?(BOM 與樣機計畫裡的名字會一起換)`, {
+      title: "修改產品名稱",
+      defaultValue: product,
+      required: true,
+      confirmLabel: "改名",
+    });
+    if (name === null || name.trim() === "" || name.trim() === product) return;
+    if (await run(() => renameProduct(boardId, product, name), "無法修改產品名稱")) setProduct(name.trim());
+  }
+
   /** 刪除產品:先說會一併刪掉多少 BOM 與樣機計畫,確認了才刪。 */
   async function removeProduct() {
     const usage = await getProductUsage(boardId, product);
@@ -379,6 +392,15 @@ export function BomTable({ boardId }: { boardId: string }) {
               className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
             >
               <Plus size={12} /> 新增產品
+            </button>
+            <button
+              type="button"
+              onClick={() => void renameCurrentProduct()}
+              disabled={busy || !product || !ctx.products.includes(product)}
+              title={product && !ctx.products.includes(product) ? "這個名字還不是一個產品" : "修改這個產品的名稱(BOM 與樣機計畫一起換)"}
+              className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            >
+              <Pencil size={12} /> 修改名稱
             </button>
             <button
               type="button"

@@ -230,6 +230,16 @@ export function validateProductName(name: string): string | null {
   return null;
 }
 
+/** 改產品名稱的檢查:新名稱要合格、不跟現有的任何產品重名(包含單獨建立的、樣機計畫與 BOM 用到的);回說明,沒問題回 null。 */
+export function validateProductRename(products: string[], from: string, to: string): string | null {
+  if (!products.includes(from)) return `找不到「${from}」這個產品`;
+  const invalid = validateProductName(to);
+  if (invalid) return invalid;
+  if (to === from) return "新名稱跟原本一樣";
+  if (products.includes(to)) return `已經有「${to}」這個產品了`;
+  return null;
+}
+
 /** 產品清單:單獨建立的、樣機計畫用到的、BOM 用到的三份名字的聯集,去重後排序。 */
 export function unionProducts(...lists: string[][]): string[] {
   return [...new Set(lists.flat())].sort();

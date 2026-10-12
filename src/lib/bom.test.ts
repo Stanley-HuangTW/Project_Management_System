@@ -6,6 +6,7 @@ import {
   reconstructBomTree,
   unionProducts,
   validateProductName,
+  validateProductRename,
   type BomLineInput,
   type IndentedBomLine,
 } from "./bom";
@@ -274,6 +275,17 @@ describe("產品名稱", () => {
     expect(validateProductName("字".repeat(61))).toContain("太長");
     expect(validateProductName("a\nb")).toContain("換行");
     expect(validateProductName("a\tb")).toContain("Tab");
+  });
+
+  it("validateProductRename:新名稱要合格、不能跟現有的產品重名,原本的產品要存在", () => {
+    const products = ["AMR", "M3", "充電站"];
+    expect(validateProductRename(products, "M3", "M3-Pro")).toBeNull();
+    expect(validateProductRename(products, "M3", "")).toContain("不可為空");
+    expect(validateProductRename(products, "M3", "字".repeat(61))).toContain("太長");
+    expect(validateProductRename(products, "M3", "a\nb")).toContain("換行");
+    expect(validateProductRename(products, "M3", "M3")).toContain("跟原本一樣");
+    expect(validateProductRename(products, "M3", "充電站")).toContain("已經有「充電站」");
+    expect(validateProductRename(products, "沒有這個", "X")).toContain("找不到");
   });
 
   it("unionProducts:三份名字聯集、去重、排序", () => {

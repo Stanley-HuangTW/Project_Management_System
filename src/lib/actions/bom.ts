@@ -12,6 +12,7 @@ import {
   bomMaterialBudget,
   unionProducts,
   validateProductName,
+  validateProductRename,
   type BomLineInput,
   type BomNode,
 } from "@/lib/bom";
@@ -115,6 +116,35 @@ export async function addProduct(boardId: string, name: string): Promise<{ error
 
   await prisma.budgetProduct.create({ data: { boardId, name: product, createdById: guard.session.userId } });
   await logAudit("COST", guard.session.userId, `新增產品「${product}」`, boardId);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/**
+ * 修改產品名稱:這個看板上用到這個名字的地方一起換——單獨建立的產品、各階段的 BOM、樣機計畫的各列。
+ * 新名稱不能跟現有的任何產品重名(不做合併:兩個產品併成一個會把它們各階段的 BOM 混在一起,要的話請自己刪一個再重填)。
+ * 只是換名字,BOM 與台數都不動,所以材料預算不必重算。
+ */
+export async function renameProduct(boardId: string, from: string, to: string): Promise<{ error?: string }> {
+  const guard = await productAdmin(boardId);
+  if ("error" in guard) return { error: guard.error };
+  const next = to.trim();
+
+  const [own, proto, bom] = await Promise.all([
+    prisma.budgetProduct.findMany({ where: { boardId }, select: { name: true } }),
+    prisma.protoPlan.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
+    prisma.bomLine.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
+  ]);
+  const products = unionProducts(own.map((p) => p.name), proto.map((p) => p.product), bom.map((p) => p.product));
+  const invalid = validateProductRename(products, from, next);
+  if (invalid) return { error: invalid };
+
+  await prisma.$transaction([
+    prisma.budgetProduct.updateMany({ where: { boardId, name: from }, data: { name: next } }),
+    prisma.protoPlan.updateMany({ where: { boardId, product: from }, data: { product: next } }),
+    prisma.bomLine.updateMany({ where: { boardId, product: from }, data: { product: next } }),
+  ]);
+  await logAudit("COST", guard.session.userId, `產品「${from}」改名為「${next}」`, boardId);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }
