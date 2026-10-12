@@ -7,6 +7,7 @@ import {
   describeNreChange,
   nreByCostCategory,
   NRE_COST_CATEGORY,
+  planNreApply,
   parseNumberField,
   planNreImport,
   sameNreContent,
@@ -331,5 +332,55 @@ describe("nreByCostCategory(NRE 報價 → 預算的費用類別)", () => {
 
   it("沒有報價:空的、總計 0", () => {
     expect(nreByCostCategory([])).toEqual({ byCategory: {}, total: 0 });
+  });
+});
+
+describe("planNreApply(把 NRE 報價帶入核准預算)", () => {
+  const base = { labourFromPlan: false, materialFromBom: false };
+
+  it("有報價的類別:核准預算改成報價,列出改之前與改之後", () => {
+    const plan = planNreApply({
+      ...base,
+      nreByCategory: { TOOLING: 610000, CERTIFICATION: 140000, OUTSOURCING: 300000 },
+      budgetByCategory: { TOOLING: 800000 },
+    });
+    expect(plan.apply).toEqual([
+      { category: "OUTSOURCING", before: 0, after: 300000 },
+      { category: "TOOLING", before: 800000, after: 610000 },
+      { category: "CERTIFICATION", before: 0, after: 140000 },
+    ]);
+    expect(plan.skipped).toEqual([]);
+  });
+
+  it("人力有人力規劃表算、材料有樣機 BOM 算:略過並說明,不帶入", () => {
+    const plan = planNreApply({
+      labourFromPlan: true,
+      materialFromBom: true,
+      nreByCategory: { LABOUR: 400000, MATERIAL: 50000, TOOLING: 610000 },
+      budgetByCategory: { LABOUR: 1000000, MATERIAL: 20000 },
+    });
+    expect(plan.apply.map((a) => a.category)).toEqual(["TOOLING"]);
+    expect(plan.skipped).toEqual([
+      { category: "LABOUR", reason: "人力預算由人力規劃表計算" },
+      { category: "MATERIAL", reason: "材料預算由樣機 BOM 計算" },
+    ]);
+  });
+
+  it("沒被算出來的人力、材料可以帶入(研發人力 → 人力、打樣與樣品 → 材料)", () => {
+    const plan = planNreApply({ ...base, nreByCategory: { LABOUR: 400000, MATERIAL: 50000 }, budgetByCategory: {} });
+    expect(plan.apply).toEqual([
+      { category: "LABOUR", before: 0, after: 400000 },
+      { category: "MATERIAL", before: 0, after: 50000 },
+    ]);
+  });
+
+  it("報價跟核准預算一樣:不用動;報價是 0 或沒有:不會把核准預算清掉", () => {
+    const plan = planNreApply({
+      ...base,
+      nreByCategory: { TOOLING: 610000, CERTIFICATION: 0 },
+      budgetByCategory: { TOOLING: 610000, CERTIFICATION: 99000, TRAVEL: 5000 },
+    });
+    expect(plan.apply).toEqual([]);
+    expect(plan.skipped).toEqual([]);
   });
 });

@@ -544,7 +544,7 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="max-w-3xl text-xs text-neutral-500 dark:text-neutral-400">
           照 NRE 的各大項逐列填,有數量跟單價就自動相乘,沒有就直接填金額;離開那一列時自動儲存。這是估算與報價的依據,
-          <b>不會寫進「階段預算」的核准預算</b>。
+          <b>不會自己改「階段預算」的核准預算</b>——要把報價帶進去,到「階段預算」的「各類別」按「帶入」。
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <button

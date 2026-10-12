@@ -324,3 +324,41 @@ export function parseNumberField(text: string): number | null {
   if (cleaned === "") return null;
   return Number(cleaned);
 }
+
+export type NreApplyPlan = {
+  /** 會把核准預算改成報價的類別,與改之前、改之後的金額。 */
+  apply: { category: CostCategory; before: number; after: number }[];
+  /** 報價有金額、但不能帶入的類別與原因(這一格是別的來源算出來的)。 */
+  skipped: { category: CostCategory; reason: string }[];
+};
+
+/**
+ * 把 NRE 報價帶入階段預算的核准預算:每個有報價金額的費用類別,核准預算改成報價。
+ * 人力有人力規劃表算、材料有樣機 BOM 算的階段,那一格是算出來的,帶入會被下一次重算蓋掉,所以略過並說明原因,
+ * 報價仍留在「NRE 報價」欄供對照。報價跟核准預算已經一樣的不用動;報價是 0 的不會把核准預算清掉。
+ */
+export function planNreApply(input: {
+  nreByCategory: Partial<Record<CostCategory, number>>;
+  budgetByCategory: Partial<Record<CostCategory, number>>;
+  labourFromPlan: boolean;
+  materialFromBom: boolean;
+}): NreApplyPlan {
+  const plan: NreApplyPlan = { apply: [], skipped: [] };
+  const seen = new Set<CostCategory>();
+  for (const key of NRE_CATEGORIES) {
+    const category = NRE_COST_CATEGORY[key];
+    if (seen.has(category)) continue;
+    seen.add(category);
+    const after = Math.round(input.nreByCategory[category] ?? 0);
+    if (after <= 0) continue;
+    const before = input.budgetByCategory[category] ?? 0;
+    if (category === "LABOUR" && input.labourFromPlan) {
+      plan.skipped.push({ category, reason: "人力預算由人力規劃表計算" });
+    } else if (category === "MATERIAL" && input.materialFromBom) {
+      plan.skipped.push({ category, reason: "材料預算由樣機 BOM 計算" });
+    } else if (before !== after) {
+      plan.apply.push({ category, before, after });
+    }
+  }
+  return plan;
+}

@@ -7,12 +7,14 @@ import { AlertTriangle, Plus, Trash2, Check, Paperclip, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { formatMoney } from "@/lib/cost";
 import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
+import { planNreApply } from "@/lib/nre";
 import { BASE_CURRENCY, describeForeign, isBaseCurrency } from "@/lib/currency";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { SpendCurveChart } from "./SpendCurveChart";
 import {
   getBudgetView,
   setBudget,
+  applyNreToBudget,
   addCommitment,
   settleCommitment,
   deleteCommitment,
@@ -145,7 +147,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
           <Tile
             label="NRE 報價(估算)"
             value={formatMoney(view.nre.total)}
-            hint="來自「NRE 報價單」,只是估算,不計入核准預算"
+            hint="來自「NRE 報價單」的估算;按各類別的「帶入」才會改核准預算"
           />
         )}
         <Tile
@@ -221,7 +223,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
       </div>
 
       {tab === "summary" && (
-        <CategoryTable view={view} scope={scope} busy={busy} run={run} prompt={prompt} />
+        <CategoryTable view={view} scope={scope} busy={busy} run={run} prompt={prompt} confirm={confirm} />
       )}
       {tab === "reserve" && (
         <ReservePanel view={view} scope={scope} busy={busy} run={run} prompt={prompt} />
@@ -702,15 +704,45 @@ function CategoryTable({
   busy,
   run,
   prompt,
+  confirm,
 }: {
   view: BudgetView;
   scope: BudgetScope;
   busy: boolean;
   run: Runner;
   prompt: Prompt;
+  confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>;
 }) {
   const byCategory = new Map(view.summary.lines.map((l) => [l.category, l]));
   const hasNre = view.nre.total > 0;
+  // NRE 報價可以帶入核准預算(只有單一階段、而且能編預算的人);人力、材料若是算出來的就不帶入,伺服器同一套規則。
+  const nrePlan = planNreApply({
+    nreByCategory: view.nre.byCategory,
+    budgetByCategory: Object.fromEntries(view.summary.lines.map((l) => [l.category, l.budget])),
+    labourFromPlan: view.labourFromPlan,
+    materialFromBom: view.materialFromBom,
+  });
+  const canApplyNre = view.canEdit && scope.kind === "phase";
+  const applicable = new Map(nrePlan.apply.map((a) => [a.category, a]));
+  const notApplicable = new Map(nrePlan.skipped.map((k) => [k.category, k.reason]));
+
+  /** 把 NRE 報價帶入核准預算:先列出每一類改之前與改之後,確認了才寫。 */
+  async function applyNre(categories: CostCategory[]) {
+    const targets = nrePlan.apply.filter((a) => categories.includes(a.category));
+    if (targets.length === 0) return;
+    const lines = [
+      `把 NRE 報價帶入核准預算?`,
+      "",
+      ...targets.map((a) => `• ${CATEGORY_LABELS[a.category]}:${a.before > 0 ? formatMoney(a.before) : "(未編列)"} → ${formatMoney(a.after)} 元`),
+      ...(categories.length > 1 && nrePlan.skipped.length > 0
+        ? ["", "不會帶入:", ...nrePlan.skipped.map((k) => `• ${CATEGORY_LABELS[k.category]}(${k.reason})`)]
+        : []),
+      "",
+      "核准預算會改成報價的金額;之後報價單再改,核准預算不會自己跟著動。",
+    ];
+    if (!(await confirm(lines.join("\n"), { title: "帶入 NRE 報價", confirmLabel: "帶入" }))) return;
+    await run(() => applyNreToBudget(scope, categories), "無法帶入");
+  }
 
   async function edit(category: CostCategory) {
     const current = byCategory.get(category)?.budget ?? 0;
@@ -733,6 +765,19 @@ function CategoryTable({
 
   return (
     <>
+    {canApplyNre && nrePlan.apply.length > 0 && (
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+        <span>NRE 報價跟核准預算不同的有 {nrePlan.apply.length} 類。</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void applyNre(nrePlan.apply.map((a) => a.category))}
+          className="rounded-md bg-blue-600 px-3 py-1 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          全部帶入核准預算
+        </button>
+      </div>
+    )}
     <HScrollPane className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
       <table className="w-full text-xs">
         <thead className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400">
@@ -742,7 +787,7 @@ function CategoryTable({
             {hasNre && (
               <th
                 className="px-3 py-2 text-right font-medium"
-                title="NRE 報價單的估算金額(研發人力 → 人力、打樣與樣品 → 材料、其餘同名),只是估算,不計入核准預算"
+                title="NRE 報價單的估算金額(研發人力 → 人力、打樣與樣品 → 材料、其餘同名)。按「帶入」才會把核准預算改成報價"
               >
                 NRE 報價
               </th>
@@ -782,7 +827,21 @@ function CategoryTable({
                   {budget ? formatMoney(budget) : "—"}
                 </td>
                 {hasNre && (
-                  <td className="px-3 py-1.5 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
+                  <td
+                    className="px-3 py-1.5 text-right tabular-nums text-neutral-500 dark:text-neutral-400"
+                    title={notApplicable.has(category) ? `${notApplicable.get(category)},報價只供對照` : undefined}
+                  >
+                    {canApplyNre && applicable.has(category) && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void applyNre([category])}
+                        className="mr-2 rounded border border-blue-300 px-1.5 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50 disabled:opacity-40 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/40"
+                        title={`把核准預算設成 NRE 報價 ${formatMoney(applicable.get(category)!.after)} 元`}
+                      >
+                        帶入
+                      </button>
+                    )}
                     {view.nre.byCategory[category] ? formatMoney(view.nre.byCategory[category]!) : "—"}
                   </td>
                 )}
@@ -871,7 +930,8 @@ function CategoryTable({
     )}
     {hasNre && (
       <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-        「NRE 報價」來自「NRE 報價單」分頁的估算(研發人力 → 人力、打樣與樣品 → 材料),不計入核准預算;要改請到那個分頁。
+        「NRE 報價」來自「NRE 報價單」分頁的估算(研發人力 → 人力、打樣與樣品 → 材料)。按那一格的「帶入」(或上面的「全部帶入」)才會把核准預算改成報價;
+        人力、材料如果已經由人力規劃表、樣機 BOM 算出來,就不帶入。要改報價請到「NRE 報價單」分頁。
       </p>
     )}
     </>

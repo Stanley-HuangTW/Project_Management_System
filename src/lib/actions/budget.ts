@@ -27,7 +27,7 @@ import { logAudit } from "@/lib/activityLog";
 import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
 import { effectiveRateMap } from "@/lib/labourRate";
 import { refreshBomMaterial } from "@/lib/bomMaterial";
-import { nreByCostCategory } from "@/lib/nre";
+import { nreByCostCategory, planNreApply, type NreApplyPlan } from "@/lib/nre";
 
 /**
  * 預算核准的三個層級:預算階段、看板上的一列工作項,或整個專案群組。
@@ -131,7 +131,7 @@ export type BudgetView = {
   /** 材料核准金額是不是樣機 BOM 算出來的 —— 是的話就不該再手填。 */
   materialFromBom: boolean;
   /**
-   * NRE 報價單的估算金額,換成預算的費用類別(見 NRE_COST_CATEGORY)。只是估算,不計入核准預算。
+   * NRE 報價單的估算金額,換成預算的費用類別(見 NRE_COST_CATEGORY)。是估算,按「帶入」(applyNreToBudget)才會改核准預算。
    * 單一階段:那個階段的報價單;整個專案:全部(含涵蓋整個專案的委託開發);projectWide 是單一階段看不到、
    * 但屬於這個專案的涵蓋整個專案的委託開發金額。
    */
@@ -716,6 +716,56 @@ export async function setBudget(
   );
   revalidateBudget(scope);
   return {};
+}
+
+/**
+ * 把這個階段的 NRE 報價帶入核准預算(「各類別」表的「帶入」與「全部帶入」)。
+ *
+ * 只有單一階段能帶入(整個專案是各階段的合計)。報價金額與哪些類別不能帶入(人力有人力規劃表、
+ * 材料有樣機 BOM 算的那一格)都由伺服器照資料庫重算,不信畫面送來的數字;只處理 categories 裡指定的。
+ * 帶入的核准預算備註寫「由 NRE 報價單帶入」,稽核軌跡留下每一類改之前與改之後。之後報價單再改,
+ * 核准預算不會自己跟著動——要再帶入一次(那一格的報價跟核准預算不同時,「帶入」會再出現)。
+ */
+export async function applyNreToBudget(
+  scope: BudgetScope,
+  categories: CostCategory[]
+): Promise<{ error?: string } & Partial<NreApplyPlan>> {
+  if (scope.kind !== "phase") return { error: "請選單一階段:整個專案是各階段的合計,沒有自己的預算可以設定" };
+  const { session, resolved } = await requireBudgetAdmin(scope);
+
+  const [groups, budgets, labourCount, bomCount] = await Promise.all([
+    prisma.nreLine.groupBy({ by: ["category"], where: { phaseId: scope.id }, _sum: { amount: true } }),
+    prisma.budget.findMany({ where: { phaseId: scope.id }, select: { category: true, amount: true } }),
+    prisma.labourPlan.count({ where: { phaseId: scope.id } }),
+    prisma.bomLine.count({ where: { phaseId: scope.id } }),
+  ]);
+  const plan = planNreApply({
+    nreByCategory: nreByCostCategory(groups.map((g) => ({ category: g.category, amount: g._sum.amount ?? 0 }))).byCategory,
+    budgetByCategory: Object.fromEntries(budgets.map((b) => [b.category, b.amount])),
+    labourFromPlan: labourCount > 0,
+    materialFromBom: bomCount > 0,
+  });
+  const wanted = new Set(categories);
+  const apply = plan.apply.filter((a) => wanted.has(a.category));
+  const skipped = plan.skipped.filter((s) => wanted.has(s.category));
+  if (apply.length === 0) return { apply, skipped };
+
+  await prisma.$transaction(
+    apply.map((a) =>
+      prisma.budget.upsert({
+        where: { phaseId_category: { phaseId: scope.id, category: a.category } },
+        create: { phaseId: scope.id, category: a.category, amount: a.after, note: "由 NRE 報價單帶入", createdById: session.userId },
+        update: { amount: a.after, note: "由 NRE 報價單帶入" },
+      })
+    )
+  );
+  await logAudit(
+    "COST",
+    session.userId,
+    `${resolved.name} 把 NRE 報價帶入核准預算:${apply.map((a) => `${a.category} ${a.before} → ${a.after}`).join("、")} 元`
+  );
+  revalidateBudget(scope);
+  return { apply, skipped };
 }
 
 export async function addCommitment(
