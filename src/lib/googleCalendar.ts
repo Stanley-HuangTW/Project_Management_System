@@ -191,3 +191,12 @@ export function validateCalendarRange(from: string, to: string): string | null {
   if (daysBetweenInclusive(from, to) > MAX_CALENDAR_RANGE_DAYS) return `一次最多匯入 ${MAX_CALENDAR_RANGE_DAYS} 天(約三個月)的行程`;
   return null;
 }
+
+/**
+ * 這個瀏覽器是不是「內嵌瀏覽器」:Electron / 桌面 App 的預覽視窗(例如 Claude 桌面版)、手機 App 的內建瀏覽器(WebView、
+ * LINE、Facebook、Instagram)。Google 不允許在這種視窗裡登入——授權時會停在 accounts.google.com(.tw)/accounts/SetSID
+ * 出現「400 發生錯誤」,或直接回「403 disallowed_useragent」,跟系統的設定無關,要改用 Chrome、Edge、Safari 這類一般瀏覽器。
+ */
+export function isEmbeddedBrowser(userAgent: string): boolean {
+  return /\bElectron\//.test(userAgent) || /\bClaude\/\d/.test(userAgent) || /; wv\)/.test(userAgent) || /\b(FBAN|FBAV|Instagram|Line)\b/.test(userAgent);
+}

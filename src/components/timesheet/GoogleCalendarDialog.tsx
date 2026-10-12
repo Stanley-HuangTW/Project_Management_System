@@ -15,6 +15,7 @@ import {
 import {
   MAX_CALENDAR_RANGE_DAYS,
   SKIP_REASON_LABELS,
+  isEmbeddedBrowser,
   calendarScopeRange,
   validateCalendarRange,
   type CalendarScope,
@@ -82,6 +83,9 @@ export function GoogleCalendarDialog({
   const [categoryOf, setCategoryOf] = useState<Record<string, string>>({});
   const [boardOf, setBoardOf] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // 內嵌瀏覽器(Claude 桌面版的預覽視窗等)Google 不給登入——先講清楚,不要讓人走到 Google 的 400 才知道。
+  const [embedded] = useState(() => typeof navigator !== "undefined" && isEmbeddedBrowser(navigator.userAgent));
+  const [copied, setCopied] = useState(false);
 
   const defaultCategoryId = options?.categories.find((c) => c.name === "例行會議")?.id ?? options?.categories[0]?.id ?? "";
 
@@ -306,6 +310,27 @@ export function GoogleCalendarDialog({
         {!rangeError && result?.status === "needsAuth" && (
           <div className="rounded-md bg-neutral-50 p-4 text-sm text-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-200">
             <p className="mb-3">要先連結你的 Google 日曆(唯讀)。會跳到 Google 的同意畫面,同意後自動回到這裡。</p>
+            {embedded && (
+              <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                <p className="mb-1 font-medium">你現在用的是內嵌瀏覽器(例如 Claude 桌面版的預覽視窗、App 內建的瀏覽器)</p>
+                <p>
+                  Google <b>不允許在這種視窗登入</b>——走到一半會停在 accounts.google.com 的「400 發生錯誤」(網址是 …/accounts/SetSID)
+                  或「403 disallowed_useragent」,跟系統設定無關。請改用 Chrome、Edge、Safari 這類一般瀏覽器開啟這個系統的網址,再按連結。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard
+                      ?.writeText(window.location.href)
+                      .then(() => setCopied(true))
+                      .catch(() => setCopied(false));
+                  }}
+                  className="mt-2 rounded-md border border-amber-400 px-2.5 py-1 hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/50"
+                >
+                  {copied ? "已複製,貼到 Chrome 的網址列" : "複製這個頁面的網址"}
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => onAuthorize()}

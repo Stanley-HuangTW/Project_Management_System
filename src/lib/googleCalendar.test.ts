@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarScopeRange, clampToMidnight, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, validateCalendarRange, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
+import { calendarScopeRange, clampToMidnight, isEmbeddedBrowser, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, validateCalendarRange, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
 
 const ev = (over: Partial<GoogleEvent> & { id: string }): GoogleEvent => ({
   summary: "部門週會",
@@ -238,5 +238,25 @@ describe("validateCalendarRange", () => {
   it("最多 92 天:剛好 92 天可以,多一天不行", () => {
     expect(validateCalendarRange("2026-10-01", "2026-12-31")).toBeNull(); // 92 天
     expect(validateCalendarRange("2026-10-01", "2027-01-01")).toContain("最多");
+  });
+});
+
+describe("isEmbeddedBrowser(Google 不給登入的內嵌瀏覽器)", () => {
+  const CHROME = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+  it("一般的 Chrome、Edge、Safari 不是", () => {
+    expect(isEmbeddedBrowser(CHROME)).toBe(false);
+    expect(isEmbeddedBrowser(CHROME + " Edg/152.0.0.0")).toBe(false);
+    expect(isEmbeddedBrowser("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")).toBe(false);
+  });
+
+  it("Claude 桌面版的預覽視窗、Electron 是", () => {
+    expect(isEmbeddedBrowser("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.31226.1 Chrome/152.0.7977.130 Safari/537.36 MSIX")).toBe(true);
+    expect(isEmbeddedBrowser(CHROME + " Electron/30.0.0")).toBe(true);
+  });
+
+  it("Android WebView、LINE、Facebook、Instagram 的內建瀏覽器是", () => {
+    expect(isEmbeddedBrowser("Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36")).toBe(true);
+    expect(isEmbeddedBrowser("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Line/13.0.0")).toBe(true);
+    expect(isEmbeddedBrowser("Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 [FBAN/FBIOS;FBAV/430.0]")).toBe(true);
   });
 });
