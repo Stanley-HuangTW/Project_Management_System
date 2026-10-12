@@ -14,6 +14,7 @@ import {
 } from "@/lib/predecessorLink";
 import { computeCriticalPathAcross, type NetworkColumns } from "@/lib/criticalPath";
 import { resolveStatusColumn } from "@/lib/dashboard";
+import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 
 /**
  * One row of a 專案群組's combined schedule, flattened and serialisable.
@@ -130,6 +131,7 @@ export async function getProgramView(
 
   const holidays = toHolidaySet(await listHolidays());
 
+  const dmSettings = await loadDmScopeSettings();
   const boards: BoardWithData[] = [];
   let hiddenBoardCount = 0;
   for (const { id } of program.boards) {
@@ -138,7 +140,7 @@ export async function getProgramView(
       continue;
     }
     const board = await prisma.board.findUnique({ where: { id }, ...boardWithDataArgs });
-    if (board) boards.push(applyVisibility(board, session));
+    if (board) boards.push(applyVisibility(board, session, dmSettings));
   }
 
   const allItems: ItemData[] = boards.flatMap((b) => b.items);

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { hideBudgetOn } from "@/lib/dmScopeServer";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
@@ -247,6 +248,8 @@ export async function getBomView(
 ): Promise<BomView | null> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
+  // DM 的可見範圍(系統設定):被限制「預算金額」的人看不到 BOM 的單價與小計。
+  if (await hideBudgetOn(boardId, session)) return null;
 
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
   if (!board) return null;

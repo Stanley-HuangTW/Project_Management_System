@@ -33,6 +33,7 @@ import {
 import { buildSupervisorParentTree, buildFullParentTree } from "@/lib/parentTaskTree";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { applyVisibilityToBoards } from "@/lib/applyVisibility";
+import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { leaveDaysByUser } from "@/lib/actions/leave";
 
 export default async function DashboardPage({
@@ -63,7 +64,7 @@ export default async function DashboardPage({
 
   // Everything below counts, colours and lists items; none of it may count
   // an item this person is not allowed to see.
-  const visibleBoards = applyVisibilityToBoards(allBoards, session);
+  const visibleBoards = applyVisibilityToBoards(allBoards, session, await loadDmScopeSettings());
   const boards = boardFilter ? visibleBoards.filter((b) => b.id === boardFilter) : visibleBoards;
 
   // A resource (tool/vendor) can be an item's 負責人 like a real user, but has

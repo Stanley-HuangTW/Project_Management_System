@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { BoardWithData } from "@/types/board";
 import { listBudgetPhases } from "@/lib/actions/labourSheet";
+import { getMyBudgetAccess } from "@/lib/actions/dmScope";
 import { BudgetPanel } from "./BudgetPanel";
 import { NreQuoteSheet } from "./NreQuoteSheet";
 import { NreProjectTable } from "./NreProjectTable";
@@ -31,13 +32,18 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
   const [phases, setPhases] = useState<PhaseOption[] | null>(null);
   const [phaseId, setPhaseId] = useState("");
   // 人力規劃橫跨所有階段,所以它不在階段面板裡面,而是跟它並排的另一個視圖。
-  const [view, setView] = useState<"phase" | "nre" | "sheet" | "proto" | "bom" | "labour">("phase");
+  const [rawView, setView] = useState<"phase" | "nre" | "sheet" | "proto" | "bom" | "labour">("phase");
+  // 系統設定的「DM 的可見範圍」:看不到預算金額的人,這幾個分頁(都是金額)整個不放;伺服器那邊也會擋。
+  const [hideBudget, setHideBudget] = useState(false);
+  const moneyViews = ["phase", "nre", "bom"];
+  const view = hideBudget && moneyViews.includes(rawView) ? "sheet" : rawView;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const result = await listBudgetPhases(board.id);
+      const [result, access] = await Promise.all([listBudgetPhases(board.id), getMyBudgetAccess(board.id)]);
       if (cancelled) return;
+      setHideBudget(access.hideBudget);
       setPhases(result);
       // 只在還沒選過的時候幫他選第一個 —— 每次回到這個分頁都重設的話,剛看
       // 到一半的階段會被跳掉。
@@ -62,7 +68,9 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
             ["bom", "樣機 BOM"],
             ["labour", "人力規劃彙總"],
           ] as const
-        ).map(([id, label]) => (
+        )
+          .filter(([id]) => !(hideBudget && moneyViews.includes(id)))
+          .map(([id, label]) => (
           <button
             key={id}
             type="button"

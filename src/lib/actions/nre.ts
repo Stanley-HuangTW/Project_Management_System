@@ -4,6 +4,7 @@ import type { NreCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { hideBudgetOn } from "@/lib/dmScopeServer";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
 import { buildNreWorkbook, parseNreWorkbook } from "@/lib/export/nreWorkbook";
@@ -114,6 +115,7 @@ export async function getNreProject(boardId: string): Promise<NreProject | null>
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
   if (!board) return null;
   await requireBoardAccess(boardId, session);
+  if (await hideBudgetOn(boardId, session)) return null;
   const [phases, groups, commissioned] = await Promise.all([
     prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" }, select: { id: true, name: true } }),
     prisma.nreLine.groupBy({ by: ["phaseId", "category"], where: { boardId }, _sum: { amount: true } }),
@@ -135,6 +137,7 @@ export async function getNreSheet(phaseId: string): Promise<NreSheet | null> {
   const phase = await prisma.budgetPhase.findUnique({ where: { id: phaseId }, select: { name: true, boardId: true } });
   if (!phase) return null;
   await requireBoardAccess(phase.boardId, session);
+  if (await hideBudgetOn(phase.boardId, session)) return null;
   const [phases, lines] = await Promise.all([
     prisma.budgetPhase.findMany({ where: { boardId: phase.boardId }, orderBy: { order: "asc" }, select: { id: true, name: true } }),
     prisma.nreLine.findMany({
@@ -163,6 +166,7 @@ export async function exportNreWorkbook(phaseId: string): Promise<{ filename: st
   });
   if (!phase) return { error: "找不到這個階段" };
   await requireBoardAccess(phase.boardId, session);
+  if (await hideBudgetOn(phase.boardId, session)) return { error: "你的角色看不到預算金額" };
 
   const lines = await prisma.nreLine.findMany({
     where: { OR: [{ phaseId }, { boardId: phase.boardId, phaseId: null, category: "COMMISSIONED" }] },

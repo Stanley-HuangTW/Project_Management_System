@@ -7,6 +7,7 @@ import type { CostCategory, ReserveKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, canAccessBoard } from "@/lib/boardAccess";
+import { hideBudgetOn } from "@/lib/dmScopeServer";
 import {
   summarizeBudget,
   summarizeReserves,
@@ -189,6 +190,8 @@ async function resolveScope(
     });
     if (!phase) return null;
     await requireBoardAccess(phase.boardId, session);
+    // DM 的可見範圍(系統設定):被限制「預算金額」的人,階段預算就當作看不到。
+    if (await hideBudgetOn(phase.boardId, session)) return null;
 
     // 實際花費記在看板的工作項上,所以「這個階段實際花了多少」只有對應過去
     // 才問得到。沒對應的階段一樣編得出預算 —— 那正是它存在的意義:先有
@@ -219,6 +222,7 @@ async function resolveScope(
     });
     if (!root) return null;
     await requireBoardAccess(root.boardId, session);
+    if (await hideBudgetOn(root.boardId, session)) return null;
 
     const all = await prisma.item.findMany({
       where: { boardId: root.boardId, deletedAt: null },
@@ -233,6 +237,7 @@ async function resolveScope(
     const board = await prisma.board.findUnique({ where: { id: scope.id }, select: { id: true, name: true } });
     if (!board) return null;
     await requireBoardAccess(board.id, session);
+    if (await hideBudgetOn(board.id, session)) return null;
     const [all, phases] = await Promise.all([
       prisma.item.findMany({
         where: { boardId: board.id, deletedAt: null },
@@ -266,7 +271,7 @@ async function resolveScope(
   // otherwise leak out as a total they were not meant to see.
   const items: BudgetView["items"] = [];
   for (const board of program.boards) {
-    if (!(await canAccessBoard(session, board.id))) continue;
+    if (!(await canAccessBoard(session, board.id)) || (await hideBudgetOn(board.id, session))) continue;
     const all = await prisma.item.findMany({
       where: { boardId: board.id, deletedAt: null },
       select: { id: true, name: true, parentId: true, order: true },

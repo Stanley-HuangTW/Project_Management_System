@@ -17,6 +17,8 @@ import { ALL_NOTIFICATION_TYPES, NOTIFICATION_TYPE_LABELS } from "@/lib/notifica
 import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModal";
 import { DisciplineRateCard } from "./DisciplineRateCard";
 import { OrgUnitCard } from "./OrgUnitCard";
+import { DmScopeCard } from "./DmScopeCard";
+import type { DmScopeSettings } from "@/lib/dmScope";
 import type { OrgUnit } from "@/lib/orgUnits";
 import { WorkloadThresholdModal } from "@/components/dashboard/WorkloadThresholdModal";
 import type { WorkloadThresholdSettings } from "@/lib/workload";
@@ -501,6 +503,7 @@ function WorkloadThresholdCard({ threshold }: { threshold: WorkloadThresholdSett
 export function SystemSettingsForm({
   isAdmin,
   orgUnits,
+  dmScopes,
   emailNotificationsEnabled,
   enabledNotificationTypes,
   ganttDurationMode,
@@ -529,6 +532,7 @@ export function SystemSettingsForm({
 }: {
   isAdmin: boolean;
   orgUnits: OrgUnit[];
+  dmScopes: DmScopeSettings;
   emailNotificationsEnabled: boolean;
   enabledNotificationTypes: NotificationType[];
   ganttDurationMode: GanttDurationMode;
@@ -573,6 +577,7 @@ export function SystemSettingsForm({
           <OwnerDefaultAllocationCard initial={ownerDefaultAllocationPct} />
           <TimeCategoryCard />
           <OrgUnitCard units={orgUnits} />
+          <DmScopeCard initial={dmScopes} />
           <DisciplineRateCard
             units={orgUnits}
             workingDaysPerMonth={workingDaysPerMonth}

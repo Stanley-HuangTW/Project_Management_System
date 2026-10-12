@@ -7,6 +7,7 @@ import { BoardView } from "@/components/board/BoardView";
 import { listHolidays } from "@/lib/holidays";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { applyVisibility } from "@/lib/applyVisibility";
+import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { externalPredecessors } from "@/lib/externalPredecessors";
 
 export default async function BoardPage({
@@ -57,7 +58,7 @@ export default async function BoardPage({
   ];
 
   // Private groups and items the caller is not on never reach the client.
-  const visibleBoard = applyVisibility(board, session);
+  const visibleBoard = applyVisibility(board, session, await loadDmScopeSettings());
 
   return (
     <BoardView

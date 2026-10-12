@@ -18,6 +18,7 @@ import {
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { MAX_FTE, FTE_CAP_MESSAGE } from "@/lib/labourSheet";
 import { loadSlotRates } from "@/lib/labourRate";
+import { loadDmRestriction } from "@/lib/dmScopeServer";
 import { boardWithDataArgs } from "@/types/board";
 import {
   buildLabourSheet,
@@ -201,8 +202,13 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
 
   const access = await loadBoardRoleAccess(boardId, session);
 
+  // DM 的可見範圍(系統設定):被限制「人力表」的 DM 只看得到同職能單位的名額,合計、單位欄、標準月薪都只留那幾個單位。
+  const labourUnits = (await loadDmRestriction(boardId, session))?.labourUnits ?? null;
+  const unitShown = (code: string) => !labourUnits || labourUnits.has(code.toUpperCase());
+  const shownUnits = units.filter((u) => unitShown(u.code));
+
   // Decimal 不能過 RSC 邊界。
-  const slots: (SlotRow & { canEdit: boolean })[] = slotRows.map((s) => ({
+  const slots: (SlotRow & { canEdit: boolean })[] = slotRows.filter((s) => unitShown(s.discipline)).map((s) => ({
     id: s.id,
     discipline: s.discipline,
     label: s.label,
@@ -215,7 +221,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
   }));
 
   const allSlotRates = await loadSlotRates(slots);
-  const sheet = buildLabourSheet(phases, slots, rates, units, allSlotRates);
+  const sheet = buildLabourSheet(phases, slots, rates, shownUnits, allSlotRates);
   // 個人月薪只有管理者看得到(設定月薪本來就只有管理者):每個名額自己的金額 = 他的月薪 × 人月,等於把月薪
   // 送到畫面上。其他人只看得到單位、階段的合計(跟原本一樣,合計是看不出誰的)。
   const isAdmin = session.role === "ADMIN";
@@ -225,7 +231,7 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
 
   return {
     boardName: board.name,
-    units,
+    units: shownUnits,
     phaseColors: Object.fromEntries(phaseRows.map((p) => [p.id, p.color])),
     phases,
     milestones: milestones.map((m) => ({
@@ -244,10 +250,12 @@ export async function getLabourSheetView(boardId: string): Promise<LabourSheetVi
     sheet,
     variances: phaseVariances(phases, sheet.byPhase, actual),
     boardPhases,
-    rates: Object.entries(rates).map(([discipline, monthlySalary]) => ({
-      discipline: discipline as Discipline,
-      monthlySalary,
-    })),
+    rates: Object.entries(rates)
+      .filter(([discipline]) => unitShown(discipline))
+      .map(([discipline, monthlySalary]) => ({
+        discipline: discipline as Discipline,
+        monthlySalary,
+      })),
     canEditSchedule: access.hasScheduleRole,
     canAddSlot: access.hasScheduleRole || access.disciplines.size > 0,
   };

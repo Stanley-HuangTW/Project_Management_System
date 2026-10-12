@@ -902,6 +902,18 @@ model DisciplineRate {
   updatedAt     DateTime @updatedAt
 }
 
+/// 各職能的 DM 可以看到的範圍。DM(SW DM、HW DM、ME DM、QA、PM DM)沒有這一列、或三個都是 false,
+/// 就跟以前一樣什麼都看得到;打開之後,那個職能的 DM 只看得到跟自己職能相關的內容。
+/// 管理者、看板建立者、Team Leader、PMD 不受影響。
+model DmScope {
+  discipline  GroupDiscipline @id
+  /// 工作項:只看得到指派給自己與同職能組員的項目(加上它們的上層項目)。
+  limitItems  Boolean         @default(false)
+  /// 人力表與人力規劃彙總:只看得到同職能單位的名額與欄位。
+  limitLabour Boolean         @default(false)
+  /// 預算金額:階段預算、NRE 報價單、樣機 BOM 的金額看不到。
+  limitBudget Boolean         @default(false)
+}
 /// 一個階段要用掉某個單位幾個人月。階段 × 單位交叉起來就是人力規劃表,
 /// 它加總起來就是這個階段的人力預算 —— 所以人力那一列不是手填的金額,
 /// 而是這張表算出來的。

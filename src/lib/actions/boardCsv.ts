@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { applyVisibility } from "@/lib/applyVisibility";
+import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
@@ -109,8 +111,10 @@ export async function exportBoardCsv(
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
-  const board = await prisma.board.findUnique({ where: { id: boardId }, ...boardWithDataArgs });
-  if (!board) return { error: "找不到這個看板" };
+  const loaded = await prisma.board.findUnique({ where: { id: boardId }, ...boardWithDataArgs });
+  if (!loaded) return { error: "找不到這個看板" };
+  // 匯出的是這個人在畫面上看得到的:私人項目、DM 的可見範圍(系統設定)都照畫面。
+  const board = applyVisibility(loaded, session, await loadDmScopeSettings());
 
   const personNameById = await personNameMap();
   const groupNameById = new Map(board.groups.map((g) => [g.id, g.name]));

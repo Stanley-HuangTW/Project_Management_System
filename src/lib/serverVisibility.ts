@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
 import { getPersonIds } from "@/types/column";
 import { computeVisibleItemIds } from "@/lib/itemVisibility";
+import { restrictItemsToDmScope } from "@/lib/dmScope";
+import { loadDmRestrictions } from "@/lib/dmScopeServer";
 
 /**
  * The item ids this session may read, for the server paths that query Item
@@ -21,6 +23,7 @@ export async function visibleItemIdsForBoards(
       where: { boardId: { in: boardIds } },
       select: {
         id: true,
+        boardId: true,
         parentId: true,
         groupId: true,
         visibility: true,
@@ -38,21 +41,23 @@ export async function visibleItemIdsForBoards(
   ]);
   const personColumnIds = new Set(personColumns.map((c) => c.id));
 
-  return computeVisibleItemIds(
-    items.map((item) => ({
-      id: item.id,
-      visibility: item.visibility,
-      viewerIds: item.viewers.map((v) => v.userId),
-      createdById: item.createdById,
-      parentId: item.parentId,
-      groupId: item.groupId,
-      assigneeIds: [
-        ...item.assignments.map((a) => a.userId),
-        ...item.cellValues
-          .filter((cv) => personColumnIds.has(cv.columnId))
-          .flatMap((cv) => getPersonIds(cv.value)),
-      ],
-    })),
+  const nodes = items.map((item) => ({
+    id: item.id,
+    boardId: item.boardId,
+    visibility: item.visibility,
+    viewerIds: item.viewers.map((v) => v.userId),
+    createdById: item.createdById,
+    parentId: item.parentId,
+    groupId: item.groupId,
+    assigneeIds: [
+      ...item.assignments.map((a) => a.userId),
+      ...item.cellValues
+        .filter((cv) => personColumnIds.has(cv.columnId))
+        .flatMap((cv) => getPersonIds(cv.value)),
+    ],
+  }));
+  const visible = computeVisibleItemIds(
+    nodes,
     groups.map((group) => ({
       id: group.id,
       visibility: group.visibility,
@@ -61,6 +66,21 @@ export async function visibleItemIdsForBoards(
     })),
     { userId: session.userId, isAdmin: session.role === "ADMIN" }
   );
+
+  // DM 的可見範圍(系統設定):被限制「工作項」的看板,只留下指派給自己與同職能組員的項目與它們的上層。
+  const restrictions = await loadDmRestrictions(boardIds, session);
+  let result = visible;
+  for (const [boardId, restriction] of restrictions) {
+    if (!restriction.itemAssigneeIds) continue;
+    const boardNodes = nodes.filter((n) => n.boardId === boardId);
+    const kept = restrictItemsToDmScope(visible, boardNodes, {
+      userId: session.userId,
+      assigneeIds: restriction.itemAssigneeIds,
+    });
+    if (result === visible) result = new Set(visible);
+    for (const n of boardNodes) if (!kept.has(n.id)) result.delete(n.id);
+  }
+  return result;
 }
 
 export async function visibleItemIdsForBoard(

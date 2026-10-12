@@ -86,6 +86,16 @@ export function orgUnitToGroupDiscipline(orgUnitCode: string): GroupDiscipline |
   return ORG_UNIT_TO_DISCIPLINE[orgUnitCode.toUpperCase()] ?? null;
 }
 
+/** orgUnitToGroupDiscipline 的反向:這幾個職能底下有哪些組織單位代號(HW 對到 EE 與 HW)。 */
+export function orgUnitCodesOfDisciplines(disciplines: Iterable<GroupDiscipline>): Set<string> {
+  const wanted = new Set(disciplines);
+  return new Set(
+    Object.entries(ORG_UNIT_TO_DISCIPLINE)
+      .filter(([, discipline]) => wanted.has(discipline))
+      .map(([code]) => code)
+  );
+}
+
 /**
  * 這個人可不可以編輯某個組織單位底下的人力名額(指定人員、填月份數字、
  * 新增/刪除/改名名額)。

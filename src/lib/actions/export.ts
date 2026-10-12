@@ -7,6 +7,7 @@ import { boardWithDataArgs, type UserOption } from "@/types/board";
 import { buildGanttWorkbook } from "@/lib/export/ganttWorkbookExport";
 import { GANTT_APPS_SCRIPT } from "@/lib/export/ganttAppsScript";
 import { listHolidays } from "@/lib/holidays";
+import { loadDmRestriction } from "@/lib/dmScopeServer";
 import { getBudgetView } from "@/lib/actions/budget";
 import { getDelayAnalysis } from "@/lib/actions/delayAnalysis";
 import { CATEGORY_LABELS } from "@/lib/budget";
@@ -108,6 +109,8 @@ export async function exportGanttWorkbook(
 ): Promise<{ xlsxFilename: string; xlsxBase64: string; gsFilename: string; gsContent: string }> {
   const session = await requireSession();
   requireBoardAdmin(session.role);
+  // 這份 Excel 帶預算與全部工作項,不分範圍。被系統設定限制了可見範圍的 DM(即使同時是主管)不能匯出。
+  if (await loadDmRestriction(boardId, session)) throw new Error("你的角色受「DM 的可見範圍」限制,不能匯出甘特圖 Excel");
 
   const [board, users, resources, holidays, budgets, delay] = await Promise.all([
     prisma.board.findUnique({ where: { id: boardId }, ...boardWithDataArgs }),

@@ -19,6 +19,7 @@ import {
 } from "@/lib/labourPlan";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
+import { loadDmRestriction } from "@/lib/dmScopeServer";
 
 export type LabourPlanView = {
   boardName: string;
@@ -73,7 +74,11 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     select: { id: true, name: true },
   });
 
-  const [cells, rates, settings, units, slotRows, phaseRows] = await Promise.all([
+  // DM 的可見範圍(系統設定):被限制「人力規劃彙總」的 DM 只看得到同職能單位的欄位與人月。
+  const labourUnits = (await loadDmRestriction(boardId, session))?.labourUnits ?? null;
+  const unitShown = (code: string) => !labourUnits || labourUnits.has(code.toUpperCase());
+
+  const [cells, rates, settings, allUnits, slotRows, phaseRows] = await Promise.all([
     prisma.labourPlan.findMany({
       where: { phaseId: { in: phases.map((p) => p.id) } },
       select: { phaseId: true, discipline: true, personMonths: true },
@@ -85,13 +90,14 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" } }),
   ]);
 
+  const units = allUnits.filter((u) => unitShown(u.code));
   const factors = {
     workingDaysPerMonth: settings.workingDaysPerMonth,
     hoursPerDay: settings.hoursPerDay,
   };
 
   // 金額以人力表為準:有指到人、設了個人月薪的名額用他的月薪算(跟寫進預算的數字同一套)。
-  const slots: SlotRow[] = slotRows.map((s) => ({
+  const slots: SlotRow[] = slotRows.filter((s) => unitShown(s.discipline)).map((s) => ({
     id: s.id,
     discipline: s.discipline,
     label: s.label,
@@ -115,7 +121,7 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
     summary: applySheetAmounts(
       summariseLabourPlan(
         phases,
-        cells.map((c) => ({
+        cells.filter((c) => unitShown(c.discipline)).map((c) => ({
           rowId: c.phaseId,
           discipline: c.discipline,
           personMonths: Number(c.personMonths),
@@ -125,10 +131,12 @@ export async function getLabourPlanView(boardId: string): Promise<LabourPlanView
       ),
       sheet
     ),
-    rates: Object.entries(rates).map(([discipline, monthlySalary]) => ({
-      discipline: discipline as Discipline,
-      monthlySalary,
-    })),
+    rates: Object.entries(rates)
+      .filter(([discipline]) => unitShown(discipline))
+      .map(([discipline, monthlySalary]) => ({
+        discipline: discipline as Discipline,
+        monthlySalary,
+      })),
     units,
     factors,
     canEdit: await canEditBoardBudget(boardId),

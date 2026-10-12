@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
 import { accessibleBoardWhere, canAccessBoard } from "@/lib/boardAccess";
+import { applyVisibility } from "@/lib/applyVisibility";
+import { visibleItemIdsForBoards } from "@/lib/serverVisibility";
+import { hideBudgetOn, loadDmRestriction, loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { boardWithDataArgs } from "@/types/board";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { computeWbsCodes, compareWbsCodes } from "@/lib/wbs";
@@ -46,11 +49,14 @@ const optionalStr = str;
 
 /** 解析出這個 session 看得到、而且符合條件的看板。 */
 async function accessibleBoards(session: SessionPayload, boardId?: string) {
-  if (boardId) {
-    if (!(await canAccessBoard(session, boardId))) return [];
-    return prisma.board.findMany({ where: { id: boardId }, ...boardWithDataArgs });
-  }
-  return prisma.board.findMany({ where: accessibleBoardWhere(session), ...boardWithDataArgs });
+  const boards = boardId
+    ? (await canAccessBoard(session, boardId))
+      ? await prisma.board.findMany({ where: { id: boardId }, ...boardWithDataArgs })
+      : []
+    : await prisma.board.findMany({ where: accessibleBoardWhere(session), ...boardWithDataArgs });
+  // 私人項目與 DM 的可見範圍(系統設定)跟畫面上一樣:這把金鑰是誰的,就只讀得到那個人看得到的項目。
+  const dmSettings = await loadDmScopeSettings();
+  return boards.map((board) => applyVisibility(board, session, dmSettings));
 }
 
 /** 一個看板的 WBS:代號是項目在自己分組樹裡的位置,所以一個分組算一次。 */
@@ -314,9 +320,10 @@ async function searchItems(session: SessionPayload, args: Json) {
     select: { id: true, name: true, boardId: true, group: { select: { name: true } } },
   });
   const boardName = new Map(boards.map((b) => [b.id, b.name]));
+  const visibleIds = await visibleItemIdsForBoards(boards.map((b) => b.id), session);
 
   return {
-    hits: items.map((i) => ({
+    hits: items.filter((i) => visibleIds.has(i.id)).map((i) => ({
       id: i.id,
       name: i.name,
       boardId: i.boardId,
@@ -451,6 +458,7 @@ async function getBudgetTool(session: SessionPayload, args: Json) {
   if (!item || !(await canAccessBoard(session, item.boardId))) {
     throw new Error("找不到這個階段,或這把金鑰沒有權限");
   }
+  if (await hideBudgetOn(item.boardId, session)) throw new Error("權限不足:你的角色看不到預算金額");
 
   // 預算涵蓋這一列底下整棵子樹。
   const all = await prisma.item.findMany({
@@ -522,7 +530,10 @@ async function getLabourSheetTool(session: SessionPayload, args: Json) {
     endDate: p.endDate,
     itemId: p.itemId,
   }));
-  const slots: SlotRow[] = slotRows.map((s) => ({
+  // DM 的可見範圍(系統設定):被限制「人力表」的人只看得到同職能單位的名額。
+  const labourUnits = (await loadDmRestriction(boardId, session))?.labourUnits ?? null;
+  const unitShown = (code: string) => !labourUnits || labourUnits.has(code.toUpperCase());
+  const slots: SlotRow[] = slotRows.filter((s) => unitShown(s.discipline)).map((s) => ({
     id: s.id,
     discipline: s.discipline,
     label: s.label,
@@ -533,7 +544,7 @@ async function getLabourSheetTool(session: SessionPayload, args: Json) {
     months: Object.fromEntries(s.months.map((m) => [m.month, Number(m.fte)])),
   }));
 
-  const units = await loadOrgUnits();
+  const units = (await loadOrgUnits()).filter((u) => unitShown(u.code));
   const sheet = buildLabourSheet(phases, slots, rates, units, await loadSlotRates(slots));
   // 個人月薪只有管理者看得到:每個名額的金額 = 月薪 × 人月,所以不是管理者的金鑰看不到用個人月薪算的名額的金額(合計照給)。
   const totalOf = new Map(
