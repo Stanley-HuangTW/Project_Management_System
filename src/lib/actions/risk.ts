@@ -9,6 +9,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { clampLevel, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
+import { attributeAudit } from "@/lib/impersonation";
 import {
   allReviewersApproved,
   describeRiskChanges,
@@ -269,9 +270,10 @@ async function namesFor(userIds: string[], itemIds: string[]) {
   };
 }
 
-type LogRow = { riskId: string; boardId: string; actorId: string; message: string };
-const logRows = (riskId: string, boardId: string, actorId: string, messages: string[]): LogRow[] =>
-  messages.map((message) => ({ riskId, boardId, actorId, message }));
+type LogRow = { riskId: string; boardId: string; actorId: string | null; message: string };
+/** 管理者以別人的身分操作時,紀錄記管理者並在訊息註記(見 attributeAudit)。 */
+const logRows = (riskId: string, boardId: string, session: SessionPayload, messages: string[]): LogRow[] =>
+  messages.map((message) => ({ riskId, boardId, ...attributeAudit(session, session.userId, message) }));
 
 export async function createRisk(boardId: string, input: RiskInput): Promise<Result> {
   const session = await requireSession();
@@ -298,7 +300,7 @@ export async function createRisk(boardId: string, input: RiskInput): Promise<Res
     reviewerIds.length > 0 ? `審核人:${reviewerIds.map(names.user).join("、")}` : null,
   ].filter(Boolean);
   await prisma.activityLogEntry.createMany({
-    data: logRows(risk.id, boardId, session.userId, [
+    data: logRows(risk.id, boardId, session, [
       `建立${input.kind === "ISSUE" ? "問題" : "風險"}「${data.title}」${who.length > 0 ? `(${who.join(";")})` : ""}`,
     ]).map((row) => ({ ...row, category: "RISK" as const })),
   });
@@ -371,7 +373,7 @@ export async function updateRisk(riskId: string, input: RiskInput): Promise<Resu
     if (reopening) await tx.riskReviewer.updateMany({ where: { riskId }, data: { approvedAt: null } });
     if (changes.length > 0) {
       await tx.activityLogEntry.createMany({
-        data: logRows(riskId, existing.boardId, session.userId, [`修改「${data.title}」:${changes.join(";")}`]).map(
+        data: logRows(riskId, existing.boardId, session, [`修改「${data.title}」:${changes.join(";")}`]).map(
           (row) => ({ ...row, category: "RISK" as const })
         ),
       });
@@ -404,9 +406,8 @@ export async function setRiskStatus(riskId: string, status: RiskStatus): Promise
       data: {
         riskId,
         boardId: existing.boardId,
-        actorId: session.userId,
+        ...attributeAudit(session, session.userId, `「${existing.title}」狀態:${RISK_STATUS_LABELS[existing.status]} → ${RISK_STATUS_LABELS[status]}`),
         category: "RISK",
-        message: `「${existing.title}」狀態:${RISK_STATUS_LABELS[existing.status]} → ${RISK_STATUS_LABELS[status]}`,
       },
     }),
   ]);
@@ -433,9 +434,8 @@ export async function addRiskUpdate(riskId: string, body: string): Promise<Resul
       data: {
         riskId,
         boardId: existing.boardId,
-        actorId: session.userId,
+        ...attributeAudit(session, session.userId, `「${existing.title}」新增進度更新`),
         category: "RISK",
-        message: `「${existing.title}」新增進度更新`,
       },
     }),
   ]);
@@ -462,9 +462,8 @@ export async function requestRiskClosure(riskId: string): Promise<Result> {
       data: {
         riskId,
         boardId: existing.boardId,
-        actorId: session.userId,
+        ...attributeAudit(session, session.userId, `「${existing.title}」申請結案,等待 ${existing.reviewers.length} 位審核人同意`),
         category: "RISK",
-        message: `「${existing.title}」申請結案,等待 ${existing.reviewers.length} 位審核人同意`,
       },
     }),
   ]);
@@ -490,9 +489,8 @@ export async function withdrawRiskClosure(riskId: string): Promise<Result> {
       data: {
         riskId,
         boardId: existing.boardId,
-        actorId: session.userId,
+        ...attributeAudit(session, session.userId, `撤回「${existing.title}」的結案申請`),
         category: "RISK",
-        message: `撤回「${existing.title}」的結案申請`,
       },
     }),
   ]);
@@ -528,7 +526,7 @@ export async function reviewRiskClosure(
       }
       const log = (message: string) =>
         tx.activityLogEntry.create({
-          data: { riskId, boardId: risk.boardId, actorId: session.userId, category: "RISK", message },
+          data: { riskId, boardId: risk.boardId, ...attributeAudit(session, session.userId, message), category: "RISK" },
         });
 
       if (decision === "REJECT") {

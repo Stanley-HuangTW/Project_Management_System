@@ -8,8 +8,8 @@ import {
   verifySessionToken,
 } from "@/lib/jwt";
 
-export async function setSessionCookie(payload: SessionPayload) {
-  const token = await createSessionToken(payload);
+export async function setSessionCookie(payload: SessionPayload, durationSeconds = SESSION_DURATION_SECONDS) {
+  const token = await createSessionToken(payload, durationSeconds);
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -19,7 +19,7 @@ export async function setSessionCookie(payload: SessionPayload) {
     secure: (process.env.APP_BASE_URL ?? "").startsWith("https://"),
     sameSite: "lax",
     path: "/",
-    maxAge: SESSION_DURATION_SECONDS,
+    maxAge: durationSeconds,
   });
 }
 

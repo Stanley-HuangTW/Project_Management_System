@@ -12,13 +12,16 @@ export type SessionPayload = {
   email: string;
   name: string;
   role: "ADMIN" | "SUPERVISOR" | "MEMBER";
+  /** 管理者以別人的身分檢視時:上面四個欄位是被檢視的人,這兩個才是真正在操作的管理者。 */
+  impersonatorId?: string;
+  impersonatorName?: string;
 };
 
-export async function createSessionToken(payload: SessionPayload) {
+export async function createSessionToken(payload: SessionPayload, durationSeconds = SESSION_DURATION_SECONDS) {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_DURATION_SECONDS}s`)
+    .setExpirationTime(`${durationSeconds}s`)
     .sign(secretKey);
 }
 

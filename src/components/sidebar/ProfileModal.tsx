@@ -1,21 +1,34 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { updateOwnAvatar, updateOwnPassword } from "@/lib/actions/user";
+import {
+  listImpersonationUsers,
+  startImpersonation,
+  stopImpersonation,
+  type ImpersonationUser,
+} from "@/lib/actions/impersonate";
+import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useTheme } from "@/lib/useTheme";
 
 export function ProfileModal({
   userName,
   avatarUrl,
+  isAdmin,
+  impersonating,
   open,
   onOpenChange,
 }: {
   userName: string;
   avatarUrl: string | null;
+  /** 目前登入的角色是管理者(代操作中顯示的是被檢視者,所以這裡可能是 false)。 */
+  isAdmin: boolean;
+  /** 管理者正以別人的身分檢視:不能改對方的照片與密碼,可以在這裡退出。 */
+  impersonating: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -32,6 +45,25 @@ export function ProfileModal({
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // 管理者切換使用者視角:下拉選單的使用者名單打開視窗才去抓。
+  const canSwitch = isAdmin && !impersonating;
+  const [users, setUsers] = useState<ImpersonationUser[] | null>(null);
+  const [targetId, setTargetId] = useState("");
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !canSwitch || users) return;
+    let cancelled = false;
+    (async () => {
+      const list = await listImpersonationUsers();
+      if (!cancelled) setUsers(list);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, canSwitch, users]);
+
   // Resync the preview when the modal is reopened with fresh server data,
   // without fighting an upload already in progress — adjusted during
   // render, not an effect, same pattern used elsewhere in this codebase.
@@ -45,6 +77,35 @@ export function ProfileModal({
       setNewPassword("");
       setPasswordError(null);
       setPasswordSuccess(false);
+      setSwitchError(null);
+    }
+  }
+
+  /** 切換、退出之後整頁重新載入:所有畫面都要用新的身分重新取資料。 */
+  async function handleSwitch() {
+    if (!targetId) return;
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      const result = await startImpersonation(targetId);
+      if (result.error) {
+        setSwitchError(result.error);
+        return;
+      }
+      window.location.reload();
+    } catch (err) {
+      setSwitchError(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : "切換失敗");
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  async function handleStopImpersonation() {
+    setSwitching(true);
+    try {
+      await stopImpersonation();
+    } finally {
+      window.location.reload();
     }
   }
 
@@ -88,7 +149,7 @@ export function ProfileModal({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || impersonating}
           className="relative shrink-0 rounded-full outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
           aria-label="更換照片"
         >
@@ -103,14 +164,16 @@ export function ProfileModal({
         />
         <div>
           <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{userName}</p>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="text-xs text-blue-600 hover:underline disabled:opacity-50"
-          >
-            {uploading ? "上傳中..." : "更換照片"}
-          </button>
+          {!impersonating && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+            >
+              {uploading ? "上傳中..." : "更換照片"}
+            </button>
+          )}
         </div>
       </div>
       {avatarError && (
@@ -145,6 +208,21 @@ export function ProfileModal({
         </div>
       </div>
 
+      {impersonating && (
+        <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <p>你正以「{userName}」的身分檢視,不能更換對方的照片或密碼。</p>
+          <button
+            type="button"
+            onClick={() => void handleStopImpersonation()}
+            disabled={switching}
+            className="mt-2 rounded-md bg-neutral-900 px-3 py-1.5 font-medium text-white hover:bg-neutral-700 disabled:opacity-60"
+          >
+            {switching ? "退出中..." : "退出,回到我自己"}
+          </button>
+        </div>
+      )}
+
+      {!impersonating && (
       <div className="border-t border-neutral-100 dark:border-neutral-700 pt-4 mt-4">
         <p className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">變更密碼</p>
         {passwordError && (
@@ -180,6 +258,39 @@ export function ProfileModal({
           </button>
         </div>
       </div>
+      )}
+
+      {canSwitch && (
+        <div className="mt-4 border-t border-neutral-100 pt-4 dark:border-neutral-700">
+          <p className="mb-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">切換使用者視角(管理者)</p>
+          <p className="mb-2 text-[11px] text-neutral-500 dark:text-neutral-400">
+            以那位使用者的身分看畫面、操作,方便重現他遇到的問題。操作會記進稽核軌跡;改的資料會算在對方名下,觸發的通知與信件會真的寄出;4 小時後自動失效。
+          </p>
+          {switchError && <div className="mb-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{switchError}</div>}
+          <div className="flex gap-2">
+            <select
+              value={targetId}
+              onChange={(e) => setTargetId(e.target.value)}
+              className="min-w-0 flex-1 rounded-md border border-neutral-300 px-2 py-2 text-sm outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+            >
+              <option value="">{users ? "選擇使用者…" : "載入中..."}</option>
+              {users?.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}({u.email})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!targetId || switching}
+              onClick={() => void handleSwitch()}
+              className="shrink-0 rounded-md bg-amber-400 px-3 py-2 text-sm font-medium text-neutral-900 hover:bg-amber-300 disabled:opacity-50"
+            >
+              {switching ? "切換中..." : "切換"}
+            </button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

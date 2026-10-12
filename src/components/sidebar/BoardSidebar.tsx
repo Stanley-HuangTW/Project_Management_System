@@ -72,6 +72,7 @@ export function BoardSidebar({
   userRole,
   currentUserId,
   avatarUrl,
+  impersonating = false,
 }: {
   boards: Board[];
   programs: Program[];
@@ -82,6 +83,8 @@ export function BoardSidebar({
   userRole: UserRole;
   currentUserId: string;
   avatarUrl?: string | null;
+  /** 管理者正以別人的身分檢視(userName / userRole 是被檢視的人)。 */
+  impersonating?: boolean;
 }) {
   const canManage = canManageBoard(userRole);
   /** 重新命名/刪除:ADMIN 一律可以;SUPERVISOR 限自己建立的看板。 */
@@ -521,6 +524,8 @@ export function BoardSidebar({
       <ProfileModal
         userName={userName}
         avatarUrl={avatarUrl ?? null}
+        isAdmin={userRole === "ADMIN"}
+        impersonating={impersonating}
         open={profileOpen}
         onOpenChange={setProfileOpen}
       />

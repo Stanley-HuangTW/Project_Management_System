@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import type { SessionPayload } from "@/lib/jwt";
 import { requireGroupStructureAccess } from "@/lib/actions/item";
 import { logActivity } from "@/lib/activityLog";
+import { attributeAudit } from "@/lib/impersonation";
 import { planNameReplace } from "@/lib/bulkRename";
 import { notifyStructuralChange } from "@/lib/notify";
 import { dispatchWebhooks } from "@/lib/webhooks";
@@ -397,8 +398,7 @@ export async function bulkReplaceItemNames(
         data: plan.changes.map((c) => ({
           itemId: c.id,
           boardId,
-          actorId: session.userId,
-          message: `項目名稱從「${c.from}」改為「${c.to}」`,
+          ...attributeAudit(session, session.userId, `項目名稱從「${c.from}」改為「${c.to}」`),
           category: "ITEM" as const,
         })),
       }),

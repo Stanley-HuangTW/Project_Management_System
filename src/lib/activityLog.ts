@@ -1,5 +1,19 @@
 import type { AuditCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+import { attributeAudit } from "@/lib/impersonation";
+
+/**
+ * 管理者以別人的身分操作時,紀錄要記真正動手的管理者並註記。不在請求裡(排程、MCP 之類
+ * 沒有 cookie 可看)就照原樣——這裡不會丟例外,稽核紀錄不能因為這個壞掉。
+ */
+async function attributed(actorId: string | null, message: string) {
+  try {
+    return attributeAudit(await getSession(), actorId, message);
+  } catch {
+    return { actorId, message };
+  }
+}
 
 /**
  * 工作項上的一筆活動紀錄.
@@ -11,8 +25,9 @@ import { prisma } from "@/lib/prisma";
  */
 export async function logActivity(itemId: string, actorId: string | null, message: string) {
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
+  const entry = await attributed(actorId, message);
   await prisma.activityLogEntry.create({
-    data: { itemId, boardId: item?.boardId ?? null, actorId, message, category: "ITEM" },
+    data: { itemId, boardId: item?.boardId ?? null, actorId: entry.actorId, message: entry.message, category: "ITEM" },
   });
 }
 
@@ -35,8 +50,9 @@ export async function logAudit(
   boardId?: string | null
 ) {
   try {
+    const entry = await attributed(actorId, message);
     await prisma.activityLogEntry.create({
-      data: { category, actorId, message, boardId: boardId ?? null },
+      data: { category, actorId: entry.actorId, message: entry.message, boardId: boardId ?? null },
     });
   } catch {
     // Deliberately swallowed — see above.

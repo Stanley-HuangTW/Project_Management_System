@@ -426,6 +426,7 @@ export async function adminResetUserPassword(userId: string, newPassword: string
  *  their own photo, no ADMIN check. */
 export async function updateOwnAvatar(avatarUrl: string | null) {
   const session = await requireSession();
+  if (session.impersonatorId) throw new Error("以別人的身分檢視時,不能更換對方的照片");
   if (avatarUrl && avatarUrl.length > 2_000_000) {
     throw new Error("圖片檔案過大,請使用較小的圖片");
   }
@@ -445,6 +446,7 @@ export async function updateOwnAvatar(avatarUrl: string | null) {
  *  silently lock the real owner out. */
 export async function updateOwnPassword(currentPassword: string, newPassword: string) {
   const session = await requireSession();
+  if (session.impersonatorId) throw new Error("以別人的身分檢視時,不能變更對方的密碼");
   if (newPassword.length < 8) {
     throw new Error("新密碼至少需要 8 個字元");
   }

@@ -20,6 +20,8 @@ export async function approveAuthorization(input: {
   resource: string | null;
 }): Promise<{ error?: string; redirectTo?: string }> {
   const session = await requireSession();
+  // 授權碼會換成「這個人」的長期存取憑證,不能在以別人的身分檢視時替對方發出去。
+  if (session.impersonatorId) return { error: "以別人的身分檢視時,不能替對方授權應用程式存取" };
 
   const client = await findClient(input.clientId);
   if (!client) return { error: "找不到這個應用程式" };
