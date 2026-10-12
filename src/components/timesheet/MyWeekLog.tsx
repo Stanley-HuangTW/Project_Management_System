@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, Copy, LayoutTemplate } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Copy, LayoutTemplate, ListChecks } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   deleteActivityTime,
@@ -22,6 +22,7 @@ import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
 import { EntryDialog, type EntryDialogTarget, type EntryDraft } from "./EntryDialog";
 import { GoogleCalendarDialog } from "./GoogleCalendarDialog";
 import { TemplateDialog, type TemplatePrefill } from "./TemplateDialog";
+import { EstimateImportDialog } from "./EstimateImportDialog";
 import { EstimatePanel } from "./EstimatePanel";
 import { WeekCalendar } from "./WeekCalendar";
 import { getMyEstimates } from "@/lib/actions/timesheetEstimate";
@@ -44,6 +45,7 @@ export function MyWeekLog({ today }: { today: string }) {
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templatePrefill, setTemplatePrefill] = useState<TemplatePrefill | null>(null);
   const [gcalOpen, setGcalOpen] = useState(false);
+  const [estimateImportOpen, setEstimateImportOpen] = useState(false);
   const [estimates, setEstimates] = useState<{ weekStart: string; data: EstimateWeek | { error: string } } | null>(null);
 
   // 從 Google 授權頁回來:回到原本看的那一週,成功就重新打開匯入視窗,失敗說一聲。
@@ -393,6 +395,15 @@ export function MyWeekLog({ today }: { today: string }) {
         <button
           type="button"
           disabled={busy}
+          onClick={() => setEstimateImportOpen(true)}
+          className="flex items-center gap-1 rounded-md border border-blue-300 px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950"
+          title="用指派給你的工作項的每日預估當工時,實際時數預設就是預估,可以再改成實際花的時間"
+        >
+          <ListChecks size={13} /> 匯入預估
+        </button>
+        <button
+          type="button"
+          disabled={busy}
           onClick={() => setGcalOpen(true)}
           className="flex items-center gap-1 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
           title="把 Google 日曆的行程匯入成工時(可選每週、每月或自訂區間)"
@@ -444,6 +455,13 @@ export function MyWeekLog({ today }: { today: string }) {
         onDelete={deleteFromDialog}
         onDeleteSeries={deleteSeriesFromDialog}
         onSaveAsTemplate={saveAsTemplate}
+      />
+      <EstimateImportDialog
+        open={estimateImportOpen}
+        onClose={() => setEstimateImportOpen(false)}
+        weekStart={weekStart}
+        today={today}
+        onImported={reload}
       />
       <GoogleCalendarDialog
         open={gcalOpen}

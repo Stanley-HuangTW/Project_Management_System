@@ -280,3 +280,49 @@ export function summarizeByDay(week: EstimateWeek, actuals: ActualEntry[], days:
     };
   });
 }
+
+/** 一天的工作項預估小於這個時數的不列進匯入清單——例如 2% 的負責人預設比例一天只有 0.16 小時,匯進去只是雜訊。 */
+export const MIN_IMPORT_HOURS = 0.25;
+
+export type EstimateImportRow = {
+  /** 工作項 + 日期,清單裡的識別。 */
+  key: string;
+  date: string;
+  itemId: string;
+  itemName: string;
+  boardId: string;
+  boardName: string;
+  /** 這個工作項這一天的預估時數(配置比例 × 每日工時)。 */
+  estimateHours: number;
+};
+
+/**
+ * 工作項預估攤出來的「每個工作項、每一天」一列,給「從工作項預估匯入工時」用:
+ * 先照日期、再照專案與工作項名稱排;預估小於 MIN_IMPORT_HOURS 的不列。
+ */
+export function estimateImportRows(projects: EstimateProject[], days: string[]): EstimateImportRow[] {
+  const rows: EstimateImportRow[] = [];
+  for (const project of projects) {
+    for (const item of project.items) {
+      for (const date of days) {
+        const hours = item.hours[date] ?? 0;
+        if (hours < MIN_IMPORT_HOURS) continue;
+        rows.push({
+          key: `${item.itemId}|${date}`,
+          date,
+          itemId: item.itemId,
+          itemName: item.itemName,
+          boardId: project.boardId,
+          boardName: project.boardName,
+          estimateHours: round2(hours),
+        });
+      }
+    }
+  }
+  return rows.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.boardName.localeCompare(b.boardName, "zh-TW") ||
+      a.itemName.localeCompare(b.itemName, "zh-TW")
+  );
+}

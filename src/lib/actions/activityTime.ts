@@ -40,6 +40,8 @@ export type ProjectDayEntry = {
   boardId: string;
   boardName: string;
   hours: number;
+  /** 從工作項預估匯入時當初的預估時數(hours 是實際);不是匯入的是 null。 */
+  estimateHours: number | null;
   note: string;
   status: ApprovalStatus;
   /** 一天中的開始時間(從 00:00 起算的分鐘數),null = 沒排時間。 */
@@ -165,6 +167,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           boardId: e.item.board.id,
           boardName: e.item.board.name,
           hours: Number(e.hours),
+          estimateHours: e.estimateHours === null ? null : Number(e.estimateHours),
           note: e.note ?? "",
           status: e.status,
           startMinute: e.startMinute,

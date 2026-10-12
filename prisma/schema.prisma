@@ -1216,6 +1216,8 @@ model TimeEntry {
   /// "YYYY-MM-DD" — the day worked, not the day it was typed in.
   date         String
   hours        Decimal        @db.Decimal(6, 2)
+  /// 從工作項預估匯入時,當初的預估時數(hours 是實際時數,可以再改)。null = 不是從預估匯入的。
+  estimateHours Decimal?      @db.Decimal(6, 2)
   note         String?
   /// 一天中的開始時間(從 00:00 起算的分鐘數),行事曆畫面用來排位置。null = 沒排時間。
   startMinute  Int?

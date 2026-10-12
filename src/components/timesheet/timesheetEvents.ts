@@ -21,6 +21,10 @@ export type CalendarEvent = {
   activity?: ActivityDayEntry;
 };
 
+function fmtHours(hours: number): string {
+  return String(Number(hours.toFixed(2)));
+}
+
 export function eventsOfWeek(week: MyWeek): CalendarEvent[] {
   const events: CalendarEvent[] = [];
   for (const day of week.days) {
@@ -34,7 +38,7 @@ export function eventsOfWeek(week: MyWeek): CalendarEvent[] {
         seriesId: e.seriesId,
         hours: e.hours,
         title: e.itemName,
-        subtitle: [e.boardName, e.note].filter(Boolean).join(" · "),
+        subtitle: [e.boardName, e.estimateHours === null ? "" : `預估 ${fmtHours(e.estimateHours)}h`, e.note].filter(Boolean).join(" · "),
         status: e.status,
         needsApproval: true,
         project: e,

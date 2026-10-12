@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEstimateTable,
   compareHours,
+  estimateImportRows,
   isWorkday,
   itemHoursByDay,
   labourHoursByDay,
@@ -214,5 +215,34 @@ describe("summarizeByDay", () => {
   it("週末:沒有預估,加班的實際照列,達成率是 null", () => {
     expect(days[5]).toMatchObject({ workday: false, labour: 0, work: 0, actual: 3 });
     expect(days[5].vsLabour.pct).toBeNull();
+  });
+});
+
+describe("estimateImportRows(從工作項預估匯入工時的清單)", () => {
+  const week = sampleWeek();
+
+  it("每個工作項、每一天一列:日期、專案、工作項與預估時數", () => {
+    const rows = estimateImportRows(week.projects, WEEK);
+    // 硬體設計 週一到週五各 4 小時(5 列)、文件 週三週四各 2 小時(2 列)、M3 測試 週一 8 小時(1 列)
+    expect(rows).toHaveLength(8);
+    expect(rows[0]).toMatchObject({ date: "2026-10-12", boardName: "M3", itemName: "測試", estimateHours: 8, key: "i3|2026-10-12" });
+  });
+
+  it("照日期排;同一天照專案與工作項名稱", () => {
+    const rows = estimateImportRows(week.projects, WEEK);
+    expect(rows.map((r) => r.date)).toEqual([...rows.map((r) => r.date)].sort());
+    const wed = rows.filter((r) => r.date === "2026-10-14").map((r) => r.itemName);
+    expect(wed).toEqual(["文件", "硬體設計"].sort((a, b) => a.localeCompare(b, "zh-TW")));
+  });
+
+  it("只列要匯入的那幾天;週末與沒有預估的天不會有列", () => {
+    const rows = estimateImportRows(week.projects, ["2026-10-17", "2026-10-18"]);
+    expect(rows).toEqual([]);
+    expect(estimateImportRows(week.projects, ["2026-10-13"]).map((r) => r.itemName)).toEqual(["硬體設計"]);
+  });
+
+  it("預估太小(< 0.25 小時)的不列", () => {
+    const tiny = [{ ...week.projects[0], items: [{ ...week.projects[0].items[0], hours: { "2026-10-12": 0.16, "2026-10-13": 0.25 } }] }];
+    expect(estimateImportRows(tiny, WEEK).map((r) => r.date)).toEqual(["2026-10-13"]);
   });
 });

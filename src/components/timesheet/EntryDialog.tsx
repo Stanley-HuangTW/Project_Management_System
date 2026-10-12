@@ -95,6 +95,8 @@ function EntryForm({
   onSaveAsTemplate: (event: CalendarEvent) => void;
 }) {
   const editing = target.mode === "edit" ? target.event : null;
+  // 從工作項預估匯入的專案工時:當初的預估(實際時數可以改,預估不動)。
+  const estimateHours = editing?.project?.estimateHours ?? null;
   const { notify } = useDialogs();
   const [kind, setKind] = useState<"project" | "activity">(editing?.kind ?? "activity");
   const [date, setDate] = useState(editing?.date ?? (target.mode === "new" ? target.date : ""));
@@ -350,6 +352,17 @@ function EntryForm({
         </label>
         {endLabel && <span className="pb-2 text-xs text-neutral-400 dark:text-neutral-500">到 {endLabel}</span>}
       </div>
+      {estimateHours !== null && (
+        <p className="rounded-md bg-neutral-50 px-3 py-2 text-xs tabular-nums text-neutral-600 dark:bg-neutral-800/60 dark:text-neutral-300">
+          從工作項預估匯入:<b>原預估 {fmtHours(estimateHours)} 小時</b>、這筆實際 <b>{fmtHours(Number(hours) || 0)} 小時</b>
+          {Number(hours) > 0 && (
+            <span className={Number(hours) > estimateHours ? "text-red-600 dark:text-red-400" : ""}>
+              (差 {Number(hours) - estimateHours > 0 ? "+" : Number(hours) - estimateHours < 0 ? "−" : ""}
+              {fmtHours(Math.abs(Number(hours) - estimateHours))},{Math.round((Number(hours) / estimateHours) * 100)}%)
+            </span>
+          )}
+        </p>
+      )}
       <label className="flex w-fit items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
         <input type="checkbox" checked={scheduled} onChange={(e) => setScheduled(e.target.checked)} />
         排定時間(取消勾選會列在日期底下的「未排時間」)
@@ -480,4 +493,8 @@ function EntryForm({
       </div>
     </div>
   );
+}
+
+function fmtHours(hours: number): string {
+  return String(Number(hours.toFixed(2)));
 }

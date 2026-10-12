@@ -78,7 +78,9 @@ export async function logTime(
   /** 一天中的開始時間(分鐘),行事曆用。 */
   startMinute?: number | null,
   /** 用「重複」一次建立一批時共用的識別。 */
-  seriesId?: string | null
+  seriesId?: string | null,
+  /** 從工作項預估匯入的:當初的預估時數(hours 是實際,可以不一樣)。 */
+  estimateHours?: number | null
 ): Promise<{ error?: string }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
@@ -102,6 +104,7 @@ export async function logTime(
       userId: targetUserId,
       date,
       hours,
+      estimateHours: estimateHours ?? null,
       note: note.trim() || null,
       startMinute: startMinute ?? null,
       seriesId: seriesId ?? null,

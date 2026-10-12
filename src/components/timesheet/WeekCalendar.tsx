@@ -270,9 +270,10 @@ export function WeekCalendar({
                           type="button"
                           onClick={() => onOpen(e)}
                           className={`block w-full truncate rounded border px-1 py-0.5 text-left text-[11px] ${eventClass(e)}`}
-                          title={`${e.title}(未排時間)`}
+                          title={`${e.title}(未排時間)${e.project?.estimateHours != null ? `,原預估 ${fmt(e.project.estimateHours)} 小時` : ""}`}
                         >
                           {fmt(e.hours)}h {e.title}
+                          {e.project?.estimateHours != null && <span className="opacity-70"> · 預估 {fmt(e.project.estimateHours)}h</span>}
                         </button>
                       ))}
                     </div>
