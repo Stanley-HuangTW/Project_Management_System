@@ -44,6 +44,12 @@ export function resolveGroupRoleAccess(
 }
 
 /**
+ * 管理者與看板建立者:什麼都能編——排程權加上每一種職能,跟 Team Leader 一樣。直接沿用 Team Leader 的
+ * 結果,不另外列一份職能清單(以前列的是 SW/HW/ME/QA,新增 PM 後漏了,管理者反而改不了 PM 單位的名額)。
+ */
+export const FULL_GROUP_ACCESS: GroupRoleAccess = resolveGroupRoleAccess([{ role: "TEAM_LEADER" }]);
+
+/**
  * The userIds a DM (of one or more disciplines) manages in this group — the
  * union of GroupMember rosters for `access.disciplines`. Feed into
  * isItemAssignedToTeam the same way a SUPERVISOR's direct-report set is,

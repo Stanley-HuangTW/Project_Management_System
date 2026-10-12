@@ -12,6 +12,7 @@ import { getItemDateRange } from "@/lib/gantt";
 import {
   resolveGroupRoleAccess,
   canEditLabourSlot,
+  FULL_GROUP_ACCESS,
   type GroupRoleAccess,
 } from "@/lib/groupRoles";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
@@ -71,9 +72,6 @@ async function rateMap(): Promise<Record<Discipline, number>> {
   return Object.fromEntries(rows.map((r) => [r.discipline, r.monthlySalary]));
 }
 
-/** 管理者、或這塊看板的建立者,兩者都是「什麼都能編」,不用再問分組角色。 */
-const FULL_ACCESS: GroupRoleAccess = { hasScheduleRole: true, disciplines: new Set(["SW", "HW", "ME", "QA"]) };
-
 /**
  * 這個人在這塊看板上,分組角色給他的存取權。
  *
@@ -85,9 +83,10 @@ async function loadBoardRoleAccess(
   boardId: string,
   session: Awaited<ReturnType<typeof requireSession>>
 ): Promise<GroupRoleAccess> {
-  if (session.role === "ADMIN") return FULL_ACCESS;
+  // 管理者、或這塊看板的建立者,兩者都是「什麼都能編」,不用再問分組角色。
+  if (session.role === "ADMIN") return FULL_GROUP_ACCESS;
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { ownerId: true } });
-  if (board?.ownerId === session.userId) return FULL_ACCESS;
+  if (board?.ownerId === session.userId) return FULL_GROUP_ACCESS;
   const groups = await prisma.group.findMany({ where: { boardId }, select: { id: true } });
   if (groups.length === 0) return { hasScheduleRole: false, disciplines: new Set() };
   const assignments = await prisma.groupRoleAssignment.findMany({

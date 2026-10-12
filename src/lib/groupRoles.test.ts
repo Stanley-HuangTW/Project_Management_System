@@ -4,6 +4,7 @@ import {
   groupDisciplineTeamUserIds,
   orgUnitToGroupDiscipline,
   canEditLabourSlot,
+  FULL_GROUP_ACCESS,
 } from "./groupRoles";
 
 function roles(...rs: string[]) {
@@ -142,6 +143,13 @@ describe("canEditLabourSlot", () => {
   it("PMD alone cannot edit a mapped discipline's slots — schedule rights aren't DM rights", () => {
     const access = resolveGroupRoleAccess(roles("PMD"));
     expect(canEditLabourSlot(access, "SW")).toBe(false);
+  });
+
+  it("FULL_GROUP_ACCESS (admin / board owner) can edit every org unit's slots, PM included", () => {
+    for (const unit of ["EE", "SW", "ME", "QA", "PM", "FAE", "SALES", "OTHER", "ATD", "MARKETING-PM"]) {
+      expect(canEditLabourSlot(FULL_GROUP_ACCESS, unit), unit).toBe(true);
+    }
+    expect(FULL_GROUP_ACCESS.hasScheduleRole).toBe(true);
   });
 
   it("a unit with no DM role falls back to schedule rights (Team Leader/PMD)", () => {
