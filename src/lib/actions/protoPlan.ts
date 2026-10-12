@@ -8,7 +8,7 @@ import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
-import { resyncBomMaterial } from "@/lib/actions/bom";
+import { resyncBomMaterial } from "@/lib/bomMaterial";
 import { summariseProtoPlan, type ProtoSummary } from "@/lib/protoPlan";
 
 export type ProtoPlanView = {

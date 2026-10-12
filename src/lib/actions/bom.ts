@@ -6,10 +6,10 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
+import { resyncBomMaterial } from "@/lib/bomMaterial";
 import {
   summariseBom,
   flattenBom,
-  bomMaterialBudget,
   unionProducts,
   validateProductName,
   validateProductRename,
@@ -210,6 +210,8 @@ export type BomView = {
   /** 攤平成一列一列,depth 決定縮排——表格要的是這個順序。 */
   lines: BomLineRow[];
   unitCostTwd: number;
+  /** 樣機計畫裡這個產品在這個階段排了幾台(各用途單位加起來)——單台價 × 它就是這個產品算進材料預算的錢。 */
+  planQty: number;
   lineCount: number;
   foreignCurrencies: string[];
   orphanIds: string[];
@@ -264,6 +266,7 @@ export async function getBomView(
     order: r.order,
   }));
   const summary = summariseBom(input);
+  const plan = await prisma.protoPlan.aggregate({ where: { boardId, product, phaseId }, _sum: { qty: true } });
 
   const first = await prisma.item.findFirst({
     where: { boardId, parentId: null, deletedAt: null },
@@ -279,6 +282,7 @@ export async function getBomView(
     phaseId,
     lines: flattenBom(summary.nodes),
     unitCostTwd: summary.unitCostTwd,
+    planQty: plan._sum.qty ?? 0,
     lineCount: summary.lineCount,
     foreignCurrencies: summary.foreignCurrencies,
     orphanIds: summary.orphanIds,
@@ -497,87 +501,4 @@ export async function copyBomLines(
   await resyncBomMaterial(boardId, toPhaseId);
   revalidatePath(`/boards/${boardId}`);
   return {};
-}
-
-/**
- * 重算一個階段的材料預算:每個產品的單台 BOM 價 × 樣機計畫裡那個產品在
- * 這個階段要幾台,各產品分別算完再加總。
- *
- * 只要這個階段還有任何一筆 BOM,材料預算就整個由這裡驅動(即使算出來是
- * 0,也是「BOM 說目前是 0」而不是「還沒人設定」)——沒有 BOM 的階段完全
- * 不動,材料預算照舊是手動填的那一欄。跟人力規劃表驅動人力預算是同一個
- * 設計。
- */
-export async function resyncBomMaterial(boardId: string, phaseId: string): Promise<void> {
-  const bomLines = await prisma.bomLine.findMany({
-    where: { boardId, phaseId },
-    select: {
-      product: true,
-      parentId: true,
-      name: true,
-      vendor: true,
-      partNumber: true,
-      qty: true,
-      unitPrice: true,
-      currency: true,
-      fxRate: true,
-      note: true,
-      deliveryDate: true,
-      order: true,
-      id: true,
-    },
-  });
-  if (bomLines.length === 0) {
-    // 這個階段現在完全沒有 BOM 了——可能是從沒有過,也可能是剛把最後一筆
-    // 刪光。只清掉「由 BOM 表算出來」的那個殘值,不能不分青紅皂白刪
-    // MATERIAL,不然會把使用者自己手動填的預算也一起沖掉。
-    await prisma.budget.deleteMany({
-      where: { phaseId, category: "MATERIAL", note: "由 BOM 表計算" },
-    });
-    return;
-  }
-
-  const byProduct = new Map<string, BomLineInput[]>();
-  for (const line of bomLines) {
-    const list = byProduct.get(line.product) ?? [];
-    list.push({
-      id: line.id,
-      parentId: line.parentId,
-      name: line.name,
-      vendor: line.vendor,
-      partNumber: line.partNumber,
-      qty: Number(line.qty),
-      unitPrice: Number(line.unitPrice),
-      currency: line.currency,
-      fxRate: Number(line.fxRate),
-      note: line.note,
-      deliveryDate: line.deliveryDate,
-      order: line.order,
-    });
-    byProduct.set(line.product, list);
-  }
-
-  const qtyRows = await prisma.protoPlan.groupBy({
-    by: ["product"],
-    where: { boardId, phaseId, product: { in: [...byProduct.keys()] } },
-    _sum: { qty: true },
-  });
-  const qtyByProduct = new Map(qtyRows.map((r) => [r.product, r._sum.qty ?? 0]));
-
-  const perProduct = [...byProduct.entries()].map(([product, lines]) => ({
-    product,
-    unitCostTwd: summariseBom(lines).unitCostTwd,
-    qty: qtyByProduct.get(product) ?? 0,
-  }));
-  const amount = bomMaterialBudget(perProduct);
-
-  if (amount > 0) {
-    await prisma.budget.upsert({
-      where: { phaseId_category: { phaseId, category: "MATERIAL" } },
-      create: { phaseId, category: "MATERIAL", amount, note: "由 BOM 表計算" },
-      update: { amount, note: "由 BOM 表計算" },
-    });
-  } else {
-    await prisma.budget.deleteMany({ where: { phaseId, category: "MATERIAL" } });
-  }
 }

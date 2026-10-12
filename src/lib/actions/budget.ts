@@ -26,6 +26,7 @@ import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { logAudit } from "@/lib/activityLog";
 import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
 import { effectiveRateMap } from "@/lib/labourRate";
+import { refreshBomMaterial } from "@/lib/bomMaterial";
 
 /**
  * 預算核准的三個層級:預算階段、看板上的一列工作項,或整個專案群組。
@@ -396,6 +397,17 @@ export async function getBudgetView(scope: BudgetScope): Promise<BudgetView | nu
   const resolved = await resolveScope(scope, session);
   if (!resolved) return null;
   const { itemIds } = resolved;
+
+  // 材料預算是 BOM × 樣機計畫算出來存起來的數字——看之前對一次,舊資料或沒走到重算的那條路也會補上。
+  // 專案群組(program)不是階段,沒有 BOM 可對。
+  if (scope.kind !== "program") {
+    await refreshBomMaterial(
+      await prisma.budgetPhase.findMany({
+        where: scope.kind === "phase" ? { id: scope.id } : scope.kind === "board" ? { boardId: scope.id } : { itemId: scope.id },
+        select: { id: true, boardId: true },
+      })
+    );
+  }
 
   const [budgets, commitments, expenses, labour] = await Promise.all([
     prisma.budget.findMany({

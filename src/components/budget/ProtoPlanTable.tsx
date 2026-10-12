@@ -114,7 +114,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     <div className="space-y-4">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         每一格是台數:某個產品、某個用途單位、某個階段要幾台。階段欄位跟人力表共用同一組,所以時間軸
-        對得起來。要備多少料看最下面「全部產品」那一列。
+        對得起來。要備多少料看最下面「全部產品」那一列。台數乘上「樣機 BOM」的單台成本,就是這個階段的材料預算(產品名稱要跟 BOM 的一模一樣)。
       </p>
 
       <ProtoExcelButtons boardId={boardId} canEdit={canEdit} onImported={reload} />

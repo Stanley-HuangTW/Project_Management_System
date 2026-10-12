@@ -361,8 +361,8 @@ export function BomTable({ boardId }: { boardId: string }) {
   return (
     <div className="space-y-4">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        某個產品、某個階段要用的料:廠商、型號、名稱,可以往下分子集(電池模組底下再掛零件)。算出來
-        的單台價格會自動回寫這個階段的材料預算。直接在欄位裡打資訊,離開那一列就存檔。
+        某個產品、某個階段要用的料:廠商、型號、名稱,可以往下分子集(電池模組底下再掛零件)。算出單台成本;
+        乘上「樣機計畫」排的台數,就是這個階段的材料預算(自動寫進「階段預算」)。直接在欄位裡打資訊,離開那一列就存檔。
       </p>
 
       <BomExcelButtons boardId={boardId} canEdit={ctx.canEdit} onImported={onBomImported} />
@@ -479,6 +479,16 @@ export function BomTable({ boardId }: { boardId: string }) {
             </div>
           )}
 
+          {view.lineCount > 0 && view.planQty === 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <p>
+                「樣機計畫」裡還沒有排「{view.product}」在「{ctx.phases.find((p) => p.id === phaseId)?.name ?? ""}」的台數,所以這個產品不會算進這個階段的材料預算——
+                材料預算 = 單台成本 × 樣機計畫的台數。請到「樣機計畫」填台數(產品名稱要跟這裡的一模一樣)。
+              </p>
+            </div>
+          )}
+
           <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
             <table className="w-full text-sm">
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
@@ -541,6 +551,18 @@ export function BomTable({ boardId }: { boardId: string }) {
                   <td />
                   {view.canEdit && <td />}
                 </tr>
+                {view.lineCount > 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-3 pb-2 text-right text-xs text-neutral-500 dark:text-neutral-400">
+                      × 樣機計畫排的台數 {view.planQty} 台 = 這個產品算進這個階段材料預算的錢
+                    </td>
+                    <td className="px-3 pb-2 text-right text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-200">
+                      {formatMoney(Math.round(view.unitCostTwd * view.planQty))}
+                    </td>
+                    <td />
+                    {view.canEdit && <td />}
+                  </tr>
+                )}
               </tfoot>
             </table>
           </div>
