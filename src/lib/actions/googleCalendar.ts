@@ -5,8 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { GOOGLE_CALENDAR_TOKEN_COOKIE } from "@/lib/googleAuth";
 import {
-  EXTERNAL_ID_PREFIX,
   explainGoogleForbidden,
+  isValidExternalId,
   toCandidates,
   validateCalendarRange,
   type CalendarCandidate,
@@ -133,7 +133,7 @@ export async function importGoogleCalendarEvents(items: CalendarImportItem[]): P
   const result: CalendarImportResult = { created: 0, updated: 0, failed: [] };
   for (const item of items) {
     const label = `${item.date} ${item.title}`;
-    if (!item.externalId.startsWith(EXTERNAL_ID_PREFIX) || item.externalId.length > 200) {
+    if (!isValidExternalId(item.externalId)) {
       result.failed.push(`${label}:行程識別不正確`);
       continue;
     }

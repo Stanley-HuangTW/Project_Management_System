@@ -43,6 +43,13 @@ export type CalendarCandidate = {
 
 const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
 export const EXTERNAL_ID_PREFIX = "gcal:";
+/** Google 的行程 id 最長 1024 字;重複行程的單次是「原 id_時間」,再留一點空間。從 Outlook / Teams 同步來的行程 id 常超過 200。 */
+const MAX_EVENT_ID_LENGTH = 1100;
+
+/** 匯入時檢查前端送回來的外部識別:要是我們發的「gcal:」開頭,長度在 Google 的上限內。 */
+export function isValidExternalId(externalId: string): boolean {
+  return externalId.startsWith(EXTERNAL_ID_PREFIX) && externalId.length <= EXTERNAL_ID_PREFIX.length + MAX_EVENT_ID_LENGTH;
+}
 
 /** 把一個時間點換成台灣時間的日期與一天中的第幾分鐘。 */
 export function toTaipei(ms: number): { date: string; minute: number } {

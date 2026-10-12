@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarScopeRange, clampToMidnight, isEmbeddedBrowser, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, validateCalendarRange, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
+import { calendarScopeRange, clampToMidnight, isEmbeddedBrowser, isValidExternalId, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, validateCalendarRange, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
 
 const ev = (over: Partial<GoogleEvent> & { id: string }): GoogleEvent => ({
   summary: "部門週會",
@@ -111,6 +111,22 @@ describe("toCandidates", () => {
     ]);
     expect(c.skip).toBeNull();
     expect(c.startMinute + Math.round(c.hours * 60)).toBeLessThanOrEqual(1440);
+  });
+});
+
+describe("isValidExternalId(匯入時檢查前端送回來的識別)", () => {
+  it("我們自己發出去的都通過,包含 Outlook / Teams 同步來的很長的 id 與重複行程的單次", () => {
+    const longId = "040000008200E00074C5B7101A82E00800000000".repeat(8) + "_20261013T010000Z";
+    expect(longId.length).toBeGreaterThan(200);
+    const [c] = toCandidates([ev({ id: longId })]);
+    expect(isValidExternalId(c.externalId)).toBe(true);
+    expect(isValidExternalId(`gcal:${"a".repeat(1024)}_20261013T010000Z`)).toBe(true);
+  });
+
+  it("不是「gcal:」開頭、或超過 Google 的長度上限的不收", () => {
+    expect(isValidExternalId("abc")).toBe(false);
+    expect(isValidExternalId("outlook:abc")).toBe(false);
+    expect(isValidExternalId(`gcal:${"a".repeat(1101)}`)).toBe(false);
   });
 });
 
