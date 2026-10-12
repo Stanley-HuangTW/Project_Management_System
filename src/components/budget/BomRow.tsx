@@ -37,6 +37,9 @@ function toDraft(v: FieldState, parentId: string | null, id?: string): BomLineDr
   };
 }
 
+/** 哪些次要欄位要畫出來——表格太寬時預設收起來(匯率、交期、備註),有資料或使用者要看才顯示。 */
+export type BomColumns = { fx: boolean; delivery: boolean; note: boolean };
+
 export type BomRowInitial = {
   /** 有值 = 既有的一列;沒有 = 還沒建出來的空白列,打了名稱才會新增。 */
   id?: string;
@@ -61,7 +64,8 @@ export type BomRowInitial = {
  * 建出一筆只有那個欄位有值的半成品。
  *
  * 送出成功後,既有列什麼都不用做(畫面本來就顯示剛送出的值);空白列會把
- * 自己清空,準備讓使用者接著打下一筆。
+ * 自己清空,準備讓使用者接著打下一筆——幣別與匯率沿用剛送出的那一筆(一張表常常整份是同一個幣別,
+ * 不用每列重打),按 Enter 送出的話游標回到名稱欄,可以一直打下去。
  */
 export function BomRow({
   depth,
@@ -71,6 +75,8 @@ export function BomRow({
   leading,
   actions,
   canEdit,
+  cols,
+  vendorListId,
   onCommit,
 }: {
   depth: number;
@@ -84,6 +90,9 @@ export function BomRow({
   /** 動作欄(新增子項目、刪除),唯讀時不會有。 */
   actions?: React.ReactNode;
   canEdit: boolean;
+  cols: BomColumns;
+  /** 廠商欄的建議清單(datalist 的 id)。 */
+  vendorListId?: string;
   onCommit: (draft: BomLineDraft) => Promise<boolean>;
 }) {
   const blank: FieldState = {
@@ -108,6 +117,9 @@ export function BomRow({
   const [note, setNote] = useState(blank.note);
   const lastCommitted = useRef(blank);
   const submitting = useRef(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  /** 按 Enter 送出的:送出之後游標回到名稱欄,可以直接打下一列。 */
+  const refocusName = useRef(false);
   const isNew = !initial.id;
 
   async function commitIfNeeded() {
@@ -128,11 +140,14 @@ export function BomRow({
       setPartNumber(blank.partNumber);
       setQty(blank.qty);
       setUnitPrice(blank.unitPrice);
-      setCurrency(blank.currency);
-      setFxRate(blank.fxRate);
+      // 幣別與匯率沿用剛送出的那一筆。
+      setCurrency(current.currency || blank.currency);
+      setFxRate(current.fxRate || blank.fxRate);
       setDeliveryDate(blank.deliveryDate);
       setNote(blank.note);
+      if (refocusName.current) nameRef.current?.focus();
     }
+    refocusName.current = false;
   }
 
   function handleRowBlur(e: React.FocusEvent<HTMLTableRowElement>) {
@@ -141,10 +156,15 @@ export function BomRow({
   }
 
   function blurOnEnter(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") e.currentTarget.blur();
+    if (e.key === "Enter") {
+      refocusName.current = isNew;
+      e.currentTarget.blur();
+    }
   }
 
   const twd = currency.trim().toUpperCase() === "TWD";
+  // 匯率欄收起來的時候,外幣的匯率直接放在幣別格裡,不然沒地方填。
+  const fxInline = !cols.fx && !twd;
 
   return (
     <tr onBlur={handleRowBlur}>
@@ -152,6 +172,7 @@ export function BomRow({
         <div className="flex items-center gap-1">
           {leading}
           <input
+            ref={nameRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={blurOnEnter}
@@ -162,7 +183,7 @@ export function BomRow({
         </div>
       </td>
       <td className={cellPad}>
-        <input value={vendor} onChange={(e) => setVendor(e.target.value)} onKeyDown={blurOnEnter} disabled={!canEdit} className={inputClass} />
+        <input value={vendor} onChange={(e) => setVendor(e.target.value)} onKeyDown={blurOnEnter} disabled={!canEdit} list={vendorListId} className={inputClass} />
       </td>
       <td className={cellPad}>
         <input value={partNumber} onChange={(e) => setPartNumber(e.target.value)} onKeyDown={blurOnEnter} disabled={!canEdit} className={inputClass} />
@@ -195,45 +216,66 @@ export function BomRow({
         {disablePrice ? (
           <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
         ) : (
+          <>
+            <input
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+              onKeyDown={blurOnEnter}
+              disabled={!canEdit}
+              maxLength={3}
+              className={`${inputClass} text-center uppercase`}
+            />
+            {fxInline && (
+              <input
+                value={fxRate}
+                onChange={(e) => setFxRate(e.target.value)}
+                onKeyDown={blurOnEnter}
+                disabled={!canEdit}
+                inputMode="decimal"
+                placeholder="匯率"
+                title="外幣對台幣的匯率"
+                aria-label="匯率"
+                className={`${inputClass} mt-1 text-right`}
+              />
+            )}
+          </>
+        )}
+      </td>
+      {cols.fx && (
+        <td className={cellPad}>
+          {disablePrice ? (
+            <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
+          ) : (
+            <input
+              value={fxRate}
+              onChange={(e) => setFxRate(e.target.value)}
+              onKeyDown={blurOnEnter}
+              disabled={!canEdit || twd}
+              inputMode="decimal"
+              className={`${inputClass} text-right disabled:opacity-50`}
+            />
+          )}
+        </td>
+      )}
+      {cols.delivery && (
+        <td className={cellPad}>
           <input
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-            onKeyDown={blurOnEnter}
+            type="date"
+            value={deliveryDate}
+            onChange={(e) => setDeliveryDate(e.target.value)}
             disabled={!canEdit}
-            maxLength={3}
-            className={`${inputClass} text-center uppercase`}
+            className={inputClass}
           />
-        )}
-      </td>
-      <td className={cellPad}>
-        {disablePrice ? (
-          <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
-        ) : (
-          <input
-            value={fxRate}
-            onChange={(e) => setFxRate(e.target.value)}
-            onKeyDown={blurOnEnter}
-            disabled={!canEdit || twd}
-            inputMode="decimal"
-            className={`${inputClass} text-right disabled:opacity-50`}
-          />
-        )}
-      </td>
-      <td className={cellPad}>
-        <input
-          type="date"
-          value={deliveryDate}
-          onChange={(e) => setDeliveryDate(e.target.value)}
-          disabled={!canEdit}
-          className={inputClass}
-        />
-      </td>
+        </td>
+      )}
       <td className="px-3 py-1.5 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100">
         {extendedTwd !== null ? formatMoney(extendedTwd) : ""}
       </td>
-      <td className={cellPad}>
-        <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={blurOnEnter} disabled={!canEdit} className={inputClass} />
-      </td>
+      {cols.note && (
+        <td className={cellPad}>
+          <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={blurOnEnter} disabled={!canEdit} className={inputClass} />
+        </td>
+      )}
       {canEdit && (
         <td className="px-2 py-1">
           <div className="flex items-center justify-end gap-1">{actions}</div>

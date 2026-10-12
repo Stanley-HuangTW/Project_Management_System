@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
@@ -15,12 +15,16 @@ import {
   upsertBomLine,
   deleteBomLine,
   copyBomLines,
+  createBom,
+  pasteBomLines,
   type BomContext,
   type BomView,
   type BomLineRow,
   type BomLineDraft,
 } from "@/lib/actions/bom";
-import { BomRow } from "./BomRow";
+import { BomRow, type BomColumns } from "./BomRow";
+import { BomPasteDialog } from "./BomPasteDialog";
+import { NewBomDialog } from "./NewBomDialog";
 import { BomExcelButtons } from "./BomExcelButtons";
 
 /** 這一列自己與它底下所有子孫的 id —— flattenBom 是先序走訪,子孫剛好是
@@ -55,6 +59,7 @@ const NEW_ROW_BLANK = {
 function BomNodeRows({
   node,
   canEdit,
+  cols,
   collapsedIds,
   childEntryIds,
   toggleCollapse,
@@ -64,6 +69,7 @@ function BomNodeRows({
 }: {
   node: BomLineRow;
   canEdit: boolean;
+  cols: BomColumns;
   collapsedIds: Set<string>;
   childEntryIds: Set<string>;
   toggleCollapse: (id: string) => void;
@@ -94,6 +100,8 @@ function BomNodeRows({
         disablePrice={node.isAssembly}
         extendedTwd={node.extendedTwd}
         canEdit={canEdit}
+        cols={cols}
+        vendorListId="bom-vendors"
         onCommit={onCommit}
         leading={
           node.isAssembly ? (
@@ -138,6 +146,7 @@ function BomNodeRows({
             key={child.id}
             node={child}
             canEdit={canEdit}
+            cols={cols}
             collapsedIds={collapsedIds}
             childEntryIds={childEntryIds}
             toggleCollapse={toggleCollapse}
@@ -154,6 +163,8 @@ function BomNodeRows({
           disablePrice={false}
           extendedTwd={null}
           canEdit={canEdit}
+          cols={cols}
+          vendorListId="bom-vendors"
           onCommit={onCommit}
           leading={<span className="inline-block w-[18px] shrink-0" />}
         />
@@ -184,6 +195,9 @@ export function BomTable({ boardId }: { boardId: string }) {
   const [copyFrom, setCopyFrom] = useState("");
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [childEntryIds, setChildEntryIds] = useState<Set<string>>(new Set());
+  const [showAllCols, setShowAllCols] = useState(false);
+  const [newBomOpen, setNewBomOpen] = useState(false);
+  const [paste, setPaste] = useState<{ open: boolean; text: string }>({ open: false, text: "" });
 
   useEffect(() => {
     let cancelled = false;
@@ -326,6 +340,48 @@ export function BomTable({ boardId }: { boardId: string }) {
     }
   }
 
+  /** 新增 BOM 視窗送出:成功就切到那份;失敗把說明交回視窗留在那裡。 */
+  async function submitNewBom(
+    newProduct: string,
+    newPhaseId: string,
+    source: { product: string; phaseId: string } | null
+  ): Promise<string | null> {
+    setBusy(true);
+    try {
+      const result = await createBom(boardId, newProduct, newPhaseId, source);
+      if (result.error) return result.error;
+      setProduct(newProduct);
+      setPhaseId(newPhaseId);
+      setCtx(await getBomContext(boardId));
+      return null;
+    } catch (err) {
+      return isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗";
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 貼上視窗送出:接在現有的列後面;有略過的列說一聲。 */
+  async function submitPaste(rows: Parameters<typeof pasteBomLines>[3]): Promise<string | null> {
+    setBusy(true);
+    try {
+      const result = await pasteBomLines(boardId, product, phaseId, rows);
+      if (result.error) return result.error;
+      await reload();
+      setCtx(await getBomContext(boardId));
+      if (result.skipped && result.skipped.length > 0) {
+        await notify([`貼上了 ${result.created} 列,${result.skipped.length} 列略過:`, ...result.skipped.slice(0, 10).map((w) => `• ${w}`)].join("\n"), {
+          title: "貼上 BOM",
+        });
+      }
+      return null;
+    } catch (err) {
+      return isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗";
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doCopy() {
     if (!copyFrom) return;
     const ok = await confirm(
@@ -357,6 +413,14 @@ export function BomTable({ boardId }: { boardId: string }) {
   }
 
   const roots = view?.lines.filter((l) => l.depth === 0) ?? [];
+  // 次要欄位(匯率、交期、備註)預設收起來,表格才放得進一個畫面;這一份有資料、或使用者要看就顯示。
+  const cols: BomColumns = {
+    fx: showAllCols || (view?.lines.some((l) => l.currency !== "TWD") ?? false),
+    delivery: showAllCols || (view?.lines.some((l) => !!l.deliveryDate) ?? false),
+    note: showAllCols || (view?.lines.some((l) => !!l.note) ?? false),
+  };
+  const leadCols = 6 + (cols.fx ? 1 : 0) + (cols.delivery ? 1 : 0); // 名稱、廠商、型號、數量、單價、幣別(+匯率、交期),小計之前
+  const totalCols = leadCols + 1 + (cols.note ? 1 : 0) + (ctx.canEdit ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -382,9 +446,32 @@ export function BomTable({ boardId }: { boardId: string }) {
               <option key={p} value={p} />
             ))}
           </datalist>
+          <datalist id="bom-vendors">
+            {ctx.vendors.map((v) => (
+              <option key={v} value={v} />
+            ))}
+          </datalist>
         </label>
         {ctx.canEdit && (
           <>
+            <button
+              type="button"
+              onClick={() => setNewBomOpen(true)}
+              disabled={busy}
+              className="flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
+              title="選產品與階段,從空白或複製一份現有的 BOM 開始"
+            >
+              <Plus size={12} /> 新增 BOM
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaste({ open: true, text: "" })}
+              disabled={busy || !product}
+              className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+              title="從 Excel 複製整張表貼進來,一次新增多列"
+            >
+              <ClipboardPaste size={12} /> 從 Excel 貼上
+            </button>
             <button
               type="button"
               onClick={() => void addNewProduct()}
@@ -489,7 +576,27 @@ export function BomTable({ boardId }: { boardId: string }) {
             </div>
           )}
 
-          <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+          <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+            <span>
+              {ctx.canEdit && "表格上直接按 Ctrl+V,可以把 Excel 複製的整張表貼進來。"}
+            </span>
+            <label className="flex shrink-0 items-center gap-1.5">
+              <input type="checkbox" checked={showAllCols} onChange={(e) => setShowAllCols(e.target.checked)} />
+              顯示匯率、交期、備註
+            </label>
+          </div>
+
+          <div
+            className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700"
+            onPaste={(e) => {
+              if (!ctx.canEdit) return;
+              const text = e.clipboardData.getData("text/plain");
+              // 單一格的文字照常貼進輸入框;多格(有 Tab 或換行)才當成一張表。
+              if (!/[\t\n]/.test(text.replace(/\r?\n$/, ""))) return;
+              e.preventDefault();
+              setPaste({ open: true, text });
+            }}
+          >
             <table className="w-full text-sm">
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <tr>
@@ -499,17 +606,17 @@ export function BomTable({ boardId }: { boardId: string }) {
                   <th className="px-3 py-2 text-right font-medium">數量</th>
                   <th className="px-3 py-2 text-right font-medium">單價</th>
                   <th className="px-3 py-2 text-center font-medium">幣別</th>
-                  <th className="px-3 py-2 text-right font-medium">匯率</th>
-                  <th className="px-3 py-2 text-left font-medium">交期</th>
+                  {cols.fx && <th className="px-3 py-2 text-right font-medium">匯率</th>}
+                  {cols.delivery && <th className="px-3 py-2 text-left font-medium">交期</th>}
                   <th className="px-3 py-2 text-right font-medium">小計(台幣)</th>
-                  <th className="px-3 py-2 text-left font-medium">備註</th>
+                  {cols.note && <th className="px-3 py-2 text-left font-medium">備註</th>}
                   {view.canEdit && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {roots.length === 0 && !view.canEdit && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-8 text-center text-neutral-400 dark:text-neutral-500">
+                    <td colSpan={totalCols} className="px-3 py-8 text-center text-neutral-400 dark:text-neutral-500">
                       這個產品在這個階段還沒有 BOM。
                     </td>
                   </tr>
@@ -519,6 +626,7 @@ export function BomTable({ boardId }: { boardId: string }) {
                     key={root.id}
                     node={root}
                     canEdit={view.canEdit}
+                    cols={cols}
                     collapsedIds={collapsedIds}
                     childEntryIds={childEntryIds}
                     toggleCollapse={toggleCollapse}
@@ -535,6 +643,8 @@ export function BomTable({ boardId }: { boardId: string }) {
                     disablePrice={false}
                     extendedTwd={null}
                     canEdit={view.canEdit}
+                    cols={cols}
+                    vendorListId="bom-vendors"
                     onCommit={commit}
                     leading={<span className="inline-block w-[18px] shrink-0" />}
                   />
@@ -542,24 +652,24 @@ export function BomTable({ boardId }: { boardId: string }) {
               </tbody>
               <tfoot className="border-t-2 border-neutral-300 dark:border-neutral-600">
                 <tr>
-                  <td colSpan={8} className="px-3 py-2 text-right font-semibold text-neutral-800 dark:text-neutral-100">
+                  <td colSpan={leadCols} className="px-3 py-2 text-right font-semibold text-neutral-800 dark:text-neutral-100">
                     單台成本
                   </td>
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-neutral-900 dark:text-neutral-50">
                     {formatMoney(view.unitCostTwd)}
                   </td>
-                  <td />
+                  {cols.note && <td />}
                   {view.canEdit && <td />}
                 </tr>
                 {view.lineCount > 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 pb-2 text-right text-xs text-neutral-500 dark:text-neutral-400">
+                    <td colSpan={leadCols} className="px-3 pb-2 text-right text-xs text-neutral-500 dark:text-neutral-400">
                       × 樣機計畫排的台數 {view.planQty} 台 = 這個產品算進這個階段材料預算的錢
                     </td>
                     <td className="px-3 pb-2 text-right text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-200">
                       {formatMoney(Math.round(view.unitCostTwd * view.planQty))}
                     </td>
-                    <td />
+                    {cols.note && <td />}
                     {view.canEdit && <td />}
                   </tr>
                 )}
@@ -568,6 +678,25 @@ export function BomTable({ boardId }: { boardId: string }) {
           </div>
         </>
       )}
+
+      <NewBomDialog
+        open={newBomOpen}
+        onOpenChange={setNewBomOpen}
+        products={ctx.products}
+        phases={ctx.phases}
+        sources={ctx.sources}
+        defaultProduct={product}
+        defaultPhaseId={phaseId}
+        onSubmit={submitNewBom}
+      />
+      <BomPasteDialog
+        open={paste.open}
+        onOpenChange={(open) => setPaste((cur) => ({ ...cur, open }))}
+        initialText={paste.text}
+        product={product}
+        phaseName={ctx.phases.find((p) => p.id === phaseId)?.name ?? ""}
+        onApply={submitPaste}
+      />
     </div>
   );
 }

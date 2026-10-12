@@ -7,6 +7,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
+import { MAX_PASTED_BOM_ROWS, type PastedBomRow } from "@/lib/bomPaste";
 import {
   summariseBom,
   flattenBom,
@@ -48,6 +49,10 @@ export type BomContext = {
   phases: { id: string; name: string }[];
   /** 產品名稱:單獨新增的、樣機計畫用到的、BOM 用到的三者的聯集,給下拉選單當候選。 */
   products: string[];
+  /** 哪些產品在哪個階段已經有 BOM(幾列),「新增 BOM」可以選一份當起點複製。 */
+  sources: { product: string; phaseId: string; count: number }[];
+  /** 這個看板 BOM 裡填過的廠商,廠商欄的建議清單。 */
+  vendors: string[];
   /** 整塊看板層級的編輯權——跟選了哪個產品/階段無關,匯入 Excel(動到整
    *  塊看板的 BOM)這種操作用得到,不用等使用者選了某個產品才知道能不能匯入。 */
   canEdit: boolean;
@@ -60,7 +65,7 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
   if (!board) return null;
 
-  const [phases, protoProducts, bomProducts, ownProducts, first] = await Promise.all([
+  const [phases, protoProducts, bomProducts, ownProducts, first, bomGroups, vendorRows] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -74,6 +79,8 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
       orderBy: { order: "asc" },
       select: { id: true },
     }),
+    prisma.bomLine.groupBy({ by: ["product", "phaseId"], where: { boardId }, _count: { _all: true } }),
+    prisma.bomLine.findMany({ where: { boardId, vendor: { not: "" } }, select: { vendor: true }, distinct: ["vendor"], orderBy: { vendor: "asc" }, take: 300 }),
   ]);
 
   const products = unionProducts(
@@ -84,7 +91,13 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
   const canEdit = first
     ? await canEditBudget({ kind: "item", id: first.id }, session)
     : session.role === "ADMIN";
-  return { phases, products, canEdit };
+  return {
+    phases,
+    products,
+    sources: bomGroups.map((g) => ({ product: g.product, phaseId: g.phaseId, count: g._count._all })),
+    vendors: vendorRows.map((v) => v.vendor),
+    canEdit,
+  };
 }
 
 /** 做產品的新增與刪除這類動作時,把「沒有權限」轉成回傳的錯誤訊息(丟出的例外在正式環境會被遮掉)。 */
@@ -429,36 +442,20 @@ export async function deleteBomLine(boardId: string, id: string): Promise<{ erro
 }
 
 /**
- * 把某個產品在來源階段的整份 BOM 複製一份到目標階段。
- *
- * 每次 BOM 可能不太一樣——EVT 用工程樣品,DVT 換量產件——但也不是每個
- * 位置都會換,先複製一份當底稿,再改有差異的地方,比每次從零開始打快。
- *
- * 要求目標階段這個產品的 BOM 是空的:複製要解決的是「大部分照抄、少數
- * 修改」,合併兩份不同來源的 BOM 沒有清楚的規則該保留哪一邊。
+ * 把一份 BOM(某個產品、某個階段)整棵複製到另一個產品 / 階段,由上而下:父項目一定要先建好,
+ * 子項目的 parentId 才有東西可以指。逐筆 create() 而不是整批塞進 createMany——create() 會直接回傳新 id,
+ * 不用另外查一次資料庫再用欄位比對猜是哪一列建出來的。呼叫端要先確認目標是空的。
  */
-export async function copyBomLines(
+async function copyBomTree(
   boardId: string,
-  product: string,
-  fromPhaseId: string,
-  toPhaseId: string
-): Promise<{ error?: string }> {
-  const session = await requireBomAdmin(boardId);
-  if (fromPhaseId === toPhaseId) return { error: "來源與目標是同一個階段" };
-
-  const [source, targetCount] = await Promise.all([
-    prisma.bomLine.findMany({
-      where: { boardId, product, phaseId: fromPhaseId },
-      orderBy: { order: "asc" },
-    }),
-    prisma.bomLine.count({ where: { boardId, product, phaseId: toPhaseId } }),
-  ]);
-  if (source.length === 0) return { error: "來源階段還沒有這個產品的 BOM" };
-  if (targetCount > 0) return { error: "目標階段已經有這個產品的 BOM,請先清空,或個別編輯差異" };
-
-  // 由上而下複製:父項目一定要先建好,子項目的 parentId 才有東西可以指。
-  // 逐筆 create() 而不是整批塞進 createMany——create() 會直接回傳新 id,
-  // 不用另外查一次資料庫再用欄位比對猜是哪一列建出來的。
+  from: { product: string; phaseId: string },
+  to: { product: string; phaseId: string },
+  userId: string
+): Promise<number> {
+  const source = await prisma.bomLine.findMany({
+    where: { boardId, product: from.product, phaseId: from.phaseId },
+    orderBy: { order: "asc" },
+  });
   const idMap = new Map<string, string>();
   await prisma.$transaction(async (tx) => {
     let remaining = source;
@@ -469,8 +466,8 @@ export async function copyBomLines(
         const created = await tx.bomLine.create({
           data: {
             boardId,
-            product,
-            phaseId: toPhaseId,
+            product: to.product,
+            phaseId: to.phaseId,
             parentId: r.parentId ? (idMap.get(r.parentId) ?? null) : null,
             name: r.name,
             vendor: r.vendor,
@@ -482,7 +479,7 @@ export async function copyBomLines(
             note: r.note,
             deliveryDate: r.deliveryDate,
             order: r.order,
-            createdById: session.userId,
+            createdById: userId,
           },
           select: { id: true },
         });
@@ -491,14 +488,172 @@ export async function copyBomLines(
       remaining = remaining.filter((r) => !idMap.has(r.id));
     }
   });
+  return idMap.size;
+}
 
-  await logAudit(
-    "COST",
-    session.userId,
-    `複製「${product}」的 BOM(${idMap.size} 列),從一個階段到另一個階段`,
-    boardId
-  );
+/**
+ * 要求目標階段這個產品的 BOM 是空的:複製要解決的是「大部分照抄、少數修改」,合併兩份不同來源的 BOM
+ * 沒有清楚的規則該保留哪一邊。
+ */
+export async function copyBomLines(
+  boardId: string,
+  product: string,
+  fromPhaseId: string,
+  toPhaseId: string
+): Promise<{ error?: string }> {
+  const session = await requireBomAdmin(boardId);
+  if (fromPhaseId === toPhaseId) return { error: "來源與目標是同一個階段" };
+
+  const [sourceCount, targetCount] = await Promise.all([
+    prisma.bomLine.count({ where: { boardId, product, phaseId: fromPhaseId } }),
+    prisma.bomLine.count({ where: { boardId, product, phaseId: toPhaseId } }),
+  ]);
+  if (sourceCount === 0) return { error: "來源階段還沒有這個產品的 BOM" };
+  if (targetCount > 0) return { error: "目標階段已經有這個產品的 BOM,請先清空,或個別編輯差異" };
+
+  const copied = await copyBomTree(boardId, { product, phaseId: fromPhaseId }, { product, phaseId: toPhaseId }, session.userId);
+  await logAudit("COST", session.userId, `複製「${product}」的 BOM(${copied} 列),從一個階段到另一個階段`, boardId);
   await resyncBomMaterial(boardId, toPhaseId);
   revalidatePath(`/boards/${boardId}`);
   return {};
+}
+
+/**
+ * 新增一份 BOM(某個產品、某個階段)。產品不存在就一起建;可以選一份現有的 BOM(任何產品、任何階段)當起點整份複製,
+ * 不選就是空白。目標已經有 BOM 就不動它,回說明——直接選那一份編輯就好,不要靜靜地蓋掉。
+ */
+export async function createBom(
+  boardId: string,
+  product: string,
+  phaseId: string,
+  source: { product: string; phaseId: string } | null
+): Promise<{ error?: string }> {
+  const guard = await productAdmin(boardId);
+  if ("error" in guard) return { error: guard.error };
+  const name = product.trim();
+  const invalid = validateProductName(name);
+  if (invalid) return { error: invalid };
+
+  const phase = await prisma.budgetPhase.findFirst({ where: { id: phaseId, boardId }, select: { name: true } });
+  if (!phase) return { error: "找不到這個階段" };
+  const existing = await prisma.bomLine.count({ where: { boardId, product: name, phaseId } });
+  if (existing > 0) return { error: `「${name}」在「${phase.name}」已經有 BOM 了,直接選它來編輯就好` };
+
+  if (source) {
+    if (source.product === name && source.phaseId === phaseId) return { error: "起點跟新的 BOM 是同一份" };
+    const count = await prisma.bomLine.count({ where: { boardId, product: source.product, phaseId: source.phaseId } });
+    if (count === 0) return { error: "選的那份 BOM 是空的,沒有東西可以複製" };
+  }
+
+  // 產品還不存在就建起來(單獨建立的產品、樣機計畫、BOM 用到的名字都算存在)。
+  const [own, proto, bom] = await Promise.all([
+    prisma.budgetProduct.findUnique({ where: { boardId_name: { boardId, name } }, select: { id: true } }),
+    prisma.protoPlan.findFirst({ where: { boardId, product: name }, select: { id: true } }),
+    prisma.bomLine.findFirst({ where: { boardId, product: name }, select: { id: true } }),
+  ]);
+  if (!own && !proto && !bom) await prisma.budgetProduct.create({ data: { boardId, name, createdById: guard.session.userId } });
+
+  let copied = 0;
+  if (source) {
+    copied = await copyBomTree(boardId, source, { product: name, phaseId }, guard.session.userId);
+    await resyncBomMaterial(boardId, phaseId);
+  }
+  await logAudit(
+    "COST",
+    guard.session.userId,
+    source ? `新增 BOM「${name} / ${phase.name}」,複製自「${source.product}」的一份(${copied} 列)` : `新增 BOM「${name} / ${phase.name}」`,
+    boardId
+  );
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/**
+ * 貼上整張 BOM(從 Excel 複製):接在這個產品、這個階段現有的列後面。縮排(depth)排出上下層,
+ * 子項目的上層就是前面最近一列比它淺一層的那一列。外幣沒填匯率的,用目前的匯率補,沒有匯率就整列略過並說明。
+ * 有問題的列略過、其餘照貼,一次寫入、只重算一次材料預算。
+ */
+export async function pasteBomLines(
+  boardId: string,
+  product: string,
+  phaseId: string,
+  rows: PastedBomRow[]
+): Promise<{ error?: string; created?: number; skipped?: string[] }> {
+  const guard = await productAdmin(boardId);
+  if ("error" in guard) return { error: guard.error };
+  if (rows.length === 0) return { error: "沒有可以貼上的列" };
+  if (rows.length > MAX_PASTED_BOM_ROWS) return { error: `一次最多貼上 ${MAX_PASTED_BOM_ROWS} 列` };
+  const phase = await prisma.budgetPhase.findFirst({ where: { id: phaseId, boardId }, select: { name: true } });
+  if (!phase) return { error: "找不到這個階段" };
+  const productName = product.trim();
+  const invalid = validateProductName(productName);
+  if (invalid) return { error: invalid };
+
+  // 外幣沒填匯率:用目前的匯率。
+  const codes = [...new Set(rows.filter((r) => r.fxRate === null && r.currency !== "TWD").map((r) => r.currency))];
+  const rateRows = codes.length ? await prisma.exchangeRate.findMany({ where: { code: { in: codes } }, select: { code: true, rate: true } }) : [];
+  const rateOf = new Map(rateRows.map((r) => [r.code, Number(r.rate)]));
+
+  const skipped: string[] = [];
+  const clean: PastedBomRow[] = [];
+  for (const r of rows) {
+    const label = `第 ${r.sourceRow} 列「${r.name}」`;
+    const currency = r.currency.trim().toUpperCase();
+    const fx = currency === "TWD" ? 1 : (r.fxRate ?? rateOf.get(currency) ?? null);
+    if (!r.name.trim()) skipped.push(`第 ${r.sourceRow} 列沒有名稱,略過。`);
+    else if (!Number.isFinite(r.qty) || r.qty <= 0) skipped.push(`${label}的數量必須大於 0,略過。`);
+    else if (!Number.isFinite(r.unitPrice) || r.unitPrice < 0) skipped.push(`${label}的單價必須是 0 或正數,略過。`);
+    else if (!/^[A-Z]{3}$/.test(currency)) skipped.push(`${label}的幣別請填三個英文字母,略過。`);
+    else if (fx === null || !Number.isFinite(fx) || fx <= 0) skipped.push(`${label}是外幣(${currency}),沒填匯率、系統設定裡也沒有這個幣別的匯率,略過。`);
+    else if (r.deliveryDate && !isValidDeliveryDate(r.deliveryDate)) skipped.push(`${label}的交期格式錯誤,略過。`);
+    else clean.push({ ...r, name: r.name.trim(), currency, fxRate: fx, depth: Math.max(0, Math.floor(r.depth)) });
+  }
+  if (clean.length === 0) return { error: skipped.join("\n") || "沒有可以貼上的列", skipped };
+
+  // 上層:前面最近一列、比它淺一層的那一列。被略過的列不在清單裡,它底下的子項目會掛到再上一層。
+  let prevDepth = -1;
+  for (const r of clean) {
+    r.depth = Math.min(r.depth, prevDepth + 1);
+    prevDepth = r.depth;
+  }
+
+  const maxRoot = await prisma.bomLine.aggregate({ where: { boardId, product: productName, phaseId, parentId: null }, _max: { order: true } });
+  let rootOrder = maxRoot._max.order ?? 0;
+  const childOrder = new Map<string, number>();
+  const stack: string[] = []; // 各深度目前的那一列 id
+
+  await prisma.$transaction(async (tx) => {
+    for (const r of clean) {
+      const parentId = r.depth === 0 ? null : (stack[r.depth - 1] ?? null);
+      const order = parentId === null ? ++rootOrder : (childOrder.get(parentId) ?? 0) + 1;
+      if (parentId !== null) childOrder.set(parentId, order);
+      const created = await tx.bomLine.create({
+        data: {
+          boardId,
+          product: productName,
+          phaseId,
+          parentId,
+          name: r.name,
+          vendor: r.vendor,
+          partNumber: r.partNumber,
+          qty: r.qty,
+          unitPrice: r.unitPrice,
+          currency: r.currency,
+          fxRate: r.currency === "TWD" ? 1 : r.fxRate!,
+          note: r.note,
+          deliveryDate: r.deliveryDate,
+          order,
+          createdById: guard.session.userId,
+        },
+        select: { id: true },
+      });
+      stack[r.depth] = created.id;
+      stack.length = r.depth + 1;
+    }
+  });
+
+  await logAudit("COST", guard.session.userId, `貼上 BOM「${productName} / ${phase.name}」${clean.length} 列${skipped.length > 0 ? `(略過 ${skipped.length} 列)` : ""}`, boardId);
+  await resyncBomMaterial(boardId, phaseId);
+  revalidatePath(`/boards/${boardId}`);
+  return { created: clean.length, skipped };
 }
