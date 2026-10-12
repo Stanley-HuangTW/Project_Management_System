@@ -11,11 +11,13 @@ import { MAX_PASTED_BOM_ROWS, type PastedBomRow } from "@/lib/bomPaste";
 import {
   summariseBom,
   flattenBom,
+  sourcesOfProducts,
   unionProducts,
   validateProductName,
   validateProductRename,
   type BomLineInput,
   type BomNode,
+  type ProductSource,
 } from "@/lib/bom";
 
 /**
@@ -49,6 +51,8 @@ export type BomContext = {
   phases: { id: string; name: string }[];
   /** 產品名稱:單獨新增的、樣機計畫用到的、BOM 用到的三者的聯集,給下拉選單當候選。 */
   products: string[];
+  /** 每個產品名字出現在哪幾處(手動新增、樣機計畫、BOM),選單上標來源用。 */
+  productSources: Record<string, ProductSource[]>;
   /** 哪些產品在哪個階段已經有 BOM(幾列),「新增 BOM」可以選一份當起點複製。 */
   sources: { product: string; phaseId: string; count: number }[];
   /** 這個看板 BOM 裡填過的廠商,廠商欄的建議清單。 */
@@ -94,6 +98,11 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
   return {
     phases,
     products,
+    productSources: sourcesOfProducts(
+      ownProducts.map((p) => p.name),
+      protoProducts.map((p) => p.product),
+      bomProducts.map((p) => p.product)
+    ),
     sources: bomGroups.map((g) => ({ product: g.product, phaseId: g.phaseId, count: g._count._all })),
     vendors: vendorRows.map((v) => v.vendor),
     canEdit,

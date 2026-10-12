@@ -244,3 +244,23 @@ export function validateProductRename(products: string[], from: string, to: stri
 export function unionProducts(...lists: string[][]): string[] {
   return [...new Set(lists.flat())].sort();
 }
+
+export type ProductSource = "own" | "proto" | "bom";
+
+export const PRODUCT_SOURCE_LABELS: Record<ProductSource, string> = {
+  own: "手動新增",
+  proto: "樣機計畫",
+  bom: "BOM",
+};
+
+/** 每個產品名字出現在哪幾處——選單上標出來,兩邊名字打得不一樣(EVT1 與 P100_EVT1)時看得出各是哪裡來的。 */
+export function sourcesOfProducts(own: string[], proto: string[], bom: string[]): Record<string, ProductSource[]> {
+  const out: Record<string, ProductSource[]> = {};
+  const add = (names: string[], source: ProductSource) => {
+    for (const name of names) (out[name] ??= []).push(source);
+  };
+  add(own, "own");
+  add(proto, "proto");
+  add(bom, "bom");
+  return out;
+}

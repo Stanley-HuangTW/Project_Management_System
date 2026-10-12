@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil,
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
+import { PRODUCT_SOURCE_LABELS } from "@/lib/bom";
 import {
   addProduct,
   deleteProduct,
@@ -434,18 +435,19 @@ export function BomTable({ boardId }: { boardId: string }) {
       <div className="flex flex-wrap items-end gap-2">
         <label className="block">
           <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">產品</span>
-          <input
-            list="bom-products"
+          <select
             value={product}
             onChange={(e) => setProduct(e.target.value)}
-            placeholder="例如 M3、充電站"
-            className="w-40 rounded-md border border-neutral-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
-          />
-          <datalist id="bom-products">
+            title="產品名稱來自「新增產品」、「樣機計畫」、「樣機 BOM」三處;括號是這個名字出現在哪裡"
+            className="max-w-64 rounded-md border border-neutral-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+          >
+            {ctx.products.length === 0 && <option value="">還沒有產品</option>}
             {ctx.products.map((p) => (
-              <option key={p} value={p} />
+              <option key={p} value={p}>
+                {p}({(ctx.productSources[p] ?? []).map((s) => PRODUCT_SOURCE_LABELS[s]).join("、")})
+              </option>
             ))}
-          </datalist>
+          </select>
           <datalist id="bom-vendors">
             {ctx.vendors.map((v) => (
               <option key={v} value={v} />

@@ -4,6 +4,7 @@ import {
   flattenBom,
   bomMaterialBudget,
   reconstructBomTree,
+  sourcesOfProducts,
   unionProducts,
   validateProductName,
   validateProductRename,
@@ -291,5 +292,14 @@ describe("產品名稱", () => {
   it("unionProducts:三份名字聯集、去重、排序", () => {
     expect(unionProducts(["M3", "充電站"], ["M3", "AMR"], [])).toEqual(["AMR", "M3", "充電站"]);
     expect(unionProducts([], [], [])).toEqual([]);
+  });
+
+  it("sourcesOfProducts:每個名字出現在哪幾處,名字對不上時各自標自己的來源", () => {
+    expect(sourcesOfProducts(["M3"], ["M3", "P100_EVT1"], ["M3", "EVT1"])).toEqual({
+      M3: ["own", "proto", "bom"],
+      P100_EVT1: ["proto"],
+      EVT1: ["bom"],
+    });
+    expect(sourcesOfProducts([], [], [])).toEqual({});
   });
 });

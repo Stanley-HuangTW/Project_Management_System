@@ -79,21 +79,34 @@ export function NewBomDialog({
           一份 BOM 是「某個產品在某個階段」要用的料。選好產品與階段,可以從空白開始,也可以複製一份現有的當起點再改。
         </p>
         <label className="block text-xs text-neutral-500 dark:text-neutral-400">
-          產品(可以直接打新的名字)
+          產品(點下面現有的,或直接打新的名字)
           <input
-            list="new-bom-products"
             value={product}
             onChange={(e) => setProduct(e.target.value)}
             placeholder="例如 M3、充電站"
             className={`${field} mt-1`}
             autoFocus
           />
-          <datalist id="new-bom-products">
-            {products.map((p) => (
-              <option key={p} value={p} />
-            ))}
-          </datalist>
         </label>
+        {products.length > 0 && (
+          <div className="-mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <span>現有產品:</span>
+            {products.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setProduct(p)}
+                className={`rounded-full border px-2 py-0.5 ${
+                  p === name
+                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                    : "border-neutral-300 hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
         {isNewProduct && <p className="-mt-1 text-[11px] text-blue-600 dark:text-blue-400">「{name}」是新產品,會一起建立。</p>}
         <label className="block text-xs text-neutral-500 dark:text-neutral-400">
           階段
