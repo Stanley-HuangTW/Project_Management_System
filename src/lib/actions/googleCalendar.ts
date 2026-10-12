@@ -8,12 +8,12 @@ import {
   EXTERNAL_ID_PREFIX,
   explainGoogleForbidden,
   toCandidates,
+  validateCalendarRange,
   type CalendarCandidate,
   type GoogleEvent,
 } from "@/lib/googleCalendar";
-import { isValidIsoDate } from "@/lib/timesheet";
+import { addDaysIso, isValidIsoDate } from "@/lib/timesheet";
 import { validateStartMinute } from "@/lib/timeOfDay";
-import { weekRangeOf } from "@/lib/weeklyReport";
 import { logActivityTime, updateActivityTime } from "./activityTime";
 
 /** 清單上的一列:Google 的行程,加上它在工時裡的狀態。 */
@@ -24,8 +24,13 @@ export type CalendarImportRow = CalendarCandidate & {
   entryId: string | null;
 };
 
-export type CalendarWeekResult =
-  | { status: "ok"; rows: CalendarImportRow[] }
+export type CalendarRangeResult =
+  | {
+      status: "ok";
+      rows: CalendarImportRow[];
+      /** Google 還有更多行程沒抓進來(一次最多 500 筆),請使用者縮小區間。 */
+      truncated: boolean;
+    }
   /** 還沒授權,或授權過期了。 */
   | { status: "needsAuth" }
   /** 伺服器沒設 Google 登入(GOOGLE_CLIENT_ID),要請管理者設定。 */
@@ -36,28 +41,31 @@ export type CalendarWeekResult =
 /** Google Calendar API 的位址;測試(假的 Google)或走代理時可以用 GOOGLE_CALENDAR_API_BASE 換掉。 */
 const API_BASE = () => (process.env.GOOGLE_CALENDAR_API_BASE || "https://www.googleapis.com").replace(/\/+$/, "");
 
+/** 一次最多抓進來幾個行程;也是一次最多匯入的上限。 */
+const MAX_EVENTS = 500;
+
 /**
- * 抓這一週(週一到週日,台灣時間)的 Google 日曆行程。
+ * 抓 from 到 to(含頭尾,台灣時間)的 Google 日曆行程——一週、一個月或自訂的區間,區間長度的上限見 validateCalendarRange。
  *
  * 授權是瀏覽器裡的暫存 cookie(約一小時),系統不存 Google 帳號、密碼或任何憑證;
  * 沒有或過期就回 needsAuth,畫面請使用者重新授權。
  */
-export async function fetchGoogleCalendarWeek(weekStart: string): Promise<CalendarWeekResult> {
+export async function fetchGoogleCalendarRange(from: string, to: string): Promise<CalendarRangeResult> {
   const session = await requireSession();
-  if (!isValidIsoDate(weekStart)) return { status: "error", message: "日期格式不正確" };
-  const range = weekRangeOf(weekStart);
+  const invalid = validateCalendarRange(from, to);
+  if (invalid) return { status: "error", message: invalid };
 
   const store = await cookies();
   const token = store.get(GOOGLE_CALENDAR_TOKEN_COOKIE)?.value;
   if (!token) return process.env.GOOGLE_CLIENT_ID ? { status: "needsAuth" } : { status: "notConfigured" };
 
   const url = new URL(`${API_BASE()}/calendar/v3/calendars/primary/events`);
-  url.searchParams.set("timeMin", new Date(`${range.weekStart}T00:00:00+08:00`).toISOString());
-  url.searchParams.set("timeMax", new Date(new Date(`${range.weekEnd}T00:00:00+08:00`).getTime() + 86_400_000).toISOString());
+  url.searchParams.set("timeMin", new Date(`${from}T00:00:00+08:00`).toISOString());
+  url.searchParams.set("timeMax", new Date(`${addDaysIso(to, 1)}T00:00:00+08:00`).toISOString());
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
-  url.searchParams.set("maxResults", "250");
-  url.searchParams.set("fields", "items(id,summary,status,eventType,htmlLink,start,end,attendees(self,responseStatus))");
+  url.searchParams.set("maxResults", String(MAX_EVENTS));
+  url.searchParams.set("fields", "nextPageToken,items(id,summary,status,eventType,htmlLink,start,end,attendees(self,responseStatus))");
 
   let response: Response;
   try {
@@ -77,7 +85,7 @@ export async function fetchGoogleCalendarWeek(weekStart: string): Promise<Calend
   }
   if (!response.ok) return { status: "error", message: `讀取 Google 日曆失敗(HTTP ${response.status})` };
 
-  const body = (await response.json()) as { items?: GoogleEvent[] };
+  const body = (await response.json()) as { items?: GoogleEvent[]; nextPageToken?: string };
   const candidates = toCandidates(body.items ?? []);
 
   const existing = await prisma.activityTimeEntry.findMany({
@@ -88,6 +96,7 @@ export async function fetchGoogleCalendarWeek(weekStart: string): Promise<Calend
 
   return {
     status: "ok",
+    truncated: !!body.nextPageToken,
     rows: candidates.map((c) => {
       const entry = byExternalId.get(c.externalId);
       if (!entry) return { ...c, state: "new", entryId: null };
@@ -119,7 +128,7 @@ export type CalendarImportResult = { created: number; updated: number; failed: s
 export async function importGoogleCalendarEvents(items: CalendarImportItem[]): Promise<CalendarImportResult | { error: string }> {
   const session = await requireSession();
   if (items.length === 0) return { error: "請至少勾選一個行程" };
-  if (items.length > 250) return { error: "一次最多匯入 250 個行程" };
+  if (items.length > MAX_EVENTS) return { error: `一次最多匯入 ${MAX_EVENTS} 個行程` };
 
   const result: CalendarImportResult = { created: 0, updated: 0, failed: [] };
   for (const item of items) {

@@ -22,7 +22,10 @@ import { isoWeekLabel, weekRangeOf } from "@/lib/weeklyReport";
 import { EntryDialog, type EntryDialogTarget, type EntryDraft } from "./EntryDialog";
 import { GoogleCalendarDialog } from "./GoogleCalendarDialog";
 import { TemplateDialog, type TemplatePrefill } from "./TemplateDialog";
+import { EstimatePanel } from "./EstimatePanel";
 import { WeekCalendar } from "./WeekCalendar";
+import { getMyEstimates } from "@/lib/actions/timesheetEstimate";
+import type { EstimateWeek } from "@/lib/timesheetEstimate";
 import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
 
 function fmt(hours: number): string {
@@ -41,6 +44,7 @@ export function MyWeekLog({ today }: { today: string }) {
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templatePrefill, setTemplatePrefill] = useState<TemplatePrefill | null>(null);
   const [gcalOpen, setGcalOpen] = useState(false);
+  const [estimates, setEstimates] = useState<{ weekStart: string; data: EstimateWeek | { error: string } } | null>(null);
 
   // 從 Google 授權頁回來:回到原本看的那一週,成功就重新打開匯入視窗,失敗說一聲。
   useEffect(() => {
@@ -76,6 +80,22 @@ export function MyWeekLog({ today }: { today: string }) {
     };
   }, [weekStart, refreshKey]);
 
+  // 預估只跟著週變(改工時不會改預估);實際直接取自畫面上這一週的登記。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getMyEstimates(weekStart);
+        if (!cancelled) setEstimates({ weekStart, data });
+      } catch {
+        if (!cancelled) setEstimates({ weekStart, data: { error: "讀取失敗,請重新整理後再試一次。" } });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [weekStart]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -93,6 +113,18 @@ export function MyWeekLog({ today }: { today: string }) {
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDaysIso(weekStart, i)), [weekStart]);
   const weekEnd = days[6];
   const weekTotal = days.reduce((sum, d) => sum + dayTotalHours(events, d), 0);
+  const weekEstimate = estimates && estimates.weekStart === weekStart ? estimates.data : null;
+  const estimateByDay = useMemo(() => {
+    if (!weekEstimate || "error" in weekEstimate) return undefined;
+    const out: Record<string, { labour: number; work: number }> = {};
+    for (const d of days) {
+      out[d] = {
+        labour: weekEstimate.projects.reduce((s, p) => s + (p.labour[d] ?? 0), 0),
+        work: weekEstimate.projects.reduce((s, p) => s + p.items.reduce((t, i) => t + (i.hours[d] ?? 0), 0), 0),
+      };
+    }
+    return out;
+  }, [weekEstimate, days]);
   const currentWeekStart = weekRangeOf(today).weekStart;
 
   function goToWeek(next: string) {
@@ -363,7 +395,7 @@ export function MyWeekLog({ today }: { today: string }) {
           disabled={busy}
           onClick={() => setGcalOpen(true)}
           className="flex items-center gap-1 rounded-md border border-neutral-300 px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
-          title="把 Google 日曆這一週的行程匯入成工時"
+          title="把 Google 日曆的行程匯入成工時(可選每週、每月或自訂區間)"
         >
           <CalendarDays size={13} /> Google 日曆
         </button>
@@ -381,6 +413,7 @@ export function MyWeekLog({ today }: { today: string }) {
             events={events}
             today={today}
             busy={busy}
+            estimateByDay={estimateByDay}
             onCreate={(slot) => setDialog({ mode: "new", ...slot })}
             onOpen={(event) => setDialog({ mode: "edit", event })}
             onMove={(event, to) => changeOnCalendar(event, { ...to, hours: event.hours })}
@@ -399,6 +432,7 @@ export function MyWeekLog({ today }: { today: string }) {
             </span>
             <span className="ml-2">虛線 = 待審</span>
           </p>
+          {week && <EstimatePanel key={weekStart} estimates={weekEstimate} week={week} days={days} today={today} />}
         </>
       )}
 
@@ -415,7 +449,6 @@ export function MyWeekLog({ today }: { today: string }) {
         open={gcalOpen}
         onClose={() => setGcalOpen(false)}
         weekStart={weekStart}
-        weekLabel={isoWeekLabel(weekStart)}
         options={options}
         onAuthorize={authorizeGoogleCalendar}
         onImported={reload}

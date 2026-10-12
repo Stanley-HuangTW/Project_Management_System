@@ -7,17 +7,29 @@ import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { TimesheetOptions } from "@/lib/actions/activityTime";
 import {
-  fetchGoogleCalendarWeek,
+  fetchGoogleCalendarRange,
   importGoogleCalendarEvents,
   type CalendarImportRow,
-  type CalendarWeekResult,
+  type CalendarRangeResult,
 } from "@/lib/actions/googleCalendar";
-import { SKIP_REASON_LABELS } from "@/lib/googleCalendar";
+import {
+  MAX_CALENDAR_RANGE_DAYS,
+  SKIP_REASON_LABELS,
+  calendarScopeRange,
+  validateCalendarRange,
+  type CalendarScope,
+} from "@/lib/googleCalendar";
 import { formatMinute } from "@/lib/timeOfDay";
 
 const WEEKDAY_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const selectClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
+
+const SCOPE_LABELS: [CalendarScope, string][] = [
+  ["week", "每週"],
+  ["month", "每月"],
+  ["range", "自訂區間"],
+];
 
 function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
@@ -41,14 +53,13 @@ function dayLabel(dateIso: string): string {
 }
 
 /**
- * 從 Google 日曆匯入:列出目前這一週的行程,勾選要匯入的,每筆可以選類別與對應專案,確認後才建立工時。
- * 已經匯入過的不會重複建立;日曆上改了時間的會標出來,可以只更新時間。
+ * 從 Google 日曆匯入:列出一週、一個月或自訂區間的行程,勾選要匯入的,每筆可以選類別與對應專案,確認後才建立工時。
+ * 「每週」是行事曆正在看的那一週,「每月」是那一週所在的月份。已經匯入過的不會重複建立;日曆上改了時間的會標出來,可以只更新時間。
  */
 export function GoogleCalendarDialog({
   open,
   onClose,
   weekStart,
-  weekLabel,
   options,
   onAuthorize,
   onImported,
@@ -56,14 +67,16 @@ export function GoogleCalendarDialog({
   open: boolean;
   onClose: () => void;
   weekStart: string;
-  weekLabel: string;
   options: TimesheetOptions | null;
   /** 帶使用者去 Google 授權(整頁跳轉,回來後會重新開啟這個視窗)。forceConsent = 強制再顯示一次同意畫面。 */
   onAuthorize: (forceConsent?: boolean) => void;
   onImported: () => void;
 }) {
   const { notify } = useDialogs();
-  const [result, setResult] = useState<CalendarWeekResult | null>(null);
+  const [result, setResult] = useState<CalendarRangeResult | null>(null);
+  const [scope, setScope] = useState<CalendarScope>("week");
+  const [customFrom, setCustomFrom] = useState(weekStart);
+  const [customTo, setCustomTo] = useState(() => calendarScopeRange("week", weekStart).to);
   const [reloadKey, setReloadKey] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [categoryOf, setCategoryOf] = useState<Record<string, string>>({});
@@ -72,15 +85,28 @@ export function GoogleCalendarDialog({
 
   const defaultCategoryId = options?.categories.find((c) => c.name === "例行會議")?.id ?? options?.categories[0]?.id ?? "";
 
+  // 每次打開:回到「每週」,自訂區間預設是正在看的那一週。
   useEffect(() => {
     if (!open) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setScope("week");
+    setCustomFrom(weekStart);
+    setCustomTo(calendarScopeRange("week", weekStart).to);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [open, weekStart]);
+
+  const range = scope === "range" ? { from: customFrom, to: customTo } : calendarScopeRange(scope, weekStart);
+  const rangeError = validateCalendarRange(range.from, range.to);
+
+  useEffect(() => {
+    if (!open || rangeError) return;
     let cancelled = false;
-    // 開啟(或換週、重試)時重新抓,先回到載入中。
+    // 開啟(或換區間、重試)時重新抓,先回到載入中。
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setResult(null);
     (async () => {
       try {
-        const r = await fetchGoogleCalendarWeek(weekStart);
+        const r = await fetchGoogleCalendarRange(range.from, range.to);
         if (cancelled) return;
         setResult(r);
         if (r.status === "ok") {
@@ -96,9 +122,10 @@ export function GoogleCalendarDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, weekStart, reloadKey]);
+  }, [open, range.from, range.to, rangeError, reloadKey]);
 
-  const rows = useMemo(() => (result?.status === "ok" ? result.rows : []), [result]);
+  // 區間不合法時,上一個區間的行程不能留在清單與匯入按鈕上。
+  const rows = useMemo(() => (!rangeError && result?.status === "ok" ? result.rows : []), [result, rangeError]);
   const importable = rows.filter((r) => r.skip === null && r.state !== "imported");
   const chosen = importable.filter((r) => selected.has(r.externalId));
   const skipped = rows.filter((r) => r.skip !== null);
@@ -229,13 +256,54 @@ export function GoogleCalendarDialog({
     <Modal open={open} onOpenChange={(o) => !o && onClose()} title="從 Google 日曆匯入" size="xl">
       <div className="space-y-3">
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          列出 {weekLabel} 的 Google 日曆行程,勾選要匯入成工時的。只讀取行程的標題與時間;授權只暫存在瀏覽器約一小時,
+          列出 Google 日曆在這段期間的行程,勾選要匯入成工時的。只讀取行程的標題與時間;授權只暫存在瀏覽器約一小時,
           系統不保存你的 Google 帳號、密碼或憑證。
         </p>
 
-        {result === null && <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">讀取 Google 日曆中...</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-neutral-200 text-xs dark:border-neutral-700" role="group" aria-label="匯入的範圍">
+            {SCOPE_LABELS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setScope(key)}
+                aria-pressed={scope === key}
+                disabled={busy}
+                className={`px-3 py-1 ${
+                  scope === key
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {scope === "range" ? (
+            <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className={selectClass} aria-label="開始日期" />
+              <span>~</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className={selectClass} aria-label="結束日期" />
+            </div>
+          ) : (
+            <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
+              {range.from} ~ {range.to}
+            </span>
+          )}
+        </div>
+        {rangeError ? (
+          <p className="text-xs text-red-600 dark:text-red-400">{rangeError}</p>
+        ) : (
+          scope === "range" && (
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">一次最多 {MAX_CALENDAR_RANGE_DAYS} 天(約三個月)。</p>
+          )
+        )}
 
-        {result?.status === "needsAuth" && (
+        {!rangeError && result === null && (
+          <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">讀取 Google 日曆中...</p>
+        )}
+
+        {!rangeError && result?.status === "needsAuth" && (
           <div className="rounded-md bg-neutral-50 p-4 text-sm text-neutral-700 dark:bg-neutral-800/60 dark:text-neutral-200">
             <p className="mb-3">要先連結你的 Google 日曆(唯讀)。會跳到 Google 的同意畫面,同意後自動回到這裡。</p>
             <button
@@ -248,13 +316,13 @@ export function GoogleCalendarDialog({
           </div>
         )}
 
-        {result?.status === "notConfigured" && (
+        {!rangeError && result?.status === "notConfigured" && (
           <p className="rounded-md bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
             伺服器還沒設定 Google 登入(GOOGLE_CLIENT_ID),請管理者先設定。
           </p>
         )}
 
-        {result?.status === "error" && (
+        {!rangeError && result?.status === "error" && (
           <div className="rounded-md bg-red-50 p-4 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
             <p className="mb-2 break-words">{linkify(result.message)}</p>
             {result.reauthorize ? (
@@ -277,10 +345,15 @@ export function GoogleCalendarDialog({
           </div>
         )}
 
-        {result?.status === "ok" && (
+        {!rangeError && result?.status === "ok" && (
           <>
+            {result.truncated && (
+              <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                這段期間的行程太多,只列出前面的 {rows.length} 個。請縮小區間(例如改成每週)再匯入剩下的。
+              </p>
+            )}
             {rows.length === 0 ? (
-              <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">這一週在 Google 日曆上沒有行程。</p>
+              <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">這段期間在 Google 日曆上沒有行程。</p>
             ) : (
               <>
                 <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">

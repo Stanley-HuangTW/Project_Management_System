@@ -37,6 +37,7 @@ export type ProjectDayEntry = {
   id: string;
   itemId: string;
   itemName: string;
+  boardId: string;
   boardName: string;
   hours: number;
   note: string;
@@ -116,7 +117,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
       where: { userId: session.userId, date: { gte: range.weekStart, lte: range.weekEnd } },
       orderBy: { createdAt: "asc" },
       include: {
-        item: { select: { name: true, groupId: true, board: { select: { name: true } } } },
+        item: { select: { name: true, groupId: true, board: { select: { id: true, name: true } } } },
         decidedBy: { select: { name: true } },
       },
     }),
@@ -161,6 +162,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           id: e.id,
           itemId: e.itemId,
           itemName: e.item.name,
+          boardId: e.item.board.id,
           boardName: e.item.board.name,
           hours: Number(e.hours),
           note: e.note ?? "",

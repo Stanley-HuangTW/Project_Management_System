@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampToMidnight, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
+import { calendarScopeRange, clampToMidnight, explainGoogleForbidden, minutesToHours, toCandidates, toTaipei, validateCalendarRange, type GoogleEvent, explainGoogleAuthFailure } from "./googleCalendar";
 
 const ev = (over: Partial<GoogleEvent> & { id: string }): GoogleEvent => ({
   summary: "部門週會",
@@ -203,5 +203,40 @@ describe("explainGoogleAuthFailure(授權失敗的原因說明)", () => {
   it("不認得的原因、或舊的連結(沒有原因):退回籠統說法", () => {
     expect(explainGoogleAuthFailure(null, null)).toBe("Google 授權失敗,請重新嘗試。");
     expect(explainGoogleAuthFailure("something-new", "x")).toBe("Google 授權失敗,請重新嘗試。");
+  });
+});
+
+describe("calendarScopeRange(每週 / 每月)", () => {
+  it("每週:行事曆正在看的那一週,週一到週日", () => {
+    expect(calendarScopeRange("week", "2026-10-12")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
+  });
+
+  it("每月:那一週所在的整個月", () => {
+    expect(calendarScopeRange("month", "2026-10-12")).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+  });
+
+  it("跨月的那一週:以週四所在的月份為準", () => {
+    // 2026-09-28(週一)~ 10-04:週四是 10/1 → 十月。
+    expect(calendarScopeRange("month", "2026-09-28")).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    // 2026-08-31(週一)~ 09-06:週四是 9/3 → 九月。
+    expect(calendarScopeRange("month", "2026-08-31")).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+  });
+});
+
+describe("validateCalendarRange", () => {
+  it("正常的區間沒問題,同一天也可以", () => {
+    expect(validateCalendarRange("2026-10-01", "2026-10-31")).toBeNull();
+    expect(validateCalendarRange("2026-10-01", "2026-10-01")).toBeNull();
+  });
+
+  it("日期沒填、格式不對、開始晚於結束", () => {
+    expect(validateCalendarRange("", "2026-10-31")).toContain("起訖");
+    expect(validateCalendarRange("2026-02-30", "2026-10-31")).toContain("起訖");
+    expect(validateCalendarRange("2026-10-31", "2026-10-01")).toContain("不能晚於");
+  });
+
+  it("最多 92 天:剛好 92 天可以,多一天不行", () => {
+    expect(validateCalendarRange("2026-10-01", "2026-12-31")).toBeNull(); // 92 天
+    expect(validateCalendarRange("2026-10-01", "2027-01-01")).toContain("最多");
   });
 });

@@ -71,6 +71,7 @@ export function WeekCalendar({
   events,
   today,
   busy,
+  estimateByDay,
   onCreate,
   onOpen,
   onMove,
@@ -80,6 +81,8 @@ export function WeekCalendar({
   events: CalendarEvent[];
   today: string;
   busy: boolean;
+  /** 每天的預估小時(人力表、工作項),顯示在日期底下;沒給就不顯示。 */
+  estimateByDay?: Record<string, { labour: number; work: number }>;
   onCreate: (slot: { date: string; startMinute: number | null; hours: number }) => void;
   onOpen: (event: CalendarEvent) => void;
   onMove: (event: CalendarEvent, to: { date: string; startMinute: number }) => void;
@@ -239,6 +242,14 @@ export function WeekCalendar({
                       <div className="mt-0.5 text-[11px] tabular-nums text-neutral-500 dark:text-neutral-400" title="這一天已登記的小時">
                         {total > 0 ? `${fmt(total)} 小時` : "—"}
                       </div>
+                      {(estimateByDay?.[date]?.labour || estimateByDay?.[date]?.work) ? (
+                        <div
+                          className="text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500"
+                          title={`預估:人力表 ${fmt(estimateByDay[date].labour)} 小時、工作項 ${fmt(estimateByDay[date].work)} 小時(詳見下方「預估對照」)`}
+                        >
+                          預估 {fmt(estimateByDay[date].labour || estimateByDay[date].work)}
+                        </div>
+                      ) : null}
                     </div>
                     <button
                       type="button"

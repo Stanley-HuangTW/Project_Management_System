@@ -5,6 +5,7 @@
  * taipeiTodayIso),Google 回來的是帶時區偏移的 RFC3339。
  */
 import { MINUTES_PER_DAY } from "./timeOfDay";
+import { addDaysIso, daysBetweenInclusive, isValidIsoDate, monthRangeOf } from "./timesheet";
 
 /** Google Calendar API events.list 回來的一筆,只列用得到的欄位。 */
 export type GoogleEvent = {
@@ -166,4 +167,27 @@ export function explainGoogleAuthFailure(reason: string | null, detail: string |
 /** 對齊後會超過午夜的(例如 23:50 開始、開 1 小時)要把時數縮到午夜,不然存不進去。 */
 export function clampToMidnight(startMinute: number, hours: number): number {
   return Math.min(hours, (MINUTES_PER_DAY - startMinute) / 60);
+}
+
+/** 一次最多匯入多長的區間:行程太多的話勾選清單沒法讀,也怕抓不完。 */
+export const MAX_CALENDAR_RANGE_DAYS = 92;
+
+export type CalendarScope = "week" | "month" | "range";
+
+/**
+ * 「每週」「每月」兩種預設區間:週 = 工時行事曆正在看的那一週(週一到週日);
+ * 月 = 那一週的週四所在的月份(整個月,頭尾不看週的邊界)。
+ */
+export function calendarScopeRange(scope: "week" | "month", weekStart: string): { from: string; to: string } {
+  if (scope === "week") return { from: weekStart, to: addDaysIso(weekStart, 6) };
+  const { monthStart, monthEnd } = monthRangeOf(addDaysIso(weekStart, 3));
+  return { from: monthStart, to: monthEnd };
+}
+
+/** 區間的檢查——回傳說明,沒問題回 null。 */
+export function validateCalendarRange(from: string, to: string): string | null {
+  if (!isValidIsoDate(from) || !isValidIsoDate(to)) return "請選擇起訖日期";
+  if (from > to) return "開始日期不能晚於結束日期";
+  if (daysBetweenInclusive(from, to) > MAX_CALENDAR_RANGE_DAYS) return `一次最多匯入 ${MAX_CALENDAR_RANGE_DAYS} 天(約三個月)的行程`;
+  return null;
 }
