@@ -16,6 +16,8 @@ import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
+import { RollupProgress } from "../RollupProgress";
+import { computeItemProgress } from "@/lib/progress";
 import { OwnerAllocationInput } from "../OwnerAllocationInput";
 import { AssignmentEditor } from "../AssignmentEditor";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -106,6 +108,8 @@ export function ItemCardTab({
   const wbsCodes = groupItems ? computeWbsCodes(groupItems) : undefined;
   const wbsCode = wbsCodes?.get(item.id);
   const parent = groupItems?.find((i) => i.id === item.parentId);
+  // 有子項目的項目,進度是子項目的平均(見 computeItemProgress),自己填的數字不算——卡片跟表格一樣只顯示。
+  const childCount = groupItems ? groupItems.filter((i) => i.parentId === item.id).length : 0;
   const parentWbsCode = parent ? wbsCodes?.get(parent.id) : undefined;
   const createdByName = users.find((u) => u.id === item.createdById)?.name;
   // How far this item has drifted from the plan saved for it. Null until the
@@ -223,21 +227,30 @@ export function ItemCardTab({
                 {col.name}
               </span>
               <span className="w-40 text-sm text-neutral-800 dark:text-neutral-100">
-                <CellEditor
-                  boardId={boardId}
-                  itemId={item.id}
-                  column={col}
-                  value={valuesByColumn.get(col.id) ?? null}
-                  users={users}
-                  canEdit={canEdit}
-                  isProgressColumn={col.id === progressColumnId}
-                  predColumnId={predColumnId}
-                  groupItems={groupItems}
-                  crossGroupPredOptions={crossGroupPredOptions}
-                  bordered
-                />
+                {col.id === progressColumnId && childCount > 0 && groupItems ? (
+                  <RollupProgress value={computeItemProgress(item, groupItems, col.id)} childCount={childCount} />
+                ) : (
+                  <CellEditor
+                    boardId={boardId}
+                    itemId={item.id}
+                    column={col}
+                    value={valuesByColumn.get(col.id) ?? null}
+                    users={users}
+                    canEdit={canEdit}
+                    isProgressColumn={col.id === progressColumnId}
+                    predColumnId={predColumnId}
+                    groupItems={groupItems}
+                    crossGroupPredOptions={crossGroupPredOptions}
+                    bordered
+                  />
+                )}
               </span>
             </div>
+            {col.id === progressColumnId && childCount > 0 && (
+              <p className="border-b border-neutral-100 px-4 py-1.5 text-[11px] text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
+                這個項目有 {childCount} 個子項目,進度是它們的平均(沒填的算 0%)。要改請到子項目填進度。
+              </p>
+            )}
             {col.name === "負責人" && col.type === "PERSON" && (
               <div className="flex justify-end border-b border-neutral-100 dark:border-neutral-700 px-4 py-2">
                 <OwnerAllocationInput
