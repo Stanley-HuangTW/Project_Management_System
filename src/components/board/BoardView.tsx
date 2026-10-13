@@ -30,6 +30,7 @@ import {
   type BoardAdminAction,
 } from "./BoardAdminActions";
 import { ExportGanttModal } from "./ExportGanttModal";
+import type { ProtoUnitsData } from "./ItemProtoUnitsContext";
 
 export function BoardView({
   board,
@@ -39,12 +40,14 @@ export function BoardView({
   highlightItemId,
   highlightNonce,
   highlightTab,
+  initialView,
   openAction,
   holidays,
   ownerDefaultPct,
   externalPreds,
   hasMantis,
   eventSummaries,
+  protoUnits,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -55,7 +58,10 @@ export function BoardView({
    *  本身不會變,得靠這個才分得出「又點了一次」跟「沒事」。 */
   highlightNonce?: string | null;
   /** 打開 highlight 那個項目時停在哪一個分頁(updates / card / links / checklist……);沒給就是「更新」。 */
-  highlightTab?: string | null;  /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
+  highlightTab?: string | null;
+  /** ?view=risks 這種連結來的(儀表板的風險與問題清單):一打開就停在那個分頁,沒給或不認得就是表格。 */
+  initialView?: string | null;
+  /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
    *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
   openAction?: string | null;
   holidays: Holiday[];
@@ -66,8 +72,13 @@ export function BoardView({
   /** 這個看板有連到 MantisBT:多一個「問題」分頁。 */
   hasMantis: boolean;
   /** 表格最右邊「進行中時間、完成時間、更新記錄」三欄的資料(只含看得到的項目)。 */
-  eventSummaries?: Record<string, ItemEventSummary>;}) {
-  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">("table");
+  eventSummaries?: Record<string, ItemEventSummary>;
+  /** 表格「使用樣機」欄的資料:看板可選的樣機,與每個工作項用到哪幾台。 */
+  protoUnits?: ProtoUnitsData;
+}) {
+  const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">(
+    () => (initialView === "risks" || (initialView === "issues" && hasMantis) ? initialView : "table")
+  );
   // 看板欄的「本週完成」以實際切成完成的時間為準。
   const completedAtByItem = useMemo(
     () => Object.fromEntries(Object.entries(eventSummaries ?? {}).flatMap(([id, s]) => (s.completedAt ? [[id, s.completedAt]] : []))),
@@ -286,6 +297,7 @@ export function BoardView({
             highlightTab={highlightTab}
             holidays={holidays}
             eventSummaries={eventSummaries}
+            protoUnits={protoUnits}
           />
         )}
         {view === "kanban" && (

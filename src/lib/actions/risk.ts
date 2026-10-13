@@ -9,6 +9,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { clampLevel, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
+import { notifyRiskAssigned } from "@/lib/notify";
 import { attributeAudit } from "@/lib/impersonation";
 import {
   allReviewersApproved,
@@ -304,6 +305,11 @@ export async function createRisk(boardId: string, input: RiskInput): Promise<Res
       `建立${input.kind === "ISSUE" ? "問題" : "風險"}「${data.title}」${who.length > 0 ? `(${who.join(";")})` : ""}`,
     ]).map((row) => ({ ...row, category: "RISK" as const })),
   });
+  // 被指派為負責人、審核人的人收到通知。
+  await notifyRiskAssigned(risk.id, session.userId, { title: data.title, kindLabel: input.kind === "ISSUE" ? "問題" : "風險" }, {
+    ownerId: data.ownerId,
+    reviewerIds,
+  });
   revalidatePath(`/boards/${boardId}`);
   return {};
 }
@@ -378,6 +384,13 @@ export async function updateRisk(riskId: string, input: RiskInput): Promise<Resu
         ),
       });
     }
+  });
+  // 新換上去的負責人、新加進來的審核人收到通知(沒換的不重複通知)。
+  const newOwnerId = data.ownerId && data.ownerId !== existing.ownerId ? data.ownerId : null;
+  const newReviewerIds = reviewerIds.filter((id) => !beforeReviewerIds.includes(id));
+  await notifyRiskAssigned(riskId, session.userId, { title: data.title, kindLabel: existing.kind === "ISSUE" ? "問題" : "風險" }, {
+    ownerId: newOwnerId,
+    reviewerIds: newReviewerIds,
   });
   revalidatePath(`/boards/${existing.boardId}`);
   return {};

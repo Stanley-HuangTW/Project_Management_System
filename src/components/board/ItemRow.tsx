@@ -40,6 +40,7 @@ import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { ItemEventCells } from "./ItemEventCells";
+import { ItemProtoUnitCell } from "./ItemProtoUnitCell";
 import { ItemEventLogModal } from "./ItemEventLogModal";
 import { useItemEvents } from "./ItemEventsContext";
 import type { ItemDetailTab } from "@/lib/itemEvents";
@@ -737,6 +738,10 @@ export function ItemRow({
             </div>
           );
         })}
+        <ItemProtoUnitCell
+          itemId={item.id}
+          canEdit={canEditCellValue(userRole, "STATUS", false, isAssignedToCurrentUser, isAssignedToGroupDiscipline)}
+        />
         <ItemEventCells itemId={item.id} />
       </div>
       {childRows}

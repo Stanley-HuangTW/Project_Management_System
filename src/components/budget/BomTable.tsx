@@ -328,7 +328,12 @@ export function BomTable({ boardId }: { boardId: string }) {
     const detail =
       usage.bomLines + usage.protoRows === 0
         ? "這個產品還沒有 BOM 與樣機計畫。"
-        : `會一併刪掉它在 ${usage.phases} 個階段的 ${usage.bomLines} 筆 BOM(含子項目)與 ${usage.protoRows} 列樣機計畫,無法復原。`;
+        : `會一併刪掉它在 ${usage.phases} 個階段的 ${usage.bomLines} 筆 BOM(含子項目)與 ${usage.protoRows} 列樣機計畫,無法復原。` +
+          (usage.protoUnits > 0
+            ? `\n\n樣機計畫排出來的 ${usage.protoUnits} 台樣機也會一併拿掉${
+                usage.usedByItems > 0 ? `;其中 ${usage.usedByItems} 個工作項正在使用,它們的「使用樣機」會一併解除` : ""
+              }。`
+            : "");
     const ok = await confirm(`刪除產品「${product}」?\n\n${detail}`, {
       title: "刪除產品",
       confirmLabel: "刪除",

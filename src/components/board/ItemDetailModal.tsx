@@ -111,7 +111,7 @@ export function ItemDetailModal({
         ))}
       </div>
 
-      {tab === "updates" && <UpdatesTab boardId={boardId} itemId={item.id} users={users} />}
+      {tab === "updates" && <UpdatesTab boardId={boardId} itemId={item.id} users={users} currentUserId={currentUserId} userRole={userRole} />}
       {tab === "cost" && (
         <CostTab
           itemId={item.id}
@@ -124,7 +124,7 @@ export function ItemDetailModal({
         />
       )}
       {tab === "files" && <FilesTab boardId={boardId} itemId={item.id} />}
-      {tab === "links" && <LinksTab boardId={boardId} itemId={item.id} />}
+      {tab === "links" && <LinksTab boardId={boardId} itemId={item.id} currentUserId={currentUserId} userRole={userRole} />}
       {tab === "activity" && <ActivityLogTab itemId={item.id} />}
       {tab === "card" && (
         <ItemCardTab

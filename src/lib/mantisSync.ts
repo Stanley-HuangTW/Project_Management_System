@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/secretBox";
 import { RISK_STATUS_LABELS } from "@/lib/riskRegister";
+import { notifyRiskAssigned } from "@/lib/notify";
 import {
   mapMantisIssue,
   parseIssuesPage,
@@ -187,10 +188,11 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
         mantisReporter: true,
       },
     }),
-    prisma.user.findMany({ select: { id: true, email: true } }),
+    prisma.user.findMany({ select: { id: true, email: true, name: true } }),
   ]);
   const existing = new Map(existingRows.map((r) => [r.mantisId!, r]));
   const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.id]));
+  const userNameById = new Map(users.map((u) => [u.id, u.name]));
 
   const summary: SyncSummary = { total: mapped.length, created: 0, updated: 0, unchanged: 0, truncated: fetched.truncated };
   if (mapped.length === 0) summary.note = await explainEmptyResult(conn.baseUrl, token, conn.projectId);
@@ -226,9 +228,13 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
             riskId: created.id,
             boardId: conn.boardId,
             category: "RISK",
-            message: `從 Mantis 同步建立問題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})`,
+            message: `從 Mantis 同步建立問題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})${
+              ownerId ? `,指派給 ${userNameById.get(ownerId) ?? ""}` : ""
+            }`,
           },
         });
+        // Mantis 上這個問題指派給誰,就通知誰(系統同步,沒有操作者)。
+        if (ownerId) await notifyRiskAssigned(created.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 問題` }, { ownerId });
         summary.created++;
         continue;
       }
@@ -246,6 +252,22 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
         continue;
       }
       await prisma.riskEntry.update({ where: { id: old.id }, data: fields });
+      // 指派給誰變了(Mantis 上改了處理人):記一筆「指派」,並通知新的負責人。
+      if (old.ownerId !== ownerId) {
+        await prisma.activityLogEntry.create({
+          data: {
+            riskId: old.id,
+            boardId: conn.boardId,
+            category: "RISK",
+            message: ownerId
+              ? `Mantis #${m.mantisId}「${m.title}」指派給 ${userNameById.get(ownerId) ?? ""}${
+                  old.ownerId ? `(原負責人:${userNameById.get(old.ownerId) ?? ""})` : ""
+                }`
+              : `Mantis #${m.mantisId}「${m.title}」取消指派(原負責人:${old.ownerId ? (userNameById.get(old.ownerId) ?? "") : "未指派"})`,
+          },
+        });
+        if (ownerId) await notifyRiskAssigned(old.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 問題` }, { ownerId });
+      }
       if (old.status !== m.status) {
         await prisma.activityLogEntry.create({
           data: {

@@ -74,7 +74,12 @@ export function NotificationBell() {
     // notification twice — the board page's "open the item card" logic keys
     // off it rather than just the item id, since the id alone is identical
     // both times and wouldn't look like a new click at all.
-    router.push(`/boards/${n.item.boardId}?highlight=${n.item.id}&highlightAt=${nonce()}`);
+    // 風險/問題被指派的通知沒有工作項:直接開那個看板的風險分頁。
+    router.push(
+      n.item
+        ? `/boards/${n.boardId}?highlight=${n.item.id}&highlightAt=${nonce()}`
+        : `/boards/${n.boardId}?view=risks&highlightAt=${nonce()}`
+    );
     // A search-param-only navigation to a route you're already on can be
     // served from the client Router Cache without re-running the page's
     // searchParams-dependent data fetch — force it, or clicking a second
@@ -170,7 +175,7 @@ export function NotificationBell() {
                       {n.wbsCode}
                     </span>
                   )}
-                  {n.item.name}
+                  {n.title}
                   {n.trashed && (
                     <span className="ml-1.5 text-[10px] font-normal text-neutral-400 dark:text-neutral-500">
                       (在垃圾桶)

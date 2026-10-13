@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { mantisIdFromUrl } from "@/lib/mantis";
+import { canManageStructure } from "@/lib/permissions";
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
@@ -75,7 +76,9 @@ export async function addItemLink(
   _boardId: string,
   itemId: string,
   url: string,
-  label: string
+  label: string,
+  /** 這個連結要不要彙整進週報(預設要)。 */
+  inWeeklyReport = true
 ) {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
@@ -89,12 +92,27 @@ export async function addItemLink(
       url: normalized,
       label: trimmedLabel || null,
       createdById: session.userId,
+      inWeeklyReport: inWeeklyReport !== false,
     },
   });
 
   await logActivity(itemId, session.userId, `新增連結「${trimmedLabel || normalized}」`, { kind: "LINK" });
   revalidatePath(`/boards/${boardId}`);
   return link;
+}
+
+/** 改一個連結要不要彙整進週報。只有加這個連結的人與管理者、主管可以改。 */
+export async function setItemLinkInWeeklyReport(itemId: string, linkId: string, value: boolean): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const link = await prisma.itemLink.findUnique({ where: { id: linkId }, select: { itemId: true, createdById: true } });
+  if (!link || link.itemId !== itemId) return { error: "找不到這個連結" };
+  if (link.createdById !== session.userId && !canManageStructure(session.role)) {
+    return { error: "權限不足:只有加這個連結的人、主管與管理者可以改" };
+  }
+  await prisma.itemLink.update({ where: { id: linkId }, data: { inWeeklyReport: value } });
+  revalidatePath(`/boards/${boardId}`);
+  return {};
 }
 
 export async function deleteItemLink(

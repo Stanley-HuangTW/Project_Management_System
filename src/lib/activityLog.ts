@@ -17,7 +17,14 @@ async function attributed(actorId: string | null, message: string) {
 }
 
 /** 活動紀錄的結構化資訊:什麼種類的事;狀態切換再加切到哪個選項、算進行中還是完成。沒給就當一般的欄位修改。 */
-export type ActivityDetail = { kind: ItemEventKind; statusKind?: StatusKind; statusLabel?: string };
+export type ActivityDetail = {
+  kind: ItemEventKind;
+  statusKind?: StatusKind;
+  statusLabel?: string;
+  /** 待辦事項的紀錄:對到哪一個待辦事項,以及它要不要彙整進週報(之後改旗標時,跟著這個 id 一起改)。 */
+  todoItemId?: string;
+  inWeeklyReport?: boolean;
+};
 
 /**
  * 工作項上的一筆活動紀錄.
@@ -40,6 +47,8 @@ export async function logActivity(itemId: string, actorId: string | null, messag
       eventKind: detail?.kind ?? "FIELD",
       statusKind: detail?.statusKind ?? null,
       statusLabel: detail?.statusLabel ?? null,
+      todoItemId: detail?.todoItemId ?? null,
+      inWeeklyReport: detail?.inWeeklyReport ?? true,
     },
   });
 }

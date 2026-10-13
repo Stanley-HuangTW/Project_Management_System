@@ -6,6 +6,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { ProtoRowDialog } from "./ProtoRowDialog";
 import { ProtoQtyCell } from "./ProtoQtyCell";
+import { ProtoMachineList } from "./ProtoMachineList";
 import { ProtoExcelButtons } from "./ProtoExcelButtons";
 import {
   getProtoPlanView,
@@ -46,7 +47,10 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     };
   }, [boardId]);
 
-  async function run(work: () => Promise<{ error?: string }>, failTitle: string): Promise<boolean> {
+  async function run(
+    work: () => Promise<{ error?: string; notice?: string }>,
+    failTitle: string
+  ): Promise<boolean> {
     setBusy(true);
     try {
       const result = await work();
@@ -55,6 +59,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
         return false;
       }
       await reload();
+      // 台數減少、拿掉了樣機:事後告訴使用者(不擋修改)。
+      if (result.notice) await notify(result.notice, { title: "樣機已拿掉" });
       return true;
     } catch (err) {
       await notify(
@@ -85,6 +91,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
           await notify(result.error, { title: "無法儲存" });
           return false;
         }
+        // 台數減少、拿掉了樣機:事後告訴使用者(不擋修改)。
+        if (result.notice) await notify(result.notice, { title: "樣機已拿掉" });
         return true;
       } catch (err) {
         await notify(
@@ -281,6 +289,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
           )}
         </div>
       )}
+
+      <ProtoMachineList boardId={boardId} machines={view.machines} phaseNames={phaseName} />
 
       <ProtoRowDialog
         open={rowDialog !== null}

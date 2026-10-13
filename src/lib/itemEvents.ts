@@ -75,7 +75,7 @@ export function completedAtOf(summary: ItemEventSummary | undefined, isCompleteN
 }
 
 /** 標籤的顏色:跟通知列表同一組(修改藍、指派紫、留言黃);連結與待辦事項沒有對應的通知,用中性色。 */
-export type EventTone = "UPDATED" | "ASSIGNED" | "COMMENTED" | "NEUTRAL";
+export type EventTone = "UPDATED" | "ASSIGNED" | "COMMENTED" | "CREATED" | "NEUTRAL";
 
 /**
  * 「更新記錄」那一格顯示什麼——跟通知列表同一套:一個類型標籤(修改 / 指派 / 留言,連結與待辦事項另標)、
@@ -96,6 +96,17 @@ export function describeEvent(line: ItemEventLine): { label: string; tone: Event
       if (/指派給|人員分配/.test(text)) return { label: "指派", tone: "ASSIGNED", message: text };
       return { label: "修改", tone: "UPDATED", message: text.replace(/^(「[^」]*」)已更新:/, "$1:") };
   }
+}
+
+/**
+ * 風險 / 問題(含 Mantis 同步來的)的事件,在「更新記錄」顯示的類型與說法:建立 → 新增;指派、換負責人、換審核人 → 指派;
+ * 其他(改欄位、申請結案、審核、狀態)→ 修改。跟通知同一組標籤與顏色。
+ */
+export function describeRiskEvent(summary: string): { label: string; tone: EventTone; message: string } {
+  const text = summary.replace(/〔管理者以「[^」]*」的身分操作〕$/, "").trim();
+  if (/^(建立|從 Mantis 同步建立)/.test(text)) return { label: "新增", tone: "CREATED", message: text };
+  if (/指派給|取消指派|負責人|審核人/.test(text)) return { label: "指派", tone: "ASSIGNED", message: text };
+  return { label: "修改", tone: "UPDATED", message: text };
 }
 
 /** 台灣時間(UTC+8)的日期 "YYYY-MM-DD"。 */

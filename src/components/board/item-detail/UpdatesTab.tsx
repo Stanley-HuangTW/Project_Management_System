@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import type { UserOption } from "@/types/board";
-import { createComment, listComments } from "@/lib/actions/comment";
+import { createComment, listComments, setCommentInWeeklyReport } from "@/lib/actions/comment";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import { canManageStructure } from "@/lib/permissions";
+import type { UserRole } from "@prisma/client";
 import { activeMentionQuery } from "@/lib/mentions";
 import { MentionText } from "./MentionText";
 
@@ -11,12 +14,20 @@ export function UpdatesTab({
   boardId,
   itemId,
   users,
+  currentUserId,
+  userRole,
 }: {
   boardId: string;
   itemId: string;
   /** For the @ picker and for highlighting mentions in existing comments. */
   users: UserOption[];
+  /** 週報勾選:只有寫這則更新的人、主管與管理者可以改。 */
+  currentUserId: string;
+  userRole: UserRole;
 }) {
+  const { notify } = useDialogs();
+  // 這則更新要不要彙整進週報——預設要;送出之後下一則又回到預設。
+  const [inWeekly, setInWeekly] = useState(true);
   const [comments, setComments] = useState<Awaited<ReturnType<typeof listComments>>>([]);
   const [loading, setLoading] = useState(false);
   const [body, setBody] = useState("");
@@ -92,13 +103,23 @@ export function UpdatesTab({
     }
   }
 
+  async function toggleWeekly(commentId: string, value: boolean) {
+    setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, inWeeklyReport: value } : c)));
+    const result = await setCommentInWeeklyReport(itemId, commentId, value);
+    if (result.error) {
+      setComments(await listComments(itemId));
+      await notify(result.error, { title: "無法更改" });
+    }
+  }
+
   async function handleSubmit() {
     if (!body.trim()) return;
     setSubmitting(true);
     try {
-      await createComment(boardId, itemId, body.trim());
+      await createComment(boardId, itemId, body.trim(), inWeekly);
       setComments(await listComments(itemId));
       setBody("");
+      setInWeekly(true);
     } finally {
       setSubmitting(false);
     }
@@ -150,7 +171,19 @@ export function UpdatesTab({
           </ul>
         )}
       </div>
-      <div className="mb-5 flex justify-end">
+      <div className="mb-5 flex items-center justify-end gap-3">
+        <label
+          className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
+          title="勾選:這則更新會彙整進週報(預設勾選)"
+        >
+          <input
+            type="checkbox"
+            checked={inWeekly}
+            onChange={(e) => setInWeekly(e.target.checked)}
+            className="h-3.5 w-3.5 accent-blue-600"
+          />
+          更新至週報
+        </label>
         <button
           type="button"
           disabled={submitting || !body.trim()}
@@ -174,6 +207,15 @@ export function UpdatesTab({
                 <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{c.author.name}</span>
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">
                   {new Date(c.createdAt).toLocaleString("zh-TW")}
+                </span>
+                <span className="ml-auto">
+                  <label
+                className={`flex shrink-0 items-center gap-1 text-[11px] ${!(c.author.id === currentUserId || canManageStructure(userRole)) ? "text-neutral-300 dark:text-neutral-600" : "cursor-pointer text-neutral-500 dark:text-neutral-400"}`}
+                title={!(c.author.id === currentUserId || canManageStructure(userRole)) ? "只有寫這一筆的人、主管與管理者可以改" : "勾選:這一筆的資訊會彙整進週報"}
+              >
+                <input type="checkbox" checked={c.inWeeklyReport} disabled={!(c.author.id === currentUserId || canManageStructure(userRole))} onChange={(e) => toggleWeekly(c.id, e.target.checked)} className="h-3 w-3 accent-blue-600" />
+                週報
+              </label>
                 </span>
               </div>
               <MentionText body={c.body} users={mentionable} />

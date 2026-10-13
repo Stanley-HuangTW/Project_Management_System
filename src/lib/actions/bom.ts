@@ -8,6 +8,7 @@ import { hideBudgetOn } from "@/lib/dmScopeServer";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
+import { syncProtoUnits } from "@/lib/protoUnitsServer";
 import { MAX_PASTED_BOM_ROWS, type PastedBomRow } from "@/lib/bomPaste";
 import {
   summariseBom,
@@ -165,6 +166,8 @@ export async function renameProduct(boardId: string, from: string, to: string): 
   await prisma.$transaction([
     prisma.budgetProduct.updateMany({ where: { boardId, name: from }, data: { name: next } }),
     prisma.protoPlan.updateMany({ where: { boardId, product: from }, data: { product: next } }),
+    // 樣機計畫排出來的每一台樣機跟著改名,工作項的「使用樣機」參照不動。
+    prisma.protoUnit.updateMany({ where: { boardId, product: from }, data: { product: next } }),
     prisma.bomLine.updateMany({ where: { boardId, product: from }, data: { product: next } }),
   ]);
   await logAudit("COST", guard.session.userId, `產品「${from}」改名為「${next}」`, boardId);
@@ -172,22 +175,37 @@ export async function renameProduct(boardId: string, from: string, to: string): 
   return {};
 }
 
-export type ProductUsage = { bomLines: number; protoRows: number; phases: number };
+export type ProductUsage = {
+  bomLines: number;
+  protoRows: number;
+  phases: number;
+  /** 樣機計畫排出來的樣機台數,以及其中有幾個工作項在用(刪除時那些參照會一併解除)。 */
+  protoUnits: number;
+  usedByItems: number;
+};
 
 /** 刪除一個產品之前先看它底下有多少東西——給確認視窗說「會一併刪掉什麼」。 */
 export async function getProductUsage(boardId: string, product: string): Promise<ProductUsage | { error: string }> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
-  const [bomLines, protoRows, bomPhases, protoPhases] = await Promise.all([
+  const [bomLines, protoRows, bomPhases, protoPhases, protoUnits, usedBy] = await Promise.all([
     prisma.bomLine.count({ where: { boardId, product } }),
     prisma.protoPlan.findMany({ where: { boardId, product }, select: { unit: true }, distinct: ["unit"] }),
     prisma.bomLine.findMany({ where: { boardId, product }, select: { phaseId: true }, distinct: ["phaseId"] }),
     prisma.protoPlan.findMany({ where: { boardId, product }, select: { phaseId: true }, distinct: ["phaseId"] }),
+    prisma.protoUnit.count({ where: { boardId, product } }),
+    prisma.itemProtoUnit.findMany({
+      where: { protoUnit: { boardId, product }, item: { deletedAt: null } },
+      select: { itemId: true },
+      distinct: ["itemId"],
+    }),
   ]);
   return {
     bomLines,
     protoRows: protoRows.length,
     phases: new Set([...bomPhases, ...protoPhases].map((p) => p.phaseId)).size,
+    protoUnits,
+    usedByItems: usedBy.length,
   };
 }
 
@@ -218,6 +236,8 @@ export async function deleteProduct(boardId: string, product: string): Promise<{
   for (const phaseId of new Set([...bomPhases, ...protoPhases].map((p) => p.phaseId))) {
     await resyncBomMaterial(boardId, phaseId);
   }
+  // 它的樣機計畫沒了,排出來的每一台樣機也拿掉;工作項的「使用樣機」參照一併解除(刪除前的確認已經說明過)。
+  await syncProtoUnits(boardId, guard.session.userId);
   revalidatePath(`/boards/${boardId}`);
   return { bomLines: bom.count, protoRows: proto.count };
 }

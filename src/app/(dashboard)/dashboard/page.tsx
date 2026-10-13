@@ -38,6 +38,8 @@ import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import { leaveDaysByUser } from "@/lib/actions/leave";
 import { DashboardBoardFilter } from "@/components/dashboard/DashboardBoardFilter";
+import { OpenRisksCard } from "@/components/dashboard/OpenRisksCard";
+import { loadOpenRiskRows } from "@/lib/dashboardRisksServer";
 import {
   DASHBOARD_BOARD_COOKIE,
   decodeBoardCookie,
@@ -214,6 +216,13 @@ export default async function DashboardPage({
       {/* Above the workload cards on purpose: money that has already been
           committed is the one thing on this page nobody can undo later. */}
       <BudgetAlertCard alerts={await budgetAlerts(session)} />
+
+      {/* 風險、問題(含 Mantis 同步來的)還沒結案的,讓使用者一眼看到還有哪些事沒做完。 */}
+      <OpenRisksCard
+        rows={await loadOpenRiskRows(boards)}
+        relatedUserIds={isSupervisor ? [session.userId, ...teamMembers.map((m) => m.id)] : [session.userId]}
+        defaultAll={isAdmin}
+      />
 
       <TeamWorkloadCard
         title={isSupervisor ? "我的團隊工作量總覽" : isAdmin ? "團隊工作量總覽" : "我的工作量總覽"}

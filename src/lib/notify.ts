@@ -179,3 +179,38 @@ export async function notifyItemAssignees(
     })),
   });
 }
+
+/**
+ * 風險/問題被指派:通知新的負責人與新的審核人(站內通知「指派」,Email 照每個人的設定)。
+ * 不通知自己指派自己;同一個人又是負責人又是審核人只通知一次(以負責人為準)。
+ * 系統(例如 Mantis 同步)指派的沒有操作者,actorId 傳 null。
+ */
+export async function notifyRiskAssigned(
+  riskId: string,
+  actorId: string | null,
+  risk: { title: string; kindLabel: string },
+  assigned: { ownerId?: string | null; reviewerIds?: string[] }
+) {
+  const messages = new Map<string, string>();
+  for (const id of assigned.reviewerIds ?? []) {
+    messages.set(id, `你被指定為${risk.kindLabel}「${risk.title}」的審核人`);
+  }
+  if (assigned.ownerId) messages.set(assigned.ownerId, `你被指派為${risk.kindLabel}「${risk.title}」的負責人`);
+  if (actorId) messages.delete(actorId);
+  const userIds = [...messages.keys()];
+  if (userIds.length === 0) return;
+
+  const inApp = await filterInAppRecipients(prisma, "ASSIGNED", userIds);
+  if (inApp.length > 0) {
+    await prisma.notification.createMany({
+      data: inApp.map((userId) => ({ userId, actorId, type: "ASSIGNED" as const, riskId, message: messages.get(userId)! })),
+    });
+  }
+  for (const userId of userIds) {
+    try {
+      await notifyEmailIfNeeded(userId, "ASSIGNED", messages.get(userId)!);
+    } catch {
+      // 寄信失敗不影響指派本身。
+    }
+  }
+}

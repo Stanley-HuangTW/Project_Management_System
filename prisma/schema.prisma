@@ -260,6 +260,7 @@ model Board {
   milestoneTypes MilestoneType[]
   labourSlots    LabourSlot[]
   protoPlans     ProtoPlan[]
+  protoUnits     ProtoUnit[]
   bomLines       BomLine[]
   budgetProducts BudgetProduct[]
   nreLines       NreLine[]
@@ -436,6 +437,8 @@ model Item {
   comments      Comment[]
   notifications Notification[]
   assignments   Assignment[]
+  /// 「使用樣機」:這個工作項(例如測試項目)用到的樣機。
+  protoUnits    ItemProtoUnit[]
   attachments   Attachment[]
   links         ItemLink[]
   activityLog   ActivityLogEntry[]
@@ -490,6 +493,8 @@ model ItemLink {
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
+  /// 這個連結要不要彙整進週報(預設要)。
+  inWeeklyReport Boolean @default(true)
 
   @@index([itemId])
 }
@@ -539,6 +544,10 @@ model ActivityLogEntry {
   /// 狀態切換:切到的是進行中(inProgress)、完成(done)還是其他(other),以及切到的選項標籤。
   statusKind  String?
   statusLabel String?
+  /// 這筆紀錄要不要彙整進週報(預設要)。待辦事項的紀錄跟著那個待辦事項的旗標;其他種類永遠是 true。
+  inWeeklyReport Boolean @default(true)
+  /// 待辦事項的紀錄對到哪一個待辦事項(沒有外鍵:待辦事項刪掉,紀錄還在)。
+  todoItemId     String?
 
   @@index([itemId])
   @@index([riskId])
@@ -555,6 +564,8 @@ model TodoItem {
   done      Boolean  @default(false)
   order     Int      @default(0)
   createdAt DateTime @default(now())
+  /// 這個待辦事項的新增與完成要不要彙整進週報(預設要)。週報讀的是活動紀錄,改這個旗標時 todoItemId 對得上的紀錄一起改。
+  inWeeklyReport Boolean @default(true)
 
   @@index([itemId])
 }
@@ -579,6 +590,8 @@ model Comment {
   author    User     @relation(fields: [authorId], references: [id])
   body      String
   createdAt DateTime @default(now())
+  /// 這則更新要不要彙整進週報(預設要)。
+  inWeeklyReport Boolean @default(true)
 
   @@index([itemId])
 }
@@ -624,14 +637,19 @@ model Notification {
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   actorId   String?
   type      NotificationType
-  itemId    String
-  item      Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 工作項的通知。風險/問題被指派的通知沒有工作項,是下面的 riskId——兩個至少有一個。
+  itemId    String?
+  item      Item?            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// 風險/問題(含 Mantis 同步來的)被指派為負責人或審核人的通知。
+  riskId    String?
+  risk      RiskEntry?       @relation(fields: [riskId], references: [id], onDelete: Cascade)
   message   String
   read      Boolean          @default(false)
   createdAt DateTime         @default(now())
 
   @@index([userId])
   @@index([itemId])
+  @@index([riskId])
 }
 
 /// 一個人對某一種通知類型的偏好——站內要不要收、email 要不要寄。沒有這筆
@@ -689,6 +707,7 @@ model BudgetPhase {
   updatedAt   DateTime @updatedAt
 
   protoPlans  ProtoPlan[]
+  protoUnits  ProtoUnit[]
   budgets     Budget[]
   reserves    Reserve[]
   labourPlans LabourPlan[]
@@ -811,6 +830,41 @@ model ProtoPlan {
 
   @@unique([boardId, product, unit, phaseId])
   @@index([boardId, product])
+}
+
+/// 樣機計畫排出來的「每一台樣機」:ProtoPlan 一格寫「M3 / SW / EVT1 要 3 台」,這裡就有 3 筆(第 1、2、3 台)。
+///
+/// 是樣機計畫的衍生資料,不是另外維護的清單:台數改了就跟著增減(syncProtoUnits),增加時補上、
+/// 減少時從最大的號碼開始拿掉。工作項的「使用樣機」參照它;一台樣機被拿掉,參照它的那一筆跟著刪除(連帶刪除),
+/// 不擋台數的修改。product / unit / phase 跟 ProtoPlan 同一組值,產品改名時兩邊一起改。
+model ProtoUnit {
+  id      String      @id @default(cuid())
+  boardId String
+  board   Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  product String
+  unit    String
+  phaseId String
+  phase   BudgetPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  /// 第幾台,從 1 開始。
+  seq     Int
+
+  createdAt DateTime        @default(now())
+  items     ItemProtoUnit[]
+
+  @@unique([boardId, product, unit, phaseId, seq])
+  @@index([boardId])
+}
+
+/// 工作項「使用樣機」:哪個工作項用到哪一台樣機(一個測試項目可以用好幾台)。
+model ItemProtoUnit {
+  itemId      String
+  item        Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  protoUnitId String
+  protoUnit   ProtoUnit @relation(fields: [protoUnitId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([itemId, protoUnitId])
+  @@index([protoUnitId])
 }
 
 /// 看板的產品清單(樣機計畫與樣機 BOM 共用)。
@@ -1118,6 +1172,8 @@ model RiskEntry {
   activityTimeEntries ActivityTimeEntry[]
   /// 審核人:申請結案之後,每一位都同意才算解除。
   reviewers           RiskReviewer[]
+  /// 指派給負責人、審核人時的通知。
+  notifications       Notification[]
   /// 負責人的進度更新(時間軸,寫了不能改)。
   updates             RiskUpdate[]
   /// 建立、改欄位、申請結案、同意、退回的紀錄。

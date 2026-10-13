@@ -10,6 +10,21 @@ import { logAudit } from "@/lib/activityLog";
 import { canEditBudget } from "@/lib/actions/budget";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
 import { summariseProtoPlan, type ProtoSummary } from "@/lib/protoPlan";
+import { syncProtoUnits } from "@/lib/protoUnitsServer";
+import { protoSyncNotice, protoUnitLabel } from "@/lib/protoUnits";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
+
+/** 樣機計畫排出來的一台樣機,以及用到它的工作項(只列這個人看得到的)。 */
+export type ProtoMachineView = {
+  id: string;
+  product: string;
+  unit: string;
+  phaseId: string;
+  seq: number;
+  /** 「M3 / EVT1 / SW #2」 */
+  label: string;
+  items: { id: string; name: string }[];
+};
 
 export type ProtoPlanView = {
   /** 階段照人力表的順序 —— 兩張表共用同一組階段。 */
@@ -17,6 +32,8 @@ export type ProtoPlanView = {
   summary: ProtoSummary;
   /** 用途下拉的其中一組:公司組織單位。 */
   units: OrgUnit[];
+  /** 樣機計畫排出來的每一台樣機(產品、階段、用途、第幾台)。 */
+  machines: ProtoMachineView[];
   canEdit: boolean;
 };
 
@@ -41,7 +58,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
-  const [phases, cells, first] = await Promise.all([
+  const [phases, cells, first, units, visible] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -57,7 +74,40 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
       orderBy: { order: "asc" },
       select: { id: true },
     }),
+    prisma.protoUnit.findMany({
+      where: { boardId },
+      select: {
+        id: true,
+        product: true,
+        unit: true,
+        phaseId: true,
+        seq: true,
+        items: { select: { item: { select: { id: true, name: true, deletedAt: true } } } },
+      },
+    }),
+    visibleItemIdsForBoard(boardId, session),
   ]);
+
+  // 樣機清單:產品 → 階段(照人力表的順序)→ 用途 → 第幾台。用到它的工作項只列這個人看得到的。
+  const phaseIndex = new Map(phases.map((p, i) => [p.id, i]));
+  const phaseName = new Map(phases.map((p) => [p.id, p.name]));
+  const machines: ProtoMachineView[] = units
+    .map((u) => ({
+      id: u.id,
+      product: u.product,
+      unit: u.unit,
+      phaseId: u.phaseId,
+      seq: u.seq,
+      label: protoUnitLabel(u, phaseName.get(u.phaseId) ?? ""),
+      items: u.items.map((r) => r.item).filter((i) => !i.deletedAt && visible.has(i.id)).map((i) => ({ id: i.id, name: i.name })),
+    }))
+    .sort(
+      (a, b) =>
+        a.product.localeCompare(b.product) ||
+        (phaseIndex.get(a.phaseId) ?? 0) - (phaseIndex.get(b.phaseId) ?? 0) ||
+        a.unit.localeCompare(b.unit) ||
+        a.seq - b.seq
+    );
 
   return {
     phases,
@@ -65,6 +115,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
       phases.map((p) => p.id),
       cells
     ),
+    machines,
     units: await loadOrgUnits(),
     canEdit: first
       ? await canEditBudget({ kind: "item", id: first.id }, session)
@@ -80,7 +131,7 @@ export async function setProtoQty(
   phaseId: string,
   qty: number,
   note: string
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; /** 台數減少、拿掉了樣機時,事後告訴使用者(不擋修改)。 */ notice?: string }> {
   const session = await requireProtoAdmin(boardId);
   if (!Number.isInteger(qty) || qty < 0) return { error: "台數必須是 0 或正整數" };
   if (qty > 9999) return { error: "台數看起來填錯了" };
@@ -96,8 +147,11 @@ export async function setProtoQty(
   // 台數變了,這個階段的材料預算(單台 BOM 價 × 台數)就得跟著動——如果
   // 這個階段根本沒有 BOM,resyncBomMaterial 什麼都不做。
   await resyncBomMaterial(boardId, phaseId);
+  // 每一台樣機跟著台數增減(減少時被拿掉的、有工作項在用的,參照一併解除並通知)。
+  const sync = await syncProtoUnits(boardId, session.userId);
   revalidatePath(`/boards/${boardId}`);
-  return {};
+  const notice = protoSyncNotice(sync);
+  return notice ? { notice } : {};
 }
 
 /**
@@ -141,7 +195,7 @@ export async function deleteProtoRow(
   boardId: string,
   product: string,
   unit: string
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; notice?: string }> {
   const session = await requireProtoAdmin(boardId);
   const affected = await prisma.protoPlan.findMany({
     where: { boardId, product, unit },
@@ -157,6 +211,8 @@ export async function deleteProtoRow(
   for (const phaseId of new Set(affected.map((a) => a.phaseId))) {
     await resyncBomMaterial(boardId, phaseId);
   }
+  const sync = await syncProtoUnits(boardId, session.userId);
   revalidatePath(`/boards/${boardId}`);
-  return {};
+  const notice = protoSyncNotice(sync);
+  return notice ? { notice } : {};
 }

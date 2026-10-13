@@ -5,6 +5,7 @@ import type { NotificationType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { computeWbsCodes } from "@/lib/wbs";
+import { riskLinkTag } from "@/lib/riskRegister";
 import { ALL_NOTIFICATION_TYPES, DEFAULT_NOTIFICATION_PREFERENCE } from "@/lib/notificationTypes";
 
 export async function listNotifications() {
@@ -25,13 +26,15 @@ export async function listNotifications() {
           group: { select: { name: true } },
         },
       },
+      // 風險/問題被指派的通知沒有工作項,改指到風險。
+      risk: { select: { id: true, title: true, kind: true, mantisId: true, boardId: true, board: { select: { name: true } } } },
     },
   });
 
   // WBS codes aren't stored — they're each item's position among its group's
   // siblings — so recompute them per group, batched across all 30 notifications'
   // groups at once instead of one query per notification.
-  const groupIds = [...new Set(notifications.map((n) => n.item.groupId))];
+  const groupIds = [...new Set(notifications.flatMap((n) => (n.item ? [n.item.groupId] : [])))];
   const groupItems = groupIds.length
     ? await prisma.item.findMany({
         where: { groupId: { in: groupIds }, deletedAt: null },
@@ -58,12 +61,16 @@ export async function listNotifications() {
 
   return notifications.map((n) => ({
     ...n,
-    boardName: n.item.board.name,
-    groupName: n.item.group.name,
+    boardName: n.item?.board.name ?? n.risk?.board.name ?? "",
+    // 風險/問題的通知沒有分組,這個位置寫它是什麼(風險 / 問題 / Mantis #編號)。
+    groupName: n.item?.group.name ?? (n.risk ? riskLinkTag(n.risk) : ""),
     actorName: n.actorId ? (actorName.get(n.actorId) ?? null) : null,
     // 已經在垃圾桶裡的項目,點過去也高亮不到 —— 先講清楚。
-    trashed: n.item.deletedAt !== null,
-    wbsCode: wbsByGroup.get(n.item.groupId)?.get(n.item.id),
+    trashed: n.item ? n.item.deletedAt !== null : false,
+    wbsCode: n.item ? wbsByGroup.get(n.item.groupId)?.get(n.item.id) : undefined,
+    /** 點下去要去哪個看板,以及標題(工作項名稱或風險標題)。 */
+    boardId: n.item?.boardId ?? n.risk?.boardId ?? "",
+    title: n.item?.name ?? n.risk?.title ?? "",
   }));
 }
 

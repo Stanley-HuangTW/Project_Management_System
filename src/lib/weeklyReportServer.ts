@@ -653,13 +653,13 @@ async function gatherItemUpdates(
   const [comments, links, attachments, events] = await Promise.all([
     info.updates
       ? prisma.comment.findMany({
-          where: { itemId: { in: itemIds }, createdAt },
+          where: { itemId: { in: itemIds }, createdAt, inWeeklyReport: true },
           select: { itemId: true, body: true, createdAt: true, author: { select: { name: true } } },
         })
       : [],
     info.links
       ? prisma.itemLink.findMany({
-          where: { itemId: { in: itemIds }, createdAt },
+          where: { itemId: { in: itemIds }, createdAt, inWeeklyReport: true },
           select: { itemId: true, url: true, label: true, createdAt: true, createdBy: { select: { name: true } } },
         })
       : [],
@@ -674,6 +674,8 @@ async function gatherItemUpdates(
         itemId: { in: itemIds },
         createdAt,
         eventKind: { in: info.todos ? ["STATUS", "TODO"] : ["STATUS"] },
+        // 待辦事項被取消「更新至週報」的不彙整(狀態變化一定附,它的旗標永遠是 true)。
+        inWeeklyReport: true,
       },
       select: { itemId: true, eventKind: true, message: true, createdAt: true, actor: { select: { name: true } } },
     }),

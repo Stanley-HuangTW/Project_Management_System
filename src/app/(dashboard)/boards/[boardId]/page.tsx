@@ -9,6 +9,7 @@ import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { applyVisibility } from "@/lib/applyVisibility";
 import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { loadItemEventSummaries } from "@/lib/itemEventsServer";
+import { loadProtoUnitsData } from "@/lib/protoUnitsServer";
 import { externalPredecessors } from "@/lib/externalPredecessors";
 
 export default async function BoardPage({
@@ -16,10 +17,10 @@ export default async function BoardPage({
   searchParams,
 }: {
   params: Promise<{ boardId: string }>;
-  searchParams: Promise<{ highlight?: string; highlightAt?: string; highlightTab?: string; openAction?: string }>;
+  searchParams: Promise<{ highlight?: string; highlightAt?: string; highlightTab?: string; openAction?: string; view?: string }>;
 }) {
   const { boardId } = await params;
-  const { highlight, highlightAt, highlightTab, openAction } = await searchParams;
+  const { highlight, highlightAt, highlightTab, openAction, view } = await searchParams;
 
   const [session, board, users, resources, holidays] = await Promise.all([
     requireSession(),
@@ -66,6 +67,9 @@ export default async function BoardPage({
     new Set(visibleBoard.items.map((i) => i.id))
   );
 
+  // 「使用樣機」欄:這個看板可選的樣機,以及每個工作項用到哪幾台(只給看得到的項目)。
+  const protoUnits = await loadProtoUnitsData(boardId, new Set(visibleBoard.items.map((i) => i.id)));
+
   return (
     <BoardView
       board={visibleBoard}
@@ -75,11 +79,13 @@ export default async function BoardPage({
       highlightItemId={highlight ?? null}
       highlightNonce={highlightAt ?? null}
       highlightTab={highlightTab ?? null}
+      initialView={view ?? null}
       openAction={openAction ?? null}
       holidays={holidays}
       externalPreds={externalPreds}
       hasMantis={hasMantis}
       eventSummaries={eventSummaries}
+      protoUnits={protoUnits}
       ownerDefaultPct={(await getSystemSettings()).ownerDefaultAllocationPct}
     />
   );

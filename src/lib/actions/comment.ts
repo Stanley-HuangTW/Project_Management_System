@@ -7,12 +7,15 @@ import { filterInAppRecipients, notifyItemAssignees, notifyEmailIfNeeded } from 
 import { findMentionedUserIds } from "@/lib/mentions";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
+import { canManageStructure } from "@/lib/permissions";
 
 export async function createComment(
   /** Not trusted for authorization — see requireItemBoardAccess below. */
   _boardId: string,
   itemId: string,
-  body: string
+  body: string,
+  /** 這則更新要不要彙整進週報(預設要)。 */
+  inWeeklyReport = true
 ) {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
@@ -21,7 +24,7 @@ export async function createComment(
 
   const [comment, item] = await Promise.all([
     prisma.comment.create({
-      data: { itemId, authorId: session.userId, body: trimmed },
+      data: { itemId, authorId: session.userId, body: trimmed, inWeeklyReport: inWeeklyReport !== false },
     }),
     prisma.item.findUnique({ where: { id: itemId } }),
   ]);
@@ -77,6 +80,23 @@ async function notifyMentions(
     await notifyEmailIfNeeded(userId, "COMMENTED", message);
   }
   return mentioned;
+}
+
+/**
+ * 改一則更新要不要彙整進週報。只有寫這則更新的人與管理者、主管可以改(別人的更新被拿掉,週報就少一段,
+ * 不是任何看得到的人都能動)。
+ */
+export async function setCommentInWeeklyReport(itemId: string, commentId: string, value: boolean): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const comment = await prisma.comment.findUnique({ where: { id: commentId }, select: { itemId: true, authorId: true } });
+  if (!comment || comment.itemId !== itemId) return { error: "找不到這則更新" };
+  if (comment.authorId !== session.userId && !canManageStructure(session.role)) {
+    return { error: "權限不足:只有寫這則更新的人、主管與管理者可以改" };
+  }
+  await prisma.comment.update({ where: { id: commentId }, data: { inWeeklyReport: value } });
+  revalidatePath(`/boards/${boardId}`);
+  return {};
 }
 
 export async function listComments(itemId: string) {

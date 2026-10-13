@@ -2,9 +2,33 @@
 
 import { useEffect, useState } from "react";
 import { Link2, Plus, Trash2 } from "lucide-react";
-import { addItemLink, deleteItemLink, getMantisInfoForLinks, listItemLinks, type LinkMantisInfo } from "@/lib/actions/itemLink";
+import {
+  addItemLink,
+  deleteItemLink,
+  getMantisInfoForLinks,
+  listItemLinks,
+  setItemLinkInWeeklyReport,
+  type LinkMantisInfo,
+} from "@/lib/actions/itemLink";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import { canManageStructure } from "@/lib/permissions";
+import type { UserRole } from "@prisma/client";
 
-export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string }) {
+export function LinksTab({
+  boardId,
+  itemId,
+  currentUserId,
+  userRole,
+}: {
+  boardId: string;
+  itemId: string;
+  /** 週報勾選:只有加這個連結的人、主管與管理者可以改。 */
+  currentUserId: string;
+  userRole: UserRole;
+}) {
+  const { notify } = useDialogs();
+  // 這個連結要不要彙整進週報——預設要;新增之後下一個又回到預設。
+  const [inWeekly, setInWeekly] = useState(true);
   const [links, setLinks] = useState<Awaited<ReturnType<typeof listItemLinks>>>([]);
   const [mantis, setMantis] = useState<Record<string, LinkMantisInfo>>({});
   const [loading, setLoading] = useState(false);
@@ -44,14 +68,24 @@ export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string 
     setSaving(true);
     setError(null);
     try {
-      await addItemLink(boardId, itemId, url, label);
+      await addItemLink(boardId, itemId, url, label, inWeekly);
       setUrl("");
       setLabel("");
+      setInWeekly(true);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "新增失敗");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function toggleWeekly(linkId: string, value: boolean) {
+    setLinks((prev) => prev.map((l) => (l.id === linkId ? { ...l, inWeeklyReport: value } : l)));
+    const result = await setItemLinkInWeeklyReport(itemId, linkId, value);
+    if (result.error) {
+      await refresh();
+      await notify(result.error, { title: "無法更改" });
     }
   }
 
@@ -75,6 +109,18 @@ export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string 
           placeholder="顯示名稱(選填)"
           className="w-40 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-1.5 text-sm outline-none focus:border-blue-500"
         />
+        <label
+          className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
+          title="勾選:這個連結會彙整進週報(預設勾選)"
+        >
+          <input
+            type="checkbox"
+            checked={inWeekly}
+            onChange={(e) => setInWeekly(e.target.checked)}
+            className="h-3.5 w-3.5 accent-blue-600"
+          />
+          更新至週報
+        </label>
         <button
           type="submit"
           disabled={saving || !url.trim()}
@@ -125,6 +171,13 @@ export function LinksTab({ boardId, itemId }: { boardId: string; itemId: string 
               </span>
             )}
             <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{l.createdBy.name}</span>
+            <label
+                className={`flex shrink-0 items-center gap-1 text-[11px] ${!(l.createdBy.id === currentUserId || canManageStructure(userRole)) ? "text-neutral-300 dark:text-neutral-600" : "cursor-pointer text-neutral-500 dark:text-neutral-400"}`}
+                title={!(l.createdBy.id === currentUserId || canManageStructure(userRole)) ? "只有寫這一筆的人、主管與管理者可以改" : "勾選:這一筆的資訊會彙整進週報"}
+              >
+                <input type="checkbox" checked={l.inWeeklyReport} disabled={!(l.createdBy.id === currentUserId || canManageStructure(userRole))} onChange={(e) => toggleWeekly(l.id, e.target.checked)} className="h-3 w-3 accent-blue-600" />
+                週報
+              </label>
             <button
               type="button"
               onClick={() => handleDelete(l.id)}

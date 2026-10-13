@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStatusOption, completedAtOf, describeEvent, eventTargetTab, formatEventTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
+import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetTab, formatEventTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
 
 describe("classifyStatusOption", () => {
   it("標籤叫 Completed / Done / 完成 / 已完成:完成(匯入的看板選項是隨機 id,只能看標籤)", () => {
@@ -100,5 +100,25 @@ describe("describeEvent(更新記錄那一格,跟通知列表同一套說法)", 
     expect(describeEvent(line("STATUS", "「Status」已更新:Planned → Completed〔管理者以「王小明」的身分操作〕")).message).toBe(
       "「Status」:Planned → Completed"
     );
+  });
+});
+
+describe("describeRiskEvent", () => {
+  it("建立風險 / 問題、Mantis 同步建立:新增", () => {
+    expect(describeRiskEvent("建立風險「電池交期太長」(負責人:SY Chen)")).toMatchObject({ label: "新增", tone: "CREATED" });
+    expect(describeRiskEvent("從 Mantis 同步建立問題 #591「車體重量」(處理中),指派給 Shuyi Lin")).toMatchObject({ label: "新增", tone: "CREATED" });
+  });
+
+  it("指派給誰、取消指派、換負責人或審核人:指派", () => {
+    expect(describeRiskEvent("Mantis #591「車體重量」指派給 Shuyi Lin(原負責人:Tony Chia)").label).toBe("指派");
+    expect(describeRiskEvent("Mantis #591「車體重量」取消指派(原負責人:Tony Chia)").tone).toBe("ASSIGNED");
+    expect(describeRiskEvent("修改「電池交期」:負責人 A → B;機率 3 → 4").label).toBe("指派");
+    expect(describeRiskEvent("修改「電池交期」:審核人 + SY Chen").tone).toBe("ASSIGNED");
+  });
+
+  it("其他(改機率、狀態、申請結案):修改;管理者代操作的註記不顯示", () => {
+    expect(describeRiskEvent("修改「電池交期」:機率 3 → 4")).toMatchObject({ label: "修改", tone: "UPDATED" });
+    expect(describeRiskEvent("Mantis #591「車體重量」狀態:未處理 → 處理中").label).toBe("修改");
+    expect(describeRiskEvent("申請結案〔管理者以「王小明」的身分操作〕").message).toBe("申請結案");
   });
 });

@@ -133,6 +133,7 @@ export function ProtoExcelButtons({
               {w}
             </p>
           ))}
+          {result.notice && <p className="whitespace-pre-wrap text-amber-800 dark:text-amber-300">{result.notice}</p>}
         </div>
       )}
     </div>

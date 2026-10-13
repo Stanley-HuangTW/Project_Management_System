@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { describeEvent, eventTargetTab, formatEventTime } from "@/lib/itemEvents";
+import { describeEvent, describeRiskEvent, eventTargetTab, formatEventTime } from "@/lib/itemEvents";
 import type { UpdateFeedRow } from "@/lib/updateFeed";
 import { EventBadge } from "@/components/board/EventBadge";
 
@@ -16,20 +16,24 @@ const selectClass =
 
 /**
  * 更新記錄頁:一筆一筆列出,格式跟通知列表一樣(類型標籤、看板 › 分組、WBS 與項目名稱、改了什麼、誰・什麼時候)。
- * 可以依看板、人、類型篩選;點一筆跳到那個看板、打開那個工作項並停在對應的分頁。
+ * 工作項的更新、風險與問題的新增 / 指派 / 變更都在這裡。預設只看「與我有關」的(我做的、指派給我的、我負責或審核的),
+ * 可以切到「全部」,再依看板、人、類型篩選;點一筆跳到那個工作項(停在對應的分頁)或那個看板的風險分頁。
  */
 export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
   const router = useRouter();
+  const [scope, setScope] = useState<"mine" | "all">("mine");
   const [board, setBoard] = useState("");
   const [actor, setActor] = useState("");
   const [type, setType] = useState("");
 
+  const mineCount = useMemo(() => rows.filter((r) => r.mine).length, [rows]);
+  const scoped = useMemo(() => (scope === "mine" ? rows.filter((r) => r.mine) : rows), [rows, scope]);
   const shown = useMemo(
-    () => rows.map((row) => ({ row, view: describeEvent(row) })),
-    [rows]
+    () => scoped.map((row) => ({ row, view: row.risk ? describeRiskEvent(row.summary) : describeEvent(row) })),
+    [scoped]
   );
-  const boards = useMemo(() => [...new Map(rows.map((r) => [r.boardId, r.boardName])).entries()], [rows]);
-  const actors = useMemo(() => [...new Set(rows.map((r) => r.actorName).filter((n): n is string => !!n))].sort(), [rows]);
+  const boards = useMemo(() => [...new Map(scoped.map((r) => [r.boardId, r.boardName])).entries()], [scoped]);
+  const actors = useMemo(() => [...new Set(scoped.map((r) => r.actorName).filter((n): n is string => !!n))].sort(), [scoped]);
   const types = useMemo(() => [...new Set(shown.map((s) => s.view.label))], [shown]);
 
   const filtered = shown.filter(
@@ -37,13 +41,41 @@ export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
   );
 
   function open(row: UpdateFeedRow) {
+    // 風險 / 問題沒有工作項:直接開那個看板的風險分頁。
+    if (row.risk) {
+      router.push(`/boards/${row.boardId}?view=risks`);
+      return;
+    }
     const tab = eventTargetTab(row.kind);
     router.push(`/boards/${row.boardId}?highlight=${row.itemId}&highlightAt=${nonce()}&highlightTab=${tab}`);
   }
 
+  const tab = (key: "mine" | "all", label: string, count: number) => (
+    <button
+      type="button"
+      onClick={() => {
+        setScope(key);
+        setBoard("");
+        setActor("");
+        setType("");
+      }}
+      aria-pressed={scope === key}
+      className={`rounded-full border px-2.5 py-0.5 text-xs ${
+        scope === key
+          ? "border-blue-600 bg-blue-600 text-white"
+          : "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      }`}
+    >
+      {label} {count}
+    </button>
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        {tab("mine", "與我有關", mineCount)}
+        {tab("all", "全部", rows.length)}
+        <span className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
         <select value={board} onChange={(e) => setBoard(e.target.value)} className={selectClass} aria-label="看板">
           <option value="">全部看板</option>
           {boards.map(([id, name]) => (
@@ -73,7 +105,9 @@ export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
 
       {filtered.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-200 py-10 text-center text-sm text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
-          沒有符合的更新記錄。
+          {scope === "mine" && rows.length > 0 && mineCount === 0
+            ? "目前沒有跟你有關的更新。要看整個看板上發生的事,請按上面的「全部」。"
+            : "沒有符合的更新記錄。"}
         </p>
       ) : (
         <ul className="divide-y divide-neutral-100 rounded-lg border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-700 dark:bg-neutral-900">

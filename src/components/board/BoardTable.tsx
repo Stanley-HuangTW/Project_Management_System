@@ -40,7 +40,8 @@ import { useCellRangeSelection } from "./useCellRangeSelection";
 import { usePasteIntoRange } from "./usePasteIntoRange";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { ItemEventsProvider } from "./ItemEventsContext";
-import { EVENT_COLUMN_LABELS } from "./gridTemplate";
+import { ItemProtoUnitsProvider, type ProtoUnitsData } from "./ItemProtoUnitsContext";
+import { EVENT_COLUMN_LABELS, PROTO_COLUMN_LABEL } from "./gridTemplate";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import {
   gridTemplate,
@@ -129,6 +130,7 @@ function allParentIds(items: ItemData[]): Set<string> {
 }
 
 const NO_EVENTS: Record<string, ItemEventSummary> = {};
+const NO_PROTO_UNITS: ProtoUnitsData = { options: [], byItem: {} };
 
 export function BoardTable({
   board,
@@ -141,6 +143,7 @@ export function BoardTable({
   highlightTab,
   holidays,
   eventSummaries = NO_EVENTS,
+  protoUnits = NO_PROTO_UNITS,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -154,6 +157,8 @@ export function BoardTable({
   holidays: Holiday[];
   /** 每個工作項最近切成進行中、完成的時間與最近一筆更新,給最右邊三個唯讀欄位用。 */
   eventSummaries?: Record<string, ItemEventSummary>;
+  /** 「使用樣機」欄的資料:看板可選的樣機,與每個工作項用到哪幾台。 */
+  protoUnits?: ProtoUnitsData;
 }) {
   const canEditStructure = canManageStructure(userRole);
   const router = useRouter();
@@ -463,6 +468,7 @@ export function BoardTable({
 
   return (
     <ItemEventsProvider summaries={summaries}>
+    <ItemProtoUnitsProvider data={protoUnits}>
     <div className="flex h-full flex-col">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <span className="shrink-0 whitespace-nowrap text-neutral-500 dark:text-neutral-400">專案(分組)</span>
@@ -571,6 +577,9 @@ export function BoardTable({
                   />
                 ))}
               </SortableContext>
+              <div className="flex items-center border-r border-neutral-200 px-2 dark:border-neutral-700">
+                <span className="truncate">{PROTO_COLUMN_LABEL}</span>
+              </div>
               {EVENT_COLUMN_LABELS.map((label) => (
                 <div
                   key={label}
@@ -697,6 +706,7 @@ export function BoardTable({
         initialTab={autoOpenTab}
       />
     </div>
+    </ItemProtoUnitsProvider>
     </ItemEventsProvider>
   );
 }
