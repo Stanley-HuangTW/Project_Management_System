@@ -109,6 +109,28 @@ export function describeRiskEvent(summary: string): { label: string; tone: Event
   return { label: "修改", tone: "UPDATED", message: text };
 }
 
+/** 一次狀態切換:什麼時候、誰切的。 */
+export type StatusSwitch = { at: string; by: string | null };
+
+/**
+ * 項目卡片 Status 那一列下面要顯示的兩個時間。規則跟表格的「進行中時間 / 完成時間」一樣:
+ * - 進行中:最近一次切成進行中。
+ * - 完成:現在是完成狀態才有(最近一次切成完成);切回別的狀態就清掉,但 wasCompleted 留著最近一次完成的時間,
+ *   讓畫面能說「曾於某時完成,之後改回其他狀態」。
+ * rows 照時間新到舊排。
+ */
+export function pickStatusTimes(
+  rows: { statusKind: string | null; at: string; by: string | null }[],
+  doneNow: boolean
+): { started: StatusSwitch | null; completed: StatusSwitch | null; wasCompleted: StatusSwitch | null } {
+  const latest = (kind: string): StatusSwitch | null => {
+    const row = rows.find((r) => r.statusKind === kind);
+    return row ? { at: row.at, by: row.by } : null;
+  };
+  const done = latest("done");
+  return { started: latest("inProgress"), completed: doneNow ? done : null, wasCompleted: doneNow ? null : done };
+}
+
 /** 台灣時間(UTC+8)的日期 "YYYY-MM-DD"。 */
 export function taipeiDateOf(iso: string): string {
   return new Date(new Date(iso).getTime() + 8 * 3_600_000).toISOString().slice(0, 10);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetTab, formatEventTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
+import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetTab, pickStatusTimes, formatEventTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
 
 describe("classifyStatusOption", () => {
   it("標籤叫 Completed / Done / 完成 / 已完成:完成(匯入的看板選項是隨機 id,只能看標籤)", () => {
@@ -120,5 +120,33 @@ describe("describeRiskEvent", () => {
     expect(describeRiskEvent("修改「電池交期」:機率 3 → 4")).toMatchObject({ label: "修改", tone: "UPDATED" });
     expect(describeRiskEvent("Mantis #591「車體重量」狀態:未處理 → 處理中").label).toBe("修改");
     expect(describeRiskEvent("申請結案〔管理者以「王小明」的身分操作〕").message).toBe("申請結案");
+  });
+});
+
+describe("pickStatusTimes", () => {
+  const rows = [
+    { statusKind: "done", at: "2026-10-13T02:00:00.000Z", by: "Amy" },
+    { statusKind: "other", at: "2026-10-12T09:00:00.000Z", by: "Amy" },
+    { statusKind: "inProgress", at: "2026-10-12T03:00:00.000Z", by: "Pat" },
+    { statusKind: "inProgress", at: "2026-10-10T03:00:00.000Z", by: "Pat" },
+  ];
+
+  it("進行中:最近一次切成進行中的時間與人;完成:現在是完成就有", () => {
+    expect(pickStatusTimes(rows, true)).toEqual({
+      started: { at: "2026-10-12T03:00:00.000Z", by: "Pat" },
+      completed: { at: "2026-10-13T02:00:00.000Z", by: "Amy" },
+      wasCompleted: null,
+    });
+  });
+
+  it("現在已經不是完成:完成時間清掉,最近一次完成的時間放在 wasCompleted", () => {
+    const r = pickStatusTimes(rows, false);
+    expect(r.completed).toBeNull();
+    expect(r.wasCompleted).toEqual({ at: "2026-10-13T02:00:00.000Z", by: "Amy" });
+  });
+
+  it("沒有切換紀錄:都是 null", () => {
+    expect(pickStatusTimes([], true)).toEqual({ started: null, completed: null, wasCompleted: null });
+    expect(pickStatusTimes([{ statusKind: "other", at: "x", by: null }], false)).toEqual({ started: null, completed: null, wasCompleted: null });
   });
 });

@@ -12,6 +12,8 @@ import { listDependentItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
 import { PredLampDot } from "../PredLampDot";
 import { ConstraintRow } from "./ConstraintRow";
+import { StatusTimes } from "./StatusTimes";
+import { pickStatusColumnId } from "@/lib/itemEvents";
 import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
@@ -192,6 +194,7 @@ export function ItemCardTab({
         </div>
       </div>
       {columns.map((col) => {
+        const statusColumnId = pickStatusColumnId(columns);
         const isScheduleColumn =
           col.id === ganttStartColumnId || col.id === ganttDurationColumnId || col.id === ganttEndColumnId;
         const isLockedField =
@@ -246,6 +249,8 @@ export function ItemCardTab({
                 )}
               </span>
             </div>
+            {/* 狀態欄下面:什麼時候切成進行中、什麼時候切成完成。 */}
+            {col.id === statusColumnId && <StatusTimes itemId={item.id} statusValue={valuesByColumn.get(col.id) ?? null} />}
             {col.id === progressColumnId && childCount > 0 && (
               <p className="border-b border-neutral-100 px-4 py-1.5 text-[11px] text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
                 這個項目有 {childCount} 個子項目,進度是它們的平均(沒填的算 0%)。要改請到子項目填進度。
