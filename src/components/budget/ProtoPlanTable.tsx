@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { ProtoRowDialog } from "./ProtoRowDialog";
+import { ProtoQtyCell } from "./ProtoQtyCell";
 import { ProtoExcelButtons } from "./ProtoExcelButtons";
 import {
   getProtoPlanView,
@@ -45,20 +46,22 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     };
   }, [boardId]);
 
-  async function run(work: () => Promise<{ error?: string }>, failTitle: string) {
+  async function run(work: () => Promise<{ error?: string }>, failTitle: string): Promise<boolean> {
     setBusy(true);
     try {
       const result = await work();
       if (result.error) {
         await notify(result.error, { title: failTitle });
-        return;
+        return false;
       }
       await reload();
+      return true;
     } catch (err) {
       await notify(
         isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
         { title: isStaleBuildError(err) ? "需要重新整理" : failTitle }
       );
+      return false;
     } finally {
       setBusy(false);
     }
@@ -68,33 +71,54 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     setRowDialog({ defaultProduct });
   }
 
-  async function editCell(
-    product: string,
-    unit: string,
-    phaseId: string,
-    phaseName: string,
-    qty: number,
-    note: string
-  ) {
-    const answer = await prompt(`${product} 的 ${unit} 在 ${phaseName} 要幾台?`, {
-      title: "設定樣機台數",
-      defaultValue: qty > 0 ? String(qty) : "",
-      numeric: true,
+  // 格子直接在表上打字存檔:一格接一格 Tab 過去時,不能因為「正在存」就把輸入框鎖住(會丟掉游標),
+  // 所以不用 busy;改成照順序一筆一筆存(存台數之後會重算這個階段的材料預算,兩筆同時跑會互相蓋),
+  // 全部存完才重新載入一次。
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingSaves = useRef(0);
+  function saveQty(product: string, unit: string, phaseId: string, qty: number, note: string): Promise<boolean> {
+    pendingSaves.current++;
+    const job = saveQueue.current.then(async () => {
+      try {
+        const result = await setProtoQty(boardId, product, unit, phaseId, qty, note);
+        if (result.error) {
+          await notify(result.error, { title: "無法儲存" });
+          return false;
+        }
+        return true;
+      } catch (err) {
+        await notify(
+          isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+          { title: isStaleBuildError(err) ? "需要重新整理" : "無法儲存" }
+        );
+        return false;
+      } finally {
+        pendingSaves.current--;
+        if (pendingSaves.current === 0) await reload();
+      }
     });
-    if (answer === null || answer.trim() === "") return;
-    const next = Number(answer);
-    if (!Number.isFinite(next)) return;
-
-    const noteAnswer = await prompt("備註?例如 mock up。沒有就留空。", {
-      title: "備註",
-      defaultValue: note,
-    });
-    if (noteAnswer === null) return;
-    await run(
-      () => setProtoQty(boardId, product, unit, phaseId, Math.round(next), noteAnswer),
-      "無法儲存"
-    );
+    saveQueue.current = job;
+    return job;
   }
+
+  async function editNote(product: string, unit: string, phaseId: string, qty: number, note: string) {
+    const answer = await prompt("備註?例如 mock up。沒有就留空。", { title: "備註", defaultValue: note });
+    if (answer === null) return;
+    await saveQty(product, unit, phaseId, qty, answer);
+  }
+
+  // 新增一列之後,游標直接跳進那一列第一格,馬上就能打數字。
+  const focusAfterAdd = useRef<{ product: string; unit: string } | null>(null);
+  useEffect(() => {
+    const target = focusAfterAdd.current;
+    if (!target) return;
+    const first = [...document.querySelectorAll<HTMLInputElement>("input[data-proto-cell]")].find(
+      (el) => el.dataset.product === target.product && el.dataset.unit === target.unit
+    );
+    if (!first) return; // 新的一列還沒載回來,下次 render 再找
+    focusAfterAdd.current = null;
+    first.focus();
+  });
 
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!view) return null;
@@ -165,38 +189,19 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
                   >
                     <td className="py-1.5 pr-2 text-neutral-700 dark:text-neutral-200">{row.unit}</td>
                     {row.cells.map((cell) => (
-                      <td key={cell.phaseId} className="py-1.5 text-right tabular-nums">
-                        <button
-                          type="button"
-                          disabled={!canEdit || busy}
-                          onClick={() =>
-                            editCell(
-                              product.product,
-                              row.unit,
-                              cell.phaseId,
-                              phaseName.get(cell.phaseId) ?? "",
-                              cell.qty,
-                              cell.note
-                            )
+                      <td key={cell.phaseId} className="py-1 text-right tabular-nums">
+                        <ProtoQtyCell
+                          qty={cell.qty}
+                          note={cell.note}
+                          canEdit={canEdit}
+                          label={`${product.product} / ${row.unit} / ${phaseName.get(cell.phaseId) ?? ""}`}
+                          product={product.product}
+                          unit={row.unit}
+                          onCommitQty={(qty) => saveQty(product.product, row.unit, cell.phaseId, qty, cell.note)}
+                          onEditNote={(currentQty) =>
+                            void editNote(product.product, row.unit, cell.phaseId, currentQty, cell.note)
                           }
-                          title={cell.note || undefined}
-                          className={`w-full rounded px-1.5 py-0.5 text-right disabled:cursor-default ${
-                            canEdit ? "hover:bg-neutral-100 dark:hover:bg-neutral-800" : ""
-                          }`}
-                        >
-                          {cell.qty > 0 ? (
-                            <span className="text-blue-700 dark:text-blue-300">
-                              {cell.qty}
-                              {cell.note && (
-                                <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">
-                                  ({cell.note})
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-neutral-300 dark:text-neutral-700">·</span>
-                          )}
-                        </button>
+                        />
                       </td>
                     ))}
                     <td className="py-1.5 text-right tabular-nums text-neutral-700 dark:text-neutral-200">
@@ -282,7 +287,10 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
         onOpenChange={(next) => !next && setRowDialog(null)}
         units={units}
         defaultProduct={rowDialog?.defaultProduct}
-        onSubmit={(product, unit) => run(() => addProtoRow(boardId, product, unit), "無法新增")}
+        onSubmit={async (product, unit) => {
+          focusAfterAdd.current = { product: product.trim(), unit: unit.trim() };
+          if (!(await run(() => addProtoRow(boardId, product, unit), "無法新增"))) focusAfterAdd.current = null;
+        }}
       />
     </div>
   );
