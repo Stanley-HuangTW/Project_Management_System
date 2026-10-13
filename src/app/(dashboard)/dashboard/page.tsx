@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { boardWithDataArgs } from "@/types/board";
@@ -36,14 +37,22 @@ import { applyVisibilityToBoards } from "@/lib/applyVisibility";
 import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import { leaveDaysByUser } from "@/lib/actions/leave";
+import { DashboardBoardFilter } from "@/components/dashboard/DashboardBoardFilter";
+import {
+  DASHBOARD_BOARD_COOKIE,
+  decodeBoardCookie,
+  parseBoardParam,
+  resolveBoardFilter,
+} from "@/lib/dashboardBoardFilter";
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ board?: string }>;
+  searchParams: Promise<{ board?: string | string[] }>;
 }) {
   const session = await requireSession();
-  const { board: boardFilter } = await searchParams;
+  const { board: boardParam } = await searchParams;
+  const savedBoardIds = decodeBoardCookie(session.userId, (await cookies()).get(DASHBOARD_BOARD_COOKIE)?.value);
 
   const [allBoards, users, managedResources, holidayRows] = await Promise.all([
     prisma.board.findMany({
@@ -66,7 +75,13 @@ export default async function DashboardPage({
   // Everything below counts, colours and lists items; none of it may count
   // an item this person is not allowed to see.
   const visibleBoards = applyVisibilityToBoards(allBoards, session, await loadDmScopeSettings());
-  const boards = boardFilter ? visibleBoards.filter((b) => b.id === boardFilter) : visibleBoards;
+  // 看板篩選可以複選,而且記住上次選的(網址有 ?board= 時以網址為準)。沒選 = 全部看板。
+  const filterBoardIds = resolveBoardFilter({
+    urlIds: parseBoardParam(boardParam),
+    savedIds: savedBoardIds,
+    accessibleIds: allBoards.map((b) => b.id),
+  });
+  const boards = filterBoardIds.length ? visibleBoards.filter((b) => filterBoardIds.includes(b.id)) : visibleBoards;
 
   // A resource (tool/vendor) can be an item's 負責人 like a real user, but has
   // no login of its own — its 負責窗口 is the real user who tracks its work,
@@ -189,27 +204,11 @@ export default async function DashboardPage({
     <div className="mx-auto max-w-5xl space-y-8 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">儀表板</h1>
-        <form action="/dashboard" method="GET" className="flex items-center gap-2 text-sm">
-          <span className="text-neutral-500 dark:text-neutral-400">看板篩選</span>
-          <select
-            name="board"
-            defaultValue={boardFilter ?? ""}
-            className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 outline-none focus:border-blue-500"
-          >
-            <option value="">全部看板</option>
-            {allBoards.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-3 py-1.5 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-          >
-            套用
-          </button>
-        </form>
+        <DashboardBoardFilter
+          key={filterBoardIds.join(",")}
+          boards={allBoards.map((b) => ({ id: b.id, name: b.name }))}
+          selectedIds={filterBoardIds}
+        />
       </div>
 
       {/* Above the workload cards on purpose: money that has already been
