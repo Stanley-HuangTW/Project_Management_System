@@ -9,8 +9,48 @@ import {
   decideTimeEntry,
   decideActivityTime,
   decideLeave,
+  decideBatch,
   type ApprovalQueue as Queue,
 } from "@/lib/actions/approval";
+import {
+  describeTargets,
+  groupByPerson,
+  personState,
+  selectionKey,
+  targetsOf,
+  togglePerson,
+  type PersonState,
+  type SelectableRow,
+} from "@/lib/approvalSelection";
+
+const chipClass: Record<PersonState, string> = {
+  all: "border-blue-600 bg-blue-600 text-white",
+  some: "border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  none: "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800",
+};
+
+function RowCheck({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  disabled: boolean;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      disabled={disabled}
+      aria-label={label}
+      className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-blue-600"
+    />
+  );
+}
 
 /**
  * 待我審核 — the timesheets and leave waiting on this person.
@@ -18,12 +58,16 @@ import {
  * Both are 送審制: until they are approved the hours are outside the cost
  * report entirely and the leave does not touch anybody's capacity. So an empty
  * queue is not a quiet day — it is the thing that keeps the numbers honest.
+ *
+ * 每一列可以勾選;上面的工具列有全選 / 全部取消,以及依人員選取(點一個人就選他所有待審的),
+ * 勾好之後一次核准或退回。
  */
 export function ApprovalQueue() {
-  const { notify, prompt } = useDialogs();
+  const { notify, prompt, confirm } = useDialogs();
   const [queue, setQueue] = useState<Queue | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
   const reload = useCallback(async () => setQueue(await listApprovalQueue()), []);
 
@@ -66,6 +110,14 @@ export function ApprovalQueue() {
     });
   }
 
+  function toggleKey(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
+
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!queue) return null;
 
@@ -77,7 +129,53 @@ export function ApprovalQueue() {
     );
   }
 
-  const total = queue.timeEntries.length + queue.activityEntries.length + queue.leaves.length;
+  const rows: SelectableRow[] = [
+    ...queue.timeEntries.map((e) => ({ key: selectionKey("time", e.id), userId: e.userId, userName: e.userName })),
+    ...queue.activityEntries.map((e) => ({ key: selectionKey("activity", e.id), userId: e.userId, userName: e.userName })),
+    ...queue.leaves.map((l) => ({ key: selectionKey("leave", l.id), userId: l.userId, userName: l.userName })),
+  ];
+  const total = rows.length;
+  // 重新載入之後已經不在清單裡的(被處理掉了)不算選取。
+  const liveKeys = new Set(rows.map((r) => r.key));
+  const picked = new Set([...selected].filter((key) => liveKeys.has(key)));
+  const people = groupByPerson(rows);
+
+  async function decideSelected(status: "APPROVED" | "REJECTED") {
+    const targets = targetsOf(picked);
+    if (targets.length === 0) return;
+    const summary = `已選 ${targets.length} 筆(${describeTargets(targets)})`;
+    let note = "";
+    if (status === "APPROVED") {
+      const ok = await confirm(`${summary},全部核准?`, { title: "批次核准", confirmLabel: `核准 ${targets.length} 筆` });
+      if (!ok) return;
+    } else {
+      const reason = await prompt(`${summary}都會退回,請寫下退回原因(每一筆都會寫上同一個原因)。`, {
+        title: "批次退回",
+        placeholder: "退回原因",
+        required: true,
+        confirmLabel: `退回 ${targets.length} 筆`,
+      });
+      if (!reason) return;
+      note = reason;
+    }
+    setBusy(true);
+    try {
+      const { done, errors } = await decideBatch(targets, status, note);
+      setSelected(new Set());
+      await reload();
+      if (errors.length > 0) {
+        const verb = status === "APPROVED" ? "核准" : "退回";
+        await notify(`已${verb} ${done} 筆;${targets.length - done} 筆沒有成功:\n${errors.join("\n")}`, {
+          title: `批次${verb}`,
+        });
+      }
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "操作失敗", { title: "批次處理失敗" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const approveClass =
     "flex items-center gap-1 rounded bg-green-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-40";
   const rejectClass =
@@ -91,6 +189,56 @@ export function ApprovalQueue() {
         </p>
       )}
 
+      {total > 0 && (
+        <div className="sticky top-0 z-10 space-y-2 rounded-lg border border-neutral-200 bg-white p-3 shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              type="button"
+              disabled={busy || picked.size === total}
+              onClick={() => setSelected(new Set(rows.map((r) => r.key)))}
+              className={rejectClass}
+            >
+              全選
+            </button>
+            <button type="button" disabled={busy || picked.size === 0} onClick={() => setSelected(new Set())} className={rejectClass}>
+              全部取消
+            </button>
+            <span className="tabular-nums text-neutral-500 dark:text-neutral-400">
+              已選 {picked.size} / {total} 筆
+            </span>
+            <div className="ml-auto flex items-center gap-1">
+              <button type="button" disabled={busy || picked.size === 0} onClick={() => decideSelected("APPROVED")} className={approveClass}>
+                <Check size={12} /> 核准已選{picked.size > 0 && ` (${picked.size})`}
+              </button>
+              <button type="button" disabled={busy || picked.size === 0} onClick={() => decideSelected("REJECTED")} className={rejectClass}>
+                <X size={12} /> 退回已選
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-neutral-500 dark:text-neutral-400">依人員選取:</span>
+            {people.map((person) => {
+              const state = personState(picked, person.keys);
+              const count = person.keys.filter((key) => picked.has(key)).length;
+              return (
+                <button
+                  key={person.userId}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={state === "all"}
+                  title={state === "all" ? `取消 ${person.userName} 所有待審的項目` : `選取 ${person.userName} 所有待審的項目`}
+                  onClick={() => setSelected((prev) => togglePerson(prev, person.keys))}
+                  className={`flex items-center gap-1 rounded-full border px-2 py-0.5 disabled:opacity-40 ${chipClass[state]}`}
+                >
+                  <span>{person.userName}</span>
+                  <span className="tabular-nums opacity-80">{state === "some" ? `${count}/${person.keys.length}` : person.keys.length}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {queue.timeEntries.length > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
@@ -102,6 +250,12 @@ export function ApprovalQueue() {
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
             {queue.timeEntries.map((entry) => (
               <li key={entry.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+                <RowCheck
+                  checked={picked.has(selectionKey("time", entry.id))}
+                  onChange={() => toggleKey(selectionKey("time", entry.id))}
+                  label={`選取 ${entry.userName} ${entry.date} ${entry.hours}h`}
+                  disabled={busy}
+                />
                 <span className="w-20 shrink-0 truncate font-medium text-neutral-800 dark:text-neutral-100">
                   {entry.userName}
                 </span>
@@ -161,6 +315,12 @@ export function ApprovalQueue() {
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
             {queue.activityEntries.map((entry) => (
               <li key={entry.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+                <RowCheck
+                  checked={picked.has(selectionKey("activity", entry.id))}
+                  onChange={() => toggleKey(selectionKey("activity", entry.id))}
+                  label={`選取 ${entry.userName} ${entry.date} ${entry.hours}h`}
+                  disabled={busy}
+                />
                 <span className="w-20 shrink-0 truncate font-medium text-neutral-800 dark:text-neutral-100">
                   {entry.userName}
                 </span>
@@ -222,6 +382,12 @@ export function ApprovalQueue() {
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
             {queue.leaves.map((leave) => (
               <li key={leave.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
+                <RowCheck
+                  checked={picked.has(selectionKey("leave", leave.id))}
+                  onChange={() => toggleKey(selectionKey("leave", leave.id))}
+                  label={`選取 ${leave.userName} ${leave.startDate}~${leave.endDate} 請假`}
+                  disabled={busy}
+                />
                 <span className="w-20 shrink-0 truncate font-medium text-neutral-800 dark:text-neutral-100">
                   {leave.userName}
                 </span>

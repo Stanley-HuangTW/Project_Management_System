@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import type { SessionPayload } from "@/lib/jwt";
 import { logAudit } from "@/lib/activityLog";
 import { groupIdsOfBoards, resolveApprovers, type ApprovalSubject } from "@/lib/timesheetApproval";
+import type { ApprovalTarget } from "@/lib/approvalSelection";
 
 export type PendingTimeEntry = {
   id: string;
@@ -346,6 +347,45 @@ export async function decideLeave(
   revalidatePath("/dashboard");
   revalidatePath("/users");
   return {};
+}
+
+const MAX_BATCH = 500;
+
+/**
+ * 一次核准或退回很多筆(待我審核頁勾選之後)。
+ *
+ * 一筆一筆呼叫上面三個單筆的函式:權限(能不能核准這個人、這筆)、退回要寫原因、稽核紀錄都跟單筆一模一樣,
+ * 沒有另外一套規則。有幾筆做不到(例如權限不足、已經被別人處理掉)不會擋住其他的,
+ * 回傳成功幾筆,與沒成功的原因(相同原因合併,附筆數)。
+ */
+export async function decideBatch(
+  targets: ApprovalTarget[],
+  status: Extract<ApprovalStatus, "APPROVED" | "REJECTED">,
+  note: string
+): Promise<{ done: number; errors: string[] }> {
+  await requireSession();
+  if (status === "REJECTED" && !note.trim()) return { done: 0, errors: ["退回必須寫下原因"] };
+
+  const unique = [...new Map(targets.map((t) => [`${t.kind}:${t.id}`, t])).values()];
+  if (unique.length === 0) return { done: 0, errors: ["沒有選取任何項目"] };
+  if (unique.length > MAX_BATCH) return { done: 0, errors: [`一次最多處理 ${MAX_BATCH} 筆,請分批`] };
+
+  let done = 0;
+  const failures = new Map<string, number>();
+  for (const target of unique) {
+    let error: string | undefined;
+    try {
+      if (target.kind === "time") error = (await decideTimeEntry(target.id, status, note)).error;
+      else if (target.kind === "activity") error = (await decideActivityTime(target.id, status, note)).error;
+      else if (target.kind === "leave") error = (await decideLeave(target.id, status, note)).error;
+      else error = "不認得的項目種類";
+    } catch (err) {
+      error = err instanceof Error ? err.message : "操作失敗";
+    }
+    if (error) failures.set(error, (failures.get(error) ?? 0) + 1);
+    else done++;
+  }
+  return { done, errors: [...failures].map(([message, count]) => (count > 1 ? `${message}(${count} 筆)` : message)) };
 }
 
 /** Whether to offer this person the 審核 link at all. */
