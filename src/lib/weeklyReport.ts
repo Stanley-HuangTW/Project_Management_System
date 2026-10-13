@@ -752,14 +752,16 @@ export function renderWeeklyReportMarkdown(
     out.push("");
   }
 
-  if (includePrograms) {
-    for (const program of data.programs) {
-      out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
-      out.push(
-        ...renderProgram(program, diff, data.upcomingDays, data.departments, includeDepartments, data.weekStart, data.weekEnd)
-      );
-      out.push("");
-    }
+  for (const program of data.programs) {
+    // 「各部門工作事項」跟「專案時程與預算」是兩個獨立的開關:只開前者時,專案段落只留部門那一塊。
+    if (!includePrograms && !includeDepartments) continue;
+    out.push(`## 專案:${program.programName ?? "(未歸屬專案群組的看板)"}`);
+    out.push(
+      ...(includePrograms
+        ? renderProgram(program, diff, data.upcomingDays, data.departments, includeDepartments, data.weekStart, data.weekEnd)
+        : renderProgramDepartments(program, data.departments, data.upcomingDays, updatesByItem(program.itemUpdates)))
+    );
+    out.push("");
   }
 
   if (includeActivity && data.activity.length > 0) {
@@ -807,6 +809,20 @@ function renderDepartments(people: PersonSection[], upcomingDays: number, update
     }
   }
   return out;
+}
+
+/** 某個專案群組底下「依職能的工作項」那一段(標題 + 各職能的人)。 */
+function renderProgramDepartments(
+  program: ProgramSection,
+  departments: PersonSection[],
+  upcomingDays: number,
+  updates: Map<string, ItemUpdateLine[]>
+): string[] {
+  return [
+    "",
+    "### 依職能的工作項",
+    ...renderDepartments(departments.filter((p) => p.programName === program.programName), upcomingDays, updates),
+  ];
 }
 
 function renderProgram(
@@ -869,10 +885,7 @@ function renderProgram(
     );
   }
 
-  if (includeDepartments) {
-    out.push("", "### 依職能的工作項");
-    out.push(...renderDepartments(departments.filter((p) => p.programName === name), upcomingDays, updates));
-  }
+  if (includeDepartments) out.push(...renderProgramDepartments(program, departments, upcomingDays, updates));
 
   out.push("", `### 目前逾期(${overdue.length})`, "");
   out.push(overdue.length === 0 ? "沒有逾期。" : itemLines(overdue).join("\n"));

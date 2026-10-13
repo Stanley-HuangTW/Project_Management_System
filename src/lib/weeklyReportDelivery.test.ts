@@ -70,6 +70,32 @@ describe("週報寄信:一個專案一封", () => {
     expect(boxBody.startsWith("# AMR BOX週報 2026 W41")).toBe(true);
   });
 
+  it("信裡有「依職能的工作項」,而且只有那個專案的人", async () => {
+    const data = snapshot([program("AMR BOX", "AMR BOX專案"), program("M3", "M3專案")]);
+    const person = (userName: string, programName: string) => ({
+      userId: `u-${userName}`,
+      userName,
+      role: "DM" as const,
+      discipline: "EE 電機",
+      programName,
+      groupName: programName,
+      boardName: `${programName}專案`,
+      overdue: [],
+      completedThisWeek: [],
+      upcoming: [],
+    });
+    data.departments = [person("Frank Chuang", "AMR BOX"), person("Henry Chen", "M3")];
+    await deliverWeeklyReport(session, data, diffWeeks(data, null), "full markdown");
+
+    const [boxBody, m3Body] = sendMailChecked.mock.calls.map((c) => c[2] as string);
+    expect(boxBody).toContain("### 依職能的工作項");
+    expect(boxBody).toContain("#### EE 電機");
+    expect(boxBody).toContain("**[DM] Frank Chuang**");
+    expect(boxBody).not.toContain("Henry Chen");
+    expect(m3Body).toContain("**[DM] Henry Chen**");
+    expect(m3Body).not.toContain("Frank Chuang");
+  });
+
   it("一封寄失敗,後面的還是會寄,結果裡說清楚是哪一封", async () => {
     sendMailChecked.mockResolvedValueOnce({ ok: false, reason: "SMTP 連線逾時" }).mockResolvedValue({ ok: true });
     const data = snapshot([program("AMR BOX", "AMR BOX專案"), program("M3", "M3專案")]);

@@ -640,6 +640,37 @@ describe("Markdown", () => {
     expect(minimal).toContain("# 週報");
   });
 
+  it("只勾「各部門工作事項」、不勾「專案時程與預算」:部門那一段還是要在信裡", () => {
+    const data = snapshot([item({ id: "a", name: "逾期的專案項", bucket: "overdue" })]);
+    data.departments = [
+      {
+        userId: "u-frank",
+        userName: "Frank Chuang",
+        role: "DM",
+        discipline: "EE 電機",
+        programName: "M3",
+        groupName: "M3",
+        boardName: "M3專案",
+        overdue: [item({ id: "o", name: "電機逾期項", bucket: "overdue" })],
+        completedThisWeek: [],
+        upcoming: [],
+      },
+    ];
+
+    const md = renderWeeklyReportMarkdown(data, noDiff, { programs: false });
+    expect(md).toContain("## 專案:M3");
+    expect(md).toContain("### 依職能的工作項");
+    expect(md).toContain("#### EE 電機");
+    expect(md).toContain("**[DM] Frank Chuang**");
+    expect(md).toContain("電機逾期項");
+    // 專案時程那幾段仍然是關掉的。
+    expect(md).not.toContain("### 目前逾期");
+    expect(md).not.toContain("逾期的專案項");
+
+    const none = renderWeeklyReportMarkdown(data, noDiff, { programs: false, departments: false });
+    expect(none).not.toContain("## 專案:M3");
+  });
+
   it("清單很長也全部列出,不會用「另外還有幾項」收尾", () => {
     const many = Array.from({ length: 25 }, (_, i) => item({ id: `x${i}`, name: `逾期項目${i}`, bucket: "overdue" }));
     const md = renderWeeklyReportMarkdown(snapshot(many), noDiff);
