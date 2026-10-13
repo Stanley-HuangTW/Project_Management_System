@@ -19,15 +19,18 @@ import {
   selectionKey,
   targetsOf,
   togglePerson,
-  type PersonState,
+  type PersonGroup,
   type SelectableRow,
 } from "@/lib/approvalSelection";
 
-const chipClass: Record<PersonState, string> = {
-  all: "border-blue-600 bg-blue-600 text-white",
-  some: "border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-300",
-  none: "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800",
-};
+/** 下拉選單裡一個人的字樣:全選的前面 ✓、選了一部分的前面 ◐,後面是筆數。 */
+function personOptionLabel(person: PersonGroup, picked: ReadonlySet<string>): string {
+  const count = person.keys.filter((key) => picked.has(key)).length;
+  const state = personState(picked, person.keys);
+  if (state === "all") return `✓ ${person.userName}(已選 ${count} 筆)`;
+  if (state === "some") return `◐ ${person.userName}(已選 ${count} / ${person.keys.length} 筆)`;
+  return `${person.userName}(${person.keys.length} 筆)`;
+}
 
 function RowCheck({
   checked,
@@ -203,6 +206,24 @@ export function ApprovalQueue() {
             <button type="button" disabled={busy || picked.size === 0} onClick={() => setSelected(new Set())} className={rejectClass}>
               全部取消
             </button>
+            <select
+              value=""
+              disabled={busy}
+              onChange={(e) => {
+                const person = people.find((p) => p.userId === e.target.value);
+                if (person) setSelected((prev) => togglePerson(prev, person.keys));
+              }}
+              aria-label="依人員選取"
+              title="選一個人,就選他所有待審的項目;已經全選的人再選一次就取消"
+              className="rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 outline-none focus:border-blue-500 disabled:opacity-40 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+            >
+              <option value="">依人員選取…</option>
+              {people.map((person) => (
+                <option key={person.userId} value={person.userId}>
+                  {personOptionLabel(person, picked)}
+                </option>
+              ))}
+            </select>
             <span className="tabular-nums text-neutral-500 dark:text-neutral-400">
               已選 {picked.size} / {total} 筆
             </span>
@@ -214,27 +235,6 @@ export function ApprovalQueue() {
                 <X size={12} /> 退回已選
               </button>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-neutral-500 dark:text-neutral-400">依人員選取:</span>
-            {people.map((person) => {
-              const state = personState(picked, person.keys);
-              const count = person.keys.filter((key) => picked.has(key)).length;
-              return (
-                <button
-                  key={person.userId}
-                  type="button"
-                  disabled={busy}
-                  aria-pressed={state === "all"}
-                  title={state === "all" ? `取消 ${person.userName} 所有待審的項目` : `選取 ${person.userName} 所有待審的項目`}
-                  onClick={() => setSelected((prev) => togglePerson(prev, person.keys))}
-                  className={`flex items-center gap-1 rounded-full border px-2 py-0.5 disabled:opacity-40 ${chipClass[state]}`}
-                >
-                  <span>{person.userName}</span>
-                  <span className="tabular-nums opacity-80">{state === "some" ? `${count}/${person.keys.length}` : person.keys.length}</span>
-                </button>
-              );
-            })}
           </div>
         </div>
       )}
