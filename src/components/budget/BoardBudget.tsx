@@ -45,10 +45,10 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
       if (cancelled) return;
       setHideBudget(access.hideBudget);
       setPhases(result);
-      // 只在還沒選過的時候幫他選第一個 —— 每次回到這個分頁都重設的話,剛看
-      // 到一半的階段會被跳掉。
+      // 預設看「整個專案(全部階段合計)」,要看哪一段再選。只在還沒選過(或選的階段已經不在了)的時候
+      // 才套預設 —— 每次回到這個分頁都重設的話,剛看到一半的階段會被跳掉。
       setPhaseId((current) =>
-        result.some((p) => p.id === current) ? current : result[0]?.id ?? ""
+        current === WHOLE_PROJECT || result.some((p) => p.id === current) ? current : WHOLE_PROJECT
       );
     })();
     return () => {

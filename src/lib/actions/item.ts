@@ -21,7 +21,7 @@ import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { getItemDateRange } from "@/lib/gantt";
 import { loadTypeOptionIds, flipParentToSummary, restoreParentTypeIfChildless } from "@/lib/summaryType";
 import { collectSubtreeIds, type PredSnapshotEntry } from "@/lib/trash";
-import { resolveItemMove, computeLvlDelta, parentAfterMove, type DropZone } from "@/lib/dragReorder";
+import { resolveItemMove, computeLvlDelta, type DropZone } from "@/lib/dragReorder";
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { SessionPayload } from "@/lib/jwt";
@@ -306,13 +306,15 @@ export async function moveItemWithinGroup(
   groupId: string,
   draggedItemId: string,
   targetItemId: string,
-  zone: DropZone
+  zone: DropZone,
+  /** 只有還原升階(zone "childRelease")用:放回去幾個子項。不信任——resolveItemMove 會驗。 */
+  releaseCount?: number
 ) {
   const session = await requireSession();
   const boardId = await requireGroupStructureAccess(session, groupId);
 
   const [dragged, target, groupItems, board] = await Promise.all([
-    prisma.item.findUnique({ where: { id: draggedItemId }, select: { id: true, groupId: true, cellValues: true } }),
+    prisma.item.findUnique({ where: { id: draggedItemId }, select: { id: true, groupId: true } }),
     prisma.item.findUnique({ where: { id: targetItemId }, select: { id: true, groupId: true } }),
     prisma.item.findMany({ where: { groupId, deletedAt: null }, select: { id: true, parentId: true, order: true } }),
     prisma.board.findUnique({
@@ -324,7 +326,7 @@ export async function moveItemWithinGroup(
   if (!dragged || dragged.groupId !== groupId) throw new Error("找不到要搬移的項目");
   if (!target || target.groupId !== groupId) throw new Error("找不到目標項目");
 
-  const result = resolveItemMove(groupItems, draggedItemId, targetItemId, zone);
+  const result = resolveItemMove(groupItems, draggedItemId, targetItemId, zone, { releaseCount });
   if (!result.ok) {
     const messages: Record<typeof result.reason, string> = {
       "not-found": "找不到項目",
@@ -336,27 +338,38 @@ export async function moveItemWithinGroup(
     throw new Error(messages[result.reason]);
   }
 
-  const oldParentId = groupItems.find((i) => i.id === draggedItemId)?.parentId ?? null;
-  const newParentId = parentAfterMove(result.writes, draggedItemId, oldParentId);
-
   await prisma.$transaction(
     result.writes.map((w) => prisma.item.update({ where: { id: w.id }, data: { parentId: w.parentId, order: w.order } }))
   );
 
+  // 這次搬移裡父層真的換了的項目——一般的拖曳只有被拖的那一個;升階會連帶讓接管來的兄弟換父項、
+  // 還原升階會讓放回去的子項換父項。被拖的排第一個先處理(它的 Lvl 先調好,它底下接管來的再對它算)。
+  const oldParentOf = new Map(groupItems.map((i) => [i.id, i.parentId]));
+  const reparented = result.writes.filter((w) => oldParentOf.get(w.id) !== w.parentId);
+  const reparentedRoots = [
+    ...reparented.filter((w) => w.id === draggedItemId),
+    ...reparented.filter((w) => w.id !== draggedItemId),
+  ];
+
   // Lvl 連動——只有父層真的換了、而且 board 有設定 Lvl 欄位才做。新父層自己沒有數字
   // Lvl 值的話整段跳過,不捏造數值(跟 buildNewItemCellValues 的保護一致)。
+  // 每一個換了父項的都各自對它那一棵(搬移前的)子樹調整;Lvl 與父項的值每次都重新讀,
+  // 因為前一個處理完會改到它們。
   const lvlColumn = board?.columns.find((c) => c.name === "Lvl" && c.type === "NUMBER");
-  if (lvlColumn && newParentId !== oldParentId) {
-    const oldLvl = dragged.cellValues.find((cv) => cv.columnId === lvlColumn.id)?.value;
-    if (typeof oldLvl === "number") {
-      const newParent = newParentId
-        ? await prisma.item.findUnique({ where: { id: newParentId }, select: { cellValues: true } })
+  if (lvlColumn) {
+    for (const w of reparentedRoots) {
+      const oldLvl = (
+        await prisma.cellValue.findUnique({ where: { itemId_columnId: { itemId: w.id, columnId: lvlColumn.id } } })
+      )?.value;
+      if (typeof oldLvl !== "number") continue;
+      const newParent = w.parentId
+        ? await prisma.item.findUnique({ where: { id: w.parentId }, select: { cellValues: true } })
         : null;
       const newParentLvl = newParent?.cellValues.find((cv) => cv.columnId === lvlColumn.id)?.value;
-      if (newParentId === null || typeof newParentLvl === "number") {
-        const delta = computeLvlDelta(oldLvl, newParentId === null ? null : (newParentLvl as number));
+      if (w.parentId === null || typeof newParentLvl === "number") {
+        const delta = computeLvlDelta(oldLvl, w.parentId === null ? null : (newParentLvl as number));
         if (delta !== 0) {
-          const subtreeIds = collectSubtreeIds(groupItems, draggedItemId);
+          const subtreeIds = collectSubtreeIds(groupItems, w.id);
           const subtreeLvlCells = await prisma.cellValue.findMany({
             where: { itemId: { in: subtreeIds }, columnId: lvlColumn.id },
           });
@@ -370,16 +383,16 @@ export async function moveItemWithinGroup(
     }
   }
 
-  // Type=Summary 連動——跟 createItem/deleteItem 現有的呼叫方式一致,只有父層真的
-  // 換了才做。
-  if (newParentId !== oldParentId && board?.typeColumnId) {
+  // Type=Summary 連動——跟 createItem/deleteItem 現有的呼叫方式一致,只有父層真的換了才做:
+  // 新的父項變 Summary,舊的父項如果沒有子項了就還原它原本的類型。
+  if (reparentedRoots.length > 0 && board?.typeColumnId) {
     const typeIds = await loadTypeOptionIds(board.typeColumnId);
-    if (newParentId && typeIds?.summaryId) {
-      await flipParentToSummary(newParentId, board.typeColumnId, typeIds.summaryId);
+    const newParentIds = [...new Set(reparentedRoots.flatMap((w) => (w.parentId ? [w.parentId] : [])))];
+    const oldParentIds = [...new Set(reparentedRoots.flatMap((w) => oldParentOf.get(w.id) ?? []))];
+    if (typeIds?.summaryId) {
+      for (const id of newParentIds) await flipParentToSummary(id, board.typeColumnId, typeIds.summaryId);
     }
-    if (oldParentId) {
-      await restoreParentTypeIfChildless(oldParentId, board.typeColumnId);
-    }
+    for (const id of oldParentIds) await restoreParentTypeIfChildless(id, board.typeColumnId);
   }
 
   await notifyStructuralChange(prisma, draggedItemId, session.userId, "UPDATED", "拖曳搬移了這個項目的位置");

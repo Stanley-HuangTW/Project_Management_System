@@ -6,8 +6,14 @@ import { computeWbsCodes } from "./wbs";
  * - "child":   變成目標項目的子項(附加在它現有子項的最後面)。
  * - "after":   變成目標項目下面的同層項目。
  * - "outdent": 外移一層,變成目標項目的父項的同層項目(緊接在目標項目的舊父項後面)。
+ * - "afterAdopt":升階按鈕用(目標一定是被搬項目自己的父項)。位置跟 "after" 一樣,緊接在父項後面;
+ *                另外,原本排在被搬項目後面的兄弟,變成它的子項(接在它原本的子項後面)——整份清單的順序不變,
+ *                只有階層變了(1.1.16 升階成 1.2,原本的 1.1.17 變成 1.2.1)。
+ * - "childRelease":還原「afterAdopt」用。被搬項目變成目標(它的前一個同層項目,也就是升階前的父項)的最後一個子項,
+ *                它最後 releaseCount 個子項(當初接管來的那幾個)放回目標底下、排在它後面。
+ * - "before":      畫面上不會產生,只給「還原搬移」用:放在目標前面。
  */
-export type DropZone = "child" | "after" | "outdent" | "before";
+export type DropZone = "child" | "after" | "outdent" | "before" | "afterAdopt" | "childRelease";
 
 export interface DropZoneInput {
   /** 目標列自己的 top(clientY 座標系)。 */
@@ -68,7 +74,9 @@ export function resolveItemMove(
   items: MoveItemLike[],
   draggedId: string,
   targetId: string,
-  zone: DropZone
+  zone: DropZone,
+  /** 只有 "childRelease" 用:放回去幾個子項。 */
+  options: { releaseCount?: number } = {}
 ): ResolveItemMoveResult {
   const byId = new Map(items.map((i) => [i.id, i]));
   const dragged = byId.get(draggedId);
@@ -79,8 +87,13 @@ export function resolveItemMove(
   const descendantIds = new Set(collectSubtreeIds(items, draggedId));
   if (descendantIds.has(targetId)) return { ok: false, reason: "descendant" };
 
+  const byOrder = (a: MoveItemLike, b: MoveItemLike) => a.order - b.order;
   let newParentId: string | null;
   let insertAfterId: string | null;
+  /** "afterAdopt":原本排在被搬項目後面的兄弟,搬完變成它的子項。 */
+  let adopted: MoveItemLike[] = [];
+  /** "childRelease":被搬項目最後幾個子項,搬完放回新父層、排在它後面。 */
+  let released: MoveItemLike[] = [];
 
   if (zone === "child") {
     newParentId = targetId;
@@ -105,6 +118,23 @@ export function resolveItemMove(
     const grandparent = byId.get(target.parentId);
     newParentId = grandparent ? grandparent.parentId : null;
     insertAfterId = target.parentId;
+  } else if (zone === "afterAdopt") {
+    // 升階:目標一定是它自己的父項,不是的話不是這個按鈕該產生的呼叫。
+    if (dragged.parentId !== targetId) return { ok: false, reason: "invalid-zone" };
+    newParentId = target.parentId;
+    insertAfterId = targetId;
+    const oldSiblings = items.filter((i) => i.parentId === dragged.parentId).sort(byOrder);
+    adopted = oldSiblings.slice(oldSiblings.findIndex((i) => i.id === draggedId) + 1);
+  } else if (zone === "childRelease") {
+    // 還原升階:目標是它同一層的(前一個)項目。
+    if (dragged.parentId !== target.parentId) return { ok: false, reason: "invalid-zone" };
+    const children = items.filter((i) => i.parentId === draggedId).sort(byOrder);
+    const count = options.releaseCount ?? 0;
+    if (!Number.isInteger(count) || count < 0 || count > children.length) return { ok: false, reason: "invalid-zone" };
+    newParentId = targetId;
+    const targetChildren = items.filter((i) => i.parentId === targetId).sort(byOrder);
+    insertAfterId = targetChildren.length > 0 ? targetChildren[targetChildren.length - 1].id : null;
+    released = children.slice(children.length - count);
   } else {
     // 執行期收到沒見過的字串(server action 的參數不能全信 TypeScript)——寧可拒絕,
     // 不要當成某一個區域亂搬。
@@ -116,7 +146,7 @@ export function resolveItemMove(
     .sort((a, b) => a.order - b.order);
   const insertIndex = insertAfterId === null ? 0 : siblings.findIndex((i) => i.id === insertAfterId) + 1;
 
-  const withDragged = [...siblings.slice(0, insertIndex), dragged, ...siblings.slice(insertIndex)];
+  const withDragged = [...siblings.slice(0, insertIndex), dragged, ...released, ...siblings.slice(insertIndex)];
   const writes: MoveWrite[] = withDragged
     .map((item, index) => ({ id: item.id, parentId: newParentId, order: index }))
     .filter((w) => {
@@ -124,11 +154,30 @@ export function resolveItemMove(
       return current.parentId !== w.parentId || current.order !== w.order;
     });
 
-  // 父層真的換了的話,舊父層底下剩下的兄弟也要收斂成連續的 0..n-1,不然會留一個洞。
+  // 升階接管的兄弟:變成被搬項目的子項,接在它原本的子項後面。
+  if (adopted.length > 0) {
+    const ownChildren = items.filter((i) => i.parentId === draggedId).length;
+    adopted.forEach((item, index) => writes.push({ id: item.id, parentId: draggedId, order: ownChildren + index }));
+  }
+
+  // 還原升階:放回去的那幾個離開了,被搬項目留下的子項重新編號成連續的。
+  if (released.length > 0) {
+    const releasedIds = new Set(released.map((r) => r.id));
+    items
+      .filter((i) => i.parentId === draggedId && !releasedIds.has(i.id))
+      .sort(byOrder)
+      .forEach((item, index) => {
+        if (item.order !== index) writes.push({ id: item.id, parentId: item.parentId, order: index });
+      });
+  }
+
+  // 父層真的換了的話,舊父層底下剩下的兄弟也要收斂成連續的 0..n-1,不然會留一個洞
+  // (被接管走的兄弟已經不在舊父層了)。
   if (newParentId !== dragged.parentId) {
+    const adoptedIds = new Set(adopted.map((a) => a.id));
     const oldSiblings = items
-      .filter((i) => i.parentId === dragged.parentId && i.id !== draggedId)
-      .sort((a, b) => a.order - b.order);
+      .filter((i) => i.parentId === dragged.parentId && i.id !== draggedId && !adoptedIds.has(i.id))
+      .sort(byOrder);
     oldSiblings.forEach((item, index) => {
       if (item.order !== index) {
         writes.push({ id: item.id, parentId: item.parentId, order: index });
@@ -173,12 +222,26 @@ export function indentTarget(items: MoveItemLike[], itemId: string): { targetId:
 }
 
 /**
- * 升階(凸排):提升一階,變成父項的同層項目、緊接在父項後面(跟拖曳往左拖的 "outdent" 落點一樣)。
- * 最上層沒有父項,不能升階,回傳 null。
+ * 升階(凸排):提升一階,變成父項的同層項目、緊接在父項後面;原本排在它後面的兄弟變成它的子項,
+ * 所以它在清單上的位置不動、只有階層變(1.1.16 升階成 1.2,原本的 1.1.17 變成 1.2.1),
+ * 跟 MS Project 的升階一樣。最上層沒有父項,不能升階,回傳 null。
+ *
+ * 拖曳往左拖的 "outdent" 不接管兄弟——那是使用者指定放在哪,不是按一下升階。
  */
 export function outdentTarget(items: MoveItemLike[], itemId: string): { targetId: string; zone: DropZone } | null {
   const item = items.find((i) => i.id === itemId);
-  return item?.parentId ? { targetId: item.parentId, zone: "after" } : null;
+  return item?.parentId ? { targetId: item.parentId, zone: "afterAdopt" } : null;
+}
+
+/**
+ * 升階會接管幾個兄弟:原本排在它後面的同層項目。還原升階(zone "childRelease")要知道這個數字,
+ * 才知道最後幾個子項是接管來的、要放回去。
+ */
+export function countAdoptedBy(items: MoveItemLike[], itemId: string): number {
+  const item = items.find((i) => i.id === itemId);
+  if (!item) return 0;
+  const siblings = items.filter((i) => i.parentId === item.parentId).sort((a, b) => a.order - b.order);
+  return siblings.length - 1 - siblings.findIndex((i) => i.id === itemId);
 }
 
 /**
@@ -250,6 +313,8 @@ export function previewDrop<T extends MoveItemLike & { name: string }>(
   if (zone === "child") return { newCode, label: `${head}成為「${ref(targetId)}」的子項` };
   if (zone === "after") return { newCode, label: `${head}與「${ref(targetId)}」同階` };
   if (zone === "before") return { newCode, label: `${head}放在「${ref(targetId)}」前面` };
+  if (zone === "afterAdopt") return { newCode, label: `${head}升一階,與「${ref(targetId)}」同階,下面的同層項目變成它的子項` };
+  if (zone === "childRelease") return { newCode, label: `${head}降回「${ref(targetId)}」底下` };
   return { newCode, label: `${head}外移一層,與「${ref(target.parentId)}」同階` };
 }
 

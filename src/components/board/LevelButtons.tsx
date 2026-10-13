@@ -26,7 +26,7 @@ export function LevelButtons({
   return (
     <>
       {canOutdent && (
-        <button type="button" onClick={onOutdent} title="升階(Shift+Tab):提升一階,變成父項的同層項目" aria-label="升階" className={className}>
+        <button type="button" onClick={onOutdent} title="升階(Shift+Tab):提升一階,變成父項的同層項目;下面的同層項目變成它的子項" aria-label="升階" className={className}>
           <IndentDecrease size={size} />
         </button>
       )}

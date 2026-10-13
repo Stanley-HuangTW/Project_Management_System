@@ -3,6 +3,7 @@ import {
   buildMoveInverse,
   classifyDropZone,
   computeLvlDelta,
+  countAdoptedBy,
   indentTarget,
   outdentTarget,
   parentAfterMove,
@@ -11,6 +12,7 @@ import {
   type DropZone,
   type MoveItemLike,
 } from "./dragReorder";
+import { computeWbsCodes } from "./wbs";
 
 describe("classifyDropZone", () => {
   const base = { rowTop: 100, rowHeight: 40, targetIndentPx: 32, indentUnitPx: 16, targetIsTopLevel: false };
@@ -353,12 +355,14 @@ describe("升階 / 降階", () => {
     expect(pos(moved, "k")).toEqual({ parentId: "other", order: 0 });
   });
 
-  it("升階:變成父項的同層項目,緊接在父項後面", () => {
-    expect(outdentTarget(tree, "b")).toEqual({ targetId: "root", zone: "after" });
+  it("升階:變成父項的同層項目,緊接在父項後面;原本排在它後面的兄弟(c)變成它的子項", () => {
+    expect(outdentTarget(tree, "b")).toEqual({ targetId: "root", zone: "afterAdopt" });
     const after = move(tree, "b", outdentTarget(tree, "b"));
     expect(pos(after, "b")).toEqual({ parentId: null, order: 1 });
     expect(pos(after, "other")).toEqual({ parentId: null, order: 2 });
-    expect(pos(after, "c")).toEqual({ parentId: "root", order: 1 });
+    expect(pos(after, "c")).toEqual({ parentId: "b", order: 0 });
+    // 在它前面的兄弟(a)不動。
+    expect(pos(after, "a")).toEqual({ parentId: "root", order: 0 });
   });
 
   it("升階後再降階,位置關係(父項與兄弟順序)回到原樣——只要它是最後一個子項", () => {
@@ -371,6 +375,132 @@ describe("升階 / 降階", () => {
     expect(outdentTarget(tree, "root")).toBeNull();
     expect(outdentTarget(tree, "nope")).toBeNull();
     expect(indentTarget(tree, "nope")).toBeNull();
+  });
+});
+
+describe("升階接管下面的同層項目", () => {
+  // 1 root
+  // ├─ 1.1 p
+  // │  ├─ 1.1.1 x1
+  // │  ├─ 1.1.2 x2
+  // │  ├─ 1.1.3 x3     ← 升階這一個
+  // │  ├─ 1.1.4 x4
+  // │  │  └─ 1.1.4.1 z
+  // │  └─ 1.1.5 x5
+  // └─ 1.2 q
+  const items: MoveItemLike[] = [
+    { id: "root", parentId: null, order: 0 },
+    { id: "p", parentId: "root", order: 0 },
+    { id: "x1", parentId: "p", order: 0 },
+    { id: "x2", parentId: "p", order: 1 },
+    { id: "x3", parentId: "p", order: 2 },
+    { id: "x4", parentId: "p", order: 3 },
+    { id: "z", parentId: "x4", order: 0 },
+    { id: "x5", parentId: "p", order: 4 },
+    { id: "q", parentId: "root", order: 1 },
+  ];
+  const run = (list: MoveItemLike[], id: string, targetId: string, zone: DropZone, releaseCount?: number) => {
+    const r = resolveItemMove(list, id, targetId, zone, { releaseCount });
+    expect(r.ok).toBe(true);
+    const byId = new Map((r.ok ? r.writes : []).map((w) => [w.id, w]));
+    return list.map((i) => (byId.has(i.id) ? { ...i, ...byId.get(i.id)! } : i));
+  };
+  const codes = (list: MoveItemLike[]) => Object.fromEntries(computeWbsCodes(list));
+  /** 整份清單從上到下的順序(深度優先)。 */
+  const flat = (list: MoveItemLike[]) => {
+    const out: string[] = [];
+    const walk = (parentId: string | null) =>
+      list
+        .filter((i) => i.parentId === parentId)
+        .sort((a, b) => a.order - b.order)
+        .forEach((i) => {
+          out.push(i.id);
+          walk(i.id);
+        });
+    walk(null);
+    return out;
+  };
+  const positions = (list: MoveItemLike[]) => Object.fromEntries(list.map((i) => [i.id, `${i.parentId}/${i.order}`]));
+
+  it("1.1.3 升階:變成 1.2,原本的 1.1.4、1.1.5 變成它的 1.2.1、1.2.2(子樹跟著走),原本的 1.2 往後變 1.3", () => {
+    const t = outdentTarget(items, "x3")!;
+    const after = run(items, "x3", t.targetId, t.zone);
+    const c = codes(after);
+    expect(c.x1).toBe("1.1.1");
+    expect(c.x2).toBe("1.1.2");
+    expect(c.x3).toBe("1.2");
+    expect(c.x4).toBe("1.2.1");
+    expect(c.z).toBe("1.2.1.1");
+    expect(c.x5).toBe("1.2.2");
+    expect(c.q).toBe("1.3");
+  });
+
+  it("清單上的位置不動,只有階層變了(以前的做法會讓它掉到原本下面那幾個的後面)", () => {
+    const t = outdentTarget(items, "x3")!;
+    expect(flat(run(items, "x3", t.targetId, t.zone))).toEqual(flat(items));
+  });
+
+  it("它自己已經有子項:接管來的接在它原本的子項後面", () => {
+    const withKid = [...items, { id: "y", parentId: "x3", order: 0 }];
+    const t = outdentTarget(withKid, "x3")!;
+    const c = codes(run(withKid, "x3", t.targetId, t.zone));
+    expect(c.y).toBe("1.2.1");
+    expect(c.x4).toBe("1.2.2");
+    expect(c.x5).toBe("1.2.3");
+  });
+
+  it("排最後一個的升階:沒有人可以接管,跟以前一樣緊接在父項後面", () => {
+    const t = outdentTarget(items, "x5")!;
+    const after = run(items, "x5", t.targetId, t.zone);
+    expect(codes(after).x5).toBe("1.2");
+    expect(codes(after).q).toBe("1.3");
+    expect(flat(after)).toEqual(flat(items));
+    expect(countAdoptedBy(items, "x5")).toBe(0);
+  });
+
+  it("接管幾個:排在後面的同層項目", () => {
+    expect(countAdoptedBy(items, "x3")).toBe(2);
+    expect(countAdoptedBy(items, "x1")).toBe(4);
+    expect(countAdoptedBy(items, "nope")).toBe(0);
+  });
+
+  it("降階:1.1.3 降階變成 1.1.2.1,下面的 1.1.4 變成 1.1.3(沒有變動)", () => {
+    const t = indentTarget(items, "x3")!;
+    const c = codes(run(items, "x3", t.targetId, t.zone));
+    expect(c.x3).toBe("1.1.2.1");
+    expect(c.x4).toBe("1.1.3");
+    expect(c.x5).toBe("1.1.4");
+  });
+
+  it("還原升階(childRelease):父項、順序,連同被接管的兄弟,全部回到原樣", () => {
+    const t = outdentTarget(items, "x3")!;
+    const after = run(items, "x3", t.targetId, t.zone);
+    const back = run(after, "x3", "p", "childRelease", countAdoptedBy(items, "x3"));
+    expect(positions(back)).toEqual(positions(items));
+    // 它自己原本就有子項的話,放回去的只有接管來的那幾個。
+    const withKid = [...items, { id: "y", parentId: "x3", order: 0 }];
+    const afterKid = run(withKid, "x3", "p", "afterAdopt");
+    expect(positions(run(afterKid, "x3", "p", "childRelease", countAdoptedBy(withKid, "x3")))).toEqual(positions(withKid));
+  });
+
+  it("還原升階的 releaseCount 不合理(比子項還多、負數、不是整數)、目標不是同一層:拒絕", () => {
+    const after = run(items, "x3", "p", "afterAdopt");
+    for (const count of [99, -1, 1.5]) {
+      expect(resolveItemMove(after, "x3", "p", "childRelease", { releaseCount: count })).toEqual({ ok: false, reason: "invalid-zone" });
+    }
+    expect(resolveItemMove(after, "x3", "x1", "childRelease", { releaseCount: 1 })).toEqual({ ok: false, reason: "invalid-zone" });
+  });
+
+  it("afterAdopt 的目標不是它的父項:拒絕(這個按鈕不會產生這種呼叫)", () => {
+    expect(resolveItemMove(items, "x3", "root", "afterAdopt")).toEqual({ ok: false, reason: "invalid-zone" });
+    expect(resolveItemMove(items, "x3", "x1", "afterAdopt")).toEqual({ ok: false, reason: "invalid-zone" });
+  });
+
+  it("拖曳往左拖的 outdent 不接管兄弟(那是使用者自己指定放哪)", () => {
+    const after = run(items, "x3", "x4", "outdent");
+    expect(codes(after).x4).toBe("1.1.3");
+    expect(codes(after).x5).toBe("1.1.4");
+    expect(codes(after).x3).toBe("1.2");
   });
 });
 
