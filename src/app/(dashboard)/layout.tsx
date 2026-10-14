@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { BoardSidebar } from "@/components/sidebar/BoardSidebar";
 import { hasApprovalRole } from "@/lib/actions/approval";
+import { applyStoredOrder } from "@/lib/sidebarOrder";
 import { BoardAdminActionsProvider } from "@/components/board/BoardAdminActions";
 import { DialogProvider } from "@/components/ui/DialogProvider";
 import { ImpersonationBanner } from "@/components/sidebar/ImpersonationBanner";
@@ -14,14 +15,16 @@ export default async function DashboardLayout({
   children: ReactNode;
 }) {
   const session = await requireSession();
-  const [boards, currentUser] = await Promise.all([
+  const [boardRows, currentUser] = await Promise.all([
     prisma.board.findMany({
       where: accessibleBoardWhere(session),
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, programId: true, ownerId: true },
     }),
-    prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true } }),
+    prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true, boardOrder: true, programOrder: true } }),
   ]);
+  // 側邊欄的順序是這個人自己排的(沒排過的照建立時間)。
+  const boards = applyStoredOrder(boardRows, currentUser?.boardOrder ?? []);
 
   // Groups are listed from the boards this person can already open, so a
   // group whose boards are all closed to them never appears — and the count
@@ -32,7 +35,7 @@ export default async function DashboardLayout({
     select: { id: true, name: true },
   });
   const isApprover = await hasApprovalRole();
-  const programs = programRows.map((program) => ({
+  const programs = applyStoredOrder(programRows, currentUser?.programOrder ?? []).map((program) => ({
     ...program,
     boardCount: boards.filter((b) => b.programId === program.id).length,
   }));

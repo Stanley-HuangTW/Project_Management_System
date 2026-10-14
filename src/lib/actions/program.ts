@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { recomputeAllSchedules } from "@/lib/scheduleCascade";
 import { logAudit } from "@/lib/activityLog";
+import { applyStoredOrder } from "@/lib/sidebarOrder";
 
 export type ProgramRow = {
   id: string;
@@ -24,16 +25,20 @@ async function requireAdmin() {
 }
 
 export async function listPrograms(): Promise<ProgramRow[]> {
-  await requireAdmin();
-  const programs = await prisma.program.findMany({
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      name: true,
-      boards: { where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } },
-    },
-  });
-  return programs;
+  const session = await requireAdmin();
+  const [programs, me] = await Promise.all([
+    prisma.program.findMany({
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        name: true,
+        boards: { where: { deletedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } },
+      },
+    }),
+    prisma.user.findUnique({ where: { id: session.userId }, select: { programOrder: true } }),
+  ]);
+  // 跟側邊欄同一份順序:管理者自己排的,沒排過的照建立時間。
+  return applyStoredOrder(programs, me?.programOrder ?? []);
 }
 
 export async function createProgram(name: string): Promise<{ error?: string }> {

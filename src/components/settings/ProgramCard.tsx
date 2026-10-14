@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Pencil, Trash2 } from "lucide-react";
+import { Plus, X, Pencil, Trash2, GripVertical } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   createProgram,
@@ -11,6 +11,9 @@ import {
   setBoardProgram,
   type ProgramRow,
 } from "@/lib/actions/program";
+import { saveSidebarOrder } from "@/lib/actions/sidebarOrder";
+import { applyStoredOrder } from "@/lib/sidebarOrder";
+import { SortableList } from "@/components/ui/SortableList";
 
 export type ProgramBoard = { id: string; name: string; programId: string | null };
 
@@ -35,6 +38,14 @@ export function ProgramCard({
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
 
+  // 拖曳排序:先照新的順序顯示,存好之後伺服器那份(props)會是同一個順序。props 換了就以它為準。
+  const [list, setList] = useState(programs);
+  const [seenPrograms, setSeenPrograms] = useState(programs);
+  if (programs !== seenPrograms) {
+    setSeenPrograms(programs);
+    setList(programs);
+  }
+
   const unassigned = boards.filter((b) => !b.programId);
 
   async function run(work: () => Promise<{ error?: string }>, failTitle: string) {
@@ -53,6 +64,11 @@ export function ProgramCard({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleReorder(ids: string[]) {
+    setList(applyStoredOrder(list, ids));
+    if (!(await run(() => saveSidebarOrder("program", ids), "無法儲存順序"))) setList(programs);
   }
 
   async function handleCreate() {
@@ -126,16 +142,26 @@ export function ProgramCard({
         ——上一階段的驗證一延,下一階段的開工日跟著移,要徑也會貫穿整個群組一起算。
         沒有加入群組的看板行為完全不變。
       </p>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        拖曳群組左邊的把手可以調整順序,側邊欄也會跟著變;這是你自己的順序,不影響別人。
+      </p>
 
       <div className="space-y-3">
-        {programs.map((program) => {
+        <SortableList items={list} handle disabled={busy} onReorder={(ids) => void handleReorder(ids)}>
+          {(program, handleProps) => {
           const addable = unassigned;
           return (
-            <div
-              key={program.id}
-              className="rounded-md border border-neutral-200 dark:border-neutral-700 p-3"
-            >
+            <div className="rounded-md border border-neutral-200 dark:border-neutral-700 p-3">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  {...handleProps}
+                  title="拖曳調整順序"
+                  aria-label={`拖曳調整「${program.name}」的順序`}
+                  className="shrink-0 cursor-grab touch-none rounded p-0.5 text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-300"
+                >
+                  <GripVertical size={14} />
+                </button>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-100">
                   {program.name}
                 </span>
@@ -201,7 +227,8 @@ export function ProgramCard({
               )}
             </div>
           );
-        })}
+          }}
+        </SortableList>
 
         {programs.length === 0 && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500">目前沒有專案群組。</p>

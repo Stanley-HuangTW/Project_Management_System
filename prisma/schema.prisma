@@ -80,6 +80,10 @@ model User {
   order        Int      @default(0)
   createdAt    DateTime @default(now())
 
+  /// 這個人自己排的側邊欄順序(看板 id、專案群組 id,由上到下)。沒在清單裡的(例如新建的)接在最後,照建立時間。
+  boardOrder   String[] @default([])
+  programOrder String[] @default([])
+
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   resetToken          String?   @unique

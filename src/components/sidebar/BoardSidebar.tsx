@@ -41,6 +41,9 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { ProfileModal } from "./ProfileModal";
 import { BoardTrashModal } from "./BoardTrashModal";
 import { createBoard, renameBoard, deleteBoard } from "@/lib/actions/board";
+import { saveSidebarOrder } from "@/lib/actions/sidebarOrder";
+import { applyStoredOrder } from "@/lib/sidebarOrder";
+import { SortableList } from "@/components/ui/SortableList";
 import { logout } from "@/lib/actions/auth";
 
 type Board = { id: string; name: string; ownerId: string };
@@ -100,11 +103,38 @@ export function BoardSidebar({
     ...(canManageStructure(userRole) ? (["automation", "templates", "trash"] as const) : []),
   ]);
   const openBoardAdmin = useBoardAdminActions();
-  const { confirm } = useDialogs();
+  const { confirm, notify } = useDialogs();
   const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // 拖曳排序:先照新的順序顯示,存好之後伺服器那份(props)會是同一個順序。props 換了就以它為準。
+  const [boardList, setBoardList] = useState(boards);
+  const [seenBoards, setSeenBoards] = useState(boards);
+  if (boards !== seenBoards) {
+    setSeenBoards(boards);
+    setBoardList(boards);
+  }
+  const [programList, setProgramList] = useState(programs);
+  const [seenPrograms, setSeenPrograms] = useState(programs);
+  if (programs !== seenPrograms) {
+    setSeenPrograms(programs);
+    setProgramList(programs);
+  }
+
+  async function handleReorder(kind: "board" | "program", ids: string[]) {
+    if (kind === "board") setBoardList(applyStoredOrder(boardList, ids));
+    else setProgramList(applyStoredOrder(programList, ids));
+    const result = await saveSidebarOrder(kind, ids).catch(() => ({ error: "無法儲存順序" }));
+    if (result.error) {
+      if (kind === "board") setBoardList(boards);
+      else setProgramList(programs);
+      await notify(result.error, { title: "無法儲存順序" });
+      return;
+    }
+    router.refresh();
+  }
 
   // Below md the sidebar is a drawer over the page rather than a column
   // beside it: on a phone there is no room for both.
@@ -418,10 +448,11 @@ export function BoardSidebar({
             專案群組
           </p>
         )}
-        {programs.map((program) => (
+        <SortableList items={programList} onReorder={(ids) => void handleReorder("program", ids)} disabled={impersonating}>
+          {(program) => (
           <Link
-            key={program.id}
             href={`/programs/${program.id}`}
+            draggable={false}
             className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
               pathname === `/programs/${program.id}`
                 ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
@@ -434,19 +465,20 @@ export function BoardSidebar({
               {program.boardCount}
             </span>
           </Link>
-        ))}
+          )}
+        </SortableList>
         {programs.length > 0 && (
           <p className="px-2 pb-0.5 pt-3 text-[10px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
             看板
           </p>
         )}
-        {boards.map((board) => {
+        <SortableList items={boardList} onReorder={(ids) => void handleReorder("board", ids)} disabled={impersonating}>
+          {(board) => {
           const active = pathname === `/boards/${board.id}`;
           const admin = openBoardAdmin?.boardId === board.id ? openBoardAdmin : null;
           const canManageBoardRow = canManageThisBoard(board);
           return (
             <div
-              key={board.id}
               className={`group flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
                 active
                   ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
@@ -455,6 +487,7 @@ export function BoardSidebar({
             >
               <Link
                 href={`/boards/${board.id}`}
+                draggable={false}
                 className="flex min-w-0 flex-1 items-center gap-2"
               >
                 <LayoutGrid size={14} className="shrink-0" />
@@ -505,7 +538,8 @@ export function BoardSidebar({
               )}
             </div>
           );
-        })}
+          }}
+        </SortableList>
         {boards.length === 0 && (
           <p className="px-2 py-2 text-xs text-neutral-400 dark:text-neutral-500">尚無看板</p>
         )}
