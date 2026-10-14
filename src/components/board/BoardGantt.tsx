@@ -36,6 +36,7 @@ import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
 import { canManageGroupStructure, canManageStructure, canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAccess } from "@/lib/groupRoles";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
+import { toggleRowSelection } from "@/lib/rowSelection";
 import {
   barIndexRange,
   computeRolledUpDateRange,
@@ -322,14 +323,13 @@ export function BoardGantt({
   // 勾選的項目(複製/移動/刪除用)。甘特圖整個換掉資料時,已經不存在的 id 會在
   // liveSelectedIds 被濾掉,不會留下「已選 0 項」的空列。
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const toggleSelected = useCallback((itemId: string, selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (selected) next.add(itemId);
-      else next.delete(itemId);
-      return next;
-    });
-  }, []);
+  // 父項被收成一行時看不到子項,勾它就連整個子樹一起勾(展開著的只勾自己)。
+  const toggleSelected = useCallback(
+    (itemId: string, selected: boolean) => {
+      setSelectedIds((prev) => toggleRowSelection(board.items, prev, itemId, selected, collapsed.has(itemId)));
+    },
+    [board.items, collapsed]
+  );
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
   const liveSelectedIds = useMemo(() => {
     const existing = new Set(board.items.map((i) => i.id));

@@ -24,6 +24,7 @@ import { classifyStatusOption, completedAtOf, type ItemDetailTab, type ItemEvent
 import type { BoardWithData, ColumnData, ItemData, UserOption } from "@/types/board";
 import type { Holiday, UserRole } from "@prisma/client";
 import { canManageStructure } from "@/lib/permissions";
+import { toggleRowSelection } from "@/lib/rowSelection";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
 import { computeAncestorIds } from "@/lib/wbs";
 import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
@@ -181,14 +182,6 @@ export function BoardTable({
   // Rows ticked for a bulk edit. Kept here rather than per group so one
   // selection can span groups, and so the action bar knows the whole set.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const toggleSelected = useCallback((itemId: string, selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (selected) next.add(itemId);
-      else next.delete(itemId);
-      return next;
-    });
-  }, []);
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
   // Starting fully expanded meant every render — including the very first,
   // server-rendered one — walked and rendered every item on the board, no
@@ -197,6 +190,13 @@ export function BoardTable({
   // chain when needed) means a board's initial render cost tracks its
   // top-level item count, not its total item count.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => allParentIds(board.items));
+  // 父項被收成一行時看不到子項,勾它就連整個子樹一起勾(展開著的只勾自己)。
+  const toggleSelected = useCallback(
+    (itemId: string, selected: boolean) => {
+      setSelectedIds((prev) => toggleRowSelection(board.items, prev, itemId, selected, collapsedIds.has(itemId)));
+    },
+    [board.items, collapsedIds]
+  );
   const hasAutoSizedRef = useRef(false);
   const scrollPanesRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
