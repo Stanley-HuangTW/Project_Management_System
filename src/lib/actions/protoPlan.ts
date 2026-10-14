@@ -7,7 +7,7 @@ import type { OrgUnit } from "@/lib/orgUnits";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
-import { canEditBudget } from "@/lib/actions/budget";
+import { canEditBoardBudget } from "@/lib/boardBudgetRights";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
 import { summariseProtoPlan, type ProtoSummary } from "@/lib/protoPlan";
 import { syncProtoUnits } from "@/lib/protoUnitsServer";
@@ -40,15 +40,7 @@ export type ProtoPlanView = {
 async function requireProtoAdmin(boardId: string) {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
-  const first = await prisma.item.findFirst({
-    where: { boardId, parentId: null, deletedAt: null },
-    orderBy: { order: "asc" },
-    select: { id: true },
-  });
-  const allowed = first
-    ? await canEditBudget({ kind: "item", id: first.id }, session)
-    : session.role === "ADMIN";
-  if (!allowed) {
+  if (!(await canEditBoardBudget(boardId, session))) {
     throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機計畫");
   }
   return session;
@@ -58,7 +50,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
-  const [phases, cells, first, units, visible] = await Promise.all([
+  const [phases, cells, units, visible] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -68,11 +60,6 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
       where: { boardId },
       orderBy: { createdAt: "asc" },
       select: { product: true, unit: true, phaseId: true, qty: true, note: true },
-    }),
-    prisma.item.findFirst({
-      where: { boardId, parentId: null, deletedAt: null },
-      orderBy: { order: "asc" },
-      select: { id: true },
     }),
     prisma.protoUnit.findMany({
       where: { boardId },
@@ -117,9 +104,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
     ),
     machines,
     units: await loadOrgUnits(),
-    canEdit: first
-      ? await canEditBudget({ kind: "item", id: first.id }, session)
-      : session.role === "ADMIN",
+    canEdit: await canEditBoardBudget(boardId, session),
   };
 }
 

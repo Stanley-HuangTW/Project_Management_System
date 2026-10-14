@@ -6,7 +6,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { hideBudgetOn } from "@/lib/dmScopeServer";
 import { logAudit } from "@/lib/activityLog";
-import { canEditBudget } from "@/lib/actions/budget";
+import { canEditBoardBudget } from "@/lib/boardBudgetRights";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
 import { syncProtoUnits } from "@/lib/protoUnitsServer";
 import { MAX_PASTED_BOM_ROWS, type PastedBomRow } from "@/lib/bomPaste";
@@ -35,15 +35,7 @@ import {
 async function requireBomAdmin(boardId: string) {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
-  const first = await prisma.item.findFirst({
-    where: { boardId, parentId: null, deletedAt: null },
-    orderBy: { order: "asc" },
-    select: { id: true },
-  });
-  const allowed = first
-    ? await canEditBudget({ kind: "item", id: first.id }, session)
-    : session.role === "ADMIN";
-  if (!allowed) {
+  if (!(await canEditBoardBudget(boardId, session))) {
     throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機 BOM");
   }
   return session;
@@ -71,7 +63,7 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { id: true } });
   if (!board) return null;
 
-  const [phases, protoProducts, bomProducts, ownProducts, first, bomGroups, vendorRows] = await Promise.all([
+  const [phases, protoProducts, bomProducts, ownProducts, bomGroups, vendorRows] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -80,11 +72,6 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
     prisma.protoPlan.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
     prisma.bomLine.findMany({ where: { boardId }, select: { product: true }, distinct: ["product"] }),
     prisma.budgetProduct.findMany({ where: { boardId }, select: { name: true } }),
-    prisma.item.findFirst({
-      where: { boardId, parentId: null, deletedAt: null },
-      orderBy: { order: "asc" },
-      select: { id: true },
-    }),
     prisma.bomLine.groupBy({ by: ["product", "phaseId"], where: { boardId }, _count: { _all: true } }),
     prisma.bomLine.findMany({ where: { boardId, vendor: { not: "" } }, select: { vendor: true }, distinct: ["vendor"], orderBy: { vendor: "asc" }, take: 300 }),
   ]);
@@ -94,9 +81,7 @@ export async function getBomContext(boardId: string): Promise<BomContext | null>
     protoProducts.map((p) => p.product),
     bomProducts.map((p) => p.product)
   );
-  const canEdit = first
-    ? await canEditBudget({ kind: "item", id: first.id }, session)
-    : session.role === "ADMIN";
+  const canEdit = await canEditBoardBudget(boardId, session);
   return {
     phases,
     products,
@@ -313,12 +298,6 @@ export async function getBomView(
   const summary = summariseBom(input);
   const plan = await prisma.protoPlan.aggregate({ where: { boardId, product, phaseId }, _sum: { qty: true } });
 
-  const first = await prisma.item.findFirst({
-    where: { boardId, parentId: null, deletedAt: null },
-    orderBy: { order: "asc" },
-    select: { id: true },
-  });
-
   return {
     boardName: board.name,
     phases: ctx.phases,
@@ -331,9 +310,7 @@ export async function getBomView(
     lineCount: summary.lineCount,
     foreignCurrencies: summary.foreignCurrencies,
     orphanIds: summary.orphanIds,
-    canEdit: first
-      ? await canEditBudget({ kind: "item", id: first.id }, session)
-      : session.role === "ADMIN",
+    canEdit: await canEditBoardBudget(boardId, session),
   };
 }
 
