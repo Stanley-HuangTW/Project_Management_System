@@ -768,6 +768,60 @@ export async function previewScheduleCascade(
 }
 
 /**
+ * What would happen to the schedule if this item's Pred cell were set to
+ * newValue: the item's own dates, and every item the cascade then moves. Runs
+ * the real recompute (per-edge relationship and lag, constraints, the whole
+ * Pred network) against an in-memory copy of the item — dry run, nothing is
+ * written, so it can run while the user is still deciding.
+ *
+ * previewScheduleChange reads only the item's Link/Lag columns and so cannot
+ * see a relationship that lives inside the Pred value itself; this can.
+ */
+export async function previewPredChange(
+  boardId: string,
+  itemId: string,
+  predColumnId: string,
+  newValue: string | null
+): Promise<{ before: DateRange | null; after: DateRange | null; cascaded: CascadedItem[] } | null> {
+  const ctx = await buildScheduleContext(boardId, true);
+  if (!ctx) return null;
+  const item = ctx.itemsById.get(itemId);
+  if (!item) return null;
+
+  const before = new Map<string, DateRange>();
+  for (const candidate of ctx.items) {
+    const current = ctx.readRange(candidate.id);
+    if (current) before.set(candidate.id, current);
+  }
+
+  const edited = item.cellValues.find((cv) => cv.columnId === predColumnId);
+  item.cellValues = [
+    ...item.cellValues.filter((cv) => cv.columnId !== predColumnId),
+    { id: edited?.id ?? "preview", itemId, columnId: predColumnId, value: newValue },
+  ];
+  await ctx.recompute(itemId, new Set());
+
+  const own = ctx.overrides.get(itemId) ?? null;
+  const cascaded: CascadedItem[] = [];
+  for (const [id, next] of ctx.overrides) {
+    if (id === itemId) continue;
+    const previous = before.get(id);
+    if (previous && isoDay(previous.start) === isoDay(next.start) && isoDay(previous.end) === isoDay(next.end)) continue;
+    cascaded.push({
+      itemId: id,
+      name: ctx.itemsById.get(id)?.name ?? "",
+      wbsCode: ctx.wbsByItemId.get(id) ?? "",
+      oldStart: previous ? isoDay(previous.start) : "-",
+      oldEnd: previous ? isoDay(previous.end) : "-",
+      newStart: isoDay(next.start),
+      newEnd: isoDay(next.end),
+    });
+  }
+  cascaded.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+  return { before: before.get(itemId) ?? null, after: own, cascaded };
+}
+
+/**
  * Keeps a board's Pred/Link-driven items scheduled: editing Pred, Link, Lag,
  * or Days on an item recomputes its own Start/Finish from its predecessor;
  * editing Start/Finish (manually, or as a result of this same recompute)

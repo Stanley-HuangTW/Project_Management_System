@@ -27,6 +27,7 @@ import {
   Trash2,
   Zap,
   Share2,
+  Link2,
   Maximize2,
   Minimize2,
 } from "lucide-react";
@@ -59,9 +60,32 @@ import { buildDependencyArrows, type BarBox } from "@/lib/ganttArrows";
 import type { RelationshipType } from "@/lib/predecessorLink";
 
 const RELATIONSHIP_LABELS = ["FS", "FF", "SS", "SF"];
+
+/** 拖曳建立連結:起點在哪一條長條的哪一端,指標現在在哪、底下是哪一條(error 是這條連不得的原因)。 */
+type LinkHover = { id: string; edge: LinkEdge; error: string | null };
+type LinkDragState = { fromId: string; fromEdge: LinkEdge; x: number; y: number; hover: LinkHover | null };
+/** 點開箭頭的小卡:這條連結目前的關係與延遲,left/top 是小卡在畫面上的位置。 */
+type ArrowMenuState = {
+  predId: string;
+  succId: string;
+  relationship: RelationshipType;
+  lag: string;
+  left: number;
+  top: number;
+};
 import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
+import { previewGanttLink, setGanttLink } from "@/lib/actions/ganttLink";
+import {
+  lagToKeepDates,
+  relationshipForEdges,
+  validateNewLink,
+  withoutPredEntry,
+  withPredEntry,
+  RELATIONSHIP_NAMES,
+  type LinkEdge,
+} from "@/lib/ganttLink";
 import type { CascadedItem } from "@/lib/predecessorLink";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
@@ -79,10 +103,10 @@ import { LevelButtons } from "./LevelButtons";
 import { BulkStructureBar } from "./BulkStructureActions";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { classifyDropZone, indentTarget, outdentTarget, previewDrop, type DragOverState } from "@/lib/dragReorder";
-import type { UndoResult } from "@/lib/editHistory";
 import { DropIndicator } from "./DropIndicator";
 import { UndoRedoButtons } from "./UndoRedoButtons";
 import { useEditHistory } from "./EditHistoryProvider";
+import type { UndoResult } from "@/lib/editHistory";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useDeleteItem } from "./useDeleteItem";
 import { subordinateIds } from "@/lib/orgChart";
@@ -210,7 +234,7 @@ export function BoardGantt({
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestDelete = useDeleteItem();
-  const { notify } = useDialogs();
+  const { notify, confirm, choose } = useDialogs();
   const [assignmentItem, setAssignmentItem] = useState<ItemData | null>(null);
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<"updates" | "card">("updates");
@@ -871,6 +895,270 @@ export function BoardGantt({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArrows, board.items, predColumnId, linkColumnId, linkOptions, arrowWbsIndex, itemById, externalById, wbsCodes, scheduleFloats, barBoxes]);
 
+  // ── 在甘特圖上建立 / 編輯前置連結:拖曳長條兩端的圓點、「建立連結」模式(點兩下)、點箭頭 ──
+  // 改的是「後續任務」那一格 Pred;權限與伺服器端一樣(管理者、主管)。
+  const canLink = canManageStructure(userRole) && !!predColumnId;
+  const history = useEditHistory();
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkSourceId, setLinkSourceId] = useState<string | null>(null);
+  const [linkDrag, setLinkDrag] = useState<LinkDragState | null>(null);
+  const [arrowMenu, setArrowMenu] = useState<ArrowMenuState | null>(null);
+  // 拖曳途中掛在 window 的監聽器、以及「上一步」還原,都要讀最新的資料,不能讀登記當下的舊 closure。
+  const linkCtx = useRef({ barBoxes, items: board.items, predColumnId, index: arrowWbsIndex, scalePct });
+  useEffect(() => {
+    linkCtx.current = { barBoxes, items: board.items, predColumnId, index: arrowWbsIndex, scalePct };
+  });
+
+  /** 畫面座標 → 長條所在的座標系(扣掉容器位置與顯示比例),跟 measureBars 同一套。 */
+  function chartPoint(clientX: number, clientY: number) {
+    const origin = contentRef.current?.getBoundingClientRect();
+    const zoomFactor = linkCtx.current.scalePct / 100;
+    return origin ? { x: (clientX - origin.left) / zoomFactor, y: (clientY - origin.top) / zoomFactor } : { x: 0, y: 0 };
+  }
+
+  /** 指標底下是哪一條長條、靠哪一端(左半 = 開始端,右半 = 完成端)。長條兩側各多算 14px,圓點也點得到。 */
+  function hitBar(x: number, y: number): { id: string; edge: LinkEdge } | null {
+    for (const [id, box] of linkCtx.current.barBoxes) {
+      if (Math.abs(y - box.centerY) > 14) continue;
+      if (x < box.left - 14 || x > box.right + 14) continue;
+      return { id, edge: x < (box.left + box.right) / 2 ? "start" : "end" };
+    }
+    return null;
+  }
+
+  function linkProblem(predId: string, succId: string): string | null {
+    const ctx = linkCtx.current;
+    return ctx.predColumnId ? validateNewLink(ctx.items, ctx.predColumnId, predId, succId, ctx.index) : "這個看板沒有 Pred 欄位";
+  }
+
+  function predRawOf(item: { cellValues: { columnId: string; value: unknown }[] }): string | null {
+    const value = predColumnId ? item.cellValues.find((cv) => cv.columnId === predColumnId)?.value : null;
+    return typeof value === "string" && value.trim() ? value : null;
+  }
+
+  /** 「上一步 / 下一步」:把後續任務的 Pred 在 expected 與 target 之間換。換之前先確認它還是當初改完的值。 */
+  async function restorePred(succId: string, expected: string | null, target: string | null): Promise<UndoResult> {
+    const succ = linkCtx.current.items.find((i) => i.id === succId);
+    if (!succ) return { ok: false, reason: "找不到這個項目(可能已被刪除)。" };
+    if (predRawOf(succ) !== expected) {
+      return { ok: false, reason: "這個項目的前置依賴已經被改過(可能是其他人或其他分頁),為了不蓋掉新的修改,沒有執行。" };
+    }
+    const result = await setGanttLink(succId, target);
+    return result.error ? { ok: false, reason: result.error } : { ok: true };
+  }
+
+  /**
+   * 改後續任務的 Pred:先請伺服器算「存下去會怎樣」,有日期會動就講清楚、讓使用者確認,才寫入。
+   * 預設緊接著前置重算日期;建立連結時另外提供「保持目前日期」(補一個剛好讓它不動的延遲)。
+   * 成功之後登記到「上一步 / 下一步」。
+   */
+  async function applyPredChange(
+    succ: ItemData,
+    next: string | null,
+    opts: {
+      title: string;
+      headline: string;
+      historyLabel: string;
+      keep?: { predId: string; relationship: RelationshipType };
+      /** 就算日期都不會動也先確認一次(刪除連結用)。 */
+      confirmAlways?: boolean;
+    }
+  ) {
+    const before = predRawOf(succ);
+    let preview: Awaited<ReturnType<typeof previewGanttLink>> | null = null;
+    try {
+      preview = await previewGanttLink(succ.id, next);
+    } catch {
+      preview = null; // 預覽失敗不擋操作,只是確認視窗少了日期的說明
+    }
+    if (preview?.error) {
+      await notify(preview.error, { title: opts.title });
+      return;
+    }
+    // 「現在」的日期以畫面上這條長條為準(跟使用者看到的一致),沒有才用伺服器讀到的。
+    const shown = ranges.get(succ.id);
+    const beforeDates = shown ? { start: toIsoDate(shown.start), end: toIsoDate(shown.end) } : (preview?.before ?? null);
+    const own =
+      beforeDates && preview?.after && (beforeDates.start !== preview.after.start || beforeDates.end !== preview.after.end)
+        ? { before: beforeDates, after: preview.after }
+        : null;
+    let value = next;
+    if (own || (preview?.cascade.length ?? 0) > 0 || opts.confirmAlways) {
+      const lines = [opts.headline, ""];
+      if (!own && (preview?.cascade.length ?? 0) === 0) lines.push("日期都不會有變動。");
+      if (own) lines.push(`「${succ.name}」的日期會從 ${own.before.start}~${own.before.end} 改為 ${own.after.start}~${own.after.end}`);
+      lines.push(...describeCascade(preview?.cascade ?? []));
+      const predRange = opts.keep ? ranges.get(opts.keep.predId) : undefined;
+      const succRange = ranges.get(succ.id);
+      const keepLag =
+        opts.keep && own && predRange && succRange
+          ? lagToKeepDates(predRange, succRange, opts.keep.relationship, durationMode, holidaySet)
+          : null;
+      if (opts.keep && keepLag !== null) {
+        const picked = await choose([...lines, "", "後續任務的日期要怎麼處理?"].join("\n"), {
+          title: opts.title,
+          choices: [
+            { key: "apply", label: "緊接前置,重算日期" },
+            { key: "keep", label: `保持目前日期(延遲 ${keepLag} 天)` },
+          ],
+        });
+        if (!picked) return;
+        if (picked === "keep") {
+          value = withPredEntry(arrowWbsIndex, succ.groupId, before, {
+            itemId: opts.keep.predId,
+            relationship: opts.keep.relationship,
+            lag: keepLag || null,
+          });
+        }
+      } else if (!(await confirm([...lines, "", "確定要套用嗎?"].join("\n"), { title: opts.title }))) {
+        return;
+      }
+    }
+    const result = await setGanttLink(succ.id, value);
+    if (result.error) {
+      await notify(result.error, { title: opts.title });
+      return;
+    }
+    const applied = value;
+    history?.record({
+      label: opts.historyLabel,
+      undo: () => restorePred(succ.id, applied, before),
+      redo: () => restorePred(succ.id, before, applied),
+    });
+  }
+
+  /** 建立一條連結:predEdge/succEdge 是拖曳起點與終點落在長條的哪一端,決定是哪一種關係。 */
+  async function requestLink(predId: string, predEdge: LinkEdge, succId: string, succEdge: LinkEdge) {
+    const pred = itemById.get(predId);
+    const succ = itemById.get(succId);
+    if (!pred || !succ) return;
+    const relationship = relationshipForEdges(predEdge, succEdge);
+    const next = withPredEntry(arrowWbsIndex, succ.groupId, predRawOf(succ), { itemId: predId, relationship, lag: null });
+    await applyPredChange(succ, next, {
+      title: "建立前置連結",
+      headline: `把「${pred.name}」設為「${succ.name}」的前置(${RELATIONSHIP_NAMES[relationship]})。`,
+      historyLabel: `建立連結:${pred.name} → ${succ.name}`,
+      keep: { predId, relationship },
+    });
+  }
+
+  /** 從長條兩端的圓點開始拖:畫一條跟著指標走的線,放開時落在哪一條長條就連到哪一條。 */
+  function startLinkDrag(fromId: string, fromEdge: LinkEdge, e: React.PointerEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    setArrowMenu(null);
+    const start = chartPoint(e.clientX, e.clientY);
+    setLinkDrag({ fromId, fromEdge, x: start.x, y: start.y, hover: null });
+    let lastHoverId: string | null = null;
+    let lastProblem: string | null = null;
+    const onMove = (ev: PointerEvent) => {
+      const p = chartPoint(ev.clientX, ev.clientY);
+      const hit = hitBar(p.x, p.y);
+      const target = hit && hit.id !== fromId ? hit : null;
+      if (target && target.id !== lastHoverId) lastProblem = linkProblem(fromId, target.id);
+      lastHoverId = target?.id ?? null;
+      setLinkDrag((prev) => (prev ? { ...prev, x: p.x, y: p.y, hover: target ? { ...target, error: lastProblem } : null } : prev));
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      const p = chartPoint(ev.clientX, ev.clientY);
+      const hit = hitBar(p.x, p.y);
+      setLinkDrag(null);
+      if (!hit || hit.id === fromId) return;
+      const problem = linkProblem(fromId, hit.id);
+      if (problem) {
+        void notify(problem, { title: "無法建立連結" });
+        return;
+      }
+      void requestLink(fromId, fromEdge, hit.id, hit.edge);
+    };
+    // 捕獲階段:長條自己的 onPointerUp 會 stopPropagation,放開時指標剛好落在目標長條上,冒泡的監聽器就收不到了。
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+  }
+
+  /** 「建立連結」模式:先點前置任務、再點後續任務(完成到開始,要別的關係點箭頭改)。 */
+  function pickForLink(itemId: string) {
+    if (!linkSourceId) {
+      setLinkSourceId(itemId);
+      return;
+    }
+    if (linkSourceId === itemId) {
+      setLinkSourceId(null);
+      return;
+    }
+    const from = linkSourceId;
+    setLinkSourceId(null);
+    const problem = linkProblem(from, itemId);
+    if (problem) {
+      void notify(problem, { title: "無法建立連結" });
+      return;
+    }
+    void requestLink(from, "end", itemId, "start");
+  }
+
+  function openArrowMenu(key: string, e: React.MouseEvent) {
+    if (!canLink) return;
+    const [predId, succId] = key.split("->");
+    const succ = itemById.get(succId);
+    if (!succ || !itemById.has(predId)) return;
+    const entry = parsePredEntries(arrowWbsIndex, succ.groupId, predRawOf(succ)).find((x) => x.itemId === predId);
+    if (!entry) return;
+    setArrowMenu({
+      predId,
+      succId,
+      relationship: entry.relationship ?? linkRelationship(succ) ?? "FS",
+      lag: entry.lag ? String(entry.lag) : "",
+      left: Math.max(8, Math.min(e.clientX, window.innerWidth - 300)),
+      top: Math.max(8, Math.min(e.clientY + 10, window.innerHeight - 230)),
+    });
+  }
+
+  async function saveArrowMenu(menu: ArrowMenuState, relationship: RelationshipType, lagText: string) {
+    const lag = lagText.trim() === "" ? null : Number(lagText);
+    if (lag !== null && !Number.isInteger(lag)) {
+      await notify("延遲天數請輸入整數(負數代表提前)。", { title: "修改前置連結" });
+      return;
+    }
+    const pred = itemById.get(menu.predId);
+    const succ = itemById.get(menu.succId);
+    if (!pred || !succ) return;
+    setArrowMenu(null);
+    const next = withPredEntry(arrowWbsIndex, succ.groupId, predRawOf(succ), { itemId: menu.predId, relationship, lag: lag || null });
+    await applyPredChange(succ, next, {
+      title: "修改前置連結",
+      headline: `修改「${pred.name}」→「${succ.name}」:${RELATIONSHIP_NAMES[relationship]}${lag ? `,延遲 ${lag} 天` : ""}。`,
+      historyLabel: `修改連結:${pred.name} → ${succ.name}`,
+    });
+  }
+
+  async function deleteArrowLink(menu: ArrowMenuState) {
+    const pred = itemById.get(menu.predId);
+    const succ = itemById.get(menu.succId);
+    if (!pred || !succ) return;
+    setArrowMenu(null);
+    await applyPredChange(succ, withoutPredEntry(arrowWbsIndex, succ.groupId, predRawOf(succ), menu.predId), {
+      title: "刪除前置連結",
+      headline: `刪除「${pred.name}」→「${succ.name}」的前置連結。`,
+      historyLabel: `刪除連結:${pred.name} → ${succ.name}`,
+      confirmAlways: true,
+    });
+  }
+
+  // Esc:先取消已選的前置,再結束連結模式,同時關掉箭頭的小卡。
+  useEffect(() => {
+    if (!linkMode && !arrowMenu) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setArrowMenu(null);
+      if (linkSourceId) setLinkSourceId(null);
+      else setLinkMode(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [linkMode, arrowMenu, linkSourceId]);
+
   const itemsByParent = new Map<string | null, ItemData[]>();
   for (const item of board.items) {
     if (visibleIds !== null && !visibleIds.has(item.id)) continue;
@@ -1175,6 +1463,11 @@ export function BoardGantt({
                 highlightCritical={showCriticalPath}
                 canEdit={canEditItemSchedule(item)}
                 onClick={canEditItem(item) ? () => setAssignmentItem(item) : undefined}
+                canLink={canLink}
+                linkActive={linkMode || !!linkDrag}
+                isLinkSource={linkSourceId === item.id}
+                linkPick={linkMode ? () => pickForLink(item.id) : undefined}
+                onLinkDragStart={(edge, e) => startLinkDrag(item.id, edge, e)}
               />
             )}
           </div>
@@ -1250,6 +1543,31 @@ export function BoardGantt({
         >
           <Share2 size={13} /> 相依箭頭
         </button>
+        {canLink && (
+          <button
+            type="button"
+            onClick={() => {
+              setLinkMode((on) => !on);
+              setLinkSourceId(null);
+              setArrowMenu(null);
+            }}
+            title="建立連結:先點前置任務、再點後續任務。也可以直接拖曳長條兩端的圓點(拖到對方的左端或右端,決定是哪一種關係)"
+            className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+              linkMode
+                ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <Link2 size={13} /> 建立連結
+          </button>
+        )}
+        {linkMode && (
+          <span className="text-xs text-blue-700 dark:text-blue-300">
+            {linkSourceId
+              ? `前置:「${itemById.get(linkSourceId)?.name ?? ""}」——請點後續任務(Esc 取消)`
+              : "請點前置任務(Esc 結束)"}
+          </span>
+        )}
         <div className="ml-2 flex items-center gap-2">
           <span className="text-neutral-500 dark:text-neutral-400">專案(分組)</span>
           <select
@@ -1364,12 +1682,12 @@ export function BoardGantt({
           >
           <div style={{ zoom: scalePct / 100 }}>
           <div ref={contentRef} className="relative" style={{ minWidth: labelWidth + days.length * dayWidth }}>
-            {showArrows && dependencyArrows.length > 0 && (
+            {((showArrows && dependencyArrows.length > 0) || linkDrag) && (
               <svg
                 className="pointer-events-none absolute inset-0 z-[6] h-full w-full overflow-visible"
                 aria-hidden
               >
-                {dependencyArrows.map((arrow) => (
+                {showArrows && dependencyArrows.map((arrow) => (
                   <g
                     key={arrow.key}
                     className={
@@ -1388,8 +1706,24 @@ export function BoardGantt({
                       strokeDasharray={arrow.crossBoard ? "4 3" : undefined}
                     />
                     <path d={arrow.head} strokeWidth={0} />
+                    {/* 點箭頭改關係、延遲或刪除。比看得見的線寬一點,才點得到。跨看板那條在項目卡片裡改。 */}
+                    {canLink && !arrow.crossBoard && (
+                      <path
+                        d={arrow.path}
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth={9}
+                        className="pointer-events-auto cursor-pointer"
+                        // 不讓外層的「拖拉平移」接手:它會把指標抓走,後面的 click 就落在容器上,到不了這條線。
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => openArrowMenu(arrow.key, e)}
+                      >
+                        <title>{`${arrow.title}\n點一下可以修改或刪除這條連結`}</title>
+                      </path>
+                    )}
                   </g>
                 ))}
+                {linkDrag && <LinkRubberBand drag={linkDrag} boxes={barBoxes} />}
               </svg>
             )}
             {todayIndex >= 0 && (
@@ -1563,6 +1897,19 @@ export function BoardGantt({
           </div>
           </div>
         </div>
+      )}
+
+      {arrowMenu && (
+        <LinkMenu
+          // 換一條連結就重來,小卡裡的欄位才會是那一條的值。
+          key={`${arrowMenu.predId}->${arrowMenu.succId}`}
+          menu={arrowMenu}
+          predName={itemById.get(arrowMenu.predId)?.name ?? ""}
+          succName={itemById.get(arrowMenu.succId)?.name ?? ""}
+          onSave={(relationship, lag) => void saveArrowMenu(arrowMenu, relationship, lag)}
+          onDelete={() => void deleteArrowLink(arrowMenu)}
+          onClose={() => setArrowMenu(null)}
+        />
       )}
 
       <AssignmentModal
@@ -1773,6 +2120,11 @@ function GanttBar({
   highlightCritical = false,
   canEdit,
   onClick,
+  canLink = false,
+  linkActive = false,
+  isLinkSource = false,
+  linkPick,
+  onLinkDragStart,
 }: {
   boardId: string;
   item: ItemData;
@@ -1799,6 +2151,15 @@ function GanttBar({
   highlightCritical?: boolean;
   canEdit: boolean;
   onClick?: () => void;
+  /** 長條兩端的連結圓點(拖到別的長條上建立前置連結)。 */
+  canLink?: boolean;
+  /** 正在拖曳連結或在「建立連結」模式:圓點一直顯示,不用滑過去才出現。 */
+  linkActive?: boolean;
+  /** 「建立連結」模式下已經選為前置的那一條。 */
+  isLinkSource?: boolean;
+  /** 「建立連結」模式:點這條長條就是挑它(不開卡片、不拖移)。 */
+  linkPick?: () => void;
+  onLinkDragStart?: (edge: "start" | "end", e: React.PointerEvent) => void;
 }) {
   const { startIndex, endIndex } = barIndexRange(days, range, dayIndexByIso);
   // While dragging, offsetPx tracks the pointer continuously (in raw pixels,
@@ -1920,6 +2281,11 @@ function GanttBar({
     // move itself is blocked) so a real drag attempt is distinguishable
     // from a plain click at pointerup — see handleDragUp.
     e.stopPropagation();
+    if (linkPick) {
+      // 「建立連結」模式:這一下是挑前置 / 後續,不是拖移也不是開卡片。
+      linkPick();
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({ edge: "move", originStartIndex: startIndex, originEndIndex: endIndex, originX: e.clientX, offsetPx: 0 });
   }
@@ -2004,7 +2370,9 @@ function GanttBar({
   return (
     <div
       data-gantt-bar=""
-      className="absolute top-1/2 -translate-y-1/2"
+      // z-[7]:比相依箭頭那一層(z-[6])高。長條有 transform 自成一層,裡面的連結圓點再高也越不過去,
+      // 箭頭的點擊範圍會蓋住圓點,拖不起來。
+      className="group absolute top-1/2 z-[7] -translate-y-1/2"
       style={{ left, width, height: 20 }}
     >
       <div
@@ -2028,9 +2396,9 @@ function GanttBar({
         }}
         className={`absolute inset-0 flex rounded ${isMilestone ? "overflow-visible" : "overflow-hidden"} ${
           isCritical ? "ring-4 ring-amber-400" : ""
-        }`}
+        } ${isLinkSource ? "ring-2 ring-blue-500" : ""}`}
         style={{
-          cursor: drag?.edge === "move" ? "grabbing" : canMove ? "grab" : onClick ? "pointer" : "not-allowed",
+          cursor: linkPick ? "crosshair" : drag?.edge === "move" ? "grabbing" : canMove ? "grab" : onClick ? "pointer" : "not-allowed",
           touchAction: "none",
         }}
         title={[
@@ -2088,6 +2456,26 @@ function GanttBar({
         style={{ touchAction: "none" }}
         title={canResizeEnd ? "拖曳調整結束日期" : (blockedReason("end") ?? undefined)}
       />
+      {canLink && onLinkDragStart && (
+        <>
+          {(["start", "end"] as const).map((edge) => (
+            <div
+              key={edge}
+              data-link-dot={edge}
+              onPointerDown={(e) => onLinkDragStart(edge, e)}
+              className={`absolute top-1/2 z-20 h-3 w-3 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-blue-500 bg-white shadow transition-opacity dark:bg-neutral-900 ${
+                linkActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+              }`}
+              style={{ [edge === "start" ? "left" : "right"]: -16, touchAction: "none" }}
+              title={
+                edge === "start"
+                  ? "從開始端拖出:拖到後續任務的左端=開始到開始(SS)、右端=開始到完成(SF)"
+                  : "從完成端拖出:拖到後續任務的左端=完成到開始(FS)、右端=完成到完成(FF)"
+              }
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -2128,6 +2516,117 @@ function BaselineBar({
         variance ? `(${item.baselineDays ?? "-"} 天)` : ""
       }`}
     />
+  );
+}
+
+/** 拖曳建立連結時,跟著指標走的那條線,以及指標底下那一端的圓點(藍色 = 可以連,紅色 = 連不得)。 */
+function LinkRubberBand({ drag, boxes }: { drag: LinkDragState; boxes: Map<string, BarBox> }) {
+  const from = boxes.get(drag.fromId);
+  if (!from) return null;
+  const x0 = drag.fromEdge === "start" ? from.left : from.right;
+  const target = drag.hover ? boxes.get(drag.hover.id) : undefined;
+  const invalid = !!drag.hover?.error;
+  const color = invalid ? "#ef4444" : "#3b82f6";
+  const tx = target && drag.hover ? (drag.hover.edge === "start" ? target.left : target.right) : null;
+  return (
+    <g stroke={color} fill={color}>
+      <line x1={x0} y1={from.centerY} x2={tx ?? drag.x} y2={target ? target.centerY : drag.y} strokeWidth={2} strokeDasharray="5 4" />
+      <circle cx={x0} cy={from.centerY} r={5} stroke="none" />
+      {tx !== null && target ? (
+        <g>
+          <circle cx={tx} cy={target.centerY} r={6} fill="none" strokeWidth={2.5} />
+          {invalid && (
+            <text x={tx + 10} y={target.centerY - 8} stroke="none" fontSize={11}>
+              ✕ {drag.hover?.error}
+            </text>
+          )}
+        </g>
+      ) : (
+        <circle cx={drag.x} cy={drag.y} r={4} stroke="none" />
+      )}
+    </g>
+  );
+}
+
+/** 點箭頭跳出來的小卡:改這條連結的關係、延遲,或刪掉它。 */
+function LinkMenu({
+  menu,
+  predName,
+  succName,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  menu: ArrowMenuState;
+  predName: string;
+  succName: string;
+  onSave: (relationship: RelationshipType, lag: string) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const [relationship, setRelationship] = useState<RelationshipType>(menu.relationship);
+  const [lag, setLag] = useState(menu.lag);
+  const fieldClass =
+    "w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
+  return (
+    <>
+      <div className="fixed inset-0 z-[55]" onClick={onClose} />
+      <div
+        data-link-menu=""
+        className="fixed z-[56] w-72 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3 text-xs shadow-lg"
+        style={{ left: menu.left, top: menu.top }}
+      >
+        <p className="mb-2 break-words font-medium text-neutral-800 dark:text-neutral-100">
+          「{predName}」→「{succName}」
+        </p>
+        <label className="mb-2 block text-neutral-500 dark:text-neutral-400">
+          關係
+          <select
+            value={relationship}
+            onChange={(e) => setRelationship(e.target.value as RelationshipType)}
+            className={`${fieldClass} mt-1`}
+          >
+            {(["FS", "SS", "FF", "SF"] as const).map((r) => (
+              <option key={r} value={r}>
+                {RELATIONSHIP_NAMES[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mb-3 block text-neutral-500 dark:text-neutral-400">
+          延遲天數(負數 = 提前)
+          <input
+            type="number"
+            step={1}
+            value={lag}
+            placeholder="0"
+            onChange={(e) => setLag(e.target.value)}
+            className={`${fieldClass} mt-1`}
+          />
+        </label>
+        <div className="flex items-center justify-between gap-2">
+          <button type="button" onClick={onDelete} className="rounded px-2 py-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950">
+            刪除連結
+          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(relationship, lag)}
+              className="rounded-md bg-blue-600 px-2.5 py-1 font-medium text-white hover:bg-blue-700"
+            >
+              套用
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
