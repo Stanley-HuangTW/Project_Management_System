@@ -59,6 +59,14 @@ export function PredPicker({
   // Boards written before ids (and every spreadsheet import) store WBS codes
   // here; match those against the item they currently resolve to rather than
   // dropping them from the display.
+  /** null = 還沒去拿過。拿過一次就留著,重開選單不必再等。 */
+  const [fetched, setFetched] = useState<PredOption[] | null>(null);
+  // 本看板的選項,加上勾了跨看板之後自己拿來的:挑選、解析已存的前置都要認得它們——
+  // 只認 options 的話,項目卡片裡(沒有預先帶跨看板選項)點跨看板的項目會完全沒反應。
+  const allOptions = useMemo(
+    () => (fetched ? [...options, ...fetched.filter((f) => !options.some((o) => o.id === f.id))] : options),
+    [options, fetched]
+  );
   const selected = useMemo(() => {
     const parts = (value ?? "")
       .split(",")
@@ -67,13 +75,13 @@ export function PredPicker({
     const resolved: SelectedPred[] = [];
     for (const part of parts) {
       const { ref, relationship, lag } = splitPredEntry(part);
-      const match = options.find((o) => o.id === ref) ?? options.find((o) => o.code === ref);
+      const match = allOptions.find((o) => o.id === ref) ?? allOptions.find((o) => o.code === ref);
       if (match && !resolved.some((r) => r.id === match.id)) {
         resolved.push({ ...match, relationship, lag });
       }
     }
     return resolved;
-  }, [value, options]);
+  }, [value, allOptions]);
 
   // A group runs to a couple of hundred items, far too many to find anything
   // in by scrolling — so the list filters as you type, on the code and the
@@ -90,8 +98,6 @@ export function PredPicker({
   const [crossBoard, setCrossBoard] = useState(false);
   const [boardFilter, setBoardFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState("");
-  /** null = 還沒去拿過。拿過一次就留著,重開選單不必再等。 */
-  const [fetched, setFetched] = useState<PredOption[] | null>(null);
   const [loadingCross, setLoadingCross] = useState(false);
 
   const crossOptions = useMemo(
@@ -211,7 +217,7 @@ export function PredPicker({
       commit(selected.filter((s) => s.id !== id));
       return;
     }
-    const option = options.find((o) => o.id === id);
+    const option = allOptions.find((o) => o.id === id);
     if (option) commit([...selected, { ...option, relationship: null, lag: null }]);
   }
 
@@ -307,7 +313,8 @@ export function PredPicker({
         <Popover.Content
           align="start"
           sideOffset={4}
-          className="z-50 flex max-h-72 w-72 flex-col overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-md"
+          collisionPadding={8}
+          className="z-50 flex max-h-80 w-[34rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-md"
         >
           <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-100 dark:border-neutral-700 px-2 py-1.5">
             <Search size={13} className="shrink-0 text-neutral-400" />
@@ -384,7 +391,7 @@ export function PredPicker({
             >
               {selected.map((s) => (
                 <div key={s.id} className="flex items-center gap-1 px-1 py-1 text-xs">
-                  <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-100" title={`${s.code} ${s.name}`}>
+                  <span className="min-w-0 flex-1 break-words text-neutral-700 dark:text-neutral-100" title={`${s.code} ${s.name}`}>
                     {s.code} {s.name}
                   </span>
                   {/* Per edge, because one task can wait for the sample to
@@ -473,7 +480,7 @@ export function PredPicker({
                   onClick={() => toggle(o.id)}
                   className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
-                  <span className="min-w-0 flex-1 truncate">
+                  <span className="min-w-0 flex-1 break-words">
                     {/* 跨看板模式下,看板與分組已經在上面挑過了,再重複一次
                         會把真正要看的名稱擠掉 —— 但沒挑分組的時候就得標,
                         否則兩個分組的「1 POC Phase」分不出誰是誰。 */}

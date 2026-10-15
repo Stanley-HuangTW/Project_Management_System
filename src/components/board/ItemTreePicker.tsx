@@ -124,7 +124,8 @@ export function ItemTreePicker({
         <Popover.Content
           align="start"
           sideOffset={4}
-          className="z-50 flex max-h-80 w-80 flex-col overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-md"
+          collisionPadding={8}
+          className="z-50 flex max-h-80 w-[34rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-md"
         >
           <div className="flex shrink-0 items-center gap-1.5 border-b border-neutral-100 dark:border-neutral-700 px-2 py-1.5">
             <Search size={13} className="shrink-0 text-neutral-400" />
@@ -189,7 +190,7 @@ export function ItemTreePicker({
                     item.id === value ? "text-blue-600" : "text-neutral-700 dark:text-neutral-100"
                   }`}
                 >
-                  <span className="min-w-0 flex-1 truncate">
+                  <span className="min-w-0 flex-1 break-words">
                     <span className="mr-1 text-neutral-400 dark:text-neutral-500">
                       {wbsByItemId.get(item.id) ?? ""}
                     </span>
