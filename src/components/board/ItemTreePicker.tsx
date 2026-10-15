@@ -5,6 +5,9 @@ import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronDown, ChevronRight, Search } from "lucide-react";
 import type { ItemData } from "@/types/board";
 
+/** 選項目只需要這三個欄位——別的看板的項目樹(只有這幾個欄位)也能放進來。 */
+type PickerItem = Pick<ItemData, "id" | "name" | "parentId">;
+
 /**
  * Picks one work item from a collapsible WBS tree instead of a flat
  * `<select>` — a board's few hundred items in one long list give no sense of
@@ -20,7 +23,7 @@ export function ItemTreePicker({
   disabled = false,
   className,
 }: {
-  items: ItemData[];
+  items: PickerItem[];
   wbsByItemId: Map<string, string>;
   /** "" means nothing picked. */
   value: string;
@@ -44,7 +47,7 @@ export function ItemTreePicker({
   }, [items, wbsByItemId, query]);
 
   const childrenOf = useMemo(() => {
-    const map = new Map<string, ItemData[]>();
+    const map = new Map<string, PickerItem[]>();
     for (const item of items) {
       const key = item.parentId ?? "";
       const list = map.get(key);
@@ -59,8 +62,8 @@ export function ItemTreePicker({
   const roots = useMemo(() => items.filter((i) => !i.parentId || !ids.has(i.parentId)), [items, ids]);
 
   const rows = useMemo(() => {
-    const out: { item: ItemData; depth: number; hasChildren: boolean }[] = [];
-    const walk = (nodes: ItemData[], depth: number) => {
+    const out: { item: PickerItem; depth: number; hasChildren: boolean }[] = [];
+    const walk = (nodes: PickerItem[], depth: number) => {
       for (const node of nodes) {
         const kids = childrenOf.get(node.id) ?? [];
         out.push({ item: node, depth, hasChildren: kids.length > 0 });
