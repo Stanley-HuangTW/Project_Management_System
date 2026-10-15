@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Copy, FolderInput, Replace, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { bulkCopyItems, bulkMoveItems, bulkReplaceItemNames } from "@/lib/actions/bulkStructure";
+import { bulkCopyItemsAcross, bulkMoveItemsAcross } from "@/lib/actions/bulkCrossBoard";
 import { deleteItem, previewItemDeletion, type DeletionDependent, type DeletionImpact } from "@/lib/actions/item";
 import { collapseToRoots, subtreeIdsOf } from "@/lib/bulkStructure";
 import type { BoardWithData } from "@/types/board";
@@ -29,7 +30,7 @@ const dangerButton = `${buttonClass} border-red-300 dark:border-red-800 bg-white
 
 /**
  * 勾選之後的「複製 / 移動 / 取代名稱 / 刪除」。表格視圖(塞在批次編輯列裡)與甘特圖(自己的選取列)
- * 共用這一份。複製與移動只能在同一個看板內;刪除是移到垃圾桶,可以還原。
+ * 共用這一份。複製與移動可以放到別的看板(見 bulkCrossBoard.ts);刪除是移到垃圾桶,可以還原。
  */
 export function BulkStructureActions({
   board,
@@ -55,10 +56,18 @@ export function BulkStructureActions({
   async function runTarget(mode: "copy" | "move", target: BulkTarget) {
     setBusy(true);
     try {
-      const result =
-        mode === "copy"
-          ? await bulkCopyItems(board.id, rootIds, target.parentId, target.groupId)
-          : await bulkMoveItems(board.id, rootIds, target.parentId, target.groupId, target.position);
+      const crossBoard = target.boardId !== board.id;
+      const result = crossBoard
+        ? await (mode === "copy"
+            ? bulkCopyItemsAcross(rootIds, target.parentId, target.groupId)
+            : bulkMoveItemsAcross(rootIds, target.parentId, target.groupId))
+        : {
+            ...(mode === "copy"
+              ? await bulkCopyItems(board.id, rootIds, target.parentId, target.groupId)
+              : await bulkMoveItems(board.id, rootIds, target.parentId, target.groupId, target.position)),
+            targetBoardName: "",
+            notes: [] as string[],
+          };
       const verb = mode === "copy" ? "複製" : "移動";
       if (result.error) {
         // 對話框不關,讓人改選別的目標再試。
@@ -70,12 +79,13 @@ export function BulkStructureActions({
       onDone();
       const group = board.groups.find((g) => g.id === target.groupId);
       const parent = target.parentId ? board.items.find((i) => i.id === target.parentId) : null;
-      await notify(
-        `已${verb} ${result.roots} 項(含子項目共 ${result.items} 項)到「${group?.name ?? ""}」${
-          parent ? `的「${parent.name}」底下` : "的最上層"
-        }。`,
-        { title: `${verb}完成` }
-      );
+      const where = crossBoard
+        ? `看板「${result.targetBoardName}」`
+        : `「${group?.name ?? ""}」${parent ? `的「${parent.name}」底下` : "的最上層"}`;
+      const notes = result.notes.length > 0 ? `\n\n請留意:\n${result.notes.map((n) => `・${n}`).join("\n")}` : "";
+      await notify(`已${verb} ${result.roots} 項(含子項目共 ${result.items} 項)到${where}。${notes}`, {
+        title: `${verb}完成`,
+      });
     } catch {
       await notify("操作失敗,請重新整理後再試一次。", { title: `無法${mode === "copy" ? "複製" : "移動"}` });
     } finally {
