@@ -22,6 +22,7 @@ export async function listUsers() {
       createdAt: true,
       supervisorId: true,
       supervisor: { select: { id: true, name: true } },
+      orgNodeId: true,
       lockedUntil: true,
       hourlyRate: true,
       discipline: true,
@@ -267,7 +268,9 @@ export async function updateUser(
   if (!target) {
     throw new Error("找不到使用者");
   }
-  await requireNoCycle(userId, supervisorId);
+  // 掛在組織架構圖上的人,所屬主管由架構圖決定,這裡改不動。
+  const orgManaged = !!target.orgNodeId;
+  if (!orgManaged) await requireNoCycle(userId, supervisorId);
 
   const emailOwner = await prisma.user.findUnique({ where: { email: trimmedEmail } });
   if (emailOwner && emailOwner.id !== userId) {
@@ -288,7 +291,7 @@ export async function updateUser(
         name: trimmedName,
         email: trimmedEmail,
         role,
-        supervisorId,
+        supervisorId: orgManaged ? target.supervisorId : supervisorId,
       },
     });
     // 不再帶人的話,他的部屬往上接一層,而不是全部變成「未設定」—— 兩階
@@ -368,6 +371,10 @@ export async function updateUserSupervisor(
   const session = await requireSession();
   if (session.role !== "ADMIN") {
     throw new Error("只有管理員可以設定所屬主管");
+  }
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { orgNodeId: true } });
+  if (target?.orgNodeId) {
+    throw new Error("這個人掛在組織架構圖上,所屬主管由架構圖決定,請到「組織架構圖」修改");
   }
   await requireNoCycle(userId, supervisorId);
 

@@ -277,6 +277,11 @@ export function ApprovalQueue() {
                     {entry.note}
                   </span>
                 )}
+                {entry.approvalNote && (
+                  <span data-approval-note className="basis-full pl-[22px] text-[11px] text-blue-700 dark:text-blue-300">
+                    {entry.approvalNote}
+                  </span>
+                )}
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <button
                     type="button"
@@ -344,6 +349,11 @@ export function ApprovalQueue() {
                     {entry.note}
                   </span>
                 )}
+                {entry.approvalNote && (
+                  <span data-approval-note className="basis-full pl-[22px] text-[11px] text-blue-700 dark:text-blue-300">
+                    {entry.approvalNote}
+                  </span>
+                )}
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <button
                     type="button"
@@ -398,6 +408,11 @@ export function ApprovalQueue() {
                 <span className="min-w-0 flex-1 truncate text-neutral-500 dark:text-neutral-400">
                   {leave.reason}
                 </span>
+                {leave.approvalNote && (
+                  <span data-approval-note className="basis-full pl-[22px] text-[11px] text-blue-700 dark:text-blue-300">
+                    {leave.approvalNote}
+                  </span>
+                )}
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <button
                     type="button"

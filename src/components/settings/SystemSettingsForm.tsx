@@ -17,6 +17,7 @@ import { ALL_NOTIFICATION_TYPES, NOTIFICATION_TYPE_LABELS } from "@/lib/notifica
 import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModal";
 import { DisciplineRateCard } from "./DisciplineRateCard";
 import { OrgUnitCard } from "./OrgUnitCard";
+import { ApprovalLevelsCard } from "./ApprovalLevelsCard";
 import { DmScopeCard } from "./DmScopeCard";
 import type { DmScopeSettings } from "@/lib/dmScope";
 import type { OrgUnit } from "@/lib/orgUnits";
@@ -510,6 +511,7 @@ export function SystemSettingsForm({
   hoursPerDay,
   workingDaysPerMonth,
   ownerDefaultAllocationPct,
+  approvalLevels,
   levelColors,
   ganttStatusColors,
   predLampColors,
@@ -539,6 +541,7 @@ export function SystemSettingsForm({
   hoursPerDay: number;
   workingDaysPerMonth: number;
   ownerDefaultAllocationPct: number;
+  approvalLevels: { leave: number; timesheet: number };
   levelColors: string[];
   ganttStatusColors: { overdue: string; completed: string; inProgress: string };
   predLampColors: { ready: string; waiting: string; blocked: string };
@@ -577,6 +580,7 @@ export function SystemSettingsForm({
           <OwnerDefaultAllocationCard initial={ownerDefaultAllocationPct} />
           <TimeCategoryCard />
           <OrgUnitCard units={orgUnits} />
+          <ApprovalLevelsCard initial={approvalLevels} />
           <DmScopeCard initial={dmScopes} />
           <DisciplineRateCard
             units={orgUnits}

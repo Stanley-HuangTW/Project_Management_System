@@ -239,6 +239,8 @@ function SortableUserRow({
         users={supervisorOptions}
         value={user.supervisorId ?? ""}
         onChange={(id) => updateUserSupervisor(user.id, id || null)}
+        disabled={!!user.orgNodeId}
+        title={user.orgNodeId ? "這個人掛在組織架構圖上,所屬主管由架構圖決定(到「組織架構圖」修改)" : undefined}
         emptyLabel="未設定"
         className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
       />

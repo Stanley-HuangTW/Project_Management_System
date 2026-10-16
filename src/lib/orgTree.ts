@@ -1,0 +1,142 @@
+/**
+ * 公司組織架構圖:部門(處、部、課…)成樹,每個部門有一位主管,人掛在部門底下。
+ * 「誰是誰的直屬主管」不另外存,由這棵樹算出來,寫回 User.supervisorId —— 簽核、可見範圍、
+ * 主管的下轄範圍本來就都讀 supervisorId,所以全部沿用,不用各自改。
+ *
+ * 全部是純函式(不碰資料庫),畫面端與伺服器端走同一份。
+ */
+
+export type OrgNodeLite = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  headId: string | null;
+  order: number;
+};
+
+export type OrgPerson = { id: string; orgNodeId: string | null; supervisorId: string | null };
+
+/** 部門在樹上的層級:最上層 = 1。資料裡若有環,走到看過的就停。 */
+export function nodeDepth(nodes: OrgNodeLite[], nodeId: string): number {
+  const parentOf = new Map(nodes.map((n) => [n.id, n.parentId]));
+  const seen = new Set<string>([nodeId]);
+  let depth = 1;
+  let current = parentOf.get(nodeId) ?? null;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    depth += 1;
+    current = parentOf.get(current) ?? null;
+  }
+  return depth;
+}
+
+/** 把 nodeId 掛到 newParentId 底下會不會繞成環(自己掛自己、掛到自己的下層都算)。 */
+export function wouldCreateNodeCycle(nodes: OrgNodeLite[], nodeId: string, newParentId: string | null): boolean {
+  if (!newParentId) return false;
+  const parentOf = new Map(nodes.map((n) => [n.id, n.parentId]));
+  const seen = new Set<string>();
+  let cursor: string | null = newParentId;
+  while (cursor && !seen.has(cursor)) {
+    if (cursor === nodeId) return true;
+    seen.add(cursor);
+    cursor = parentOf.get(cursor) ?? null;
+  }
+  return false;
+}
+
+/** 某個部門底下(含它自己)的所有部門 id。 */
+export function descendantNodeIds(nodes: OrgNodeLite[], rootId: string): Set<string> {
+  const childrenOf = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    childrenOf.set(n.parentId, [...(childrenOf.get(n.parentId) ?? []), n.id]);
+  }
+  const found = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (found.has(id)) continue;
+    found.add(id);
+    stack.push(...(childrenOf.get(id) ?? []));
+  }
+  return found;
+}
+
+/**
+ * 一個掛在部門底下的人,直屬主管是誰:從他所在的部門往上找,第一個「有主管、而且主管不是他自己」的部門的主管。
+ * 所以部門的主管本人往上找到的是上一層部門的主管;沒有主管的部門直接跳過;一路到頂都沒有就是 null。
+ * 兼任好幾個部門主管的人,所在部門以外那幾層自己是自己的主管,同樣跳過。
+ */
+export function supervisorFromOrg(nodes: OrgNodeLite[], person: { id: string; orgNodeId: string | null }): string | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  let nodeId = person.orgNodeId;
+  while (nodeId && !seen.has(nodeId)) {
+    seen.add(nodeId);
+    const node = byId.get(nodeId);
+    if (!node) return null;
+    if (node.headId && node.headId !== person.id) return node.headId;
+    nodeId = node.parentId;
+  }
+  return null;
+}
+
+export type SupervisorChange = { userId: string; supervisorId: string | null };
+
+/**
+ * 依架構圖,哪些人的 supervisorId 要改。沒掛部門的人不動(他們的主管還是手動指定的)。
+ * 只回傳「跟現在不一樣」的。
+ */
+export function planSupervisorSync(nodes: OrgNodeLite[], people: OrgPerson[]): SupervisorChange[] {
+  const changes: SupervisorChange[] = [];
+  for (const person of people) {
+    if (!person.orgNodeId) continue;
+    const next = supervisorFromOrg(nodes, person);
+    if (next !== person.supervisorId) changes.push({ userId: person.id, supervisorId: next });
+  }
+  return changes;
+}
+
+/**
+ * 套用之後的主管關係裡有沒有環(A 是 B 的主管、B 又是 A 的主管)。有的話回傳環裡的一個人。
+ * 例:某人掛在 A 部門底下、卻是 A 的上層部門的主管,就會變成「上層主管的主管是自己的部屬」。
+ */
+export function findSupervisorCycle(
+  people: { id: string; supervisorId: string | null }[],
+  changes: SupervisorChange[]
+): string | null {
+  const supervisorOf = new Map(people.map((p) => [p.id, p.supervisorId]));
+  for (const change of changes) supervisorOf.set(change.userId, change.supervisorId);
+  for (const person of people) {
+    const seen = new Set<string>([person.id]);
+    let current = supervisorOf.get(person.id) ?? null;
+    while (current) {
+      if (seen.has(current)) return person.id;
+      seen.add(current);
+      current = supervisorOf.get(current) ?? null;
+    }
+  }
+  return null;
+}
+
+export type OrgTreeNode = { node: OrgNodeLite; children: OrgTreeNode[] };
+
+/** 依 parentId 組成樹(根 = 沒有上層的部門),同一層照 order、再照名稱排。成環的資料不會被丟掉,各自當作根。 */
+export function buildOrgForest(nodes: OrgNodeLite[]): OrgTreeNode[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const childrenOf = new Map<string | null, OrgNodeLite[]>();
+  for (const n of nodes) {
+    const key = n.parentId && byId.has(n.parentId) ? n.parentId : null;
+    childrenOf.set(key, [...(childrenOf.get(key) ?? []), n]);
+  }
+  const sorted = (list: OrgNodeLite[]) => [...list].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "zh-TW"));
+  const placed = new Set<string>();
+  const build = (n: OrgNodeLite): OrgTreeNode => {
+    placed.add(n.id);
+    return { node: n, children: sorted(childrenOf.get(n.id) ?? []).filter((c) => !placed.has(c.id)).map(build) };
+  };
+  const roots = sorted(childrenOf.get(null) ?? []).map(build);
+  // 環裡面的部門(彼此當對方的上層)沒有根可以接,另外各自成一棵,免得從畫面上消失。
+  for (const n of sorted(nodes)) if (!placed.has(n.id)) roots.push(build(n));
+  return roots;
+}

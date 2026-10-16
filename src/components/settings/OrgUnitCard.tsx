@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -81,6 +82,11 @@ export function OrgUnitCard({ units }: { units: OrgUnit[] }) {
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         人力表的欄位、人力名額的單位、每個人的所屬單位都是這一份,順序就是表格欄位的順序。
         已經有人月、標準月薪或名額掛著的單位刪不掉,得先把那些改到別的單位。
+      </p>
+      <p className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+        這裡的「單位」是算人力用的(EE、ME…)。誰是誰的直屬、二階、三階主管,請到
+        <Link href="/org-chart" className="mx-1 font-medium underline">組織架構圖</Link>
+        設定(處、部、課的上下層與各部門主管)。
       </p>
 
       <table className="w-full text-sm">

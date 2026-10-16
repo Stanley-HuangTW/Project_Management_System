@@ -110,6 +110,11 @@ model User {
   supervisorId  String?
   supervisor    User?          @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
   teamMembers   User[]         @relation("Supervision")
+  /// 在組織架構圖上掛在哪個部門底下。有掛的人,所屬主管(supervisorId)由架構圖算出來,不再手動指定。
+  orgNodeId     String?
+  orgNode       OrgNode?       @relation("OrgNodeMembers", fields: [orgNodeId], references: [id], onDelete: SetNull)
+  headOfNodes   OrgNode[]      @relation("OrgNodeHead")
+  approvalSteps ApprovalStep[] @relation("ApprovalStepApprover")
 
   ownedBoards             Board[]
   comments                Comment[]
@@ -1053,6 +1058,10 @@ model SystemSettings {
   /// 上次成功備份的日期("YYYY-MM-DD")——跟 weeklyReportLastRunWeek 同一個
   /// 判斷邏輯,只是改成「今天跑過了沒」,DAILY/WEEKLY 共用同一個欄位。
   backupLastRunDate         String?
+  /// 請假、工時的「主管這一條路」要幾階主管都同意才算核准(1 = 只要直屬主管,2 = 直屬 + 二階 …)。
+  /// 各階同時送審,全部都同意才成立;沒有那麼多階主管就算到最高那一階。
+  leaveApprovalLevels       Int                @default(1)
+  timesheetApprovalLevels   Int                @default(1)
   updatedAt                 DateTime           @updatedAt
 }
 
@@ -1278,6 +1287,46 @@ model Webhook {
 
 /// One person's hours on one item on one day — the actual, against which
 /// the planned allocationPct is only ever an estimate.
+/// 公司組織架構圖上的一個部門(處、部、課…)。上下層用 parentId,主管用 headId;人用 User.orgNodeId 掛在部門底下。
+/// 跟 OrgUnit(人力表的單位:EE、ME、SW…)是兩件事:那是算人力的欄位,這是講誰管誰。
+model OrgNode {
+  id        String    @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    OrgNode?  @relation("OrgTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  OrgNode[] @relation("OrgTree")
+  headId    String?
+  head      User?     @relation("OrgNodeHead", fields: [headId], references: [id], onDelete: SetNull)
+  /// 同一層部門的排列順序。
+  order     Int       @default(0)
+  members   User[]    @relation("OrgNodeMembers")
+  createdAt DateTime  @default(now())
+
+  @@index([parentId])
+}
+
+enum ApprovalKind {
+  TIME
+  ACTIVITY
+  LEAVE
+}
+
+/// 多階簽核:一筆待核准的紀錄(工時、對應專案的工時、請假),每一階主管各簽下的一筆。
+/// 各階同時送審,所有需要的階都簽了才算核准;任一階退回就是退回(退回直接寫在那筆紀錄的狀態上)。
+model ApprovalStep {
+  id         String       @id @default(cuid())
+  kind       ApprovalKind
+  targetId   String
+  /// 1 = 直屬主管,2 = 二階主管 …
+  level      Int
+  approverId String
+  approver   User         @relation("ApprovalStepApprover", fields: [approverId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+
+  @@unique([kind, targetId, level])
+  @@index([kind, targetId])
+}
+
 /// 送審狀態。核准前不算數:未核准的工時不會進 EVM 的實際成本,未核准的
 /// 請假也不會改變產能判定——否則「已登記」就等於「已成立」,審核只是裝飾。
 enum ApprovalStatus {

@@ -66,3 +66,28 @@ describe("dmRoleOfDiscipline", () => {
     expect(dmRoleOfDiscipline(null)).toBeNull();
   });
 });
+
+describe("resolveTimeApprovers:多階主管", () => {
+  const chain = ["boss", "director", "ceo"];
+
+  it("沒有設定階數(或 1 階):只有直屬主管,跟以前一樣", () => {
+    const withChain = resolve({ managerChain: chain });
+    expect(withChain.filter((r) => r.reason === "SUPERVISOR").map((r) => r.userId)).toEqual(["boss"]);
+    expect(withChain.find((r) => r.userId === "boss")?.level).toBe(1);
+  });
+
+  it("設定 2 階:直屬主管與二階主管都是核准人,各自帶是第幾階", () => {
+    const supervisors = resolve({ managerChain: chain, levels: 2 }).filter((r) => r.reason === "SUPERVISOR");
+    expect(supervisors.map((r) => `${r.userId}:${r.level}`)).toEqual(["boss:1", "director:2"]);
+  });
+
+  it("設定的階數比實際的主管多:只算到最高那一階", () => {
+    const supervisors = resolve({ managerChain: ["boss"], levels: 3 }).filter((r) => r.reason === "SUPERVISOR");
+    expect(supervisors.map((r) => r.userId)).toEqual(["boss"]);
+  });
+
+  it("二階主管同時是 Team Leader:列成 Team Leader(單獨核准就算數)", () => {
+    const result = resolve({ managerChain: chain, levels: 2, roles: [...roles, { groupId: "g1", role: "TEAM_LEADER", userId: "director" }] });
+    expect(result.find((r) => r.userId === "director")?.reason).toBe("TEAM_LEADER");
+  });
+});

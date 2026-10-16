@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
 import { ALL_NOTIFICATION_TYPES } from "@/lib/notificationTypes";
+import { clampLevels } from "@/lib/approvalLevels";
 import {
   BUILT_IN_DEFAULT_COLUMNS,
   parseDefaultColumns,
@@ -46,6 +47,8 @@ export async function getSystemSettings() {
     backupMinute: 0,
     backupRetentionDays: 60,
     backupLastRunDate: null as string | null,
+    leaveApprovalLevels: 1,
+    timesheetApprovalLevels: 1,
     updatedAt: new Date(),
   };
 }
@@ -139,6 +142,27 @@ export async function setHoursPerDay(hours: number) {
   // 這是把「50% 排 10 天」換算成小時、再換算成錢的係數。
   await logAudit("SETTINGS", session.userId, `每日工時:${before.hoursPerDay} → ${value} 小時`);
   revalidatePath("/settings");
+}
+
+/** 簽核層級:請假、工時的「主管這一條路」要幾階主管都同意(1 = 只要直屬主管)。 */
+export async function setApprovalLevels(levels: { leave: number; timesheet: number }) {
+  const session = await requireSession();
+  requireBoardAdmin(session.role);
+  const leave = clampLevels(levels.leave);
+  const timesheet = clampLevels(levels.timesheet);
+  const before = await getSystemSettings();
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", leaveApprovalLevels: leave, timesheetApprovalLevels: timesheet },
+    update: { leaveApprovalLevels: leave, timesheetApprovalLevels: timesheet },
+  });
+  await logAudit(
+    "SETTINGS",
+    session.userId,
+    `簽核層級:請假 ${before.leaveApprovalLevels} → ${leave} 階、工時 ${before.timesheetApprovalLevels} → ${timesheet} 階`
+  );
+  revalidatePath("/settings");
+  revalidatePath("/approvals");
 }
 
 /** 一個人月算幾個工作天 — 把月薪換算成時薪、把人月換算成工時的係數。 */

@@ -60,3 +60,73 @@ body.cell-range-dragging,
 body.cell-range-dragging * {
   user-select: none !important;
 }
+
+/* 組織架構圖:節點之間的連接線。每個節點上方一條橫線連到兄弟,中間往上一條直線接到上層部門。 */
+.org-tree {
+  --org-line: #d4d4d8;
+}
+.dark .org-tree {
+  --org-line: #525252;
+}
+.org-tree,
+.org-tree ul {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+}
+.org-tree ul {
+  padding-top: 20px;
+}
+.org-tree ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 20px;
+  border-left: 1px solid var(--org-line);
+}
+.org-tree li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 6px 0;
+}
+.org-tree > li {
+  padding-top: 0;
+}
+.org-tree li::before,
+.org-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 20px;
+  border-top: 1px solid var(--org-line);
+}
+.org-tree li::before {
+  right: 50%;
+}
+.org-tree li::after {
+  left: 50%;
+  border-left: 1px solid var(--org-line);
+}
+.org-tree > li::before,
+.org-tree > li::after,
+.org-tree li:only-child::before,
+.org-tree li:only-child::after {
+  display: none;
+}
+.org-tree li:only-child {
+  padding-top: 0;
+}
+.org-tree li:first-child::before,
+.org-tree li:last-child::after {
+  border: 0 none;
+}
+.org-tree li:last-child::before {
+  border-right: 1px solid var(--org-line);
+}

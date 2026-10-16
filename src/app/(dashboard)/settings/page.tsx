@@ -75,6 +75,7 @@ export default async function SettingsPage() {
         hoursPerDay={settings.hoursPerDay}
         workingDaysPerMonth={settings.workingDaysPerMonth}
         ownerDefaultAllocationPct={settings.ownerDefaultAllocationPct}
+        approvalLevels={{ leave: settings.leaveApprovalLevels, timesheet: settings.timesheetApprovalLevels }}
         levelColors={settings.levelColors}
         ganttStatusColors={{
           overdue: settings.ganttOverdueColor,
