@@ -3,12 +3,15 @@ import {
   buildOrgForest,
   descendantNodeIds,
   findSupervisorCycle,
+  flattenOrgForest,
   nodeDepth,
   orgChildren,
   planOrgMove,
+  planDisciplineSync,
   planSupervisorSync,
   resolveOrgDrop,
   supervisorFromOrg,
+  unitCodeFromOrg,
   wouldCreateNodeCycle,
   type OrgNodeLite,
 } from "@/lib/orgTree";
@@ -239,5 +242,63 @@ describe("planOrgMove", () => {
   it("位置超出範圍就放最後", () => {
     const updates = planOrgMove(family, "a", "co", 99);
     expect(updates.find((u) => u.id === "a")?.order).toBe(2);
+  });
+});
+
+// 公司 ─ 研發處(對應 PM)─ 硬體部(對應 EE)─ 電子課(沒有自己的對應)
+//                       └ 軟體部(沒有對應,沿用研發處的 PM)
+const unitNodes: OrgNodeLite[] = [
+  { ...node("co", null, null), unitCode: null },
+  { ...node("rd", "co", null), unitCode: "PM" },
+  { ...node("hw", "rd", null), unitCode: "EE" },
+  { ...node("ee", "hw", null), unitCode: null },
+  { ...node("sw", "rd", null), unitCode: null },
+];
+
+describe("unitCodeFromOrg", () => {
+  it("自己有對應就用自己的", () => {
+    expect(unitCodeFromOrg(unitNodes, "hw")).toBe("EE");
+  });
+
+  it("沒有對應就沿用最近的上層", () => {
+    expect(unitCodeFromOrg(unitNodes, "ee")).toBe("EE");
+    expect(unitCodeFromOrg(unitNodes, "sw")).toBe("PM");
+  });
+
+  it("一路到頂都沒有對應、或沒掛部門 → null", () => {
+    expect(unitCodeFromOrg(unitNodes, "co")).toBeNull();
+    expect(unitCodeFromOrg(unitNodes, null)).toBeNull();
+    expect(unitCodeFromOrg(unitNodes, "gone")).toBeNull();
+  });
+
+  it("資料有環也不會跑不完", () => {
+    expect(unitCodeFromOrg([node("a", "b", null), node("b", "a", null)], "a")).toBeNull();
+  });
+});
+
+describe("planDisciplineSync", () => {
+  const people = [
+    { id: "p1", orgNodeId: "ee", discipline: "PM" }, // 該是 EE
+    { id: "p2", orgNodeId: "sw", discipline: "PM" }, // 已經是 PM
+    { id: "p3", orgNodeId: "co", discipline: "SW" }, // 部門沒有對應 → 不動
+    { id: "p4", orgNodeId: null, discipline: "ME" }, // 沒掛部門 → 不動
+    { id: "p5", orgNodeId: "hw", discipline: null }, // 還沒有單位 → 帶入 EE
+  ];
+
+  it("只回傳跟現在不一樣的,沒有對應或沒掛部門的人不動", () => {
+    expect(planDisciplineSync(unitNodes, people)).toEqual([
+      { userId: "p1", discipline: "EE" },
+      { userId: "p5", discipline: "EE" },
+    ]);
+  });
+});
+
+describe("flattenOrgForest", () => {
+  it("由上到下、同層照順序,帶層級", () => {
+    expect(flattenOrgForest(family).map((x) => `${x.node.id}:${x.depth}`)).toEqual(["co:1", "a:2", "a1:3", "a2:3", "b:2", "c:2"]);
+  });
+
+  it("沒有部門 → 空的", () => {
+    expect(flattenOrgForest([])).toEqual([]);
   });
 });

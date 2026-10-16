@@ -184,6 +184,7 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
         <OrgNodeCard
           node={node}
           headName={head?.name}
+          headHome={head && head.orgNodeId !== node.id ? homeName(head, nodeById) : null}
           roleLines={roleLines(rolesOf.get(node.id) ?? [], personById)}
           depth={depth}
           memberCount={membersOf.get(node.id)?.length ?? 0}
@@ -275,6 +276,11 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
   );
 }
 
+/** 一個人的所屬部門名稱(只有兼任別的部門主管的時候要說明他在哪)。 */
+function homeName(person: OrgChartPerson, nodeById: Map<string, OrgNodeLite>): string {
+  return person.orgNodeId ? (nodeById.get(person.orgNodeId)?.name ?? "別的部門") : "沒有所屬部門";
+}
+
 /** 卡片上主管底下的幾行:同一個職稱的人併在一起,例如「副主管:王小明、李大華」。 */
 function roleLines(nodeRoles: OrgRoleRow[], personById: Map<string, OrgChartPerson>): string[] {
   const byTitle = new Map<string, string[]>();
@@ -286,6 +292,7 @@ function roleLines(nodeRoles: OrgRoleRow[], personById: Map<string, OrgChartPers
 function OrgNodeCard({
   node,
   headName,
+  headHome,
   roleLines: extraLines,
   depth,
   memberCount,
@@ -300,6 +307,8 @@ function OrgNodeCard({
 }: {
   node: OrgNodeLite;
   headName: string | undefined;
+  /** 主管本人所屬的是別的部門(在這裡是兼任)時,那個部門的名稱;主管就在這個部門、或沒有主管是 null。 */
+  headHome: string | null;
   roleLines: string[];
   depth: number;
   memberCount: number;
@@ -337,7 +346,18 @@ function OrgNodeCard({
       {dropZone === "before" && <span data-org-drop="before" className="pointer-events-none absolute -left-2 inset-y-0 w-1 rounded bg-blue-500" />}
       {dropZone === "after" && <span data-org-drop="after" className="pointer-events-none absolute -right-2 inset-y-0 w-1 rounded bg-blue-500" />}
       <p className="break-words text-sm font-semibold text-neutral-900 dark:text-neutral-100">{node.name}</p>
-      <p className="mt-0.5 break-words text-neutral-600 dark:text-neutral-300">主管:{headName ?? "(未設)"}</p>
+      <p className="mt-0.5 break-words text-neutral-600 dark:text-neutral-300">
+        主管:{headName ?? "(未設)"}
+        {headHome && (
+          <span
+            data-org-concurrent
+            title={`${headName} 的所屬部門是「${headHome}」,在這裡是兼任主管,不算在人數裡`}
+            className="ml-0.5 text-[10px] text-amber-600 dark:text-amber-400"
+          >
+            (兼任)
+          </span>
+        )}
+      </p>
       {extraLines.map((line) => (
         <p key={line} data-org-role-line className="break-words text-[11px] text-neutral-500 dark:text-neutral-400">
           {line}
@@ -482,6 +502,11 @@ function NodePanel({
                   </option>
                 ))}
               </select>
+              {head && head.orgNodeId !== node.id && (
+                <span data-org-concurrent-note className="mt-1 block text-[11px] text-amber-700 dark:text-amber-400">
+                  {head.name} 的所屬部門是「{homeName(head, nodeById)}」,在這裡是兼任主管,所以不算在人數與成員裡;他的主管關係與簽核照常。
+                </span>
+              )}
             </label>
 
             <label className="block text-neutral-500 dark:text-neutral-400">

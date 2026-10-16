@@ -21,6 +21,7 @@ import { ApprovalLevelsCard } from "./ApprovalLevelsCard";
 import { DmScopeCard } from "./DmScopeCard";
 import type { DmScopeSettings } from "@/lib/dmScope";
 import type { OrgUnit } from "@/lib/orgUnits";
+import type { OrgNodeLite } from "@/lib/orgTree";
 import { WorkloadThresholdModal } from "@/components/dashboard/WorkloadThresholdModal";
 import type { WorkloadThresholdSettings } from "@/lib/workload";
 import type { UserOption } from "@/types/board";
@@ -504,6 +505,7 @@ function WorkloadThresholdCard({ threshold }: { threshold: WorkloadThresholdSett
 export function SystemSettingsForm({
   isAdmin,
   orgUnits,
+  orgNodes,
   dmScopes,
   emailNotificationsEnabled,
   enabledNotificationTypes,
@@ -534,6 +536,8 @@ export function SystemSettingsForm({
 }: {
   isAdmin: boolean;
   orgUnits: OrgUnit[];
+  /** 組織架構圖的部門(含對應的人力單位),公司組織單位那張卡用。 */
+  orgNodes: OrgNodeLite[];
   dmScopes: DmScopeSettings;
   emailNotificationsEnabled: boolean;
   enabledNotificationTypes: NotificationType[];
@@ -579,7 +583,7 @@ export function SystemSettingsForm({
           <HoursPerDayCard initial={hoursPerDay} />
           <OwnerDefaultAllocationCard initial={ownerDefaultAllocationPct} />
           <TimeCategoryCard />
-          <OrgUnitCard units={orgUnits} />
+          <OrgUnitCard units={orgUnits} nodes={orgNodes} />
           <ApprovalLevelsCard initial={approvalLevels} />
           <DmScopeCard initial={dmScopes} />
           <DisciplineRateCard

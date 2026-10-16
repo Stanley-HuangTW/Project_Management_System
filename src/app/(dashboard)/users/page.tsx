@@ -61,6 +61,10 @@ export default async function UsersPage({
         <UserManagement
           users={await listUsers()}
           units={await loadOrgUnits()}
+          orgNodes={await prisma.orgNode.findMany({
+            select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true },
+            orderBy: [{ order: "asc" }, { name: "asc" }],
+          })}
           currentUserId={session.userId}
         />
       ) : activeTab === "leave" ? (

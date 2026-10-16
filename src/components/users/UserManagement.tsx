@@ -1,7 +1,8 @@
 "use client";
 
 import { UserSelect } from "@/components/ui/UserSelect";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -31,7 +32,6 @@ import {
   reorderUsers,
   listUsers,
   updateUserHourlyRate,
-  updateUserDiscipline,
   updateUserMonthlySalary,
   updateUserTimesheetAccess,
   updateUserTimesheetNoApproval,
@@ -39,8 +39,9 @@ import {
   unlockUser,
 } from "@/lib/actions/user";
 import type { UserRole } from "@prisma/client";
-import type { Discipline } from "@/lib/labourPlan";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
+import { flattenOrgForest, type OrgNodeLite } from "@/lib/orgTree";
+import { setUserOrgNode } from "@/lib/actions/orgChart";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 
@@ -54,7 +55,7 @@ type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
  * 之後,寬度不夠時會撐出容器,由外層的 overflow-x-auto 捲,兩欄都還讀得到。
  */
 const ROW_GRID =
-  "grid-cols-[24px_48px_minmax(120px,1.1fr)_minmax(190px,1.4fr)_90px_110px_100px_110px_110px_150px_110px]";
+  "grid-cols-[24px_48px_minmax(120px,1.1fr)_minmax(190px,1.4fr)_90px_110px_200px_110px_110px_150px_110px]";
 
 function roleLabel(role: UserRole) {
   return role === "ADMIN" ? "管理者" : role === "SUPERVISOR" ? "主管" : "團隊成員";
@@ -137,6 +138,8 @@ function SalaryInput({ user }: { user: UserRow }) {
 function SortableUserRow({
   user,
   units,
+  departments,
+  onDepartmentChange,
   supervisorOptions,
   depth,
   uploading,
@@ -147,8 +150,11 @@ function SortableUserRow({
   onUnlock,
 }: {
   user: UserRow;
-  /** 公司組織單位,照系統設定裡排好的順序。 */
+  /** 公司組織單位(人力單位 EE、ME…),只用來顯示代號的全名。 */
   units: OrgUnit[];
+  /** 組織架構圖的部門,由上到下、依層級縮排:「組織單位」欄位從這裡選。 */
+  departments: { node: OrgNodeLite; depth: number }[];
+  onDepartmentChange: (userId: string, nodeId: string | null) => void;
   /** 誰可以當這個人的主管 —— 已經去掉他自己和他底下的人。 */
   supervisorOptions: UserRow[];
   /** 他在組織圖的第幾階:頭上沒有主管是第 1 階。 */
@@ -221,18 +227,31 @@ function SortableUserRow({
       <span className="text-neutral-400 dark:text-neutral-500">
         {new Date(user.createdAt).toLocaleDateString("zh-TW")}
       </span>
-      <select
-        value={user.discipline ?? ""}
-        onChange={(e) => updateUserDiscipline(user.id, (e.target.value || null) as Discipline | null)}
-        className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
-      >
-        <option value="">未設定</option>
-        {units.map(({ code: d }) => (
-          <option key={d} value={d}>
-            {unitLabel(units, d)}
-          </option>
-        ))}
-      </select>
+      <div className="flex min-w-0 items-center gap-1" data-user-unit={user.id}>
+        <select
+          value={user.orgNodeId ?? ""}
+          onChange={(e) => onDepartmentChange(user.id, e.target.value || null)}
+          aria-label={`${user.name} 的組織單位`}
+          title="組織架構圖的部門:選了就等於把這個人掛在那個部門,所屬主管與人力單位跟著算"
+          className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
+        >
+          <option value="">未設定</option>
+          {departments.map(({ node, depth: level }) => (
+            <option key={node.id} value={node.id}>
+              {"　".repeat(level - 1)}
+              {node.name}
+            </option>
+          ))}
+        </select>
+        {user.discipline && (
+          <span
+            className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 font-mono text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+            title={`人力單位:${unitLabel(units, user.discipline)}`}
+          >
+            {user.discipline}
+          </span>
+        )}
+      </div>
       <SalaryInput user={user} />
       <RateInput user={user} />
       <UserSelect
@@ -291,12 +310,16 @@ function SortableUserRow({
 export function UserManagement({
   users,
   units,
+  orgNodes,
   currentUserId,
 }: {
   users: UserRow[];
   units: OrgUnit[];
+  orgNodes: OrgNodeLite[];
   currentUserId: string;
 }) {
+  const router = useRouter();
+  const departments = useMemo(() => flattenOrgForest(orgNodes), [orgNodes]);
   const [prevUsers, setPrevUsers] = useState(users);
   const [order, setOrder] = useState(() => users.map((u) => u.id));
   if (users !== prevUsers) {
@@ -332,7 +355,7 @@ export function UserManagement({
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const { confirm } = useDialogs();
+  const { confirm, notify } = useDialogs();
 
   const [resetTarget, setResetTarget] = useState<UserRow | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
@@ -353,6 +376,13 @@ export function UserManagement({
   function supervisorsFor(userId: string): UserRow[] {
     const below = subordinateIds(users, userId);
     return supervisors.filter((s) => s.id !== userId && !below.has(s.id));
+  }
+
+  /** 「組織單位」選部門 = 把這個人掛到那個部門(同組織架構圖)。主管互為上下級之類的錯,伺服器端會擋並說明。 */
+  async function handleDepartmentChange(userId: string, nodeId: string | null) {
+    const result = await setUserOrgNode(userId, nodeId).catch(() => ({ error: "操作失敗,請重新整理後再試一次。" }));
+    if (result.error) await notify(result.error, { title: "無法修改組織單位" });
+    router.refresh();
   }
 
   function handleAvatarClick(userId: string) {
@@ -535,7 +565,7 @@ export function UserManagement({
           <span>Email</span>
           <span>角色</span>
           <span>建立時間</span>
-          <span>單位</span>
+          <span>組織單位</span>
           <span>月薪(元)</span>
           <span>時薪(元)</span>
           <span>所屬主管</span>
@@ -552,6 +582,8 @@ export function UserManagement({
                 key={u.id}
                 user={u}
                 units={units}
+                departments={departments}
+                onDepartmentChange={handleDepartmentChange}
                 supervisorOptions={supervisorsFor(u.id)}
                 depth={orgDepth(users, u.id)}
                 uploading={uploadingId === u.id}

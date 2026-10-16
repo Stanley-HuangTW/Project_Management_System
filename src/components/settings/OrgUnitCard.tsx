@@ -1,18 +1,20 @@
 "use client";
 
-import { useTransition } from "react";
+import { useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import type { OrgUnit } from "@/lib/orgUnits";
+import { flattenOrgForest, type OrgNodeLite } from "@/lib/orgTree";
 import {
   createOrgUnit,
   renameOrgUnit,
   deleteOrgUnit,
   moveOrgUnit,
 } from "@/lib/actions/orgUnit";
+import { setOrgNodeUnit } from "@/lib/actions/orgChart";
 
 /**
  * 公司組織單位。
@@ -20,10 +22,12 @@ import {
  * 人力表的欄位、人力名額的單位、每個人的所屬單位都讀這一份。本來寫死在
  * schema 裡,公司多一個 FAE 就得改程式重上版 —— 那不是設定該有的樣子。
  */
-export function OrgUnitCard({ units }: { units: OrgUnit[] }) {
+export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNodeLite[] }) {
   const { notify, prompt, confirm } = useDialogs();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  /** 組織架構圖的部門,由上到下、依層級縮排,給「對應部門」的選單用。 */
+  const treeNodes = useMemo(() => flattenOrgForest(nodes), [nodes]);
 
   /** 伺服器才知道能不能改,所以結果一律由它回答,這裡只負責顯示。 */
   async function run(action: () => Promise<{ error?: string }>) {
@@ -77,16 +81,17 @@ export function OrgUnitCard({ units }: { units: OrgUnit[] }) {
     "rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40 dark:hover:bg-neutral-800 dark:hover:text-neutral-200";
 
   return (
-    <div className="max-w-xl rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
+    <div className="max-w-3xl rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
       <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">公司組織單位</p>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         人力表的欄位、人力名額的單位、每個人的所屬單位都是這一份,順序就是表格欄位的順序。
         已經有人月、標準月薪或名額掛著的單位刪不掉,得先把那些改到別的單位。
       </p>
       <p className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
-        這裡的「單位」是算人力用的(EE、ME…)。誰是誰的直屬、二階、三階主管,請到
+        這裡的「單位」是算人力用的(EE、ME…)。「對應部門」把單位對應到
         <Link href="/org-chart" className="mx-1 font-medium underline">組織架構圖</Link>
-        設定(處、部、課的上下層與各部門主管)。
+        的部門:使用者管理裡選了那個部門(或它底下沒有自己對應的子部門)的人,所屬單位會自動帶入。
+        誰是誰的直屬、二階、三階主管,也在組織架構圖設定。
       </p>
 
       <table className="w-full text-sm">
@@ -94,6 +99,7 @@ export function OrgUnitCard({ units }: { units: OrgUnit[] }) {
           <tr className="text-left text-xs text-neutral-500 dark:text-neutral-400">
             <th className="pb-1 font-normal">代號</th>
             <th className="pb-1 font-normal">顯示名稱</th>
+            <th className="pb-1 font-normal">對應組織架構圖部門</th>
             <th className="pb-1 text-right font-normal">順序</th>
           </tr>
         </thead>
@@ -113,6 +119,50 @@ export function OrgUnitCard({ units }: { units: OrgUnit[] }) {
                 >
                   {unit.label}
                 </button>
+              </td>
+              <td className="py-1.5 pr-2" data-unit-nodes={unit.code}>
+                <div className="flex flex-wrap items-center gap-1">
+                  {nodes
+                    .filter((n) => n.unitCode === unit.code)
+                    .map((n) => (
+                      <span
+                        key={n.id}
+                        className="inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
+                      >
+                        {n.name}
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => run(() => setOrgNodeUnit(n.id, null))}
+                          title={`取消「${n.name}」對應 ${unit.code}`}
+                          aria-label={`取消「${n.name}」對應 ${unit.code}`}
+                          className="rounded text-blue-400 hover:text-red-600 disabled:opacity-50"
+                        >
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  <select
+                    value=""
+                    disabled={isPending || treeNodes.length === 0}
+                    onChange={(e) => {
+                      if (e.target.value) void run(() => setOrgNodeUnit(e.target.value, unit.code));
+                    }}
+                    aria-label={`${unit.code} 對應部門`}
+                    className="rounded-md border border-neutral-300 bg-white px-1.5 py-0.5 text-xs text-neutral-600 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-300"
+                  >
+                    <option value="">{treeNodes.length === 0 ? "還沒有部門" : "+ 對應部門…"}</option>
+                    {treeNodes
+                      .filter(({ node }) => node.unitCode !== unit.code)
+                      .map(({ node, depth }) => (
+                        <option key={node.id} value={node.id}>
+                          {"　".repeat(depth - 1)}
+                          {node.name}
+                          {node.unitCode ? `(現在:${node.unitCode})` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </td>
               <td className="py-1.5">
                 <div className="flex items-center justify-end gap-0.5">

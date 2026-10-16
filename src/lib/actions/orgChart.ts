@@ -5,7 +5,14 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { logAudit } from "@/lib/activityLog";
-import { findSupervisorCycle, planOrgMove, planSupervisorSync, wouldCreateNodeCycle, type OrgNodeLite } from "@/lib/orgTree";
+import {
+  findSupervisorCycle,
+  planDisciplineSync,
+  planOrgMove,
+  planSupervisorSync,
+  wouldCreateNodeCycle,
+  type OrgNodeLite,
+} from "@/lib/orgTree";
 
 /**
  * 公司組織架構圖:部門成樹、每個部門一位主管、人掛在部門底下。
@@ -34,7 +41,7 @@ export async function getOrgChart(): Promise<OrgChartData> {
   await requireSession();
   const [nodes, people, roles] = await Promise.all([
     prisma.orgNode.findMany({
-      select: { id: true, name: true, parentId: true, headId: true, order: true },
+      select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true },
       orderBy: [{ order: "asc" }, { name: "asc" }],
     }),
     prisma.user.findMany({
@@ -57,11 +64,14 @@ async function requireAdminSession() {
 
 class OrgEditError extends Error {}
 
-/** 在交易裡照架構圖重算主管;會繞成環就整個回復並說明是誰。 */
-async function syncSupervisors(tx: Prisma.TransactionClient): Promise<number> {
+/**
+ * 在交易裡照架構圖重算主管與所屬單位;主管會繞成環就整個回復並說明是誰。
+ * 所屬單位(User.discipline)照部門對應的人力單位帶入,沒有對應的部門不動。
+ */
+async function syncSupervisors(tx: Prisma.TransactionClient): Promise<{ supervisors: number; disciplines: number }> {
   const [nodes, people] = await Promise.all([
-    tx.orgNode.findMany({ select: { id: true, name: true, parentId: true, headId: true, order: true } }),
-    tx.user.findMany({ select: { id: true, name: true, orgNodeId: true, supervisorId: true } }),
+    tx.orgNode.findMany({ select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true } }),
+    tx.user.findMany({ select: { id: true, name: true, orgNodeId: true, supervisorId: true, discipline: true } }),
   ]);
   const changes = planSupervisorSync(nodes, people);
   const cycleUserId = findSupervisorCycle(people, changes);
@@ -74,7 +84,11 @@ async function syncSupervisors(tx: Prisma.TransactionClient): Promise<number> {
   for (const change of changes) {
     await tx.user.update({ where: { id: change.userId }, data: { supervisorId: change.supervisorId } });
   }
-  return changes.length;
+  const disciplineChanges = planDisciplineSync(nodes, people);
+  for (const change of disciplineChanges) {
+    await tx.user.update({ where: { id: change.userId }, data: { discipline: change.discipline } });
+  }
+  return { supervisors: changes.length, disciplines: disciplineChanges.length };
 }
 
 /**
@@ -84,16 +98,20 @@ async function syncSupervisors(tx: Prisma.TransactionClient): Promise<number> {
 async function editOrg(
   actorId: string,
   work: (tx: Prisma.TransactionClient) => Promise<{ error?: string; audit?: string }>
-): Promise<{ error?: string; supervisorsChanged?: number }> {
+): Promise<{ error?: string; supervisorsChanged?: number; disciplinesChanged?: number }> {
   let audit: string | undefined;
   try {
     const result = await prisma.$transaction(async (tx) => {
       const outcome = await work(tx);
       if (outcome.error) return { error: outcome.error };
       audit = outcome.audit;
-      return { supervisorsChanged: await syncSupervisors(tx) };
+      const synced = await syncSupervisors(tx);
+      return { supervisorsChanged: synced.supervisors, disciplinesChanged: synced.disciplines };
     });
     if (!("error" in result) && audit) await logAudit("SETTINGS", actorId, audit);
+    if (!("error" in result) && result.disciplinesChanged > 0) {
+      await logAudit("COST", actorId, `組織架構圖:依部門對應的人力單位,更新了 ${result.disciplinesChanged} 位同仁的所屬單位`);
+    }
     return result;
   } catch (err) {
     if (err instanceof OrgEditError) return { error: err.message };
@@ -105,6 +123,7 @@ function done() {
   revalidatePath("/org-chart");
   revalidatePath("/users");
   revalidatePath("/approvals");
+  revalidatePath("/settings");
 }
 
 export async function createOrgNode(name: string, parentId: string | null): Promise<{ error?: string; id?: string }> {
@@ -184,6 +203,30 @@ export async function moveOrgNodeTo(
         ? `組織架構圖:拖曳「${node.name}」${parentName ? `到「${parentName}」底下` : "改為最上層"}`
         : `組織架構圖:拖曳調整「${node.name}」的順序`,
     };
+  });
+  done();
+  return result;
+}
+
+/**
+ * 部門對應的人力單位(null = 取消對應)。掛在這個部門(與底下沒有自己對應的子部門)的人,所屬單位照它帶入;
+ * 取消對應不會把已經帶入的單位清掉。
+ */
+export async function setOrgNodeUnit(
+  id: string,
+  unitCode: string | null
+): Promise<{ error?: string; supervisorsChanged?: number; disciplinesChanged?: number }> {
+  const guard = await requireAdminSession();
+  if ("error" in guard) return { error: guard.error };
+  const result = await editOrg(guard.session.userId, async (tx) => {
+    const node = await tx.orgNode.findUnique({ where: { id }, select: { name: true, unitCode: true } });
+    if (!node) return { error: "找不到這個部門" };
+    if (unitCode && !(await tx.orgUnit.findUnique({ where: { code: unitCode }, select: { code: true } }))) {
+      return { error: "找不到這個組織單位" };
+    }
+    if (node.unitCode === unitCode) return {};
+    await tx.orgNode.update({ where: { id }, data: { unitCode } });
+    return { audit: `組織架構圖:「${node.name}」對應的組織單位 ${node.unitCode ?? "(未設)"} → ${unitCode ?? "(未設)"}` };
   });
   done();
   return result;

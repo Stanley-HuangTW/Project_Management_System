@@ -12,6 +12,8 @@ export type OrgNodeLite = {
   parentId: string | null;
   headId: string | null;
   order: number;
+  /** 這個部門對應的人力單位代號(EE、ME…);沒設就沿用上層部門的。 */
+  unitCode?: string | null;
 };
 
 export type OrgPerson = { id: string; orgNodeId: string | null; supervisorId: string | null };
@@ -202,4 +204,51 @@ export function planOrgMove(
     if (changed) updates.push({ id: n.id, parentId, order });
   });
   return updates;
+}
+
+/**
+ * 掛在 nodeId 底下的人算哪個人力單位:從這個部門往上找,第一個有對應單位的部門的代號。
+ * 一路到頂都沒有對應就是 null(那就不替他決定單位)。
+ */
+export function unitCodeFromOrg(nodes: OrgNodeLite[], nodeId: string | null): string | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  let cursor = nodeId;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const node = byId.get(cursor);
+    if (!node) return null;
+    if (node.unitCode) return node.unitCode;
+    cursor = node.parentId;
+  }
+  return null;
+}
+
+export type DisciplineChange = { userId: string; discipline: string };
+
+/**
+ * 依部門對應,哪些人的所屬單位(User.discipline)要改。只管掛在部門底下、而且部門(或上層)有對應單位的人;
+ * 沒有對應的部門不動他現有的單位(取消對應不會把已經帶入的單位清掉)。只回傳「跟現在不一樣」的。
+ */
+export function planDisciplineSync(
+  nodes: OrgNodeLite[],
+  people: { id: string; orgNodeId: string | null; discipline: string | null }[]
+): DisciplineChange[] {
+  const changes: DisciplineChange[] = [];
+  for (const person of people) {
+    const code = unitCodeFromOrg(nodes, person.orgNodeId);
+    if (code && code !== person.discipline) changes.push({ userId: person.id, discipline: code });
+  }
+  return changes;
+}
+
+/** 把樹攤平成由上到下的清單(下拉選單用):每個部門帶它的層級(最上層 = 1),順序同畫面。 */
+export function flattenOrgForest(nodes: OrgNodeLite[]): { node: OrgNodeLite; depth: number }[] {
+  const out: { node: OrgNodeLite; depth: number }[] = [];
+  const walk = (tree: OrgTreeNode, depth: number) => {
+    out.push({ node: tree.node, depth });
+    tree.children.forEach((child) => walk(child, depth + 1));
+  };
+  buildOrgForest(nodes).forEach((tree) => walk(tree, 1));
+  return out;
 }

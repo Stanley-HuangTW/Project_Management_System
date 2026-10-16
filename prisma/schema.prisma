@@ -956,6 +956,8 @@ model OrgUnit {
   order Int    @default(0)
 
   users User[]
+  /// 對應到組織架構圖的哪些部門(部門那一側存代號)。
+  orgNodes OrgNode[]
   rate  DisciplineRate?
   plans LabourPlan[]
   slots LabourSlot[]
@@ -1302,6 +1304,10 @@ model OrgNode {
   order     Int       @default(0)
   members   User[]    @relation("OrgNodeMembers")
   roles     OrgRole[]
+  /// 這個部門(含底下沒有自己對應的子部門)算哪個人力單位(EE、ME…)。掛在這裡的人,所屬單位(User.discipline)
+  /// 照這個帶入;人力表、費率、DM 角色還是用單位代號,所以那些邏輯不用改。
+  unitCode  String?
+  unit      OrgUnit?  @relation(fields: [unitCode], references: [code], onDelete: SetNull, onUpdate: Cascade)
   createdAt DateTime  @default(now())
 
   @@index([parentId])

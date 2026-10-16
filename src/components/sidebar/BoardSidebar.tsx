@@ -29,6 +29,8 @@ import {
   Clock,
   DatabaseBackup,
   Network,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import type { UserRole } from "@prisma/client";
 import { canManageBoard, canManageStructure } from "@/lib/permissions";
@@ -108,6 +110,9 @@ export function BoardSidebar({
   const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  /** 使用者管理、組織架構圖是系統設定的子項目。 */
+  const inSettingsGroup = pathname === "/settings" || pathname === "/users" || pathname === "/org-chart";
   const [isPending, startTransition] = useTransition();
 
   // 拖曳排序:先照新的順序顯示,存好之後伺服器那份(props)會是同一個順序。props 換了就以它為準。
@@ -327,30 +332,58 @@ export function BoardSidebar({
           <LayoutDashboard size={14} className="shrink-0" />
           儀表板
         </Link>
-        {userRole === "ADMIN" && (
-          <Link
-            href="/users"
-            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-              pathname === "/users"
-                ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            }`}
-          >
-            <Users size={14} className="shrink-0" />
-            使用者管理
-          </Link>
-        )}
-        <Link
-          href="/settings"
-          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-            pathname === "/settings"
-              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          }`}
-        >
-          <Settings size={14} className="shrink-0" />
-          系統設定
-        </Link>
+        <div data-nav-group="settings">
+          <div className="flex items-center">
+            <Link
+              href="/settings"
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                pathname === "/settings"
+                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                  : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              }`}
+            >
+              <Settings size={14} className="shrink-0" />
+              系統設定
+            </Link>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-label={settingsOpen || inSettingsGroup ? "收合系統設定的子項目" : "展開系統設定的子項目"}
+              aria-expanded={settingsOpen || inSettingsGroup}
+              className="shrink-0 rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            >
+              {settingsOpen || inSettingsGroup ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+          </div>
+          {(settingsOpen || inSettingsGroup) && (
+            <div className="ml-3 space-y-0.5 border-l border-neutral-200 pl-1.5 dark:border-neutral-700">
+              {userRole === "ADMIN" && (
+                <Link
+                  href="/users"
+                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                    pathname === "/users"
+                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                      : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  <Users size={14} className="shrink-0" />
+                  使用者管理
+                </Link>
+              )}
+              <Link
+                href="/org-chart"
+                className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                  pathname === "/org-chart"
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                    : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                }`}
+              >
+                <Network size={14} className="shrink-0" />
+                組織架構圖
+              </Link>
+            </div>
+          )}
+        </div>
         {isApprover && (
           <Link
             href="/approvals"
@@ -385,17 +418,6 @@ export function BoardSidebar({
         >
           <History size={14} className="shrink-0" />
           更新記錄
-        </Link>
-        <Link
-          href="/org-chart"
-          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-            pathname === "/org-chart"
-              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          }`}
-        >
-          <Network size={14} className="shrink-0" />
-          組織架構圖
         </Link>
         <Link
           href="/timesheet"
