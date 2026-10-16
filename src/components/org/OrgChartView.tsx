@@ -1,16 +1,37 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { buildOrgForest, descendantNodeIds, type OrgNodeLite, type OrgTreeNode } from "@/lib/orgTree";
+import {
+  buildOrgForest,
+  descendantNodeIds,
+  resolveOrgDrop,
+  type OrgDropZone,
+  type OrgNodeLite,
+  type OrgTreeNode,
+} from "@/lib/orgTree";
 import { levelLabel, managerChain } from "@/lib/approvalLevels";
 import {
   createOrgNode,
   deleteOrgNode,
   moveOrgNode,
   moveOrgNodeOrder,
+  moveOrgNodeTo,
   renameOrgNode,
   setOrgNodeHead,
   setUserOrgNode,
@@ -38,6 +59,21 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [hint, setHint] = useState<{ targetId: string; zone: OrgDropZone } | null>(null);
+  const hintRef = useRef<typeof hint>(null);
+  const pointerX = useRef(0);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // 拖曳中記下滑鼠的橫向位置:放在卡片的左邊、右邊或中間,意思不同。
+  useEffect(() => {
+    if (!dragId) return;
+    const onMove = (event: PointerEvent) => {
+      pointerX.current = event.clientX;
+    };
+    window.addEventListener("pointermove", onMove, true);
+    return () => window.removeEventListener("pointermove", onMove, true);
+  }, [dragId]);
 
   const forest = useMemo(() => buildOrgForest(nodes), [nodes]);
   const personById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -83,44 +119,73 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
     });
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    const activator = event.activatorEvent as PointerEvent;
+    pointerX.current = activator.clientX;
+    setDragId(String(event.active.id));
+  }
+
+  /** 滑鼠在哪張卡片上、在它的左 / 中 / 右,決定放下去是排前面、變下層、還是排後面;不能放的位置不標示。 */
+  function handleDragMove(event: DragMoveEvent) {
+    const over = event.over;
+    const card = over ? document.querySelector(`[data-org-node="${over.id}"]`) : null;
+    let next: typeof hint = null;
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      const ratio = (pointerX.current - rect.left) / rect.width;
+      const zone: OrgDropZone = ratio < 0.3 ? "before" : ratio > 0.7 ? "after" : "child";
+      if (resolveOrgDrop(nodes, String(event.active.id), String(over!.id), zone)) next = { targetId: String(over!.id), zone };
+    }
+    if (next?.targetId !== hintRef.current?.targetId || next?.zone !== hintRef.current?.zone) {
+      hintRef.current = next;
+      setHint(next);
+    }
+  }
+
+  function endDrag() {
+    hintRef.current = null;
+    setHint(null);
+    setDragId(null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const target = hintRef.current;
+    const draggedId = String(event.active.id);
+    endDrag();
+    if (!target) return;
+    const placement = resolveOrgDrop(nodes, draggedId, target.targetId, target.zone);
+    if (!placement) return;
+    // 放進一個收合著的部門裡,展開它,才看得到剛放進去的。
+    if (target.zone === "child") {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        next.delete(target.targetId);
+        return next;
+      });
+    }
+    void run(() => moveOrgNodeTo(draggedId, placement.parentId, placement.index));
+  }
+
   function renderBranch(item: OrgTreeNode, depth: number) {
     const { node, children } = item;
     const head = node.headId ? personById.get(node.headId) : undefined;
     const isCollapsed = collapsed.has(node.id);
-    const members = membersOf.get(node.id)?.length ?? 0;
     return (
       <li key={node.id}>
-        <div
-          data-org-node={node.id}
-          onClick={() => setSelectedId(node.id)}
-          className={`relative w-44 cursor-pointer rounded-lg border bg-white dark:bg-neutral-900 px-3 py-2 text-center text-xs shadow-sm hover:border-blue-400 ${
-            selectedId === node.id
-              ? "border-blue-500 ring-2 ring-blue-200 dark:ring-blue-900"
-              : "border-neutral-300 dark:border-neutral-600"
-          }`}
-        >
-          <p className="break-words text-sm font-semibold text-neutral-900 dark:text-neutral-100">{node.name}</p>
-          <p className="mt-0.5 break-words text-neutral-600 dark:text-neutral-300">主管:{head?.name ?? "(未設)"}</p>
-          <p className="mt-1 flex justify-center gap-2 text-[10px] text-neutral-400 dark:text-neutral-500">
-            <span>第 {depth} 階</span>
-            <span>{members} 人</span>
-          </p>
-          {children.length > 0 && (
-            <button
-              type="button"
-              data-org-toggle={node.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                toggle(node.id);
-              }}
-              title={isCollapsed ? `展開 ${children.length} 個下層部門` : "收合下層部門"}
-              className="absolute -bottom-2.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-blue-600"
-            >
-              {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-              {isCollapsed && children.length}
-            </button>
-          )}
-        </div>
+        <OrgNodeCard
+          node={node}
+          headName={head?.name}
+          depth={depth}
+          memberCount={membersOf.get(node.id)?.length ?? 0}
+          childCount={children.length}
+          collapsed={isCollapsed}
+          selected={selectedId === node.id}
+          canEdit={canEdit && !busy}
+          dragging={dragId === node.id}
+          dropZone={hint?.targetId === node.id ? hint.zone : null}
+          onSelect={() => setSelectedId(node.id)}
+          onToggle={() => toggle(node.id)}
+        />
         {children.length > 0 && !isCollapsed && <ul>{children.map((child) => renderBranch(child, depth + 1))}</ul>}
       </li>
     );
@@ -135,6 +200,11 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
           掛在部門底下的人,「所屬主管」會照這張圖自動算出來,簽核與可見範圍沿用。
           {canEdit ? "點一個部門可以修改;" : ""}右邊可以查任何一個人的主管階層。
         </p>
+        {canEdit && (
+          <p className="mt-1 max-w-3xl text-xs text-neutral-500 dark:text-neutral-400">
+            拖曳部門調整順序與上下層:放在另一個部門的<b>左邊 / 右邊</b>,就排在它的前面 / 後面(同一層);放在它的<b>中間</b>,就變成它的下層。底下的部門會跟著一起移動。
+          </p>
+        )}
         {note && <p className="mt-2 text-xs text-blue-700 dark:text-blue-300">{note}</p>}
       </div>
 
@@ -145,9 +215,25 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
               還沒有組織架構圖。{canEdit ? "從右邊「新增最上層部門」開始建立(例如公司名稱)。" : "請管理者建立。"}
             </p>
           ) : (
-            <div className="w-max min-w-full pb-4">
-              <ul className="org-tree">{forest.map((tree) => renderBranch(tree, 1))}</ul>
-            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={pointerWithin}
+              onDragStart={handleDragStart}
+              onDragMove={handleDragMove}
+              onDragEnd={handleDragEnd}
+              onDragCancel={endDrag}
+            >
+              <div className="w-max min-w-full pb-4">
+                <ul className="org-tree">{forest.map((tree) => renderBranch(tree, 1))}</ul>
+              </div>
+              <DragOverlay dropAnimation={null}>
+                {dragId && nodeById.get(dragId) ? (
+                  <div className="w-44 cursor-grabbing rounded-lg border border-blue-500 bg-white dark:bg-neutral-900 px-3 py-2 text-center text-sm font-semibold text-neutral-900 dark:text-neutral-100 shadow-lg">
+                    {nodeById.get(dragId)!.name}
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
           )}
         </div>
 
@@ -174,6 +260,83 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
           <UnassignedPanel people={people} personById={personById} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 一個部門的卡片:管理者可以拖,也是放下的目標;拖到上面時用藍線標出會放在左邊、右邊或變成下層。 */
+function OrgNodeCard({
+  node,
+  headName,
+  depth,
+  memberCount,
+  childCount,
+  collapsed,
+  selected,
+  canEdit,
+  dragging,
+  dropZone,
+  onSelect,
+  onToggle,
+}: {
+  node: OrgNodeLite;
+  headName: string | undefined;
+  depth: number;
+  memberCount: number;
+  childCount: number;
+  collapsed: boolean;
+  selected: boolean;
+  canEdit: boolean;
+  dragging: boolean;
+  dropZone: OrgDropZone | null;
+  onSelect: () => void;
+  onToggle: () => void;
+}) {
+  const drag = useDraggable({ id: node.id, disabled: !canEdit });
+  const drop = useDroppable({ id: node.id, disabled: !canEdit });
+  const setRef = (element: HTMLElement | null) => {
+    drag.setNodeRef(element);
+    drop.setNodeRef(element);
+  };
+  return (
+    <div
+      ref={setRef}
+      {...drag.listeners}
+      data-org-node={node.id}
+      onClick={onSelect}
+      className={`relative w-44 rounded-lg border bg-white dark:bg-neutral-900 px-3 py-2 text-center text-xs shadow-sm hover:border-blue-400 ${
+        canEdit ? "cursor-grab" : "cursor-pointer"
+      } ${dragging ? "opacity-40" : ""} ${
+        dropZone === "child"
+          ? "border-blue-500 ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-950"
+          : selected
+            ? "border-blue-500 ring-2 ring-blue-200 dark:ring-blue-900"
+            : "border-neutral-300 dark:border-neutral-600"
+      }`}
+    >
+      {dropZone === "before" && <span data-org-drop="before" className="pointer-events-none absolute -left-2 inset-y-0 w-1 rounded bg-blue-500" />}
+      {dropZone === "after" && <span data-org-drop="after" className="pointer-events-none absolute -right-2 inset-y-0 w-1 rounded bg-blue-500" />}
+      <p className="break-words text-sm font-semibold text-neutral-900 dark:text-neutral-100">{node.name}</p>
+      <p className="mt-0.5 break-words text-neutral-600 dark:text-neutral-300">主管:{headName ?? "(未設)"}</p>
+      <p className="mt-1 flex justify-center gap-2 text-[10px] text-neutral-400 dark:text-neutral-500">
+        <span>第 {depth} 階</span>
+        <span>{memberCount} 人</span>
+      </p>
+      {childCount > 0 && (
+        <button
+          type="button"
+          data-org-toggle={node.id}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          title={collapsed ? `展開 ${childCount} 個下層部門` : "收合下層部門"}
+          className="absolute -bottom-2.5 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-blue-600"
+        >
+          {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+          {collapsed && childCount}
+        </button>
+      )}
     </div>
   );
 }

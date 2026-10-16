@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { logAudit } from "@/lib/activityLog";
-import { findSupervisorCycle, planSupervisorSync, wouldCreateNodeCycle, type OrgNodeLite } from "@/lib/orgTree";
+import { findSupervisorCycle, planOrgMove, planSupervisorSync, wouldCreateNodeCycle, type OrgNodeLite } from "@/lib/orgTree";
 
 /**
  * 公司組織架構圖:部門成樹、每個部門一位主管、人掛在部門底下。
@@ -143,6 +143,40 @@ export async function moveOrgNode(id: string, newParentId: string | null): Promi
     await tx.orgNode.update({ where: { id }, data: { parentId: newParentId, order: (last?.order ?? -1) + 1 } });
     const parentName = nodes.find((n) => n.id === newParentId)?.name;
     return { audit: `組織架構圖:「${node.name}」${parentName ? `移到「${parentName}」底下` : "改為最上層"}` };
+  });
+  done();
+  return result;
+}
+
+/**
+ * 拖曳部門:放到 parentId 底下(null = 最上層)的第 index 個位置。換上層與調順序是同一個動作,
+ * 新同層的順序整個重新編號。
+ */
+export async function moveOrgNodeTo(
+  id: string,
+  parentId: string | null,
+  index: number
+): Promise<{ error?: string; supervisorsChanged?: number }> {
+  const guard = await requireAdminSession();
+  if ("error" in guard) return { error: guard.error };
+  const result = await editOrg(guard.session.userId, async (tx) => {
+    const nodes = await tx.orgNode.findMany({ select: { id: true, name: true, parentId: true, headId: true, order: true } });
+    const node = nodes.find((n) => n.id === id);
+    if (!node) return { error: "找不到這個部門" };
+    if (parentId && !nodes.some((n) => n.id === parentId)) return { error: "找不到上層部門" };
+    if (wouldCreateNodeCycle(nodes, id, parentId)) return { error: "不能把部門掛到它自己或它的下層部門底下" };
+    const updates = planOrgMove(nodes, id, parentId, Number.isFinite(index) ? Math.trunc(index) : 0);
+    if (updates.length === 0) return {};
+    for (const update of updates) {
+      await tx.orgNode.update({ where: { id: update.id }, data: { parentId: update.parentId, order: update.order } });
+    }
+    const parentName = nodes.find((n) => n.id === parentId)?.name;
+    const moved = node.parentId !== parentId;
+    return {
+      audit: moved
+        ? `組織架構圖:拖曳「${node.name}」${parentName ? `到「${parentName}」底下` : "改為最上層"}`
+        : `組織架構圖:拖曳調整「${node.name}」的順序`,
+    };
   });
   done();
   return result;

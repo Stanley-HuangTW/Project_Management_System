@@ -121,6 +121,9 @@ export function findSupervisorCycle(
 
 export type OrgTreeNode = { node: OrgNodeLite; children: OrgTreeNode[] };
 
+/** 同一層的順序:先照 order,再照名稱。畫面與拖曳都用這一個。 */
+const byOrder = (a: OrgNodeLite, b: OrgNodeLite) => a.order - b.order || a.name.localeCompare(b.name, "zh-TW");
+
 /** 依 parentId 組成樹(根 = 沒有上層的部門),同一層照 order、再照名稱排。成環的資料不會被丟掉,各自當作根。 */
 export function buildOrgForest(nodes: OrgNodeLite[]): OrgTreeNode[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -129,7 +132,7 @@ export function buildOrgForest(nodes: OrgNodeLite[]): OrgTreeNode[] {
     const key = n.parentId && byId.has(n.parentId) ? n.parentId : null;
     childrenOf.set(key, [...(childrenOf.get(key) ?? []), n]);
   }
-  const sorted = (list: OrgNodeLite[]) => [...list].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "zh-TW"));
+  const sorted = (list: OrgNodeLite[]) => [...list].sort(byOrder);
   const placed = new Set<string>();
   const build = (n: OrgNodeLite): OrgTreeNode => {
     placed.add(n.id);
@@ -139,4 +142,64 @@ export function buildOrgForest(nodes: OrgNodeLite[]): OrgTreeNode[] {
   // 環裡面的部門(彼此當對方的上層)沒有根可以接,另外各自成一棵,免得從畫面上消失。
   for (const n of sorted(nodes)) if (!placed.has(n.id)) roots.push(build(n));
   return roots;
+}
+
+/** parentId 底下的部門(null = 最上層),照畫面上的順序。上層不存在的部門視同最上層,跟 buildOrgForest 一致。 */
+export function orgChildren(nodes: OrgNodeLite[], parentId: string | null): OrgNodeLite[] {
+  const ids = new Set(nodes.map((n) => n.id));
+  return nodes.filter((n) => (n.parentId && ids.has(n.parentId) ? n.parentId : null) === parentId).sort(byOrder);
+}
+
+/** 拖曳時,放在目標部門的哪個位置:前面、後面(同一層),或裡面(變成它的下層)。 */
+export type OrgDropZone = "before" | "after" | "child";
+
+/** 拖完之後的位置:新的上層(null = 最上層),以及在新同層裡的第幾個(不含被拖的這個部門)。 */
+export type OrgPlacement = { parentId: string | null; index: number };
+
+/**
+ * 把 draggedId 拖到 targetId 的前面 / 後面 / 裡面,會落在哪裡。
+ * 放到自己、放到自己的下層(會繞成環)、或放了之後位置沒變 → null(不能放 / 不用做)。
+ */
+export function resolveOrgDrop(
+  nodes: OrgNodeLite[],
+  draggedId: string,
+  targetId: string,
+  zone: OrgDropZone
+): OrgPlacement | null {
+  const dragged = nodes.find((n) => n.id === draggedId);
+  const target = nodes.find((n) => n.id === targetId);
+  if (!dragged || !target || draggedId === targetId) return null;
+  if (descendantNodeIds(nodes, draggedId).has(targetId)) return null;
+
+  const ids = new Set(nodes.map((n) => n.id));
+  const parentOf = (n: OrgNodeLite) => (n.parentId && ids.has(n.parentId) ? n.parentId : null);
+  const parentId = zone === "child" ? target.id : parentOf(target);
+  const siblings = orgChildren(nodes, parentId).filter((n) => n.id !== draggedId);
+  const index = zone === "child" ? siblings.length : siblings.findIndex((n) => n.id === targetId) + (zone === "after" ? 1 : 0);
+
+  if (parentOf(dragged) === parentId && orgChildren(nodes, parentId).findIndex((n) => n.id === draggedId) === index) return null;
+  return { parentId, index };
+}
+
+/**
+ * 把 nodeId 放到 parentId 底下的第 index 個位置之後,新同層要寫回資料庫的 { 上層, 順序 }。
+ * 新同層整個重新編成 0、1、2…(不怕原本有並列的 order),只回傳有變的;舊的同層留著空號,順序不受影響。
+ */
+export function planOrgMove(
+  nodes: OrgNodeLite[],
+  nodeId: string,
+  parentId: string | null,
+  index: number
+): { id: string; parentId: string | null; order: number }[] {
+  const moving = nodes.find((n) => n.id === nodeId);
+  if (!moving) return [];
+  const siblings = orgChildren(nodes, parentId).filter((n) => n.id !== nodeId);
+  const at = Math.max(0, Math.min(index, siblings.length));
+  const ordered = [...siblings.slice(0, at), moving, ...siblings.slice(at)];
+  const updates: { id: string; parentId: string | null; order: number }[] = [];
+  ordered.forEach((n, order) => {
+    const changed = n.id === nodeId ? n.parentId !== parentId || n.order !== order : n.order !== order;
+    if (changed) updates.push({ id: n.id, parentId, order });
+  });
+  return updates;
 }
