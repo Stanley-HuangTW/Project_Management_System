@@ -115,6 +115,7 @@ model User {
   orgNode       OrgNode?       @relation("OrgNodeMembers", fields: [orgNodeId], references: [id], onDelete: SetNull)
   headOfNodes   OrgNode[]      @relation("OrgNodeHead")
   approvalSteps ApprovalStep[] @relation("ApprovalStepApprover")
+  orgRoles      OrgRole[]      @relation("OrgRoleUser")
 
   ownedBoards             Board[]
   comments                Comment[]
@@ -1300,9 +1301,27 @@ model OrgNode {
   /// 同一層部門的排列順序。
   order     Int       @default(0)
   members   User[]    @relation("OrgNodeMembers")
+  roles     OrgRole[]
   createdAt DateTime  @default(now())
 
   @@index([parentId])
+}
+
+/// 部門裡主管以外的職能:副主管、行政、秘書……(職稱自己填)。
+/// canApprove = true 的人,可以在這個部門的主管那一階代他簽核(主管出差時副主管可以簽);
+/// 沒勾的只是標示在架構圖上。一個人在一個部門只有一個職稱。
+model OrgRole {
+  id         String   @id @default(cuid())
+  nodeId     String
+  node       OrgNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation("OrgRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  canApprove Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@unique([nodeId, userId])
+  @@index([userId])
 }
 
 enum ApprovalKind {

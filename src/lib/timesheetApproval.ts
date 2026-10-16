@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { levelLabel, managerChain } from "@/lib/approvalLevels";
-import { getApprovalLevelSettings, loadSupervisorGraph } from "@/lib/approvalLevelsServer";
+import { getApprovalLevelSettings, loadDelegations, loadSupervisorGraph } from "@/lib/approvalLevelsServer";
 import {
   APPROVER_REASON_LABELS,
   resolveTimeApprovers,
@@ -11,8 +11,15 @@ import {
 /** 一筆待核准的工時:key 是呼叫端自己的識別,groupIds 是它所屬的分組(工作項一個;對應專案的會議是整塊看板)。 */
 export type ApprovalSubject = { key: string; userId: string; groupIds: string[] };
 
-/** level:以主管身分核准時,是送審者的第幾階主管(1 = 直屬主管)。 */
-export type ApproverInfo = { userId: string; name: string; reason: ApproverReason; reasonLabel: string; level?: number };
+/** level:以主管身分核准時,是送審者的第幾階主管(1 = 直屬主管);deputy:是副主管代那位主管簽。 */
+export type ApproverInfo = {
+  userId: string;
+  name: string;
+  reason: ApproverReason;
+  reasonLabel: string;
+  level?: number;
+  deputy?: boolean;
+};
 
 const ROLE_ROWS = ["TEAM_LEADER", "PMD", "SW_DM", "HW_DM", "ME_DM", "QA", "PM_DM"] as const;
 
@@ -23,7 +30,7 @@ export async function resolveApprovers(subjects: ApprovalSubject[]): Promise<Map
 
   const userIds = [...new Set(subjects.map((s) => s.userId))];
   const groupIds = [...new Set(subjects.flatMap((s) => s.groupIds))];
-  const [submitters, roles, admins, graph, levelSettings] = await Promise.all([
+  const [submitters, roles, admins, graph, levelSettings, delegations] = await Promise.all([
     prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, discipline: true, supervisorId: true } }),
     groupIds.length > 0
       ? prisma.groupRoleAssignment.findMany({
@@ -34,6 +41,7 @@ export async function resolveApprovers(subjects: ApprovalSubject[]): Promise<Map
     prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } }),
     loadSupervisorGraph(),
     getApprovalLevelSettings(),
+    loadDelegations(),
   ]);
   const submitterById = new Map(submitters.map((u) => [u.id, u]));
   const adminIds = admins.map((a) => a.id);
@@ -51,6 +59,7 @@ export async function resolveApprovers(subjects: ApprovalSubject[]): Promise<Map
         adminIds,
         managerChain: managerChain(graph, subject.userId),
         levels: levelSettings.timesheet,
+        delegations,
       })
     );
   }
@@ -65,8 +74,10 @@ export async function resolveApprovers(subjects: ApprovalSubject[]): Promise<Map
         userId: a.userId,
         name: nameById.get(a.userId) ?? "(已刪除的使用者)",
         reason: a.reason,
-        reasonLabel: a.reason === "SUPERVISOR" && a.level ? levelLabel(a.level) : APPROVER_REASON_LABELS[a.reason],
+        reasonLabel:
+          a.reason === "SUPERVISOR" && a.level ? `${levelLabel(a.level)}${a.deputy ? "(代簽)" : ""}` : APPROVER_REASON_LABELS[a.reason],
         ...(a.level ? { level: a.level } : {}),
+        ...(a.deputy ? { deputy: true } : {}),
       }))
     );
   }

@@ -1,5 +1,5 @@
 import type { GroupRole } from "@prisma/client";
-import { requiredLevels } from "@/lib/approvalLevels";
+import { requiredLevels, type Delegations } from "@/lib/approvalLevels";
 
 /**
  * 工時要誰核准。一筆工時的核准人(任一人即可):
@@ -36,8 +36,11 @@ export function dmRoleOfDiscipline(discipline: string | null | undefined): Group
 
 export type GroupRoleRow = { groupId: string; role: GroupRole; userId: string };
 
-/** level:這位主管是送審者的第幾階主管(只有 reason 是 SUPERVISOR 時才有),1 = 直屬。 */
-export type ResolvedApprover = { userId: string; reason: ApproverReason; level?: number };
+/**
+ * level:這位主管是送審者的第幾階主管(只有 reason 是 SUPERVISOR 時才有),1 = 直屬。
+ * deputy:true = 不是那位主管本人,是他的副主管 / 可代簽的職能在代他簽。
+ */
+export type ResolvedApprover = { userId: string; reason: ApproverReason; level?: number; deputy?: boolean };
 
 /** 同一個人符合好幾個身分時,顯示最「專案」的那個。 */
 const REASON_PRIORITY: ApproverReason[] = ["PMD", "TEAM_LEADER", "DM", "SUPERVISOR", "ADMIN"];
@@ -52,16 +55,18 @@ export function resolveTimeApprovers(args: {
   managerChain?: string[];
   /** 「主管這一條路」設定要幾階主管同意(1 = 只要直屬主管)。 */
   levels?: number;
+  /** 代簽關係(代理人 → 他能代簽的主管):副主管也算那一階的核准人。 */
+  delegations?: Delegations;
 }): ResolvedApprover[] {
   const { submitter, groupIds, roles, adminIds } = args;
   const groups = new Set(groupIds);
   const dmRole = dmRoleOfDiscipline(submitter.discipline);
 
-  const found = new Map<string, { reason: ApproverReason; level?: number }>();
-  const add = (userId: string, reason: ApproverReason, level?: number) => {
+  const found = new Map<string, { reason: ApproverReason; level?: number; deputy?: boolean }>();
+  const add = (userId: string, reason: ApproverReason, level?: number, deputy?: boolean) => {
     if (userId === submitter.id) return;
     const existing = found.get(userId);
-    if (!existing || REASON_PRIORITY.indexOf(reason) < REASON_PRIORITY.indexOf(existing.reason)) found.set(userId, { reason, level });
+    if (!existing || REASON_PRIORITY.indexOf(reason) < REASON_PRIORITY.indexOf(existing.reason)) found.set(userId, { reason, level, deputy });
   };
 
   for (const row of roles) {
@@ -73,13 +78,18 @@ export function resolveTimeApprovers(args: {
   if (args.managerChain) {
     const required = requiredLevels(args.managerChain.length, args.levels ?? 1);
     for (let i = 0; i < required; i++) add(args.managerChain[i], "SUPERVISOR", i + 1);
+    // 副主管:本人沒有在鏈上的階,由他代簽的那位主管所在的階遞補(最近的一階)。
+    for (const [deputyId, principals] of args.delegations ?? []) {
+      const index = args.managerChain.findIndex((id, i) => i < required && principals.includes(id));
+      if (index >= 0) add(deputyId, "SUPERVISOR", index + 1, true);
+    }
   } else if (submitter.supervisorId) {
     add(submitter.supervisorId, "SUPERVISOR", 1);
   }
   for (const id of adminIds) add(id, "ADMIN");
 
   return [...found.entries()]
-    .map(([userId, { reason, level }]) => ({ userId, reason, ...(level ? { level } : {}) }))
+    .map(([userId, { reason, level, deputy }]) => ({ userId, reason, ...(level ? { level } : {}), ...(deputy ? { deputy } : {}) }))
     .sort(
       (a, b) =>
         REASON_PRIORITY.indexOf(a.reason) - REASON_PRIORITY.indexOf(b.reason) || (a.level ?? 0) - (b.level ?? 0)

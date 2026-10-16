@@ -8,11 +8,12 @@ import type { SessionPayload } from "@/lib/jwt";
 import { logAudit } from "@/lib/activityLog";
 import { groupIdsOfBoards, resolveApprovers, type ApprovalSubject, type ApproverInfo } from "@/lib/timesheetApproval";
 import type { ApprovalTarget } from "@/lib/approvalSelection";
-import { clampLevels, levelLabel, levelToSign, managerChain } from "@/lib/approvalLevels";
+import { clampLevels, levelLabel, levelsOf, levelToSign, managerChain, type Delegations } from "@/lib/approvalLevels";
 import {
   approvalNotes,
   getApprovalLevelSettings,
   loadApprovalSteps,
+  loadDelegations,
   loadSupervisorGraph,
   recordSupervisorApproval,
 } from "@/lib/approvalLevelsServer";
@@ -74,7 +75,7 @@ export type ApprovalQueue = {
  * on leave. Nobody approves their own — a timesheet that approves itself is
  * the same timesheet.
  */
-async function approvableUserIds(session: SessionPayload, levels: number): Promise<string[]> {
+async function approvableUserIds(session: SessionPayload, levels: number, delegations: Delegations): Promise<string[]> {
   if (session.role === "ADMIN") {
     const all = await prisma.user.findMany({ select: { id: true } });
     return all.map((u) => u.id).filter((id) => id !== session.userId);
@@ -83,7 +84,7 @@ async function approvableUserIds(session: SessionPayload, levels: number): Promi
   const users = await loadSupervisorGraph();
   const cap = clampLevels(levels);
   return users
-    .filter((u) => u.id !== session.userId && managerChain(users, u.id, cap).includes(session.userId))
+    .filter((u) => u.id !== session.userId && levelsOf(managerChain(users, u.id, cap), session.userId, delegations).length > 0)
     .map((u) => u.id);
 }
 
@@ -107,10 +108,10 @@ async function myApproverGroupIds(userId: string): Promise<string[]> {
 export async function listApprovalQueue(): Promise<ApprovalQueue> {
   const session = await requireSession();
   const isAdmin = session.role === "ADMIN";
-  const levelSettings = await getApprovalLevelSettings();
+  const [levelSettings, delegations] = await Promise.all([getApprovalLevelSettings(), loadDelegations()]);
   const [reportIds, leaveReportIds, groupIds] = await Promise.all([
-    approvableUserIds(session, levelSettings.timesheet),
-    approvableUserIds(session, levelSettings.leave),
+    approvableUserIds(session, levelSettings.timesheet, delegations),
+    approvableUserIds(session, levelSettings.leave, delegations),
     isAdmin ? Promise.resolve([] as string[]) : myApproverGroupIds(session.userId),
   ]);
   if (reportIds.length === 0 && leaveReportIds.length === 0 && groupIds.length === 0) {
@@ -204,7 +205,7 @@ export async function listApprovalQueue(): Promise<ApprovalQueue> {
   const leavesForMe = isAdmin
     ? leaves
     : leaves.filter((leave) =>
-        levelToSign(managerChain(graph, leave.userId), levelSettings.leave, leaveSteps.get(leave.id) ?? [], session.userId) !== null
+        levelToSign(managerChain(graph, leave.userId), levelSettings.leave, leaveSteps.get(leave.id) ?? [], session.userId, delegations) !== null
       );
 
   return {
@@ -263,6 +264,11 @@ async function assertMayDecideEntry(session: SessionPayload, subject: ApprovalSu
   return me;
 }
 
+/** 稽核紀錄與提示裡的身分:主管顯示第幾階,副主管代簽加註。 */
+function capacityOf(me: ApproverInfo): string {
+  return me.reason === "SUPERVISOR" && me.level ? `${levelLabel(me.level)}${me.deputy ? "(代簽)" : ""}` : me.reasonLabel;
+}
+
 /**
  * 以「主管」身分核准工時:設定要多階的話,這一階簽了還要等其他階,各階都簽齊才算核准。
  * 其他身分(Team Leader、PMD、DM、管理者)單獨核准就算數,退回任何一位核准人都可以。
@@ -308,7 +314,7 @@ export async function decideTimeEntry(
   } catch (err) {
     return { error: err instanceof Error ? err.message : "權限不足" };
   }
-  const capacity = me.reason === "SUPERVISOR" && me.level ? levelLabel(me.level) : me.reasonLabel;
+  const capacity = capacityOf(me);
 
   const trimmed = note.trim();
   if (status === "REJECTED" && !trimmed) return { error: "退回必須寫下原因" };
@@ -370,7 +376,7 @@ export async function decideActivityTime(
   } catch (err) {
     return { error: err instanceof Error ? err.message : "權限不足" };
   }
-  const capacity = me.reason === "SUPERVISOR" && me.level ? levelLabel(me.level) : me.reasonLabel;
+  const capacity = capacityOf(me);
 
   const trimmed = note.trim();
   if (status === "REJECTED" && !trimmed) return { error: "退回必須寫下原因" };
@@ -429,8 +435,9 @@ export async function decideLeave(
   if (session.role !== "ADMIN") {
     const settings = await getApprovalLevelSettings();
     const chain = managerChain(await loadSupervisorGraph(), leave.userId);
-    const myIndex = chain.indexOf(session.userId);
-    if (myIndex < 0 || myIndex >= clampLevels(settings.leave)) return { error: "權限不足:你不是這個人需要簽核的主管" };
+    const delegations = await loadDelegations();
+    const mayAct = levelsOf(chain, session.userId, delegations).filter((level) => level <= clampLevels(settings.leave));
+    if (mayAct.length === 0) return { error: "權限不足:你不是這個人需要簽核的主管" };
     if (status === "APPROVED") {
       const step = await recordSupervisorApproval({
         kind: "LEAVE",
@@ -444,7 +451,7 @@ export async function decideLeave(
         await logAudit(
           "APPROVAL",
           session.userId,
-          `核准請假的「${levelLabel(myIndex + 1)}」這一階:${leave.user.name} ${leave.startDate}~${leave.endDate},${step.note ?? "尚待其他階主管"}`
+          `核准請假的「${levelLabel(step.level ?? mayAct[0])}${chain.includes(session.userId) ? "" : "(代簽)"}」這一階:${leave.user.name} ${leave.startDate}~${leave.endDate},${step.note ?? "尚待其他階主管"}`
         );
         revalidatePath("/approvals");
         return {};
@@ -517,9 +524,10 @@ export async function decideBatch(
 export async function hasApprovalRole(): Promise<boolean> {
   const session = await requireSession();
   if (session.role === "ADMIN") return true;
-  const [reports, roles] = await Promise.all([
+  const [reports, roles, deputyRoles] = await Promise.all([
     prisma.user.count({ where: { supervisorId: session.userId } }),
     prisma.groupRoleAssignment.count({ where: { userId: session.userId, role: { in: [...APPROVER_ROLES] } } }),
+    prisma.orgRole.count({ where: { userId: session.userId, canApprove: true } }),
   ]);
-  return reports > 0 || roles > 0;
+  return reports > 0 || roles > 0 || deputyRoles > 0;
 }

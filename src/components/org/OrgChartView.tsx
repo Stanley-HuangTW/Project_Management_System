@@ -32,11 +32,14 @@ import {
   moveOrgNode,
   moveOrgNodeOrder,
   moveOrgNodeTo,
+  removeOrgRole,
   renameOrgNode,
+  saveOrgRole,
   setOrgNodeHead,
   setUserOrgNode,
   type OrgChartData,
   type OrgChartPerson,
+  type OrgRoleRow,
 } from "@/lib/actions/orgChart";
 
 type RunResult = { error?: string; supervisorsChanged?: number };
@@ -52,7 +55,7 @@ const buttonClass =
  * 改完之後,掛在部門底下的人的「所屬主管」會照架構圖重算(伺服器端),簽核與可見範圍沿用。
  */
 export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: boolean }) {
-  const { nodes, people } = data;
+  const { nodes, people, roles } = data;
   const router = useRouter();
   const { confirm, notify } = useDialogs();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -83,6 +86,12 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
     for (const p of people) if (p.orgNodeId) map.set(p.orgNodeId, [...(map.get(p.orgNodeId) ?? []), p]);
     return map;
   }, [people]);
+
+  const rolesOf = useMemo(() => {
+    const map = new Map<string, OrgRoleRow[]>();
+    for (const r of roles) map.set(r.nodeId, [...(map.get(r.nodeId) ?? []), r]);
+    return map;
+  }, [roles]);
 
   const selected = selectedId ? (nodeById.get(selectedId) ?? null) : null;
 
@@ -175,6 +184,7 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
         <OrgNodeCard
           node={node}
           headName={head?.name}
+          roleLines={roleLines(rolesOf.get(node.id) ?? [], personById)}
           depth={depth}
           memberCount={membersOf.get(node.id)?.length ?? 0}
           childCount={children.length}
@@ -247,6 +257,7 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
               personById={personById}
               nodeById={nodeById}
               members={membersOf.get(selected.id) ?? []}
+              roles={rolesOf.get(selected.id) ?? []}
               canEdit={canEdit}
               busy={busy}
               run={run}
@@ -256,7 +267,7 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
           ) : (
             canEdit && <AddRootPanel busy={busy} run={run} onCreated={setSelectedId} />
           )}
-          <ChainPanel people={people} personById={personById} nodeById={nodeById} />
+          <ChainPanel people={people} personById={personById} nodeById={nodeById} roles={roles} />
           <UnassignedPanel people={people} personById={personById} />
         </div>
       </div>
@@ -264,10 +275,18 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
   );
 }
 
+/** 卡片上主管底下的幾行:同一個職稱的人併在一起,例如「副主管:王小明、李大華」。 */
+function roleLines(nodeRoles: OrgRoleRow[], personById: Map<string, OrgChartPerson>): string[] {
+  const byTitle = new Map<string, string[]>();
+  for (const r of nodeRoles) byTitle.set(r.title, [...(byTitle.get(r.title) ?? []), personById.get(r.userId)?.name ?? "?"]);
+  return [...byTitle.entries()].map(([title, names]) => `${title}:${names.join("、")}`);
+}
+
 /** 一個部門的卡片:管理者可以拖,也是放下的目標;拖到上面時用藍線標出會放在左邊、右邊或變成下層。 */
 function OrgNodeCard({
   node,
   headName,
+  roleLines: extraLines,
   depth,
   memberCount,
   childCount,
@@ -281,6 +300,7 @@ function OrgNodeCard({
 }: {
   node: OrgNodeLite;
   headName: string | undefined;
+  roleLines: string[];
   depth: number;
   memberCount: number;
   childCount: number;
@@ -318,6 +338,11 @@ function OrgNodeCard({
       {dropZone === "after" && <span data-org-drop="after" className="pointer-events-none absolute -right-2 inset-y-0 w-1 rounded bg-blue-500" />}
       <p className="break-words text-sm font-semibold text-neutral-900 dark:text-neutral-100">{node.name}</p>
       <p className="mt-0.5 break-words text-neutral-600 dark:text-neutral-300">主管:{headName ?? "(未設)"}</p>
+      {extraLines.map((line) => (
+        <p key={line} data-org-role-line className="break-words text-[11px] text-neutral-500 dark:text-neutral-400">
+          {line}
+        </p>
+      ))}
       <p className="mt-1 flex justify-center gap-2 text-[10px] text-neutral-400 dark:text-neutral-500">
         <span>第 {depth} 階</span>
         <span>{memberCount} 人</span>
@@ -397,6 +422,7 @@ function NodePanel({
   personById,
   nodeById,
   members,
+  roles,
   canEdit,
   busy,
   run,
@@ -409,6 +435,7 @@ function NodePanel({
   personById: Map<string, OrgChartPerson>;
   nodeById: Map<string, OrgNodeLite>;
   members: OrgChartPerson[];
+  roles: OrgRoleRow[];
   canEdit: boolean;
   busy: boolean;
   run: (work: () => Promise<RunResult>, afterOk?: () => void) => Promise<boolean>;
@@ -548,6 +575,8 @@ function NodePanel({
           )}
         </div>
 
+        <RolesSection node={node} roles={roles} people={sortedPeople} personById={personById} canEdit={canEdit} busy={busy} run={run} />
+
         {canEdit && (
           <>
             <div className="flex gap-2">
@@ -580,20 +609,145 @@ function NodePanel({
   );
 }
 
+/** 部門裡主管以外的職能:副主管、行政……。副主管、或勾了「可代主管簽核」的職能,可以代這個部門的主管簽。 */
+function RolesSection({
+  node,
+  roles,
+  people,
+  personById,
+  canEdit,
+  busy,
+  run,
+}: {
+  node: OrgNodeLite;
+  roles: OrgRoleRow[];
+  people: OrgChartPerson[];
+  personById: Map<string, OrgChartPerson>;
+  canEdit: boolean;
+  busy: boolean;
+  run: (work: () => Promise<RunResult>, afterOk?: () => void) => Promise<boolean>;
+}) {
+  const [kind, setKind] = useState<"deputy" | "other">("deputy");
+  const [title, setTitle] = useState("");
+  const [canApprove, setCanApprove] = useState(false);
+  const [userId, setUserId] = useState("");
+  if (roles.length === 0 && !canEdit) return null;
+
+  const taken = new Set(roles.map((r) => r.userId));
+  const candidates = people.filter((p) => p.id !== node.headId && !taken.has(p.id));
+  const effectiveTitle = kind === "deputy" ? "副主管" : title;
+  const effectiveApprove = kind === "deputy" ? true : canApprove;
+
+  return (
+    <div data-org-roles>
+      <p className="mb-1 font-medium text-neutral-800 dark:text-neutral-100">副主管與其它職能({roles.length})</p>
+      {roles.length === 0 ? (
+        <p className="text-neutral-400 dark:text-neutral-500">還沒有。</p>
+      ) : (
+        <ul className="space-y-1">
+          {roles.map((r) => (
+            <li key={r.id} className="flex items-center gap-1.5" data-org-role={r.id}>
+              <span className="min-w-0 flex-1 truncate">
+                <span className="text-neutral-500 dark:text-neutral-400">{r.title}</span> {personById.get(r.userId)?.name ?? "?"}
+                {r.canApprove && <span className="ml-1 text-[10px] text-blue-600 dark:text-blue-300">可代簽</span>}
+              </span>
+              {canEdit && (
+                <>
+                  <label className="flex shrink-0 items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                    <input
+                      type="checkbox"
+                      checked={r.canApprove}
+                      disabled={busy}
+                      onChange={() => void run(() => saveOrgRole(node.id, r.userId, r.title, !r.canApprove))}
+                      aria-label={`${personById.get(r.userId)?.name ?? ""}可代主管簽核`}
+                    />
+                    可代簽
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(() => removeOrgRole(r.id))}
+                    title="移除這個職能"
+                    aria-label={`移除${personById.get(r.userId)?.name ?? ""}的職能`}
+                    className="shrink-0 rounded p-0.5 text-neutral-400 hover:text-red-600"
+                  >
+                    <X size={12} />
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canEdit && (
+        <div className="mt-2 space-y-1.5">
+          <div className="flex gap-2">
+            <select value={kind} onChange={(e) => setKind(e.target.value as "deputy" | "other")} className={fieldClass} aria-label="職能類型">
+              <option value="deputy">副主管(可代簽)</option>
+              <option value="other">其它職能…</option>
+            </select>
+            <select value={userId} onChange={(e) => setUserId(e.target.value)} className={fieldClass} aria-label="職能人員">
+              <option value="">選一個人…</option>
+              {candidates.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {kind === "other" && (
+            <div className="flex items-center gap-2">
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="職稱,例如:行政" maxLength={20} className={fieldClass} />
+              <label className="flex shrink-0 items-center gap-1 text-neutral-500 dark:text-neutral-400">
+                <input type="checkbox" checked={canApprove} onChange={(e) => setCanApprove(e.target.checked)} />
+                可代簽
+              </label>
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={busy || !userId || !effectiveTitle.trim()}
+            onClick={() =>
+              void run(
+                () => saveOrgRole(node.id, userId, effectiveTitle, effectiveApprove),
+                () => {
+                  setUserId("");
+                  setTitle("");
+                  setCanApprove(false);
+                }
+              )
+            }
+            className={buttonClass}
+          >
+            加入
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 查某個人頭上的主管:一階(直屬)、二階、三階… */
 function ChainPanel({
   people,
   personById,
   nodeById,
+  roles,
 }: {
   people: OrgChartPerson[];
   personById: Map<string, OrgChartPerson>;
   nodeById: Map<string, OrgNodeLite>;
+  roles: OrgRoleRow[];
 }) {
   const [userId, setUserId] = useState("");
   const sorted = useMemo(() => [...people].sort((a, b) => a.name.localeCompare(b.name, "zh-TW")), [people]);
   const chain = useMemo(() => (userId ? managerChain(people, userId) : []), [people, userId]);
   const person = userId ? personById.get(userId) : undefined;
+  /** 某位主管的代簽人:在他帶領的部門裡、勾了「可代主管簽核」的副主管 / 職能。 */
+  const deputiesOf = (managerId: string) =>
+    roles
+      .filter((r) => r.canApprove && nodeById.get(r.nodeId)?.headId === managerId && r.userId !== managerId)
+      .map((r) => personById.get(r.userId)?.name ?? "?");
   return (
     <PanelCard title="查主管階層">
       <select value={userId} onChange={(e) => setUserId(e.target.value)} className={fieldClass} aria-label="選擇人員">
@@ -623,6 +777,11 @@ function ChainPanel({
                     {manager?.orgNodeId && (
                       <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">
                         {nodeById.get(manager.orgNodeId)?.name}
+                      </span>
+                    )}
+                    {deputiesOf(id).length > 0 && (
+                      <span data-chain-deputy className="ml-1 text-[10px] text-blue-600 dark:text-blue-300">
+                        可代簽:{deputiesOf(id).join("、")}
                       </span>
                     )}
                   </li>

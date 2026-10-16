@@ -91,3 +91,32 @@ describe("resolveTimeApprovers:多階主管", () => {
     expect(result.find((r) => r.userId === "director")?.reason).toBe("TEAM_LEADER");
   });
 });
+
+describe("resolveTimeApprovers:副主管代簽", () => {
+  const chain = ["boss", "director", "ceo"];
+  const delegations = new Map<string, string[]>([["deputy", ["boss"]], ["deputy2", ["director"]]]);
+
+  it("副主管跟著他代簽的主管那一階,標成代簽", () => {
+    const supervisors = resolve({ managerChain: chain, levels: 2, delegations }).filter((r) => r.reason === "SUPERVISOR");
+    expect(supervisors.map((r) => `${r.userId}:${r.level}${r.deputy ? ":deputy" : ""}`)).toEqual([
+      "boss:1",
+      "deputy:1:deputy",
+      "director:2",
+      "deputy2:2:deputy",
+    ]);
+  });
+
+  it("代簽的主管在設定的階數之外:他的副主管也不是核准人", () => {
+    const supervisors = resolve({ managerChain: chain, levels: 1, delegations }).filter((r) => r.reason === "SUPERVISOR");
+    expect(supervisors.map((r) => r.userId)).toEqual(["boss", "deputy"]);
+  });
+
+  it("副主管本人就是送審者:不算", () => {
+    const result = resolve({ managerChain: chain, levels: 1, delegations: new Map([["me", ["boss"]]]) });
+    expect(result.some((r) => r.userId === "me")).toBe(false);
+  });
+
+  it("沒給代簽關係:跟以前一樣", () => {
+    expect(resolve({ managerChain: chain, levels: 2 }).some((r) => r.deputy)).toBe(false);
+  });
+});

@@ -4,6 +4,7 @@ import {
   clampLevels,
   describeApprovalProgress,
   levelLabel,
+  levelsOf,
   levelToSign,
   managerChain,
   requiredLevels,
@@ -130,5 +131,41 @@ describe("describeApprovalProgress", () => {
 
   it("設定的階數比實際主管多:只算實際有的", () => {
     expect(describeApprovalProgress({ chain: ["lead"], configured: 3, steps: [], nameOf })).toBeNull();
+  });
+});
+
+describe("代簽(副主管 / 可代簽的職能)", () => {
+  const chain = ["lead", "manager", "director"];
+  // deputy 可以代簽 lead;both 可以代簽 lead,本人又是二階主管 manager
+  const delegations = new Map<string, string[]>([
+    ["deputy", ["lead"]],
+    ["manager", ["lead"]],
+  ]);
+
+  it("levelsOf:本人在鏈上的階,加上代簽的主管所在的階", () => {
+    expect(levelsOf(chain, "lead")).toEqual([1]);
+    expect(levelsOf(chain, "deputy", delegations)).toEqual([1]);
+    expect(levelsOf(chain, "manager", delegations)).toEqual([1, 2]);
+    expect(levelsOf(chain, "stranger", delegations)).toEqual([]);
+    expect(levelsOf(chain, "deputy")).toEqual([]); // 沒帶代簽關係就沒有
+  });
+
+  it("副主管可以簽直屬主管那一階", () => {
+    expect(levelToSign(chain, 2, [], "deputy", delegations)).toBe(1);
+  });
+
+  it("直屬主管那一階已經有人簽了,副主管就不用再簽", () => {
+    expect(levelToSign(chain, 2, [{ level: 1 }], "deputy", delegations)).toBeNull();
+  });
+
+  it("代簽的主管不在需要的階數內,就簽不了", () => {
+    expect(levelToSign(chain, 1, [], "manager", delegations)).toBe(1); // 設一階:二階主管本人不算,但他代簽直屬那一階
+    expect(levelToSign(["lead", "manager"], 1, [{ level: 1 }], "manager", delegations)).toBeNull();
+  });
+
+  it("能簽好幾階時,先簽最近的、還沒簽的", () => {
+    expect(levelToSign(chain, 2, [], "manager", delegations)).toBe(1);
+    expect(levelToSign(chain, 2, [{ level: 1 }], "manager", delegations)).toBe(2);
+    expect(levelToSign(chain, 2, [{ level: 1 }, { level: 2 }], "manager", delegations)).toBeNull();
   });
 });

@@ -63,16 +63,35 @@ export function approvalProgress(chainLength: number, configured: number, steps:
   return { required, done, missing, complete: required > 0 && missing.length === 0 };
 }
 
+/** 代簽:代理人 → 他可以代為簽核的主管(他在哪些部門是「可代主管簽核」的副主管 / 職能,那些部門的主管)。 */
+export type Delegations = ReadonlyMap<string, readonly string[]>;
+
 /**
- * userId 對這筆紀錄能簽哪一階:他在送審者的主管鏈上、那一階在需要的範圍內、而且還沒簽。
- * 不能簽回 null(不是主管、階數超過設定、或那一階已經簽過)。
+ * userId 能簽主管鏈上的哪幾階(1 起算,由近到遠):他本人在鏈上的那一階,
+ * 加上他能代簽的主管所在的階。兩者都沒有就是空的。
  */
-export function levelToSign(chain: string[], configured: number, steps: ApprovalStepLite[], userId: string): number | null {
-  const index = chain.indexOf(userId);
-  if (index < 0) return null;
-  const level = index + 1;
+export function levelsOf(chain: string[], userId: string, delegations?: Delegations): number[] {
+  const principals = new Set(delegations?.get(userId) ?? []);
+  const levels: number[] = [];
+  chain.forEach((id, index) => {
+    if (id === userId || principals.has(id)) levels.push(index + 1);
+  });
+  return levels;
+}
+
+/**
+ * userId 對這筆紀錄能簽哪一階:他(或他代簽的主管)在送審者的主管鏈上、那一階在需要的範圍內、而且還沒簽。
+ * 能簽好幾階時取最近的、還沒簽的那一階。不能簽回 null(不是主管、階數超過設定、或那幾階都已經簽過)。
+ */
+export function levelToSign(
+  chain: string[],
+  configured: number,
+  steps: ApprovalStepLite[],
+  userId: string,
+  delegations?: Delegations
+): number | null {
   const progress = approvalProgress(chain.length, configured, steps);
-  return progress.missing.includes(level) ? level : null;
+  return levelsOf(chain, userId, delegations).find((level) => progress.missing.includes(level)) ?? null;
 }
 
 /**

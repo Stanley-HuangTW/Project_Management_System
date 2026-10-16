@@ -24,12 +24,15 @@ export type OrgChartPerson = {
   discipline: string | null;
 };
 
-export type OrgChartData = { nodes: OrgNodeLite[]; people: OrgChartPerson[] };
+/** 部門裡主管以外的職能:副主管、行政……。canApprove = 可以代這個部門的主管簽核。 */
+export type OrgRoleRow = { id: string; nodeId: string; userId: string; title: string; canApprove: boolean };
+
+export type OrgChartData = { nodes: OrgNodeLite[]; people: OrgChartPerson[]; roles: OrgRoleRow[] };
 
 /** 任何登入的人都能看架構圖。 */
 export async function getOrgChart(): Promise<OrgChartData> {
   await requireSession();
-  const [nodes, people] = await Promise.all([
+  const [nodes, people, roles] = await Promise.all([
     prisma.orgNode.findMany({
       select: { id: true, name: true, parentId: true, headId: true, order: true },
       orderBy: [{ order: "asc" }, { name: "asc" }],
@@ -38,8 +41,12 @@ export async function getOrgChart(): Promise<OrgChartData> {
       select: { id: true, name: true, orgNodeId: true, supervisorId: true, discipline: true },
       orderBy: [{ order: "asc" }, { name: "asc" }],
     }),
+    prisma.orgRole.findMany({
+      select: { id: true, nodeId: true, userId: true, title: true, canApprove: true },
+      orderBy: [{ createdAt: "asc" }],
+    }),
   ]);
-  return { nodes, people };
+  return { nodes, people, roles };
 }
 
 async function requireAdminSession() {
@@ -221,6 +228,58 @@ export async function setUserOrgNode(userId: string, nodeId: string | null): Pro
   });
   done();
   return result;
+}
+
+const MAX_ROLE_TITLE = 20;
+
+/**
+ * 在部門裡加一個主管以外的職能(副主管、行政……),已經有就改職稱與可否代簽。
+ * 不影響「誰是誰的主管」,所以不用重算所屬主管;canApprove 才會影響簽核(代這個部門的主管簽)。
+ */
+export async function saveOrgRole(
+  nodeId: string,
+  userId: string,
+  title: string,
+  canApprove: boolean
+): Promise<{ error?: string }> {
+  const guard = await requireAdminSession();
+  if ("error" in guard) return { error: guard.error };
+  const trimmed = title.trim();
+  if (!trimmed) return { error: "請輸入職稱(例如:副主管)" };
+  if (trimmed.length > MAX_ROLE_TITLE) return { error: `職稱最多 ${MAX_ROLE_TITLE} 個字` };
+  const [node, user] = await Promise.all([
+    prisma.orgNode.findUnique({ where: { id: nodeId }, select: { name: true, headId: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+  if (!node) return { error: "找不到這個部門" };
+  if (!user) return { error: "找不到這位使用者" };
+  if (node.headId === userId) return { error: `${user.name}本來就是「${node.name}」的主管,不用再設職能` };
+  await prisma.orgRole.upsert({
+    where: { nodeId_userId: { nodeId, userId } },
+    create: { nodeId, userId, title: trimmed, canApprove },
+    update: { title: trimmed, canApprove },
+  });
+  await logAudit(
+    "SETTINGS",
+    guard.session.userId,
+    `組織架構圖:「${node.name}」的${trimmed}設為「${user.name}」${canApprove ? "(可代主管簽核)" : ""}`
+  );
+  done();
+  return {};
+}
+
+export async function removeOrgRole(id: string): Promise<{ error?: string }> {
+  const guard = await requireAdminSession();
+  if ("error" in guard) return { error: guard.error };
+  const role = await prisma.orgRole.findUnique({
+    where: { id },
+    select: { title: true, node: { select: { name: true } }, user: { select: { name: true } } },
+  });
+  if (!role) return { error: "找不到這個職能" };
+  await prisma.orgRole.delete({ where: { id } });
+  await logAudit("SETTINGS", guard.session.userId, `組織架構圖:移除「${role.node.name}」的${role.title}「${role.user.name}」`);
+  done();
+  return {};
 }
 
 /** 刪除部門:底下還有子部門或成員就不行,請先處理。 */

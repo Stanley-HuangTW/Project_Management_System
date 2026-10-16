@@ -5,6 +5,7 @@ import {
   clampLevels,
   describeApprovalProgress,
   levelLabel,
+  levelsOf,
   managerChain,
   requiredLevels,
 } from "@/lib/approvalLevels";
@@ -21,6 +22,24 @@ export async function getApprovalLevelSettings(): Promise<{ leave: number; times
 /** 整間公司的所屬主管關係(幾十筆)撈一次,之後每個人的主管鏈都在記憶體裡算。 */
 export async function loadSupervisorGraph(): Promise<{ id: string; supervisorId: string | null }[]> {
   return prisma.user.findMany({ select: { id: true, supervisorId: true } });
+}
+
+/**
+ * 代簽關係:誰(副主管 / 勾了「可代主管簽核」的職能)可以代哪位主管簽核。
+ * 看的是「他擔任可代簽職能的部門,現在的主管是誰」,所以部門換主管,代簽的對象跟著換。
+ */
+export async function loadDelegations(): Promise<Map<string, string[]>> {
+  const rows = await prisma.orgRole.findMany({
+    where: { canApprove: true, node: { headId: { not: null } } },
+    select: { userId: true, node: { select: { headId: true } } },
+  });
+  const map = new Map<string, string[]>();
+  for (const row of rows) {
+    const head = row.node.headId;
+    if (!head || head === row.userId) continue;
+    map.set(row.userId, [...(map.get(row.userId) ?? []), head]);
+  }
+  return map;
 }
 
 export type ApprovalStepRow = { level: number; approverId: string };
@@ -54,17 +73,26 @@ export async function recordSupervisorApproval(args: {
   submitterId: string;
   approverId: string;
   configured: number;
-}): Promise<{ error?: string; complete: boolean; note: string | null }> {
+}): Promise<{ error?: string; complete: boolean; note: string | null; level?: number }> {
   const { kind, targetId, submitterId, approverId, configured } = args;
   const chain = managerChain(await loadSupervisorGraph(), submitterId);
   const required = requiredLevels(chain.length, configured);
-  if (required <= 1) return { complete: true, note: null };
+  if (required <= 1) return { complete: true, note: null, level: 1 };
 
-  const level = chain.indexOf(approverId) + 1;
-  if (level < 1 || level > required) return { error: "權限不足:你不是這個人需要簽核的主管", complete: false, note: null };
+  const eligible = levelsOf(chain, approverId, await loadDelegations()).filter((l) => l <= required);
+  if (eligible.length === 0) return { error: "權限不足:你不是這個人需要簽核的主管", complete: false, note: null };
   const steps = (await loadApprovalSteps(kind, [targetId])).get(targetId) ?? [];
-  if (steps.some((s) => s.level === level)) {
-    return { error: `你已經以${levelLabel(level)}的身分核准過了,等其他階的主管`, complete: false, note: null };
+  const level = eligible.find((l) => !steps.some((s) => s.level === l));
+  if (level === undefined) {
+    const prior = steps.find((s) => s.level === eligible[0]);
+    return {
+      error:
+        prior?.approverId === approverId
+          ? `你已經以${levelLabel(eligible[0])}的身分核准過了,等其他階的主管`
+          : `${levelLabel(eligible[0])}已經有人核准過了,不用再簽`,
+      complete: false,
+      note: null,
+    };
   }
   try {
     await prisma.approvalStep.create({ data: { kind, targetId, level, approverId } });
@@ -73,9 +101,9 @@ export async function recordSupervisorApproval(args: {
   }
   const all = [...steps, { level, approverId }];
   const progress = approvalProgress(chain.length, configured, all);
-  if (progress.complete) return { complete: true, note: `${progress.required} 階主管都已同意` };
+  if (progress.complete) return { complete: true, note: `${progress.required} 階主管都已同意`, level };
   const nameOf = await namesOf([...chain.slice(0, required), ...all.map((s) => s.approverId)]);
-  return { complete: false, note: describeApprovalProgress({ chain, configured, steps: all, nameOf }) };
+  return { complete: false, note: describeApprovalProgress({ chain, configured, steps: all, nameOf }), level };
 }
 
 /**
@@ -91,9 +119,10 @@ export async function approvalNotes(args: {
   const { kind, items, configured, viewerId } = args;
   const notes = new Map<string, string>();
   if (items.length === 0 || clampLevels(configured) <= 1) return notes;
-  const [graph, stepsByTarget] = await Promise.all([
+  const [graph, stepsByTarget, delegations] = await Promise.all([
     loadSupervisorGraph(),
     loadApprovalSteps(kind, items.map((i) => i.targetId)),
+    loadDelegations(),
   ]);
   const chains = new Map(items.map((i) => [i.targetId, managerChain(graph, i.submitterId)]));
   const nameOf = await namesOf([...chains.values()].flat().concat([...stepsByTarget.values()].flat().map((s) => s.approverId)));
@@ -102,8 +131,12 @@ export async function approvalNotes(args: {
     const steps = stepsByTarget.get(item.targetId) ?? [];
     const base = describeApprovalProgress({ chain, configured, steps, nameOf });
     if (!base) continue;
-    const mine = chain.indexOf(viewerId) + 1;
-    notes.set(item.targetId, mine > 0 ? `${base}(你是${levelLabel(mine)})` : base);
+    const own = chain.indexOf(viewerId) + 1;
+    const acting = own > 0 ? 0 : (levelsOf(chain, viewerId, delegations)[0] ?? 0);
+    notes.set(
+      item.targetId,
+      own > 0 ? `${base}(你是${levelLabel(own)})` : acting > 0 ? `${base}(你可代簽${levelLabel(acting)})` : base
+    );
   }
   return notes;
 }
