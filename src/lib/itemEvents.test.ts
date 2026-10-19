@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetTab, pickStatusTimes, formatEventTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
+import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetTab, pickStatusTimes, formatEventTime, formatEventDateTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
 
 describe("classifyStatusOption", () => {
   it("標籤叫 Completed / Done / 完成 / 已完成:完成(匯入的看板選項是隨機 id,只能看標籤)", () => {
@@ -148,5 +148,15 @@ describe("pickStatusTimes", () => {
   it("沒有切換紀錄:都是 null", () => {
     expect(pickStatusTimes([], true)).toEqual({ started: null, completed: null, wasCompleted: null });
     expect(pickStatusTimes([{ statusKind: "other", at: "x", by: null }], false)).toEqual({ started: null, completed: null, wasCompleted: null });
+  });
+});
+
+describe("formatEventDateTime", () => {
+  it("台灣時間,含年份", () => {
+    expect(formatEventDateTime("2026-10-12T01:12:57.000Z")).toBe("2026/10/12 09:12");
+  });
+
+  it("跨日、跨年:UTC 的晚上是台灣的隔天", () => {
+    expect(formatEventDateTime(new Date("2026-12-31T17:05:00.000Z"))).toBe("2027/1/1 01:05");
   });
 });

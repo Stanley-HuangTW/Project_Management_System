@@ -142,6 +142,12 @@ export function formatEventTime(iso: string): string {
   return `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))} ${t.slice(11, 16)}`;
 }
 
+/** 顯示用:「2026/10/12 09:12」(台灣時間,含年份)——任務是什麼時候派遣的,可能是很久以前。 */
+export function formatEventDateTime(value: Date | string): string {
+  const t = new Date(new Date(value).getTime() + 8 * 3_600_000).toISOString();
+  return `${t.slice(0, 4)}/${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))} ${t.slice(11, 16)}`;
+}
+
 /** 項目視窗的分頁(跟 ItemDetailModal 的 TABS 同一組 id)。 */
 export type ItemDetailTab = "updates" | "files" | "links" | "activity" | "card" | "checklist" | "cost";
 

@@ -125,7 +125,13 @@ export function ItemDetailModal({
       )}
       {tab === "files" && <FilesTab boardId={boardId} itemId={item.id} />}
       {tab === "links" && <LinksTab boardId={boardId} itemId={item.id} currentUserId={currentUserId} userRole={userRole} />}
-      {tab === "activity" && <ActivityLogTab itemId={item.id} />}
+      {tab === "activity" && (
+        <ActivityLogTab
+          itemId={item.id}
+          dispatcher={users.find((u) => u.id === item.createdById)?.name}
+          dispatchedAt={item.createdAt}
+        />
+      )}
       {tab === "card" && (
         <ItemCardTab
           boardId={boardId}

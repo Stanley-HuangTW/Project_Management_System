@@ -13,7 +13,7 @@ import { DependentItemsRow } from "../DependentItemsRow";
 import { PredLampDot } from "../PredLampDot";
 import { ConstraintRow } from "./ConstraintRow";
 import { StatusTimes } from "./StatusTimes";
-import { pickStatusColumnId } from "@/lib/itemEvents";
+import { formatEventDateTime, pickStatusColumnId } from "@/lib/itemEvents";
 import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
@@ -356,6 +356,13 @@ export function ItemCardTab({
         <span className="w-40 truncate text-right text-sm text-neutral-800 dark:text-neutral-100">
           {createdByName ?? "—"}
         </span>
+      </div>
+      <div
+        data-dispatch-time
+        className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5"
+      >
+        <span className="text-xs text-neutral-400 dark:text-neutral-500">任務派遣時間</span>
+        <span className="text-right text-sm text-neutral-800 dark:text-neutral-100">{formatEventDateTime(item.createdAt)}</span>
       </div>
       {todoStats && (
         <div className="flex items-center justify-between px-4 py-2.5">
