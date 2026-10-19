@@ -252,3 +252,23 @@ export function flattenOrgForest(nodes: OrgNodeLite[]): { node: OrgNodeLite; dep
   buildOrgForest(nodes).forEach((tree) => walk(tree, 1));
   return out;
 }
+
+/**
+ * 每個部門的人數。
+ * own:這個部門本身——掛在這個部門的成員,加上這個部門的主管(主管的所屬部門是別的部門,在這裡是兼任,也算);同一個人只算一次。
+ * total:這個部門加上底下所有子部門的人,同一個人只算一次(給上層部門顯示底下的總數)。
+ */
+export function orgHeadcounts(
+  nodes: OrgNodeLite[],
+  people: { id: string; orgNodeId: string | null }[]
+): Map<string, { own: number; total: number }> {
+  const ownSet = new Map<string, Set<string>>(nodes.map((n) => [n.id, new Set(n.headId ? [n.headId] : [])]));
+  for (const person of people) ownSet.get(person.orgNodeId ?? "")?.add(person.id);
+  const result = new Map<string, { own: number; total: number }>();
+  for (const node of nodes) {
+    const everyone = new Set<string>();
+    for (const id of descendantNodeIds(nodes, node.id)) for (const personId of ownSet.get(id) ?? []) everyone.add(personId);
+    result.set(node.id, { own: ownSet.get(node.id)?.size ?? 0, total: everyone.size });
+  }
+  return result;
+}

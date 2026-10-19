@@ -20,6 +20,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import {
   buildOrgForest,
   descendantNodeIds,
+  orgHeadcounts,
   resolveOrgDrop,
   type OrgDropZone,
   type OrgNodeLite,
@@ -86,6 +87,8 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
     for (const p of people) if (p.orgNodeId) map.set(p.orgNodeId, [...(map.get(p.orgNodeId) ?? []), p]);
     return map;
   }, [people]);
+
+  const headcounts = useMemo(() => orgHeadcounts(nodes, people), [nodes, people]);
 
   const rolesOf = useMemo(() => {
     const map = new Map<string, OrgRoleRow[]>();
@@ -187,7 +190,8 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
           headHome={head && head.orgNodeId !== node.id ? homeName(head, nodeById) : null}
           roleLines={roleLines(rolesOf.get(node.id) ?? [], personById)}
           depth={depth}
-          memberCount={membersOf.get(node.id)?.length ?? 0}
+          memberCount={headcounts.get(node.id)?.own ?? 0}
+          totalCount={headcounts.get(node.id)?.total ?? 0}
           childCount={children.length}
           collapsed={isCollapsed}
           selected={selectedId === node.id}
@@ -296,6 +300,7 @@ function OrgNodeCard({
   roleLines: extraLines,
   depth,
   memberCount,
+  totalCount,
   childCount,
   collapsed,
   selected,
@@ -311,7 +316,10 @@ function OrgNodeCard({
   headHome: string | null;
   roleLines: string[];
   depth: number;
+  /** 這個部門本身的人數:掛在這裡的成員 + 主管(兼任也算)。 */
   memberCount: number;
+  /** 這個部門加上底下所有子部門的人數,同一個人只算一次。 */
+  totalCount: number;
   childCount: number;
   collapsed: boolean;
   selected: boolean;
@@ -351,7 +359,7 @@ function OrgNodeCard({
         {headHome && (
           <span
             data-org-concurrent
-            title={`${headName} 的所屬部門是「${headHome}」,在這裡是兼任主管,不算在人數裡`}
+            title={`${headName} 的所屬部門是「${headHome}」,在這裡是兼任主管,有算在這個部門的人數裡`}
             className="ml-0.5 text-[10px] text-amber-600 dark:text-amber-400"
           >
             (兼任)
@@ -365,7 +373,13 @@ function OrgNodeCard({
       ))}
       <p className="mt-1 flex justify-center gap-2 text-[10px] text-neutral-400 dark:text-neutral-500">
         <span>第 {depth} 階</span>
-        <span>{memberCount} 人</span>
+        {childCount > 0 ? (
+          <span data-org-total title={`含底下所有部門的人數,同一個人只算一次;這個部門本身 ${memberCount} 人`}>
+            共 {totalCount} 人
+          </span>
+        ) : (
+          <span>{memberCount} 人</span>
+        )}
       </p>
       {childCount > 0 && (
         <button
@@ -504,7 +518,7 @@ function NodePanel({
               </select>
               {head && head.orgNodeId !== node.id && (
                 <span data-org-concurrent-note className="mt-1 block text-[11px] text-amber-700 dark:text-amber-400">
-                  {head.name} 的所屬部門是「{homeName(head, nodeById)}」,在這裡是兼任主管,所以不算在人數與成員裡;他的主管關係與簽核照常。
+                  {head.name} 的所屬部門是「{homeName(head, nodeById)}」,在這裡是兼任主管,人數與成員都有算他;他的主管關係與簽核照常。
                 </span>
               )}
             </label>
@@ -546,8 +560,8 @@ function NodePanel({
         )}
 
         <div>
-          <p className="mb-1 font-medium text-neutral-800 dark:text-neutral-100">成員({members.length})</p>
-          {members.length === 0 ? (
+          <p className="mb-1 font-medium text-neutral-800 dark:text-neutral-100">成員({members.length + (head && head.orgNodeId !== node.id ? 1 : 0)})</p>
+          {members.length === 0 && !(head && head.orgNodeId !== node.id) ? (
             <p className="text-neutral-400 dark:text-neutral-500">還沒有成員。</p>
           ) : (
             <ul className="space-y-1">
@@ -573,6 +587,15 @@ function NodePanel({
                   )}
                 </li>
               ))}
+              {head && head.orgNodeId !== node.id && (
+                <li data-org-concurrent-member className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate">
+                    {head.name}
+                    <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">兼任主管</span>
+                    <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">所屬:{homeName(head, nodeById)}</span>
+                  </span>
+                </li>
+              )}
             </ul>
           )}
           {canEdit && (

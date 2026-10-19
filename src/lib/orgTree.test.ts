@@ -5,6 +5,7 @@ import {
   findSupervisorCycle,
   flattenOrgForest,
   nodeDepth,
+  orgHeadcounts,
   orgChildren,
   planOrgMove,
   planDisciplineSync,
@@ -300,5 +301,39 @@ describe("flattenOrgForest", () => {
 
   it("沒有部門 → 空的", () => {
     expect(flattenOrgForest([])).toEqual([]);
+  });
+});
+
+describe("orgHeadcounts", () => {
+  // 公司(主管 boss,本人掛在公司)─ 研發處(主管 boss,兼任;成員 a)─ 硬體部(主管 h,本人掛在研發處;成員 b、c)─ 軟體部(沒有主管、沒有成員)
+  const tree: OrgNodeLite[] = [node("co", null, "boss"), node("rd", "co", "boss"), node("hw", "rd", "h"), node("sw", "rd", null)];
+  const people = [
+    { id: "boss", orgNodeId: "co" },
+    { id: "a", orgNodeId: "rd" },
+    { id: "h", orgNodeId: "rd" },
+    { id: "b", orgNodeId: "hw" },
+    { id: "c", orgNodeId: "hw" },
+    { id: "free", orgNodeId: null },
+  ];
+  const counts = orgHeadcounts(tree, people);
+
+  it("兼任的主管算在他當主管的那個部門:研發處的 boss 是兼任,也算 1 人", () => {
+    expect(counts.get("rd")?.own).toBe(3); // a、h、boss(兼任)
+    expect(counts.get("hw")?.own).toBe(3); // b、c、h(兼任)
+  });
+
+  it("沒有成員也沒有主管的部門是 0", () => {
+    expect(counts.get("sw")).toEqual({ own: 0, total: 0 });
+  });
+
+  it("上層是底下所有部門的總數,同一個人只算一次", () => {
+    expect(counts.get("rd")?.total).toBe(5); // boss、a、h、b、c
+    expect(counts.get("co")?.total).toBe(5); // 公司本身 boss,底下沒有新的人
+    expect(counts.get("hw")?.total).toBe(3);
+  });
+
+  it("沒有掛部門的人不算", () => {
+    const all = [...counts.values()].reduce((max, c) => Math.max(max, c.total), 0);
+    expect(all).toBe(5);
   });
 });
