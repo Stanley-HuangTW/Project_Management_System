@@ -956,8 +956,8 @@ model OrgUnit {
   order Int    @default(0)
 
   users User[]
-  /// 對應到組織架構圖的哪些部門(部門那一側存代號)。
-  orgNodes OrgNode[]
+  /// 對應到組織架構圖的哪些部門。
+  orgNodes OrgNodeUnit[]
   rate  DisciplineRate?
   plans LabourPlan[]
   slots LabourSlot[]
@@ -1304,13 +1304,24 @@ model OrgNode {
   order     Int       @default(0)
   members   User[]    @relation("OrgNodeMembers")
   roles     OrgRole[]
-  /// 這個部門(含底下沒有自己對應的子部門)算哪個人力單位(EE、ME…)。掛在這裡的人,所屬單位(User.discipline)
-  /// 照這個帶入;人力表、費率、DM 角色還是用單位代號,所以那些邏輯不用改。
-  unitCode  String?
-  unit      OrgUnit?  @relation(fields: [unitCode], references: [code], onDelete: SetNull, onUpdate: Cascade)
+  /// 這個部門(含底下沒有自己對應的子部門)對應哪些人力單位(EE、ME…),可以好幾個。
+  units     OrgNodeUnit[]
   createdAt DateTime  @default(now())
 
   @@index([parentId])
+}
+
+/// 組織架構圖的部門 ↔ 人力單位(EE、ME…)的對應,多對多:一個部門可以同時對應好幾個單位(例如品質管理部 = QA + FAE)。
+/// 掛在這個部門(與底下沒有自己對應的子部門)的人,所屬單位(User.discipline)從這幾個裡面帶入:
+/// 只有一個就直接帶入,有好幾個就由人選(User 的所屬單位已經在其中就維持)。
+model OrgNodeUnit {
+  nodeId   String
+  node     OrgNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  unitCode String
+  unit     OrgUnit @relation(fields: [unitCode], references: [code], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([nodeId, unitCode])
+  @@index([unitCode])
 }
 
 /// 部門裡主管以外的職能:副主管、行政、秘書……(職稱自己填)。

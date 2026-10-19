@@ -6,6 +6,7 @@ import { listUsers } from "@/lib/actions/user";
 import { listResources } from "@/lib/actions/resource";
 import { UserManagement } from "@/components/users/UserManagement";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
+import { loadOrgNodes } from "@/lib/orgNodesServer";
 import { ResourceManagement } from "@/components/resources/ResourceManagement";
 import { LeaveManagement } from "@/components/users/LeaveManagement";
 import { listLeaves } from "@/lib/actions/leave";
@@ -61,10 +62,7 @@ export default async function UsersPage({
         <UserManagement
           users={await listUsers()}
           units={await loadOrgUnits()}
-          orgNodes={await prisma.orgNode.findMany({
-            select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true },
-            orderBy: [{ order: "asc" }, { name: "asc" }],
-          })}
+          orgNodes={await loadOrgNodes()}
           currentUserId={session.userId}
         />
       ) : activeTab === "leave" ? (

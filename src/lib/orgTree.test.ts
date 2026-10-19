@@ -12,7 +12,7 @@ import {
   planSupervisorSync,
   resolveOrgDrop,
   supervisorFromOrg,
-  unitCodeFromOrg,
+  unitCodesFromOrg,
   wouldCreateNodeCycle,
   type OrgNodeLite,
 } from "@/lib/orgTree";
@@ -248,45 +248,53 @@ describe("planOrgMove", () => {
 
 // 公司 ─ 研發處(對應 PM)─ 硬體部(對應 EE)─ 電子課(沒有自己的對應)
 //                       └ 軟體部(沒有對應,沿用研發處的 PM)
+//        品質部(對應 QA + FAE,兩個)
 const unitNodes: OrgNodeLite[] = [
-  { ...node("co", null, null), unitCode: null },
-  { ...node("rd", "co", null), unitCode: "PM" },
-  { ...node("hw", "rd", null), unitCode: "EE" },
-  { ...node("ee", "hw", null), unitCode: null },
-  { ...node("sw", "rd", null), unitCode: null },
+  { ...node("co", null, null), unitCodes: [] },
+  { ...node("rd", "co", null), unitCodes: ["PM"] },
+  { ...node("hw", "rd", null), unitCodes: ["EE"] },
+  { ...node("ee", "hw", null), unitCodes: [] },
+  { ...node("sw", "rd", null) },
+  { ...node("qa", "co", null), unitCodes: ["QA", "FAE"] },
+  { ...node("qa1", "qa", null) },
 ];
 
-describe("unitCodeFromOrg", () => {
-  it("自己有對應就用自己的", () => {
-    expect(unitCodeFromOrg(unitNodes, "hw")).toBe("EE");
+describe("unitCodesFromOrg", () => {
+  it("自己有對應就用自己的(可以好幾個)", () => {
+    expect(unitCodesFromOrg(unitNodes, "hw")).toEqual(["EE"]);
+    expect(unitCodesFromOrg(unitNodes, "qa")).toEqual(["QA", "FAE"]);
   });
 
-  it("沒有對應就沿用最近的上層", () => {
-    expect(unitCodeFromOrg(unitNodes, "ee")).toBe("EE");
-    expect(unitCodeFromOrg(unitNodes, "sw")).toBe("PM");
+  it("沒有對應就沿用最近的上層(也是整組)", () => {
+    expect(unitCodesFromOrg(unitNodes, "ee")).toEqual(["EE"]);
+    expect(unitCodesFromOrg(unitNodes, "sw")).toEqual(["PM"]);
+    expect(unitCodesFromOrg(unitNodes, "qa1")).toEqual(["QA", "FAE"]);
   });
 
-  it("一路到頂都沒有對應、或沒掛部門 → null", () => {
-    expect(unitCodeFromOrg(unitNodes, "co")).toBeNull();
-    expect(unitCodeFromOrg(unitNodes, null)).toBeNull();
-    expect(unitCodeFromOrg(unitNodes, "gone")).toBeNull();
+  it("一路到頂都沒有對應、或沒掛部門 → 空的", () => {
+    expect(unitCodesFromOrg(unitNodes, "co")).toEqual([]);
+    expect(unitCodesFromOrg(unitNodes, null)).toEqual([]);
+    expect(unitCodesFromOrg(unitNodes, "gone")).toEqual([]);
   });
 
   it("資料有環也不會跑不完", () => {
-    expect(unitCodeFromOrg([node("a", "b", null), node("b", "a", null)], "a")).toBeNull();
+    expect(unitCodesFromOrg([node("a", "b", null), node("b", "a", null)], "a")).toEqual([]);
   });
 });
 
 describe("planDisciplineSync", () => {
   const people = [
-    { id: "p1", orgNodeId: "ee", discipline: "PM" }, // 該是 EE
+    { id: "p1", orgNodeId: "ee", discipline: "PM" }, // 對應只有 EE → 改成 EE
     { id: "p2", orgNodeId: "sw", discipline: "PM" }, // 已經是 PM
     { id: "p3", orgNodeId: "co", discipline: "SW" }, // 部門沒有對應 → 不動
     { id: "p4", orgNodeId: null, discipline: "ME" }, // 沒掛部門 → 不動
     { id: "p5", orgNodeId: "hw", discipline: null }, // 還沒有單位 → 帶入 EE
+    { id: "p6", orgNodeId: "qa", discipline: "FAE" }, // 對應有 QA + FAE,他本來就是 FAE → 維持
+    { id: "p7", orgNodeId: "qa1", discipline: null }, // 對應有兩個,沒辦法替他選 → 不動
+    { id: "p8", orgNodeId: "qa", discipline: "SW" }, // 對應有兩個,他現在的單位不在其中 → 也不動(由人選)
   ];
 
-  it("只回傳跟現在不一樣的,沒有對應或沒掛部門的人不動", () => {
+  it("只回傳跟現在不一樣的:對應只有一個才替他決定;有好幾個就維持現狀", () => {
     expect(planDisciplineSync(unitNodes, people)).toEqual([
       { userId: "p1", discipline: "EE" },
       { userId: "p5", discipline: "EE" },

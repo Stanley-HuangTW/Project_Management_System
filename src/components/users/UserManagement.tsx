@@ -32,6 +32,7 @@ import {
   reorderUsers,
   listUsers,
   updateUserHourlyRate,
+  updateUserDiscipline,
   updateUserMonthlySalary,
   updateUserTimesheetAccess,
   updateUserTimesheetNoApproval,
@@ -40,7 +41,7 @@ import {
 } from "@/lib/actions/user";
 import type { UserRole } from "@prisma/client";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
-import { flattenOrgForest, type OrgNodeLite } from "@/lib/orgTree";
+import { flattenOrgForest, unitCodesFromOrg, type OrgNodeLite } from "@/lib/orgTree";
 import { setUserOrgNode } from "@/lib/actions/orgChart";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { HScrollPane } from "@/components/ui/HScrollPane";
@@ -55,7 +56,7 @@ type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
  * 之後,寬度不夠時會撐出容器,由外層的 overflow-x-auto 捲,兩欄都還讀得到。
  */
 const ROW_GRID =
-  "grid-cols-[24px_48px_minmax(120px,1.1fr)_minmax(190px,1.4fr)_90px_110px_200px_110px_110px_150px_110px]";
+  "grid-cols-[24px_48px_minmax(120px,1.1fr)_minmax(190px,1.4fr)_90px_110px_250px_110px_110px_150px_110px]";
 
 function roleLabel(role: UserRole) {
   return role === "ADMIN" ? "管理者" : role === "SUPERVISOR" ? "主管" : "團隊成員";
@@ -140,6 +141,8 @@ function SortableUserRow({
   units,
   departments,
   onDepartmentChange,
+  unitChoices,
+  onUnitChange,
   supervisorOptions,
   depth,
   uploading,
@@ -155,6 +158,9 @@ function SortableUserRow({
   /** 組織架構圖的部門,由上到下、依層級縮排:「組織單位」欄位從這裡選。 */
   departments: { node: OrgNodeLite; depth: number }[];
   onDepartmentChange: (userId: string, nodeId: string | null) => void;
+  /** 這個人的部門(沿用上層)對應的人力單位代號;有好幾個的時候要讓人選。 */
+  unitChoices: string[];
+  onUnitChange: (userId: string, code: string | null) => void;
   /** 誰可以當這個人的主管 —— 已經去掉他自己和他底下的人。 */
   supervisorOptions: UserRow[];
   /** 他在組織圖的第幾階:頭上沒有主管是第 1 階。 */
@@ -243,13 +249,30 @@ function SortableUserRow({
             </option>
           ))}
         </select>
-        {user.discipline && (
-          <span
-            className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 font-mono text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-            title={`人力單位:${unitLabel(units, user.discipline)}`}
+        {unitChoices.length >= 2 ? (
+          <select
+            value={user.discipline && unitChoices.includes(user.discipline) ? user.discipline : ""}
+            onChange={(e) => onUnitChange(user.id, e.target.value || null)}
+            aria-label={`${user.name} 的人力單位`}
+            title="這個部門對應好幾個人力單位,請選這個人是哪一個"
+            className="w-24 shrink-0 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1 py-1 text-xs outline-none focus:border-blue-500"
           >
-            {user.discipline}
-          </span>
+            <option value="">選單位…</option>
+            {unitChoices.map((code) => (
+              <option key={code} value={code}>
+                {unitLabel(units, code)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          user.discipline && (
+            <span
+              className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 font-mono text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+              title={`人力單位:${unitLabel(units, user.discipline)}`}
+            >
+              {user.discipline}
+            </span>
+          )
         )}
       </div>
       <SalaryInput user={user} />
@@ -382,6 +405,14 @@ export function UserManagement({
   async function handleDepartmentChange(userId: string, nodeId: string | null) {
     const result = await setUserOrgNode(userId, nodeId).catch(() => ({ error: "操作失敗,請重新整理後再試一次。" }));
     if (result.error) await notify(result.error, { title: "無法修改組織單位" });
+    router.refresh();
+  }
+
+  /** 部門對應好幾個人力單位時,由人選這個人是哪一個(只有管理者能改)。 */
+  async function handleUnitChange(userId: string, code: string | null) {
+    await updateUserDiscipline(userId, code).catch(async () => {
+      await notify("無法修改人力單位,請重新整理後再試一次。", { title: "無法修改人力單位" });
+    });
     router.refresh();
   }
 
@@ -584,6 +615,8 @@ export function UserManagement({
                 units={units}
                 departments={departments}
                 onDepartmentChange={handleDepartmentChange}
+                unitChoices={unitCodesFromOrg(orgNodes, u.orgNodeId)}
+                onUnitChange={handleUnitChange}
                 supervisorOptions={supervisorsFor(u.id)}
                 depth={orgDepth(users, u.id)}
                 uploading={uploadingId === u.id}

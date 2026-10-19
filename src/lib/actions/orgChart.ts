@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { loadOrgNodes } from "@/lib/orgNodesServer";
 import { logAudit } from "@/lib/activityLog";
 import {
   findSupervisorCycle,
@@ -40,10 +41,7 @@ export type OrgChartData = { nodes: OrgNodeLite[]; people: OrgChartPerson[]; rol
 export async function getOrgChart(): Promise<OrgChartData> {
   await requireSession();
   const [nodes, people, roles] = await Promise.all([
-    prisma.orgNode.findMany({
-      select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true },
-      orderBy: [{ order: "asc" }, { name: "asc" }],
-    }),
+    loadOrgNodes(),
     prisma.user.findMany({
       select: { id: true, name: true, orgNodeId: true, supervisorId: true, discipline: true },
       orderBy: [{ order: "asc" }, { name: "asc" }],
@@ -70,7 +68,7 @@ class OrgEditError extends Error {}
  */
 async function syncSupervisors(tx: Prisma.TransactionClient): Promise<{ supervisors: number; disciplines: number }> {
   const [nodes, people] = await Promise.all([
-    tx.orgNode.findMany({ select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true } }),
+    loadOrgNodes(tx),
     tx.user.findMany({ select: { id: true, name: true, orgNodeId: true, supervisorId: true, discipline: true } }),
   ]);
   const changes = planSupervisorSync(nodes, people);
@@ -209,24 +207,34 @@ export async function moveOrgNodeTo(
 }
 
 /**
- * 部門對應的人力單位(null = 取消對應)。掛在這個部門(與底下沒有自己對應的子部門)的人,所屬單位照它帶入;
+ * 一個人力單位(EE、ME…)對應哪些組織架構圖部門——整組覆蓋(勾選清單按「套用」)。一個部門可以同時對應好幾個單位
+ * (例如品質管理部 = QA + FAE)。掛在這些部門(與底下沒有自己對應的子部門)的人,所屬單位照對應帶入:
+ * 對應只有一個單位就直接帶入,有好幾個就維持他現在的(在其中的話),由人在使用者管理選。
  * 取消對應不會把已經帶入的單位清掉。
  */
-export async function setOrgNodeUnit(
-  id: string,
-  unitCode: string | null
+export async function setOrgUnitNodes(
+  unitCode: string,
+  nodeIds: string[]
 ): Promise<{ error?: string; supervisorsChanged?: number; disciplinesChanged?: number }> {
   const guard = await requireAdminSession();
   if ("error" in guard) return { error: guard.error };
   const result = await editOrg(guard.session.userId, async (tx) => {
-    const node = await tx.orgNode.findUnique({ where: { id }, select: { name: true, unitCode: true } });
-    if (!node) return { error: "找不到這個部門" };
-    if (unitCode && !(await tx.orgUnit.findUnique({ where: { code: unitCode }, select: { code: true } }))) {
-      return { error: "找不到這個組織單位" };
-    }
-    if (node.unitCode === unitCode) return {};
-    await tx.orgNode.update({ where: { id }, data: { unitCode } });
-    return { audit: `組織架構圖:「${node.name}」對應的組織單位 ${node.unitCode ?? "(未設)"} → ${unitCode ?? "(未設)"}` };
+    if (!(await tx.orgUnit.findUnique({ where: { code: unitCode }, select: { code: true } }))) return { error: "找不到這個組織單位" };
+    const wanted = [...new Set(nodeIds)];
+    const found = await tx.orgNode.findMany({ where: { id: { in: wanted } }, select: { id: true, name: true } });
+    if (found.length !== wanted.length) return { error: "有部門找不到了,請重新整理後再試一次" };
+    const current = await tx.orgNodeUnit.findMany({ where: { unitCode }, select: { nodeId: true, node: { select: { name: true } } } });
+    const currentIds = new Set(current.map((c) => c.nodeId));
+    const added = found.filter((n) => !currentIds.has(n.id));
+    const removed = current.filter((c) => !wanted.includes(c.nodeId));
+    if (added.length === 0 && removed.length === 0) return {};
+    if (removed.length > 0) await tx.orgNodeUnit.deleteMany({ where: { unitCode, nodeId: { in: removed.map((c) => c.nodeId) } } });
+    if (added.length > 0) await tx.orgNodeUnit.createMany({ data: added.map((n) => ({ nodeId: n.id, unitCode })) });
+    const parts = [
+      ...added.map((n) => `+${n.name}`),
+      ...removed.map((c) => `-${c.node.name}`),
+    ];
+    return { audit: `組織架構圖:組織單位 ${unitCode} 的對應部門 ${parts.join("、")}` };
   });
   done();
   return result;
@@ -240,14 +248,24 @@ export async function setOrgNodeHead(id: string, userId: string | null): Promise
     const node = await tx.orgNode.findUnique({ where: { id }, select: { name: true } });
     if (!node) return { error: "找不到這個部門" };
     let userName: string | null = null;
+    let promoted = false;
     if (userId) {
-      const user = await tx.user.findUnique({ where: { id: userId }, select: { name: true, orgNodeId: true } });
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { name: true, orgNodeId: true, role: true } });
       if (!user) return { error: "找不到這位使用者" };
       userName = user.name;
       if (!user.orgNodeId) await tx.user.update({ where: { id: userId }, data: { orgNodeId: id } });
+      // 部門主管的登入角色至少要是「主管」:原本是團隊成員的升上去;管理者不動,也不會降級。
+      if (user.role === "MEMBER") {
+        await tx.user.update({ where: { id: userId }, data: { role: "SUPERVISOR" } });
+        promoted = true;
+      }
     }
     await tx.orgNode.update({ where: { id }, data: { headId: userId } });
-    return { audit: `組織架構圖:「${node.name}」主管設為${userName ? `「${userName}」` : "(未設)"}` };
+    return {
+      audit: `組織架構圖:「${node.name}」主管設為${userName ? `「${userName}」` : "(未設)"}${
+        promoted ? `;${userName} 的登入角色由「團隊成員」自動升成「主管」` : ""
+      }`,
+    };
   });
   done();
   return result;

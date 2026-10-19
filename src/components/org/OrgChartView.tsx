@@ -22,11 +22,13 @@ import {
   descendantNodeIds,
   orgHeadcounts,
   resolveOrgDrop,
+  unitCodesFromOrg,
   type OrgDropZone,
   type OrgNodeLite,
   type OrgTreeNode,
 } from "@/lib/orgTree";
 import { levelLabel, managerChain } from "@/lib/approvalLevels";
+import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import {
   createOrgNode,
   deleteOrgNode,
@@ -55,7 +57,7 @@ const buttonClass =
  * 指定主管、增減成員;選一個人可以看他的一階(直屬)、二階、三階…主管。管理者才能修改,其他人唯讀。
  * 改完之後,掛在部門底下的人的「所屬主管」會照架構圖重算(伺服器端),簽核與可見範圍沿用。
  */
-export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: boolean }) {
+export function OrgChartView({ data, canEdit, units }: { data: OrgChartData; canEdit: boolean; units: OrgUnit[] }) {
   const { nodes, people, roles } = data;
   const router = useRouter();
   const { confirm, notify } = useDialogs();
@@ -263,6 +265,7 @@ export function OrgChartView({ data, canEdit }: { data: OrgChartData; canEdit: b
               nodeById={nodeById}
               members={membersOf.get(selected.id) ?? []}
               roles={rolesOf.get(selected.id) ?? []}
+              units={units}
               canEdit={canEdit}
               busy={busy}
               run={run}
@@ -457,6 +460,7 @@ function NodePanel({
   nodeById,
   members,
   roles,
+  units,
   canEdit,
   busy,
   run,
@@ -470,6 +474,7 @@ function NodePanel({
   nodeById: Map<string, OrgNodeLite>;
   members: OrgChartPerson[];
   roles: OrgRoleRow[];
+  units: OrgUnit[];
   canEdit: boolean;
   busy: boolean;
   run: (work: () => Promise<RunResult>, afterOk?: () => void) => Promise<boolean>;
@@ -558,6 +563,18 @@ function NodePanel({
             <p>上層部門:{parent?.name ?? "(最上層)"}</p>
           </>
         )}
+
+        {(() => {
+          const codes = unitCodesFromOrg(nodes, node.id);
+          if (codes.length === 0) return null;
+          const inherited = (node.unitCodes ?? []).length === 0;
+          return (
+            <p data-org-units className="text-neutral-500 dark:text-neutral-400">
+              人力單位:{codes.map((code) => unitLabel(units, code)).join("、")}
+              {inherited && <span className="ml-1 text-[10px] text-neutral-400 dark:text-neutral-500">(沿用上層部門)</span>}
+            </p>
+          );
+        })()}
 
         <div>
           <p className="mb-1 font-medium text-neutral-800 dark:text-neutral-100">成員({members.length + (head && head.orgNodeId !== node.id ? 1 : 0)})</p>

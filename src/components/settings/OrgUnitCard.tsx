@@ -1,20 +1,21 @@
 "use client";
 
-import { useMemo, useTransition } from "react";
+import { useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import type { OrgUnit } from "@/lib/orgUnits";
-import { flattenOrgForest, type OrgNodeLite } from "@/lib/orgTree";
+import type { OrgNodeLite } from "@/lib/orgTree";
+import { OrgUnitNodesPicker } from "./OrgUnitNodesPicker";
 import {
   createOrgUnit,
   renameOrgUnit,
   deleteOrgUnit,
   moveOrgUnit,
 } from "@/lib/actions/orgUnit";
-import { setOrgNodeUnit } from "@/lib/actions/orgChart";
+import { setOrgUnitNodes } from "@/lib/actions/orgChart";
 
 /**
  * 公司組織單位。
@@ -26,8 +27,6 @@ export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNode
   const { notify, prompt, confirm } = useDialogs();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  /** 組織架構圖的部門,由上到下、依層級縮排,給「對應部門」的選單用。 */
-  const treeNodes = useMemo(() => flattenOrgForest(nodes), [nodes]);
 
   /** 伺服器才知道能不能改,所以結果一律由它回答,這裡只負責顯示。 */
   async function run(action: () => Promise<{ error?: string }>) {
@@ -88,9 +87,10 @@ export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNode
         已經有人月、標準月薪或名額掛著的單位刪不掉,得先把那些改到別的單位。
       </p>
       <p className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
-        這裡的「單位」是算人力用的(EE、ME…)。「對應部門」把單位對應到
+        這裡的「單位」是算人力用的(EE、ME…)。「對應組織架構圖部門」把單位對應到
         <Link href="/org-chart" className="mx-1 font-medium underline">組織架構圖</Link>
-        的部門:使用者管理裡選了那個部門(或它底下沒有自己對應的子部門)的人,所屬單位會自動帶入。
+        的部門,可以複選;一個部門也可以同時對應好幾個單位(例如品質管理部 = QA + FAE)。
+        使用者管理裡選了那個部門(或它底下沒有自己對應的子部門)的人,對應只有一個單位就自動帶入;有好幾個單位就由你在使用者管理選。
         誰是誰的直屬、二階、三階主管,也在組織架構圖設定。
       </p>
 
@@ -121,48 +121,49 @@ export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNode
                 </button>
               </td>
               <td className="py-1.5 pr-2" data-unit-nodes={unit.code}>
-                <div className="flex flex-wrap items-center gap-1">
-                  {nodes
-                    .filter((n) => n.unitCode === unit.code)
-                    .map((n) => (
-                      <span
-                        key={n.id}
-                        className="inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
-                      >
-                        {n.name}
-                        <button
-                          type="button"
-                          disabled={isPending}
-                          onClick={() => run(() => setOrgNodeUnit(n.id, null))}
-                          title={`取消「${n.name}」對應 ${unit.code}`}
-                          aria-label={`取消「${n.name}」對應 ${unit.code}`}
-                          className="rounded text-blue-400 hover:text-red-600 disabled:opacity-50"
+                {(() => {
+                  const mapped = nodes.filter((n) => n.unitCodes?.includes(unit.code));
+                  const mappedIds = mapped.map((n) => n.id);
+                  return (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {mapped.map((n) => (
+                        <span
+                          key={n.id}
+                          className="inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
                         >
-                          <X size={11} />
-                        </button>
-                      </span>
-                    ))}
-                  <select
-                    value=""
-                    disabled={isPending || treeNodes.length === 0}
-                    onChange={(e) => {
-                      if (e.target.value) void run(() => setOrgNodeUnit(e.target.value, unit.code));
-                    }}
-                    aria-label={`${unit.code} 對應部門`}
-                    className="rounded-md border border-neutral-300 bg-white px-1.5 py-0.5 text-xs text-neutral-600 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-300"
-                  >
-                    <option value="">{treeNodes.length === 0 ? "還沒有部門" : "+ 對應部門…"}</option>
-                    {treeNodes
-                      .filter(({ node }) => node.unitCode !== unit.code)
-                      .map(({ node, depth }) => (
-                        <option key={node.id} value={node.id}>
-                          {"　".repeat(depth - 1)}
-                          {node.name}
-                          {node.unitCode ? `(現在:${node.unitCode})` : ""}
-                        </option>
+                          {n.name}
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            onClick={() =>
+                              run(() =>
+                                setOrgUnitNodes(
+                                  unit.code,
+                                  mappedIds.filter((id) => id !== n.id)
+                                )
+                              )
+                            }
+                            title={`取消「${n.name}」對應 ${unit.code}`}
+                            aria-label={`取消「${n.name}」對應 ${unit.code}`}
+                            className="rounded text-blue-400 hover:text-red-600 disabled:opacity-50"
+                          >
+                            <X size={11} />
+                          </button>
+                        </span>
                       ))}
-                  </select>
-                </div>
+                      <OrgUnitNodesPicker
+                        unitCode={unit.code}
+                        unitName={unit.label}
+                        nodes={nodes}
+                        selectedIds={mappedIds}
+                        disabled={isPending}
+                        onApply={async (ids) => {
+                          await run(() => setOrgUnitNodes(unit.code, ids));
+                        }}
+                      />
+                    </div>
+                  );
+                })()}
               </td>
               <td className="py-1.5">
                 <div className="flex items-center justify-end gap-0.5">

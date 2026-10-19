@@ -6,6 +6,7 @@ import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import { listPrograms, type ProgramRow } from "@/lib/actions/program";
 import { listProgramReportSubscriptions } from "@/lib/actions/programReportSubscription";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
+import { loadOrgNodes } from "@/lib/orgNodesServer";
 import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { SystemSettingsForm } from "@/components/settings/SystemSettingsForm";
 
@@ -67,10 +68,7 @@ export default async function SettingsPage() {
       <h1 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">系統設定</h1>
       <SystemSettingsForm
         orgUnits={await loadOrgUnits()}
-        orgNodes={await prisma.orgNode.findMany({
-          select: { id: true, name: true, parentId: true, headId: true, order: true, unitCode: true },
-          orderBy: [{ order: "asc" }, { name: "asc" }],
-        })}
+        orgNodes={await loadOrgNodes()}
         dmScopes={await loadDmScopeSettings()}
         isAdmin={isAdmin}
         emailNotificationsEnabled={settings.emailNotificationsEnabled}
