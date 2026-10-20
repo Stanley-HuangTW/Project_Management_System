@@ -4,7 +4,7 @@ import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
 import { endFromStartAndDays, shiftDate } from "@/lib/workday";
-import { applyConstraint, constraintConflict, pinnedRange, pinsFinish } from "@/lib/constraints";
+import { applyConstraint, constraintConflictDetail, pinnedRange, pinsFinish } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -690,17 +690,42 @@ async function buildScheduleContext(
 
   /** Does this item's 必須完成於 fight its predecessors? Null when it doesn't
    *  (or there is nothing pinned). Reads the predecessors' stored dates. */
-  function constraintConflictOf(id: string): string | null {
+  function constraintConflictOf(id: string): { message: string; short: string } | null {
     const item = itemsById.get(id);
     if (!item) return null;
+    const constraint = { type: item.constraintType, date: item.constraintDate };
+    if (!pinsFinish(constraint)) return null; // nothing pinned: skip the predecessor walk
     const { myDays, scheduled } = chainOf(item);
-    return constraintConflict(
-      scheduled,
-      myDays,
-      { type: item.constraintType, date: item.constraintDate },
-      cfgOf(item).mode,
-      holidays
-    );
+    return constraintConflictDetail(scheduled, myDays, constraint, cfgOf(item).mode, holidays);
+  }
+
+  /** Every conflict right now, by item — taken before a hypothetical change so
+   *  that only what the change newly causes (or worsens) gets reported. */
+  function snapshotConflicts(): Map<string, string> {
+    const snapshot = new Map<string, string>();
+    for (const item of items) {
+      const found = constraintConflictOf(item.id);
+      if (found) snapshot.set(item.id, found.message);
+    }
+    return snapshot;
+  }
+
+  /** After a dry-run walk: the conflicts among the items it touched that were
+   *  not there (or read differently) in `before`. */
+  function conflictsSince(before: Map<string, string>): ConstraintConflict[] {
+    const found: ConstraintConflict[] = [];
+    for (const id of overrides.keys()) {
+      const conflict = constraintConflictOf(id);
+      if (!conflict || before.get(id) === conflict.message) continue;
+      found.push({
+        itemId: id,
+        name: itemsById.get(id)?.name ?? "",
+        wbsCode: wbsByItemId.get(id) ?? "",
+        message: conflict.message,
+        short: conflict.short,
+      });
+    }
+    return found.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
   }
 
   async function recompute(id: string, visited: Set<string>) {
@@ -754,6 +779,8 @@ async function buildScheduleContext(
     dependentsOf,
     recompute,
     constraintConflictOf,
+    snapshotConflicts,
+    conflictsSince,
     ownTriggers,
     cascadeTriggers,
   };
@@ -782,17 +809,18 @@ export async function previewScheduleCascade(
   boardId: string,
   itemId: string,
   range: DateRange
-): Promise<CascadedItem[]> {
+): Promise<{ cascaded: CascadedItem[]; conflicts: ConstraintConflict[] }> {
   const self = await prisma.item.findUnique({ where: { id: itemId }, select: { id: true } });
-  if (!self) return [];
+  if (!self) return { cascaded: [], conflicts: [] };
   const ctx = await buildScheduleContext(boardId, true);
-  if (!ctx) return [];
+  if (!ctx) return { cascaded: [], conflicts: [] };
 
   const before = new Map<string, DateRange>();
   for (const item of ctx.items) {
     const current = ctx.readRange(item.id);
     if (current) before.set(item.id, current);
   }
+  const conflictsBefore = ctx.snapshotConflicts();
   // Seed the dragged item's new dates, then let the walk carry them down the
   // chain exactly as the real recompute would.
   ctx.overrides.set(itemId, range);
@@ -816,7 +844,10 @@ export async function previewScheduleCascade(
       newEnd: isoDay(next.end),
     });
   }
-  return moved.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+  moved.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+  // A pinned item further down may now be pushed past its 必須完成於 — it stays
+  // on its date, so it will not show up in `moved`; say so separately.
+  return { cascaded: moved, conflicts: ctx.conflictsSince(conflictsBefore) };
 }
 
 /**
@@ -834,7 +865,12 @@ export async function previewPredChange(
   itemId: string,
   predColumnId: string,
   newValue: string | null
-): Promise<{ before: DateRange | null; after: DateRange | null; cascaded: CascadedItem[] } | null> {
+): Promise<{
+  before: DateRange | null;
+  after: DateRange | null;
+  cascaded: CascadedItem[];
+  conflicts: ConstraintConflict[];
+} | null> {
   const ctx = await buildScheduleContext(boardId, true);
   if (!ctx) return null;
   const item = ctx.itemsById.get(itemId);
@@ -845,6 +881,7 @@ export async function previewPredChange(
     const current = ctx.readRange(candidate.id);
     if (current) before.set(candidate.id, current);
   }
+  const conflictsBefore = ctx.snapshotConflicts();
 
   const edited = item.cellValues.find((cv) => cv.columnId === predColumnId);
   item.cellValues = [
@@ -870,7 +907,7 @@ export async function previewPredChange(
     });
   }
   cascaded.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
-  return { before: before.get(itemId) ?? null, after: own, cascaded };
+  return { before: before.get(itemId) ?? null, after: own, cascaded, conflicts: ctx.conflictsSince(conflictsBefore) };
 }
 
 /**
@@ -935,7 +972,15 @@ export async function syncPredecessorSchedule(
   return ctx.boardIds;
 }
 
-export type ConstraintConflict = { itemId: string; name: string; message: string };
+export type ConstraintConflict = {
+  itemId: string;
+  name: string;
+  wbsCode: string;
+  /** The full explanation. */
+  message: string;
+  /** One line, for a list of several. */
+  short: string;
+};
 
 /**
  * 「必須完成於」跟前置依賴打架的項目:這個項目自己,加上(downstream)它後面接著排的所有項目——
@@ -969,8 +1014,15 @@ export async function findConstraintConflicts(
   }
   const conflicts: ConstraintConflict[] = [];
   for (const id of ids) {
-    const message = ctx.constraintConflictOf(id);
-    if (message) conflicts.push({ itemId: id, name: ctx.itemsById.get(id)?.name ?? "", message });
+    const found = ctx.constraintConflictOf(id);
+    if (found) {
+      conflicts.push({
+        itemId: id,
+        name: ctx.itemsById.get(id)?.name ?? "",
+        wbsCode: ctx.wbsByItemId.get(id) ?? "",
+        ...found,
+      });
+    }
   }
   return conflicts;
 }

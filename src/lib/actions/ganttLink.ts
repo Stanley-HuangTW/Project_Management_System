@@ -10,6 +10,7 @@ import {
   parsePredEntries,
   previewPredChange,
   type CascadedItem,
+  type ConstraintConflict,
 } from "@/lib/predecessorLink";
 import { validateNewLink } from "@/lib/ganttLink";
 
@@ -28,9 +29,17 @@ export type GanttLinkPreview = {
   after: { start: string; end: string } | null;
   /** 後續任務的日期一變,連帶被推動的其他項目。 */
   cascade: CascadedItem[];
+  /** 連結之後,哪些被釘住「必須完成於」的項目會跟前置依賴衝突(原本沒有、或變得更嚴重的)。 */
+  conflicts: ConstraintConflict[];
 };
 
-const failPreview = (error: string): GanttLinkPreview => ({ error, before: null, after: null, cascade: [] });
+const failPreview = (error: string): GanttLinkPreview => ({
+  error,
+  before: null,
+  after: null,
+  cascade: [],
+  conflicts: [],
+});
 
 type Prepared =
   | { ok: false; error: string }
@@ -79,11 +88,12 @@ export async function previewGanttLink(succId: string, nextValue: string | null)
   if (!prep.ok) return failPreview(prep.error);
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const preview = await previewPredChange(prep.boardId, succId, prep.predColumnId, nextValue);
-  if (!preview) return { before: null, after: null, cascade: [] };
+  if (!preview) return { before: null, after: null, cascade: [], conflicts: [] };
   return {
     before: preview.before ? { start: iso(preview.before.start), end: iso(preview.before.end) } : null,
     after: preview.after ? { start: iso(preview.after.start), end: iso(preview.after.end) } : null,
     cascade: preview.cascaded,
+    conflicts: preview.conflicts,
   };
 }
 

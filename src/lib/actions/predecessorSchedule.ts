@@ -8,6 +8,7 @@ import {
   previewScheduleChange,
   previewScheduleCascade,
   type CascadedItem,
+  type ConstraintConflict,
   type SchedulePreview,
 } from "@/lib/predecessorLink";
 import { recomputeAllSchedules } from "@/lib/scheduleCascade";
@@ -38,19 +39,20 @@ export async function previewSchedule(
   return previewScheduleChange(boardId, itemId, columnId, newValue);
 }
 
-/** Read-only: which other items a Gantt drag would drag along with it, so the
- *  confirmation can say so before anything moves. */
+/** Read-only: which other items a Gantt drag would drag along with it, and
+ *  which pinned items it would push past their 必須完成於 — so the confirmation
+ *  can say so before anything moves. */
 export async function previewDragCascade(
   /** Not trusted — see requireItemBoardAccess below. */
   _boardId: string,
   itemId: string,
   startIso: string,
   endIso: string
-): Promise<CascadedItem[]> {
+): Promise<{ cascaded: CascadedItem[]; conflicts: ConstraintConflict[] }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
   const start = new Date(startIso);
   const end = new Date(endIso);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { cascaded: [], conflicts: [] };
   return previewScheduleCascade(boardId, itemId, { start, end });
 }

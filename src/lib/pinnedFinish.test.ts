@@ -56,6 +56,7 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: async () => ({ options: db.linkOptions }),
     },
     item: {
+      findUnique: async ({ where }: { where: { id: string } }) => db.items.find((i) => i.id === where.id) ?? null,
       findMany: async ({ where }: { where: { boardId: { in: string[] } | string } }) => {
         const ids = typeof where.boardId === "string" ? [where.boardId] : where.boardId.in;
         return db.items.filter((i) => ids.includes(i.boardId));
@@ -81,8 +82,14 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-const { recomputeAllSchedules, syncPredecessorSchedule, findConstraintConflicts, describeConstraintConflicts } =
-  await import("@/lib/predecessorLink");
+const {
+  recomputeAllSchedules,
+  syncPredecessorSchedule,
+  findConstraintConflicts,
+  describeConstraintConflicts,
+  previewScheduleCascade,
+  previewPredChange,
+} = await import("@/lib/predecessorLink");
 
 const COLS = {
   start: "start",
@@ -260,6 +267,72 @@ describe("約束日期跟前置依賴矛盾", () => {
     // T is pinned at 11/01 ~ 11/03 even though A runs to 11/05; the conflict is still reported.
     expect(cell("T", "finish")).toBe("2026-11-03");
     expect(await findConstraintConflicts("B", "T")).toHaveLength(1);
+  });
+});
+
+const range = (start: string, end: string) => ({ start: new Date(start), end: new Date(end) });
+
+describe("甘特拖曳預覽:會把被釘住的項目推到約束之外嗎", () => {
+  // A 10/20 起 5 天(到 10/24)→ T(必須完成於 11/03、3 天,最快 10/25 ~ 10/27,趕得上)
+  function chainWithRoom() {
+    addItem("A", { start: "2026-10-20", days: 5 });
+    // T 已經照約束排好(11/01 ~ 11/03),所以拖曳之後它「沒有移動」,只剩警示
+    addItem("T", { days: 3, start: "2026-11-01", finish: "2026-11-03", pred: "A", link: "fs" }, MUST_FINISH);
+  }
+
+  it("dragging the predecessor later than the pin allows is reported, naming the pinned item", async () => {
+    chainWithRoom();
+    // A 往後搬到 11/01 ~ 11/05 → T 最快 11/06 ~ 11/08,晚於 11/03
+    const { conflicts } = await previewScheduleCascade("B", "A", range("2026-11-01", "2026-11-05"));
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ itemId: "T", name: "T" });
+    expect(conflicts[0].short).toContain("2026-11-06 ~ 2026-11-08");
+  });
+
+  it("the pinned item stays put (it is not in the moved list) — the warning is the only signal", async () => {
+    chainWithRoom();
+    const { cascaded } = await previewScheduleCascade("B", "A", range("2026-11-01", "2026-11-05"));
+    expect(cascaded.find((c) => c.itemId === "T")).toBeUndefined();
+  });
+
+  it("a drag that still leaves room is quiet", async () => {
+    chainWithRoom();
+    const { conflicts } = await previewScheduleCascade("B", "A", range("2026-10-26", "2026-10-30"));
+    expect(conflicts).toEqual([]);
+  });
+
+  it("a conflict that was already there is not reported again, but a worse one is", async () => {
+    addItem("A", { start: "2026-11-01", days: 5 }); // 已經衝突:T 最快 11/06 ~ 11/08
+    addItem("T", { days: 3, pred: "A", link: "fs" }, MUST_FINISH);
+    const same = await previewScheduleCascade("B", "A", range("2026-11-01", "2026-11-05"));
+    expect(same.conflicts).toEqual([]);
+    const worse = await previewScheduleCascade("B", "A", range("2026-11-03", "2026-11-07"));
+    expect(worse.conflicts.map((c) => c.itemId)).toEqual(["T"]);
+  });
+
+  it("reaches a pinned item further down the chain", async () => {
+    addItem("A", { start: "2026-10-20", days: 5 });
+    addItem("M", { days: 2, pred: "A", link: "fs" });
+    addItem("T", { days: 3, pred: "M", link: "fs" }, MUST_FINISH);
+    const { conflicts } = await previewScheduleCascade("B", "A", range("2026-11-01", "2026-11-05"));
+    expect(conflicts.map((c) => c.itemId)).toEqual(["T"]);
+  });
+});
+
+describe("甘特拉連結預覽:新的前置依賴會讓被釘住的項目排不下嗎", () => {
+  it("linking a late predecessor in front of a pinned item reports it", async () => {
+    addItem("A", { start: "2026-11-01", days: 5 }); // 到 11/05
+    addItem("T", { days: 3, link: "fs" }, MUST_FINISH); // 11/01 ~ 11/03,目前沒有前置
+    const preview = await previewPredChange("B", "T", COLS.pred, "A");
+    expect(preview!.conflicts.map((c) => c.itemId)).toEqual(["T"]);
+    expect(preview!.conflicts[0].short).toContain("2026-11-06 ~ 2026-11-08");
+  });
+
+  it("a predecessor that finishes in time is quiet", async () => {
+    addItem("A", { start: "2026-10-20", days: 5 });
+    addItem("T", { days: 3, link: "fs" }, MUST_FINISH);
+    const preview = await previewPredChange("B", "T", COLS.pred, "A");
+    expect(preview!.conflicts).toEqual([]);
   });
 });
 

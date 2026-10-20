@@ -116,15 +116,29 @@ export function constraintConflict(
   mode: GanttDurationMode,
   holidays: Set<string>
 ): string | null {
+  return constraintConflictDetail(chain, days, constraint, mode, holidays)?.message ?? null;
+}
+
+/** The same conflict in two lengths: the full explanation for the item card and
+ *  pop-ups, and a one-liner for a list of several (the drag confirmation). */
+export function constraintConflictDetail(
+  chain: DateRange | null,
+  days: number | null,
+  constraint: ItemConstraint,
+  mode: GanttDurationMode,
+  holidays: Set<string>
+): { message: string; short: string } | null {
   if (!chain || !pinsFinish(constraint)) return null;
   const date = parseIso(constraint.date)!;
   if (chain.end.getTime() <= date.getTime()) return null;
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const pinned = pinnedRange(days, constraint, mode, holidays);
-  return (
-    `前置依賴最快要 ${iso(chain.start)} ~ ${iso(chain.end)} 才排得下,已晚於「${CONSTRAINT_LABELS.MUST_FINISH_ON} ${constraint.date}」。` +
-    `目前照約束排在 ${pinned ? iso(pinned.start) : "(算不出來)"} ~ ${constraint.date},會在前置依賴還沒做完時就開始。請調整約束日期、天數或前置依賴`
-  );
+  return {
+    message:
+      `前置依賴最快要 ${iso(chain.start)} ~ ${iso(chain.end)} 才排得下,已晚於「${CONSTRAINT_LABELS.MUST_FINISH_ON} ${constraint.date}」。` +
+      `目前照約束排在 ${pinned ? iso(pinned.start) : "(算不出來)"} ~ ${constraint.date},會在前置依賴還沒做完時就開始。請調整約束日期、天數或前置依賴`,
+    short: `前置依賴最快 ${iso(chain.start)} ~ ${iso(chain.end)} 才排得下,晚於「${CONSTRAINT_LABELS.MUST_FINISH_ON} ${constraint.date}」`,
+  };
 }
 
 /**

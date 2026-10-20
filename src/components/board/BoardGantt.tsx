@@ -87,7 +87,7 @@ import {
   RELATIONSHIP_NAMES,
   type LinkEdge,
 } from "@/lib/ganttLink";
-import type { CascadedItem } from "@/lib/predecessorLink";
+import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -984,11 +984,13 @@ export function BoardGantt({
         ? { before: beforeDates, after: preview.after }
         : null;
     let value = next;
-    if (own || (preview?.cascade.length ?? 0) > 0 || opts.confirmAlways) {
+    const conflicts = preview?.conflicts ?? [];
+    if (own || (preview?.cascade.length ?? 0) > 0 || conflicts.length > 0 || opts.confirmAlways) {
       const lines = [opts.headline, ""];
       if (!own && (preview?.cascade.length ?? 0) === 0) lines.push("日期都不會有變動。");
       if (own) lines.push(`「${succ.name}」的日期會從 ${own.before.start}~${own.before.end} 改為 ${own.after.start}~${own.after.end}`);
       lines.push(...describeCascade(preview?.cascade ?? []));
+      lines.push(...describeConflicts(conflicts));
       const predRange = opts.keep ? ranges.get(opts.keep.predId) : undefined;
       const succRange = ranges.get(succ.id);
       const keepLag =
@@ -2104,6 +2106,23 @@ function describeCascade(cascaded: CascadedItem[]): string[] {
   return ["", `依前置依賴連動,以下 ${cascaded.length} 個項目也會一起移動:`, ...lines];
 }
 
+/** The "this pushes a pinned item past its date" section of the same dialogs —
+ *  a warning, not a block: the item stays on its 必須完成於 date, so the work
+ *  would start before its predecessors are done. */
+function describeConflicts(conflicts: ConstraintConflict[]): string[] {
+  if (conflicts.length === 0) return [];
+  const shown = conflicts.slice(0, MAX_CASCADE_LINES);
+  const lines = shown.map((c) => `・${c.wbsCode} ${c.name}:${c.short}`);
+  if (conflicts.length > shown.length) {
+    lines.push(`・…另外還有 ${conflicts.length - shown.length} 項`);
+  }
+  return [
+    "",
+    `⚠ 套用後,以下 ${conflicts.length} 個項目的「必須完成於」會跟前置依賴衝突(仍照約束排,會在前置依賴做完前就開始):`,
+    ...lines,
+  ];
+}
+
 function GanttBar({
   boardId,
   item,
@@ -2230,12 +2249,20 @@ function GanttBar({
    *  block the drag — the list is just left out. */
   async function confirmScheduleChange(summary: string, newStart: Date, newEnd: Date): Promise<boolean> {
     let cascaded: CascadedItem[] = [];
+    let conflicts: ConstraintConflict[] = [];
     try {
-      cascaded = await previewDragCascade(boardId, item.id, toIsoDate(newStart), toIsoDate(newEnd));
+      ({ cascaded, conflicts } = await previewDragCascade(boardId, item.id, toIsoDate(newStart), toIsoDate(newEnd)));
     } catch {
       cascaded = [];
+      conflicts = [];
     }
-    const message = [summary, ...describeCascade(cascaded), "", "確定要套用這個時程調整嗎?"].join("\n");
+    const message = [
+      summary,
+      ...describeCascade(cascaded),
+      ...describeConflicts(conflicts),
+      "",
+      "確定要套用這個時程調整嗎?",
+    ].join("\n");
     return confirm(message, { title: "調整時程" });
   }
 
