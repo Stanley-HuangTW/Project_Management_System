@@ -81,7 +81,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-const { recomputeAllSchedules, syncPredecessorSchedule } = await import("@/lib/predecessorLink");
+const { recomputeAllSchedules, syncPredecessorSchedule, findConstraintConflicts, describeConstraintConflicts } =
+  await import("@/lib/predecessorLink");
 
 const COLS = {
   start: "start",
@@ -215,6 +216,50 @@ describe("必須完成於 + 天數(沒有前置依賴)", () => {
 
     expect(cell("T", "finish")).toBe("2026-11-03");
     expect(cell("T", "start")).toBe("2026-11-01");
+  });
+});
+
+describe("約束日期跟前置依賴矛盾", () => {
+  // A 排在 T 前面(FS)。T 必須完成於 11/03、3 天 → 11/01 ~ 11/03,所以 A 最晚要在 10/31 做完。
+  function chain(aStart: string) {
+    addItem("A", { start: aStart, days: 5 });
+    addItem("T", { days: 3, pred: "A", link: "fs" }, MUST_FINISH);
+    addItem("U", { days: 2, pred: "T", link: "fs" });
+  }
+
+  it("a predecessor that finishes too late conflicts with the pin", async () => {
+    chain("2026-11-01"); // A 到 11/05 → T 最快 11/06 ~ 11/08
+    const found = await findConstraintConflicts("B", "T");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ itemId: "T" });
+    expect(found[0].message).toContain("2026-11-06 ~ 2026-11-08");
+  });
+
+  it("a predecessor with room to spare does not", async () => {
+    chain("2026-10-20"); // A 到 10/24 → T 最快 10/25 ~ 10/27,趕得上
+    expect(await findConstraintConflicts("B", "T")).toEqual([]);
+  });
+
+  it("the editor of an upstream item hears about the pinned item behind it (downstream)", async () => {
+    chain("2026-11-01");
+    expect(await findConstraintConflicts("B", "A")).toEqual([]);
+    const found = await findConstraintConflicts("B", "A", { downstream: true });
+    expect(found.map((c) => c.itemId)).toEqual(["T"]);
+    expect(describeConstraintConflicts(found, "A")).toContain("「T」:");
+  });
+
+  it("an edit to a column that cannot move dates is not worth the check", async () => {
+    chain("2026-11-01");
+    expect(await findConstraintConflicts("B", "T", { editedColumnId: "comment" })).toEqual([]);
+    expect(await findConstraintConflicts("B", "T", { editedColumnId: COLS.pred })).toHaveLength(1);
+  });
+
+  it("works on the stored dates, so it agrees with what the recompute wrote", async () => {
+    chain("2026-11-01");
+    await recomputeAllSchedules("B");
+    // T is pinned at 11/01 ~ 11/03 even though A runs to 11/05; the conflict is still reported.
+    expect(cell("T", "finish")).toBe("2026-11-03");
+    expect(await findConstraintConflicts("B", "T")).toHaveLength(1);
   });
 });
 

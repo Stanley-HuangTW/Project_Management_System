@@ -4,7 +4,7 @@ import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
 import { endFromStartAndDays, shiftDate } from "@/lib/workday";
-import { applyConstraint, pinnedRange, pinsFinish } from "@/lib/constraints";
+import { applyConstraint, constraintConflict, pinnedRange, pinsFinish } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -663,6 +663,46 @@ async function buildScheduleContext(
     return { myDays: scheduleDaysOf(typeof daysValue === "number" ? daysValue : null, milestone), baseRange: null };
   }
 
+  /** This item's own length, its manual-column base range, and the range its
+   *  predecessors alone would give it (before any date constraint). */
+  function chainOf(item: (typeof items)[number]) {
+    const cfg = cfgOf(item);
+    const linkValue = cfg.linkColumnId
+      ? item.cellValues.find((cv) => cv.columnId === cfg.linkColumnId)?.value
+      : null;
+    const fallbackRelationship = cfg.linkOptions.find((o) => o.id === linkValue)?.label;
+    const lagValue = cfg.lagColumnId
+      ? item.cellValues.find((cv) => cv.columnId === cfg.lagColumnId)?.value
+      : null;
+    const fallbackLag = typeof lagValue === "number" ? lagValue : 0;
+    const { myDays, baseRange } = myDaysAndBase(item);
+    const scheduled = scheduledFromPreds(
+      predEntriesOf(item.id),
+      fallbackRelationship,
+      fallbackLag,
+      myDays,
+      cfg.mode,
+      holidays,
+      readRange
+    );
+    return { myDays, baseRange, scheduled };
+  }
+
+  /** Does this item's 必須完成於 fight its predecessors? Null when it doesn't
+   *  (or there is nothing pinned). Reads the predecessors' stored dates. */
+  function constraintConflictOf(id: string): string | null {
+    const item = itemsById.get(id);
+    if (!item) return null;
+    const { myDays, scheduled } = chainOf(item);
+    return constraintConflict(
+      scheduled,
+      myDays,
+      { type: item.constraintType, date: item.constraintDate },
+      cfgOf(item).mode,
+      holidays
+    );
+  }
+
   async function recompute(id: string, visited: Set<string>) {
     if (visited.has(id)) return;
     visited.add(id);
@@ -670,46 +710,7 @@ async function buildScheduleContext(
     const item = itemsById.get(id);
     if (item) {
       const cfg = cfgOf(item);
-      const predEntries = predEntriesOf(id);
-      const linkValue = cfg.linkColumnId
-        ? item.cellValues.find((cv) => cv.columnId === cfg.linkColumnId)?.value
-        : null;
-      const fallbackRelationship = cfg.linkOptions.find((o) => o.id === linkValue)?.label;
-      const lagValue = cfg.lagColumnId
-        ? item.cellValues.find((cv) => cv.columnId === cfg.lagColumnId)?.value
-        : null;
-      const fallbackLag = typeof lagValue === "number" ? lagValue : 0;
-      const { myDays, baseRange } = myDaysAndBase(item);
-
-      // With several predecessors the binding one is whichever pushes this
-      // item latest — you cannot start until the last thing you wait on is
-      // out of the way. Each edge uses its own relationship and lag when the
-      // Pred cell gives it one, and the item's Link/Lag columns when it does
-      // not: one task can wait for the sample to ship (FS) and for the test
-      // rig to be free (SS) at the same time.
-      const scheduled = pickLatest(
-        predEntries.map((entry) => {
-          const relationship = entry.relationship ?? fallbackRelationship;
-          const lag = entry.lag ?? fallbackLag;
-          if (
-            !relationship ||
-            !(RELATIONSHIP_TYPES as string[]).includes(relationship) ||
-            myDays === null
-          ) {
-            return null;
-          }
-          const predRange = readRange(entry.itemId);
-          if (!predRange) return null;
-          return computeScheduledRange(
-            predRange,
-            myDays,
-            relationship as RelationshipType,
-            lag,
-            cfg.mode,
-            holidays
-          );
-        })
-      );
+      const { myDays, baseRange, scheduled } = chainOf(item);
       const constraint = { type: item.constraintType, date: item.constraintDate };
       // A finish date that is pinned needs no predecessor and no start(set):
       // the length alone counts the start back from it. Not for a summary that
@@ -752,6 +753,7 @@ async function buildScheduleContext(
     predecessorsOf,
     dependentsOf,
     recompute,
+    constraintConflictOf,
     ownTriggers,
     cascadeTriggers,
   };
@@ -931,6 +933,58 @@ export async function syncPredecessorSchedule(
   }
 
   return ctx.boardIds;
+}
+
+export type ConstraintConflict = { itemId: string; name: string; message: string };
+
+/**
+ * 「必須完成於」跟前置依賴打架的項目:這個項目自己,加上(downstream)它後面接著排的所有項目——
+ * 改了一個項目的日期,後面某個被釘住的項目可能就被推到約束之外,改的人要知道。
+ * editedColumnId 給了就先看那一欄會不會動到時程,不會就不用把整個看板載進來算。
+ * 在排程重算之後呼叫:比的是前置依賴「現在存著」的日期。
+ */
+export async function findConstraintConflicts(
+  boardId: string,
+  itemId: string,
+  options: { editedColumnId?: string; downstream?: boolean } = {}
+): Promise<ConstraintConflict[]> {
+  if (options.editedColumnId !== undefined) {
+    const triggers = await scheduleTriggerColumnIds(boardId);
+    if (!triggers.has(options.editedColumnId)) return [];
+  }
+  const ctx = await buildScheduleContext(boardId, true);
+  if (!ctx) return [];
+
+  const ids = [itemId];
+  if (options.downstream) {
+    const seen = new Set(ids);
+    for (let i = 0; i < ids.length; i++) {
+      for (const depId of ctx.dependentsOf(ids[i])) {
+        if (!seen.has(depId)) {
+          seen.add(depId);
+          ids.push(depId);
+        }
+      }
+    }
+  }
+  const conflicts: ConstraintConflict[] = [];
+  for (const id of ids) {
+    const message = ctx.constraintConflictOf(id);
+    if (message) conflicts.push({ itemId: id, name: ctx.itemsById.get(id)?.name ?? "", message });
+  }
+  return conflicts;
+}
+
+/** The conflicts as one message for a dialog: the edited item's own first, the
+ *  downstream ones named, and a cap so a long chain doesn't fill the screen. */
+export function describeConstraintConflicts(conflicts: ConstraintConflict[], ownItemId: string, limit = 3): string {
+  const lines = conflicts
+    .slice()
+    .sort((a, b) => Number(b.itemId === ownItemId) - Number(a.itemId === ownItemId))
+    .map((c) => (c.itemId === ownItemId ? c.message : `「${c.name}」:${c.message}`));
+  const shown = lines.slice(0, limit);
+  if (lines.length > limit) shown.push(`…另有 ${lines.length - limit} 個項目也有同樣的衝突`);
+  return shown.join("\n\n");
 }
 
 export type SchedulePreview = { start: string; end: string; days: number | null };
@@ -1335,6 +1389,38 @@ export function listDependentItems(
       end: text(candidate, endColumnId),
     }))
     .sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+}
+
+/**
+ * The range an item's predecessors alone would give it, before any date
+ * constraint. With several predecessors the binding one is whichever pushes
+ * this item latest — you cannot start until the last thing you wait on is out
+ * of the way. Each edge uses its own relationship and lag when the Pred cell
+ * gives it one, and the item's Link/Lag columns when it does not: one task
+ * can wait for the sample to ship (FS) and for the test rig to be free (SS)
+ * at the same time.
+ */
+export function scheduledFromPreds(
+  entries: PredEntry[],
+  fallbackRelationship: string | undefined,
+  fallbackLag: number,
+  myDays: number | null,
+  mode: GanttDurationMode,
+  holidays: Set<string>,
+  readRange: (itemId: string) => DateRange | null
+): DateRange | null {
+  return pickLatest(
+    entries.map((entry) => {
+      const relationship = entry.relationship ?? fallbackRelationship;
+      const lag = entry.lag ?? fallbackLag;
+      if (!relationship || !(RELATIONSHIP_TYPES as string[]).includes(relationship) || myDays === null) {
+        return null;
+      }
+      const predRange = readRange(entry.itemId);
+      if (!predRange) return null;
+      return computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays);
+    })
+  );
 }
 
 /**

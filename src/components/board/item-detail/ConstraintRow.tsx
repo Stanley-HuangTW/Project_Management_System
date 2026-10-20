@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ItemConstraintType } from "@prisma/client";
-import { setItemConstraint } from "@/lib/actions/constraint";
+import { getConstraintConflict, setItemConstraint } from "@/lib/actions/constraint";
 import { CONSTRAINT_LABELS, applyConstraint } from "@/lib/constraints";
 import { useDialogs } from "@/components/ui/DialogProvider";
 
@@ -60,10 +60,33 @@ export function ConstraintRow({
         return;
       }
       router.refresh();
+      // Saved, but the predecessors can't meet it — the row keeps saying so too.
+      if (result.warning) await notify(result.warning, { title: "日期約束衝突" });
     } finally {
       setSaving(false);
     }
   }
+
+  // 釘住完成日的項目,前置依賴是不是排得進去——問伺服器,因為前置依賴可能在別的分組、別的看板。
+  // 約束、日期或天數一變(存檔後畫面重新整理)就再問一次。
+  const pinned = type === "MUST_FINISH_ON" && !!date;
+  const [conflict, setConflict] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pinned) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const message = await getConstraintConflict(itemId);
+        if (!cancelled) setConflict(message);
+      } catch {
+        if (!cancelled) setConflict(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId, pinned, date, currentEnd, durationDays]);
+  const shownConflict = pinned ? conflict : null;
 
   // Only a deadline can be missed; the other two move the item instead.
   const violation =
@@ -129,6 +152,11 @@ export function ConstraintRow({
               : date
                 ? HINTS[draftType]
                 : "請選擇約束日期")}
+        </p>
+      )}
+      {shownConflict && (
+        <p data-constraint-conflict className="mt-1 text-right text-xs text-red-600">
+          {shownConflict}
         </p>
       )}
     </div>

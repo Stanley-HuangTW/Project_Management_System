@@ -11,6 +11,8 @@ import { syncGanttDates } from "@/lib/ganttSync";
 import {
   resolveLockedScheduleFields,
   checkScheduleWithinAncestorRule,
+  describeConstraintConflicts,
+  findConstraintConflicts,
 } from "@/lib/predecessorLink";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { pinnedScheduleReason } from "@/lib/constraints";
@@ -256,4 +258,9 @@ export async function upsertCellValue(
   await dispatchWebhooks(boardId, "item.updated", { itemId, columnId, value });
 
   revalidatePath(`/boards/${boardId}`);
+
+  // The edit is saved; this only tells the editor that a 必須完成於 on this
+  // item — or on something scheduled after it — now fights its predecessors.
+  const conflicts = await findConstraintConflicts(boardId, itemId, { editedColumnId: columnId, downstream: true });
+  if (conflicts.length > 0) return { warning: describeConstraintConflicts(conflicts, itemId) };
 }

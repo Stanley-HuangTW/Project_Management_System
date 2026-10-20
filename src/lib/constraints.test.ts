@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyConstraint, describeConstraint, pinnedRange, pinnedScheduleReason, pinsFinish } from "./constraints";
+import {
+  applyConstraint,
+  constraintConflict,
+  describeConstraint,
+  pinnedRange,
+  pinnedScheduleReason,
+  pinsFinish,
+} from "./constraints";
 
 const range = (start: string, end: string) => ({ start: new Date(start), end: new Date(end) });
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -144,6 +151,30 @@ describe("pinsFinish / pinnedRange", () => {
   it("is null without a length or without a pinned finish", () => {
     expect(pinnedRange(null, pin, cal, noHolidays)).toBeNull();
     expect(pinnedRange(5, { type: "START_NO_EARLIER_THAN", date: "2026-11-03" }, cal, noHolidays)).toBeNull();
+  });
+});
+
+describe("constraintConflict", () => {
+  const pin = { type: "MUST_FINISH_ON" as const, date: "2026-11-03" };
+
+  it("reports it when the predecessors alone would finish after the pinned date", () => {
+    const message = constraintConflict(range("2026-11-06", "2026-11-08"), 3, pin, cal, noHolidays);
+    expect(message).toContain("2026-11-06 ~ 2026-11-08");
+    expect(message).toContain("必須完成於 2026-11-03");
+    // …and says where the item actually sits, since the pin wins.
+    expect(message).toContain("2026-11-01 ~ 2026-11-03");
+  });
+
+  it("is quiet when the predecessors leave room — finishing earlier than the pin is slack, not a conflict", () => {
+    expect(constraintConflict(range("2026-10-25", "2026-10-27"), 3, pin, cal, noHolidays)).toBeNull();
+    expect(constraintConflict(range("2026-11-01", "2026-11-03"), 3, pin, cal, noHolidays)).toBeNull();
+  });
+
+  it("is quiet without predecessors or without a pinned finish", () => {
+    expect(constraintConflict(null, 3, pin, cal, noHolidays)).toBeNull();
+    const late = range("2026-11-06", "2026-11-08");
+    expect(constraintConflict(late, 3, { type: "START_NO_EARLIER_THAN", date: "2026-11-03" }, cal, noHolidays)).toBeNull();
+    expect(constraintConflict(late, 3, { type: "MUST_FINISH_ON", date: null }, cal, noHolidays)).toBeNull();
   });
 });
 

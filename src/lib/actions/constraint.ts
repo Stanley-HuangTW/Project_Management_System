@@ -8,6 +8,7 @@ import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { canModifyItemSchedule } from "@/lib/permissions";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
+import { describeConstraintConflicts, findConstraintConflicts } from "@/lib/predecessorLink";
 import { logActivity } from "@/lib/activityLog";
 import { CONSTRAINT_LABELS } from "@/lib/constraints";
 
@@ -23,7 +24,7 @@ export async function setItemConstraint(
   itemId: string,
   type: ItemConstraintType | null,
   date: string | null
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; warning?: string }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
 
@@ -66,5 +67,21 @@ export async function setItemConstraint(
   if (trigger) await syncPredecessorSchedule(boardId, itemId, trigger);
 
   revalidatePath(`/boards/${boardId}`);
-  return {};
+
+  // Saved either way; a pinned finish that the predecessors cannot meet is
+  // worth telling the person who just set it — or who just moved it.
+  const conflicts = await findConstraintConflicts(boardId, itemId, { downstream: true });
+  return conflicts.length > 0 ? { warning: describeConstraintConflicts(conflicts, itemId) } : {};
+}
+
+/**
+ * Whether this item's 必須完成於 currently fights its predecessors, for the
+ * item card to keep showing after the pop-up is gone. Null when it doesn't.
+ * Read-only; returns a value rather than throwing for the same reason as above.
+ */
+export async function getConstraintConflict(itemId: string): Promise<string | null> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const [own] = await findConstraintConflicts(boardId, itemId);
+  return own?.message ?? null;
 }

@@ -32,6 +32,12 @@ export function useCellSave() {
           notify(error, { title: "無法儲存" });
           router.refresh();
         } else {
+          // Saved, but the new dates put a 必須完成於 out of reach of its predecessors.
+          const warning =
+            result && typeof result === "object" && "warning" in result
+              ? (result as { warning?: unknown }).warning
+              : null;
+          if (typeof warning === "string") notify(warning, { title: "日期約束衝突" });
           onSuccess?.();
         }
       })

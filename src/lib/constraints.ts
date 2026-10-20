@@ -104,6 +104,30 @@ export function pinnedRange(
 }
 
 /**
+ * 「必須完成於」跟前置依賴打架:前置依賴最快要排到 chain 這個區間才做得完,完成日卻晚於約束日,
+ * 約束照樣勝出(日期被釘在約束上),也就是這個項目會在前置依賴還沒好的時候就開始。
+ * chain 是前置依賴單獨排出來的區間(沒有前置、或算不出來就是 null);沒衝突回 null。
+ * 前置依賴排出來比約束早,只是有餘裕,不算衝突。
+ */
+export function constraintConflict(
+  chain: DateRange | null,
+  days: number | null,
+  constraint: ItemConstraint,
+  mode: GanttDurationMode,
+  holidays: Set<string>
+): string | null {
+  if (!chain || !pinsFinish(constraint)) return null;
+  const date = parseIso(constraint.date)!;
+  if (chain.end.getTime() <= date.getTime()) return null;
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const pinned = pinnedRange(days, constraint, mode, holidays);
+  return (
+    `前置依賴最快要 ${iso(chain.start)} ~ ${iso(chain.end)} 才排得下,已晚於「${CONSTRAINT_LABELS.MUST_FINISH_ON} ${constraint.date}」。` +
+    `目前照約束排在 ${pinned ? iso(pinned.start) : "(算不出來)"} ~ ${constraint.date},會在前置依賴還沒做完時就開始。請調整約束日期、天數或前置依賴`
+  );
+}
+
+/**
  * Why Start/Finish can't be edited by hand on an item whose finish is pinned,
  * and what to change instead. Null when the finish isn't pinned. Names no
  * column: the length lives in Days on a classic board and in the manual
