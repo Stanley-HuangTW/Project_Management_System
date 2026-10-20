@@ -18,7 +18,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, KeyRound, Lock, Pencil, Plus, Trash2, Unlock } from "lucide-react";
+import { ArrowRightLeft, GripVertical, KeyRound, Lock, Pencil, Plus, Trash2, Unlock } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -45,6 +45,7 @@ import { flattenOrgForest, unitCodesFromOrg, type OrgNodeLite } from "@/lib/orgT
 import { setUserOrgNode } from "@/lib/actions/orgChart";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { HScrollPane } from "@/components/ui/HScrollPane";
+import { HandoverDialog } from "./HandoverDialog";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
@@ -151,6 +152,7 @@ function SortableUserRow({
   onDelete,
   onResetPassword,
   onUnlock,
+  onHandover,
 }: {
   user: UserRow;
   /** 公司組織單位(人力單位 EE、ME…),只用來顯示代號的全名。 */
@@ -171,6 +173,7 @@ function SortableUserRow({
   onDelete: () => void;
   onResetPassword: () => void;
   onUnlock: () => void;
+  onHandover: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: user.id,
@@ -309,6 +312,15 @@ function SortableUserRow({
         </button>
         <button
           type="button"
+          onClick={onHandover}
+          className="text-neutral-400 dark:text-neutral-500 hover:text-blue-600"
+          aria-label="工作交接"
+          title="工作交接:把他還沒完成的工作交給別人"
+        >
+          <ArrowRightLeft size={14} />
+        </button>
+        <button
+          type="button"
           onClick={onEdit}
           className="text-neutral-400 dark:text-neutral-500 hover:text-blue-600"
           aria-label="編輯使用者"
@@ -355,6 +367,8 @@ export function UserManagement({
     .filter((u): u is UserRow => u !== undefined);
 
   const [open, setOpen] = useState(false);
+  /** 工作交接對話框:null = 關著;fromId 是從哪一列點進來的(頂端按鈕進來是 null,自己選轉出者)。 */
+  const [handover, setHandover] = useState<{ fromId: string | null } | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -576,7 +590,15 @@ export function UserManagement({
         </div>
       )}
 
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setHandover({ fromId: null })}
+          title="把一個人還沒完成的工作交給另一個人"
+          className="flex items-center gap-1.5 rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
+        >
+          <ArrowRightLeft size={14} /> 工作交接
+        </button>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -624,12 +646,21 @@ export function UserManagement({
                 onEdit={() => openEdit(u)}
                 onDelete={() => handleDelete(u)}
                 onResetPassword={() => openResetPassword(u)}
+                onHandover={() => setHandover({ fromId: u.id })}
                 onUnlock={() => handleUnlock(u)}
               />
             ))}
           </SortableContext>
         </DndContext>
       </HScrollPane>
+
+      {handover && (
+        <HandoverDialog
+          people={users.map((u) => ({ id: u.id, name: u.name }))}
+          initialFromId={handover.fromId}
+          onClose={() => setHandover(null)}
+        />
+      )}
 
       <Modal
         open={open}
