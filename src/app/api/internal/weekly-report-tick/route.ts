@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { buildProgramWeeklyReportData } from "@/lib/weeklyReportServer";
+import { sendWeeklyReportReminder, type ReminderOutcome } from "@/lib/weeklyReminderServer";
 import { deliverProgramReport } from "@/lib/weeklyReportDelivery";
 import { weekRangeOf, isoWeekLabel, isPastWeeklyTrigger, lastCompletedReportRange } from "@/lib/weeklyReport";
 
@@ -24,8 +25,18 @@ export async function POST(request: Request) {
   }
 
   const settings = await getSystemSettings();
+
+  // 週報產生前 N 小時的提醒信:跟週報本身各自判斷,提醒失敗不該連累週報照常產生。
+  let reminder: ReminderOutcome;
+  try {
+    reminder = await sendWeeklyReportReminder(settings);
+  } catch (err) {
+    reminder = { sent: false, reason: err instanceof Error ? err.message : "提醒信失敗" };
+  }
+  const respond = (body: Record<string, unknown>) => NextResponse.json({ ...body, reminder });
+
   if (!settings.weeklyReportEnabled) {
-    return NextResponse.json({ ran: false, reason: "排程未啟用" });
+    return respond({ ran: false, reason: "排程未啟用" });
   }
 
   const taipeiNow = new Date(Date.now() + TAIPEI_OFFSET_MS);
@@ -34,7 +45,7 @@ export async function POST(request: Request) {
     { dow: settings.weeklyReportDow, hour: settings.weeklyReportHour, minute: settings.weeklyReportMinute }
   );
   if (!pastTrigger) {
-    return NextResponse.json({ ran: false, reason: "還沒到設定的時間" });
+    return respond({ ran: false, reason: "還沒到設定的時間" });
   }
 
   // 排程報的是剛結束的那個範圍(從星期幾到星期幾,照系統設定,預設週三到週二),不是才剛開始的
@@ -49,7 +60,7 @@ export async function POST(request: Request) {
   const thisWeekKey = isoWeekLabel(thisWeek.weekStart);
 
   if (settings.weeklyReportLastRunWeek === thisWeekKey) {
-    return NextResponse.json({ ran: false, reason: "這週已經跑過了" });
+    return respond({ ran: false, reason: "這週已經跑過了" });
   }
 
   // 條件式 updateMany 當原子鎖——搶輸的(count === 0)代表已經有另一次
@@ -66,7 +77,7 @@ export async function POST(request: Request) {
     data: { weeklyReportLastRunWeek: thisWeekKey },
   });
   if (claimed.count === 0) {
-    return NextResponse.json({ ran: false, reason: "被搶先跑過了" });
+    return respond({ ran: false, reason: "被搶先跑過了" });
   }
 
   const subscriptions = await prisma.programReportSubscription.findMany({
@@ -106,7 +117,7 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ran: true, week: thisWeekKey, results });
+  return respond({ ran: true, week: thisWeekKey, results });
 }
 
 /** 給人在瀏覽器確認端點活著,不需要密鑰。 */

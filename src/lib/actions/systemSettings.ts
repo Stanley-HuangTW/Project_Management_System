@@ -8,6 +8,7 @@ import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
 import { ALL_NOTIFICATION_TYPES } from "@/lib/notificationTypes";
 import { clampLevels } from "@/lib/approvalLevels";
+import { MAX_REMINDER_HOURS } from "@/lib/weeklyReminder";
 import {
   BUILT_IN_DEFAULT_COLUMNS,
   parseDefaultColumns,
@@ -40,6 +41,8 @@ export async function getSystemSettings() {
     weeklyReportRangeStartDow: 3,
     weeklyReportRangeEndDow: 2,
     weeklyReportLastRunWeek: null as string | null,
+    weeklyReportReminderHours: 0,
+    weeklyReportReminderLastWeek: null as string | null,
     backupEnabled: false,
     backupFrequency: "DAILY",
     backupDow: 1,
@@ -253,11 +256,16 @@ export async function setWeeklyReportSchedule(schedule: {
   /** 週報範圍從星期幾開始、到星期幾結束(0=週日 … 6=週六)。 */
   rangeStartDow: number;
   rangeEndDow: number;
+  /** 週報產生前幾小時寄信提醒各單位同仁更新工作事項。0 = 不提醒。 */
+  reminderHours: number;
 }): Promise<{ error?: string }> {
   const session = await requireSession();
   requireBoardAdmin(session.role);
 
   if (schedule.dow < 0 || schedule.dow > 6) return { error: "星期幾不合法" };
+  if (!Number.isInteger(schedule.reminderHours) || schedule.reminderHours < 0 || schedule.reminderHours > MAX_REMINDER_HOURS) {
+    return { error: `提醒時間要是 0 到 ${MAX_REMINDER_HOURS} 小時(0 = 不提醒)` };
+  }
   if (schedule.hour < 0 || schedule.hour > 23) return { error: "小時不合法" };
   if (schedule.minute < 0 || schedule.minute > 59) return { error: "分鐘不合法" };
   for (const dow of [schedule.rangeStartDow, schedule.rangeEndDow]) {
@@ -274,6 +282,7 @@ export async function setWeeklyReportSchedule(schedule: {
       weeklyReportMinute: schedule.minute,
       weeklyReportRangeStartDow: schedule.rangeStartDow,
       weeklyReportRangeEndDow: schedule.rangeEndDow,
+      weeklyReportReminderHours: schedule.reminderHours,
     },
     update: {
       weeklyReportEnabled: schedule.enabled,
@@ -282,6 +291,7 @@ export async function setWeeklyReportSchedule(schedule: {
       weeklyReportMinute: schedule.minute,
       weeklyReportRangeStartDow: schedule.rangeStartDow,
       weeklyReportRangeEndDow: schedule.rangeEndDow,
+      weeklyReportReminderHours: schedule.reminderHours,
     },
   });
   await logAudit(
@@ -291,7 +301,9 @@ export async function setWeeklyReportSchedule(schedule: {
       schedule.enabled
         ? `專案週報排程設定為每${DOW_LABELS[schedule.dow]} ${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`
         : "專案週報排程關閉"
-    },週報範圍${DOW_LABELS[schedule.rangeStartDow]}到${DOW_LABELS[schedule.rangeEndDow]}`
+    },週報範圍${DOW_LABELS[schedule.rangeStartDow]}到${DOW_LABELS[schedule.rangeEndDow]},${
+      schedule.reminderHours > 0 ? `產生前 ${schedule.reminderHours} 小時寄信提醒同仁更新工作事項` : "不寄提醒信"
+    }`
   );
   revalidatePath("/settings");
   return {};

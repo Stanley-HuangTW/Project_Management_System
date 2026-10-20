@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { setWeeklyReportSchedule } from "@/lib/actions/systemSettings";
 import { reportRangeDays } from "@/lib/weeklyReport";
+import { MAX_REMINDER_HOURS, formatClock, reminderTime } from "@/lib/weeklyReminder";
 
 const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
@@ -18,17 +19,34 @@ export function WeeklyReportScheduleCard({
     minute: number;
     rangeStartDow: number;
     rangeEndDow: number;
+    reminderHours: number;
   };
 }) {
   const [schedule, setSchedule] = useState(initial);
+  // 提醒小時用文字框:邊打邊存會一個字存一次,所以離開欄位才存。
+  const [hoursText, setHoursText] = useState(String(initial.reminderHours));
+  const [hoursError, setHoursError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function save(next: typeof schedule) {
     setSchedule(next);
     startTransition(async () => {
-      await setWeeklyReportSchedule(next);
+      const result = await setWeeklyReportSchedule(next);
+      if (result.error) setHoursError(result.error);
     });
   }
+
+  function saveReminderHours() {
+    const hours = Number(hoursText.trim());
+    if (hoursText.trim() === "" || !Number.isInteger(hours) || hours < 0 || hours > MAX_REMINDER_HOURS) {
+      setHoursError(`請輸入 0 到 ${MAX_REMINDER_HOURS} 的整數(0 = 不提醒)`);
+      return;
+    }
+    setHoursError(null);
+    if (hours !== schedule.reminderHours) save({ ...schedule, reminderHours: hours });
+  }
+
+  const reminderAt = reminderTime(schedule, schedule.reminderHours);
 
   const fieldClass =
     "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -89,6 +107,38 @@ export function WeeklyReportScheduleCard({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+        <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">產生前提醒同仁更新工作事項</p>
+        <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+          週報產生前先寄一封信給所有同仁,請大家更新自己的工作事項,並說明週報什麼時候產生、涵蓋哪一段。
+          只有排程啟用、而且至少有一個專案群組設定了週報收件人時才會寄。
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-neutral-600 dark:text-neutral-300">週報產生前</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={hoursText}
+            disabled={isPending || !schedule.enabled}
+            onChange={(e) => setHoursText(e.target.value)}
+            onBlur={saveReminderHours}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+            }}
+            className={`${fieldClass} w-20 text-right`}
+            aria-label="週報產生前幾小時寄提醒信"
+            data-reminder-hours
+          />
+          <span className="text-sm text-neutral-600 dark:text-neutral-300">小時寄提醒信(0 = 不提醒)</span>
+        </div>
+        {hoursError && <p className="mt-1.5 text-xs text-red-600">{hoursError}</p>}
+        {schedule.enabled && schedule.reminderHours > 0 && (
+          <p data-reminder-hint className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            提醒信會在 {formatClock(reminderAt)} 寄出,信裡會說明週報於 {formatClock(schedule)} 產生。
+          </p>
+        )}
       </div>
 
       <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">

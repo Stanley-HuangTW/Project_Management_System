@@ -1048,6 +1048,10 @@ model SystemSettings {
   /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
   /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
   weeklyReportLastRunWeek   String?
+  /// 週報排程前幾小時,寄信提醒各單位同仁更新工作事項。0 = 不提醒。
+  weeklyReportReminderHours    Int     @default(0)
+  /// 提醒信寄過了沒——存「那一輪週報所在的 ISO 週」,判斷方式跟 weeklyReportLastRunWeek 一樣。
+  weeklyReportReminderLastWeek String?
   /// 資料庫備份的排程時間——同一套設計:enabled 總開關,frequency 決定
   /// dow 要不要比對("DAILY" 不比對,"WEEKLY" 才比對)。
   backupEnabled             Boolean            @default(false)

@@ -563,6 +563,7 @@ export function SystemSettingsForm({
     minute: number;
     rangeStartDow: number;
     rangeEndDow: number;
+    reminderHours: number;
   };
   backupSchedule: BackupScheduleInput;
   reportSettingsBoards: ReportSettingsBoardWithName[];
