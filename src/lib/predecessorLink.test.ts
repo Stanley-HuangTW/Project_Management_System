@@ -11,6 +11,8 @@ import {
   computeScheduledRange,
   resolveLockedScheduleFields,
   resolveScheduleDays,
+  isMilestoneItem,
+  scheduleDaysOf,
 } from "./predecessorLink";
 
 function iso(date: Date) {
@@ -418,5 +420,38 @@ describe("pickLatest", () => {
   it("keeps a single predecessor exactly as it was — the pre-existing behaviour", () => {
     const only = r("2026-08-10", "2026-08-14");
     expect(pickLatest([only])).toBe(only);
+  });
+});
+
+describe("里程碑的天數(Days 欄鎖在 0、新建的是空的)", () => {
+  const typeOptions = [
+    { id: "task", label: "Task", color: "#000" },
+    { id: "ms", label: "Milestone", color: "#e2445c" },
+  ];
+  const cells = (type: string | null) => (type ? [{ columnId: "type", value: type }] : []);
+
+  it("isMilestoneItem:Type 選的是標籤叫 Milestone 的選項", () => {
+    expect(isMilestoneItem(cells("ms"), "type", typeOptions)).toBe(true);
+    expect(isMilestoneItem(cells("task"), "type", typeOptions)).toBe(false);
+    expect(isMilestoneItem(cells(null), "type", typeOptions)).toBe(false);
+    expect(isMilestoneItem(cells("ms"), null, typeOptions)).toBe(false); // 看板沒有設定 Type 欄
+  });
+
+  it("scheduleDaysOf:有數字就用;里程碑沒填算 0;別的項目沒填就算不出來", () => {
+    expect(scheduleDaysOf(5, false)).toBe(5);
+    expect(scheduleDaysOf(5, true)).toBe(5);
+    expect(scheduleDaysOf(null, true)).toBe(0);
+    expect(scheduleDaysOf(null, false)).toBeNull();
+    expect(scheduleDaysOf(0, false)).toBe(0);
+  });
+
+  it("里程碑 FF 接在前置後面:完成日 = 前置完成日 + lag,開始日 = 完成日(0 天)", () => {
+    const predRange = { start: new Date("2026-07-20"), end: new Date("2026-07-24") };
+    const days = scheduleDaysOf(null, true)!;
+    const result = computeScheduledRange(predRange, days, "FF", 0, "CALENDAR", new Set());
+    expect(iso(result!.start)).toBe("2026-07-24");
+    expect(iso(result!.end)).toBe("2026-07-24");
+    const withLag = computeScheduledRange(predRange, days, "FF", 2, "CALENDAR", new Set());
+    expect(iso(withLag!.end)).toBe("2026-07-26");
   });
 });

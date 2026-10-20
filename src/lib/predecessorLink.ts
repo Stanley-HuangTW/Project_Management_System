@@ -252,6 +252,26 @@ export function computeScheduledRange(
 
 export type ScheduleLock = { startLocked: boolean; endLocked: boolean; daysLocked: boolean };
 
+/** 這個項目是不是里程碑(Type 欄選的選項,標籤是 Milestone)。 */
+export function isMilestoneItem(
+  cellValues: { columnId: string; value: unknown }[],
+  typeColumnId: string | null | undefined,
+  typeOptions: ReturnType<typeof getStatusOptions>
+): boolean {
+  if (!typeColumnId) return false;
+  const value = cellValues.find((cv) => cv.columnId === typeColumnId)?.value;
+  return typeOptions.find((o) => o.id === value)?.label === "Milestone";
+}
+
+/**
+ * 排程用的天數:算得出來(Days 欄或手動天數)就用;里程碑沒填的話是 0 天。
+ * 里程碑的 Days 欄鎖在 0、使用者填不了,新建的里程碑那一格是空的——不能因為空白就算不出日期,
+ * 不然設了 Pred 和 Link,Start / Finish 永遠是空的。
+ */
+export function scheduleDaysOf(days: number | null, milestone: boolean): number | null {
+  return days !== null ? days : milestone ? 0 : null;
+}
+
 /**
  * The range start(set) + the resolved length describe, for an "always
  * computed" board. Not getItemDateRange against the two manual columns:
@@ -422,6 +442,8 @@ type BoardScheduleConfig = {
   manualStartColumnId: string | null;
   manualDurationColumnId: string | null;
   linkOptions: ReturnType<typeof getStatusOptions>;
+  typeColumnId: string | null;
+  typeOptions: ReturnType<typeof getStatusOptions>;
 };
 
 async function loadBoardConfig(boardId: string): Promise<BoardScheduleConfig | null> {
@@ -437,6 +459,7 @@ async function loadBoardConfig(boardId: string): Promise<BoardScheduleConfig | n
       ganttDurationMode: true,
       manualStartColumnId: true,
       manualDurationColumnId: true,
+      typeColumnId: true,
     },
   });
   if (!board?.ganttStartColumnId || !board.ganttDurationColumnId) return null;
@@ -444,9 +467,14 @@ async function loadBoardConfig(boardId: string): Promise<BoardScheduleConfig | n
   const alwaysComputed = !!board.manualStartColumnId && !!board.manualDurationColumnId;
   if (!alwaysComputed && (!board.predColumnId || !board.linkColumnId)) return null;
 
-  const linkColumn = board.linkColumnId
-    ? await prisma.column.findUnique({ where: { id: board.linkColumnId }, select: { options: true } })
-    : null;
+  const [linkColumn, typeColumn] = await Promise.all([
+    board.linkColumnId
+      ? prisma.column.findUnique({ where: { id: board.linkColumnId }, select: { options: true } })
+      : null,
+    board.typeColumnId
+      ? prisma.column.findUnique({ where: { id: board.typeColumnId }, select: { options: true } })
+      : null,
+  ]);
 
   return {
     predColumnId: board.predColumnId,
@@ -460,6 +488,8 @@ async function loadBoardConfig(boardId: string): Promise<BoardScheduleConfig | n
     manualStartColumnId: board.manualStartColumnId,
     manualDurationColumnId: board.manualDurationColumnId,
     linkOptions: getStatusOptions(linkColumn?.options),
+    typeColumnId: board.typeColumnId,
+    typeOptions: getStatusOptions(typeColumn?.options),
   };
 }
 
@@ -558,7 +588,14 @@ async function buildScheduleContext(
     }
     // Days is only ever a write target in "always computed" boards — in the
     // classic mode it's still the free manual input recompute reads from.
-    if (cfg.alwaysComputed && days !== null) {
+    // The one exception is a milestone whose Days cell was never filled in
+    // (the cell is locked at 0, so nobody can fill it): it is written as 0, or
+    // the Gantt, which needs a number there, could never draw its bar.
+    const milestoneWithoutDays =
+      !cfg.alwaysComputed &&
+      typeof item.cellValues.find((cv) => cv.columnId === cfg.durId)?.value !== "number" &&
+      isMilestoneItem(item.cellValues, cfg.typeColumnId, cfg.typeOptions);
+    if ((cfg.alwaysComputed || milestoneWithoutDays) && days !== null) {
       await prisma.cellValue.upsert({
         where: { itemId_columnId: { itemId: id, columnId: cfg.durId } },
         create: { itemId: id, columnId: cfg.durId, value: days },
@@ -606,13 +643,14 @@ async function buildScheduleContext(
    *  manual-column base range to fall back to when no predecessor applies. */
   function myDaysAndBase(item: (typeof items)[number]): { myDays: number | null; baseRange: DateRange | null } {
     const cfg = cfgOf(item);
+    const milestone = isMilestoneItem(item.cellValues, cfg.typeColumnId, cfg.typeOptions);
     if (cfg.alwaysComputed) {
-      const myDays = resolveScheduleDays(item.cellValues, cfg.manualDurationColumnId, cfg.durId);
+      const myDays = scheduleDaysOf(resolveScheduleDays(item.cellValues, cfg.manualDurationColumnId, cfg.durId), milestone);
       const baseRange = manualBaseRange(item.cellValues, cfg.manualStartColumnId!, myDays, cfg.mode, holidays);
       return { myDays, baseRange };
     }
     const daysValue = item.cellValues.find((cv) => cv.columnId === cfg.durId)?.value;
-    return { myDays: typeof daysValue === "number" ? daysValue : null, baseRange: null };
+    return { myDays: scheduleDaysOf(typeof daysValue === "number" ? daysValue : null, milestone), baseRange: null };
   }
 
   async function recompute(id: string, visited: Set<string>) {
@@ -686,8 +724,8 @@ async function buildScheduleContext(
   // the board the edit came from.
   const ownTriggers = (
     own.alwaysComputed
-      ? [own.predColumnId, own.linkColumnId, own.lagColumnId, own.manualDurationColumnId, own.manualStartColumnId]
-      : [own.predColumnId, own.linkColumnId, own.lagColumnId, own.durId]
+      ? [own.predColumnId, own.linkColumnId, own.lagColumnId, own.manualDurationColumnId, own.manualStartColumnId, own.typeColumnId]
+      : [own.predColumnId, own.linkColumnId, own.lagColumnId, own.durId, own.typeColumnId]
   ).filter((id): id is string => !!id);
   const cascadeTriggers = [own.startId, own.endId].filter((id): id is string => !!id);
 
@@ -846,13 +884,14 @@ async function scheduleTriggerColumnIds(boardId: string): Promise<Set<string>> {
       ganttEndColumnId: true,
       manualStartColumnId: true,
       manualDurationColumnId: true,
+      typeColumnId: true,
     },
   });
   if (!board) return new Set();
   const alwaysComputed = !!board.manualStartColumnId && !!board.manualDurationColumnId;
   const own = alwaysComputed
-    ? [board.predColumnId, board.linkColumnId, board.lagColumnId, board.manualDurationColumnId, board.manualStartColumnId]
-    : [board.predColumnId, board.linkColumnId, board.lagColumnId, board.ganttDurationColumnId];
+    ? [board.predColumnId, board.linkColumnId, board.lagColumnId, board.manualDurationColumnId, board.manualStartColumnId, board.typeColumnId]
+    : [board.predColumnId, board.linkColumnId, board.lagColumnId, board.ganttDurationColumnId, board.typeColumnId];
   return new Set(
     [...own, board.ganttStartColumnId, board.ganttEndColumnId].filter((id): id is string => !!id)
   );
@@ -911,10 +950,12 @@ export async function previewScheduleChange(
       ganttDurationMode: true,
       manualStartColumnId: true,
       manualDurationColumnId: true,
+      typeColumnId: true,
     },
   });
   if (!board) return null;
   const {
+    typeColumnId,
     predColumnId,
     linkColumnId,
     lagColumnId,
@@ -929,9 +970,12 @@ export async function previewScheduleChange(
 
   const self = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true, boardId: true } });
   if (!self) return null;
-  const [linkColumn, items, holidayRows] = await Promise.all([
+  const [linkColumn, typeColumn, items, holidayRows] = await Promise.all([
     linkColumnId
       ? prisma.column.findUnique({ where: { id: linkColumnId }, select: { options: true } })
+      : Promise.resolve(null),
+    typeColumnId
+      ? prisma.column.findUnique({ where: { id: typeColumnId }, select: { options: true } })
       : Promise.resolve(null),
     // Group-scoped: a Pred reference resolves within the item's own group.
     prisma.item.findMany({
@@ -967,14 +1011,15 @@ export async function previewScheduleChange(
   const lagValue = lagColumnId ? cellValues.find((cv) => cv.columnId === lagColumnId)?.value : null;
   const lag = typeof lagValue === "number" ? lagValue : 0;
 
+  const milestone = isMilestoneItem(cellValues, typeColumnId, getStatusOptions(typeColumn?.options));
   let myDays: number | null;
   let baseRange: DateRange | null = null;
   if (alwaysComputed) {
-    myDays = resolveScheduleDays(cellValues, manualDurationColumnId, durId);
+    myDays = scheduleDaysOf(resolveScheduleDays(cellValues, manualDurationColumnId, durId), milestone);
     baseRange = manualBaseRange(cellValues, manualStartColumnId!, myDays, mode, holidays);
   } else {
     const daysValue = cellValues.find((cv) => cv.columnId === durId)?.value;
-    myDays = typeof daysValue === "number" ? daysValue : null;
+    myDays = scheduleDaysOf(typeof daysValue === "number" ? daysValue : null, milestone);
   }
 
   let scheduled: DateRange | null = null;
