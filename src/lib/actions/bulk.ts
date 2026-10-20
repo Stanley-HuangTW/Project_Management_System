@@ -109,7 +109,15 @@ export async function bulkSetCellValue(
   if (isScheduleColumn && board) {
     const boardItems = await prisma.item.findMany({
       where: { boardId, deletedAt: null },
-      select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
+      select: {
+        id: true,
+        parentId: true,
+        order: true,
+        cellValues: true,
+        groupId: true,
+        constraintType: true,
+        constraintDate: true,
+      },
     });
     const [linkColumn, typeColumn] = await Promise.all([
       board.linkColumnId

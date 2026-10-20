@@ -78,6 +78,42 @@ export function applyConstraint(
   };
 }
 
+/** True when the constraint fixes the finish date outright (MUST_FINISH_ON with
+ *  a date) — then Start and Finish are both outputs, never free inputs. */
+export function pinsFinish(constraint: ItemConstraint): boolean {
+  return constraint.type === "MUST_FINISH_ON" && parseIso(constraint.date) !== null;
+}
+
+/**
+ * The range a MUST_FINISH_ON constraint and a length describe on their own —
+ * for an item with no predecessor and no start(set) to build a range from.
+ * Without this a pinned finish date was only ever applied to a range something
+ * else had already produced, so a task with just "必須完成於" and a duration
+ * kept empty Start/Finish/Days and no Gantt bar. Null for any other constraint,
+ * or when the length is unknown (nothing to count the start back with).
+ */
+export function pinnedRange(
+  days: number | null,
+  constraint: ItemConstraint,
+  mode: GanttDurationMode,
+  holidays: Set<string>
+): DateRange | null {
+  if (days === null || !pinsFinish(constraint)) return null;
+  const placeholder = { start: parseIso(constraint.date)!, end: parseIso(constraint.date)! };
+  return applyConstraint(placeholder, days, constraint, mode, holidays).range;
+}
+
+/**
+ * Why Start/Finish can't be edited by hand on an item whose finish is pinned,
+ * and what to change instead. Null when the finish isn't pinned. Names no
+ * column: the length lives in Days on a classic board and in the manual
+ * duration column on an "always computed" one.
+ */
+export function pinnedScheduleReason(constraint: ItemConstraint): string | null {
+  if (!pinsFinish(constraint)) return null;
+  return `完成日被日期約束「${CONSTRAINT_LABELS.MUST_FINISH_ON} ${constraint.date}」固定,開始日由它往回推天數算出。要改請改日期約束,或改天數(自動排程的看板改手動天數欄位)`;
+}
+
 /** The constraint as a sentence, for the item card and the Gantt's hover. */
 export function describeConstraint(constraint: ItemConstraint): string | null {
   if (!constraint.type || !constraint.date) return null;

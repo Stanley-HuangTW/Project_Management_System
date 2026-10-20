@@ -114,6 +114,19 @@ describe("resolveLockedScheduleFields", () => {
     expect(locks.get("a")).toBeUndefined();
   });
 
+  it("locks Start and Finish (not Days) for an item whose finish is pinned by 必須完成於", () => {
+    const items = [
+      { id: "a", parentId: null, order: 0, groupId: "g1", cellValues: [], constraintType: "MUST_FINISH_ON" as const, constraintDate: "2026-11-03" },
+      { id: "b", parentId: null, order: 1, groupId: "g1", cellValues: [], constraintType: "FINISH_NO_LATER_THAN" as const, constraintDate: "2026-11-03" },
+      { id: "c", parentId: null, order: 2, groupId: "g1", cellValues: [], constraintType: "MUST_FINISH_ON" as const, constraintDate: null },
+    ];
+    const locks = resolveLockedScheduleFields(items, "predCol", "linkCol");
+    expect(locks.get("a")).toEqual({ startLocked: true, endLocked: true, daysLocked: false });
+    // A deadline, or a pin with no date yet, computes nothing — nothing to lock.
+    expect(locks.get("b")).toBeUndefined();
+    expect(locks.get("c")).toBeUndefined();
+  });
+
   it("locks Start/Finish/Days for every item once manualStart/manualDuration are both configured, even without Pred", () => {
     const items = [
       { id: "a", parentId: null, order: 0, groupId: "g1", cellValues: [] },

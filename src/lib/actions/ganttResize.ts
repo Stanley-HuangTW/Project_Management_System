@@ -16,6 +16,7 @@ import {
 } from "@/lib/predecessorLink";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
+import { pinnedScheduleReason } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { notifyItemAssignees } from "@/lib/notify";
 
@@ -65,7 +66,15 @@ async function loadGanttEditContext(itemId: string, session: SessionPayload) {
       : null,
     prisma.item.findMany({
       where: { boardId, deletedAt: null },
-      select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
+      select: {
+        id: true,
+        parentId: true,
+        order: true,
+        cellValues: true,
+        groupId: true,
+        constraintType: true,
+        constraintDate: true,
+      },
     }),
   ]);
   // Deliberately resolved WITHOUT the manual columns: in "always computed"
@@ -111,7 +120,10 @@ export async function resizeItemBar(
     await loadGanttEditContext(itemId, session);
   const isLocked = lock?.daysLocked || (edge === "start" ? lock?.startLocked : lock?.endLocked);
   if (isLocked) {
-    throw new Error("此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定");
+    throw new Error(
+      pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate }) ??
+        "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定"
+    );
   }
 
   const currentRange = getItemDateRange(
@@ -196,7 +208,10 @@ export async function moveItemBar(
   const { boardId, board, item, lock, holidays, alwaysComputed, writeStartColumnId } =
     await loadGanttEditContext(itemId, session);
   if (lock?.startLocked || lock?.endLocked) {
-    throw new Error("此時程由前置依賴或子項目統計自動計算,無法整體搬移");
+    throw new Error(
+      pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate }) ??
+        "此時程由前置依賴或子項目統計自動計算,無法整體搬移"
+    );
   }
 
   const startColumnId = board.ganttStartColumnId!;

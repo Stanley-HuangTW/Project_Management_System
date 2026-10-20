@@ -53,11 +53,16 @@ export async function setItemConstraint(
 
   // The constraint changes where this item lands, so everything downstream of
   // it has to be recomputed — same as editing its Pred would.
+  // The column has to be one that re-schedules THIS item, not only its
+  // dependents: the Start column is a cascade trigger (it fires for items
+  // downstream of the edit), so on a classic board it left the item itself
+  // untouched until something else about it changed.
   const board = await prisma.board.findUnique({
     where: { id: boardId },
-    select: { manualStartColumnId: true, ganttStartColumnId: true },
+    select: { manualStartColumnId: true, manualDurationColumnId: true, predColumnId: true },
   });
-  const trigger = board?.manualStartColumnId ?? board?.ganttStartColumnId;
+  const alwaysComputed = !!board?.manualStartColumnId && !!board.manualDurationColumnId;
+  const trigger = alwaysComputed ? board?.manualStartColumnId : board?.predColumnId;
   if (trigger) await syncPredecessorSchedule(boardId, itemId, trigger);
 
   revalidatePath(`/boards/${boardId}`);

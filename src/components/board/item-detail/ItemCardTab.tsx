@@ -7,6 +7,7 @@ import { renameItem } from "@/lib/actions/item";
 import { canEditCellValue, canManageStructure, canModifyItemSchedule } from "@/lib/permissions";
 import { isItemAssignedToUser } from "@/lib/itemAssignment";
 import type { ScheduleLock } from "@/lib/predecessorLink";
+import { pinnedScheduleReason } from "@/lib/constraints";
 import { computeWbsCodes } from "@/lib/wbs";
 import { listDependentItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
@@ -205,12 +206,18 @@ export function ItemCardTab({
           canEditCellValue(userRole, col.type, col.id === progressColumnId, isAssignedToUser) &&
           (!isScheduleColumn || canModifySchedule) &&
           !isLockedField;
+        // 完成日被「必須完成於」釘住時,日期欄鎖住的原因是這條約束,不是前置依賴。
+        const pinnedReason =
+          col.id === ganttDurationColumnId
+            ? null
+            : pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate });
         const scheduleBlockedReason =
           isScheduleColumn && !canEdit
             ? !canModifySchedule
               ? "權限不足:僅建立者或管理者可以修改此項目的時程"
               : isLockedField
-                ? (manualScheduleHint ??
+                ? (pinnedReason ??
+                  manualScheduleHint ??
                   "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定")
                 : null
             : null;
@@ -221,7 +228,7 @@ export function ItemCardTab({
                 scheduleBlockedReason ? "cursor-not-allowed" : ""
               }`}
               title={
-                isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined
+                isLockedField ? (pinnedReason ?? manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined
               }
               onClick={scheduleBlockedReason ? () => notify(scheduleBlockedReason) : undefined}
             >

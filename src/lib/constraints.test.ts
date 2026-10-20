@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyConstraint, describeConstraint } from "./constraints";
+import { applyConstraint, describeConstraint, pinnedRange, pinnedScheduleReason, pinsFinish } from "./constraints";
 
 const range = (start: string, end: string) => ({ start: new Date(start), end: new Date(end) });
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -106,5 +106,57 @@ describe("describeConstraint", () => {
   it("is null when nothing is set", () => {
     expect(describeConstraint({ type: null, date: "2026-08-31" })).toBeNull();
     expect(describeConstraint({ type: "MUST_FINISH_ON", date: null })).toBeNull();
+  });
+});
+
+describe("pinsFinish / pinnedRange", () => {
+  const pin = { type: "MUST_FINISH_ON" as const, date: "2026-11-03" };
+
+  it("only a MUST_FINISH_ON with a date pins the finish", () => {
+    expect(pinsFinish(pin)).toBe(true);
+    expect(pinsFinish({ type: "MUST_FINISH_ON", date: null })).toBe(false);
+    expect(pinsFinish({ type: "MUST_FINISH_ON", date: "nonsense" })).toBe(false);
+    expect(pinsFinish({ type: "FINISH_NO_LATER_THAN", date: "2026-11-03" })).toBe(false);
+    expect(pinsFinish({ type: null, date: null })).toBe(false);
+  });
+
+  it("builds the whole range from the date and the length alone", () => {
+    const out = pinnedRange(23, pin, cal, noHolidays)!;
+    expect(iso(out.start)).toBe("2026-10-12");
+    expect(iso(out.end)).toBe("2026-11-03");
+  });
+
+  it("counts working days back on a working-day board", () => {
+    // 11/03 is a Tuesday: 23 working days back lands on Friday 10/02.
+    const out = pinnedRange(23, pin, "BUSINESS", noHolidays)!;
+    expect(iso(out.start)).toBe("2026-10-02");
+    expect(iso(out.end)).toBe("2026-11-03");
+  });
+
+  it("a one-day (or zero-day) item starts and ends on the date", () => {
+    for (const days of [1, 0]) {
+      const out = pinnedRange(days, pin, cal, noHolidays)!;
+      expect(iso(out.start)).toBe("2026-11-03");
+      expect(iso(out.end)).toBe("2026-11-03");
+    }
+  });
+
+  it("is null without a length or without a pinned finish", () => {
+    expect(pinnedRange(null, pin, cal, noHolidays)).toBeNull();
+    expect(pinnedRange(5, { type: "START_NO_EARLIER_THAN", date: "2026-11-03" }, cal, noHolidays)).toBeNull();
+  });
+});
+
+describe("pinnedScheduleReason", () => {
+  it("names the constraint and what to change instead", () => {
+    const reason = pinnedScheduleReason({ type: "MUST_FINISH_ON", date: "2026-11-03" });
+    expect(reason).toContain("必須完成於 2026-11-03");
+    expect(reason).toContain("日期約束");
+    expect(reason).toContain("天數");
+  });
+
+  it("is null when the finish is not pinned", () => {
+    expect(pinnedScheduleReason({ type: "FINISH_NO_LATER_THAN", date: "2026-11-03" })).toBeNull();
+    expect(pinnedScheduleReason({ type: null, date: null })).toBeNull();
   });
 });

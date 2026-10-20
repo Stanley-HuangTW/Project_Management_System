@@ -33,6 +33,7 @@ import { useChangeLevel, levelDirectionOfKey, type LevelDirection } from "./useC
 import { LevelButtons } from "./LevelButtons";
 import { computeItemProgress } from "@/lib/progress";
 import type { ScheduleLock } from "@/lib/predecessorLink";
+import { pinnedScheduleReason } from "@/lib/constraints";
 import type { PredLamp } from "@/lib/predLamp";
 import { PredLampDot } from "./PredLampDot";
 import { ConstraintBadge } from "./ConstraintBadge";
@@ -643,12 +644,18 @@ export function ItemRow({
           // Explains why a schedule cell can't be edited — shown as a prompt
           // the moment the user clicks it, not just a hover-only tooltip,
           // matching the Gantt bar's blockedReason pattern.
+          // 完成日被「必須完成於」釘住時,日期欄鎖住的原因是這條約束,不是前置依賴。
+          const pinnedReason =
+            col.id === ganttDurationColumnId
+              ? null
+              : pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate });
           const scheduleBlockedReason =
             isScheduleColumn && !cellCanEdit
               ? !canModifySchedule
                 ? "權限不足:僅建立者或管理者可以修改此項目的時程"
                 : isLockedField
-                  ? (manualScheduleHint ??
+                  ? (pinnedReason ??
+                    manualScheduleHint ??
                     "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定")
                   : null
               : null;
@@ -668,7 +675,7 @@ export function ItemRow({
               data-cell-col={col.id}
               className={`border-r border-neutral-100 dark:border-neutral-700 px-1 ${scheduleBlockedReason ? "cursor-not-allowed" : ""}`}
               style={isLockedField ? { backgroundColor: "#f3f4f6" } : undefined}
-              title={isLockedField ? (manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined}
+              title={isLockedField ? (pinnedReason ?? manualScheduleHint ?? "由前置依賴或子項目統計自動計算") : undefined}
               onClick={scheduleBlockedReason ? () => notify(scheduleBlockedReason) : undefined}
             >
               {col.id === predColumnId && predLamps?.get(item.id) ? (

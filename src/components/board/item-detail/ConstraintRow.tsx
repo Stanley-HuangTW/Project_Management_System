@@ -77,6 +77,9 @@ export function ConstraintRow({
         ).violation
       : null;
 
+  // 完成日釘住了,但沒有天數可以往回推:開始日、Start / Days 都還是空的,說一聲為什麼。
+  const missingLength = type === "MUST_FINISH_ON" && !!date && durationDays === null;
+
   return (
     <div className={className}>
       <div className="flex items-center justify-between gap-3">
@@ -120,7 +123,12 @@ export function ConstraintRow({
             violation ? "text-red-600" : "text-neutral-400 dark:text-neutral-500"
           }`}
         >
-          {violation ?? (date ? HINTS[draftType] : "請選擇約束日期")}
+          {violation ??
+            (missingLength
+              ? "還沒有天數,填了天數(自動排程的看板填手動天數欄位)才算得出開始日"
+              : date
+                ? HINTS[draftType]
+                : "請選擇約束日期")}
         </p>
       )}
     </div>

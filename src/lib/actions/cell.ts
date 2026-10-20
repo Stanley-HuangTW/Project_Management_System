@@ -13,6 +13,7 @@ import {
   checkScheduleWithinAncestorRule,
 } from "@/lib/predecessorLink";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
+import { pinnedScheduleReason } from "@/lib/constraints";
 import { canEditCellValue, canModifyItemSchedule } from "@/lib/permissions";
 import { notifyDependentsWhenDone } from "@/lib/predReadyNotify";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
@@ -129,7 +130,15 @@ export async function upsertCellValue(
         // Board-wide: the lock map and Pred resolution both have to see
         // predecessors that live in another group.
         where: { boardId, deletedAt: null },
-        select: { id: true, parentId: true, order: true, cellValues: true, groupId: true },
+        select: {
+          id: true,
+          parentId: true,
+          order: true,
+          cellValues: true,
+          groupId: true,
+          constraintType: true,
+          constraintDate: true,
+        },
       }),
     ]);
     const locked = resolveLockedScheduleFields(
@@ -148,7 +157,11 @@ export async function upsertCellValue(
       (column.id === board.ganttEndColumnId && lock?.endLocked) ||
       (column.id === board.ganttDurationColumnId && lock?.daysLocked);
     if (isLocked) {
-      return { error: "此日期/天數由前置依賴或子項目統計自動計算,無法手動編輯" };
+      const target = boardItems.find((i) => i.id === itemId);
+      const pinned =
+        column.id !== board.ganttDurationColumnId &&
+        pinnedScheduleReason({ type: target?.constraintType ?? null, date: target?.constraintDate ?? null });
+      return { error: pinned || "此日期/天數由前置依賴或子項目統計自動計算,無法手動編輯" };
     }
   }
 

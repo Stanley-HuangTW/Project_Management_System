@@ -4,7 +4,7 @@ import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
 import { endFromStartAndDays, shiftDate } from "@/lib/workday";
-import { applyConstraint } from "@/lib/constraints";
+import { applyConstraint, pinnedRange, pinsFinish } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -333,7 +333,8 @@ export function resolveScheduleDays(
  * configures them.
  */
 export function resolveLockedScheduleFields(
-  items: Pick<ItemData, "id" | "parentId" | "order" | "cellValues" | "groupId">[],
+  items: (Pick<ItemData, "id" | "parentId" | "order" | "cellValues" | "groupId"> &
+    Partial<Pick<ItemData, "constraintType" | "constraintDate">>)[],
   predColumnId?: string | null,
   linkColumnId?: string | null,
   linkColumnOptions?: unknown,
@@ -394,6 +395,14 @@ export function resolveLockedScheduleFields(
         if (label === "FS" || label === "SS") ensure(item.id).startLocked = true;
         else if (label === "FF" || label === "SF") ensure(item.id).endLocked = true;
       }
+    }
+
+    // 「必須完成於」把完成日釘死、開始日由天數往回推——兩端都是算出來的,
+    // 手改任何一端都會在下次重算被蓋回去。要改請改約束日期或天數。
+    if (pinsFinish({ type: item.constraintType ?? null, date: item.constraintDate ?? null })) {
+      const lock = ensure(item.id);
+      lock.startLocked = true;
+      lock.endLocked = true;
     }
 
     if (typeColumnId) {
@@ -550,6 +559,7 @@ async function buildScheduleContext(
   const wbsIndex = buildWbsIndexFromItems(items);
   const { wbsByItemId } = wbsIndex;
   const itemsById = new Map(items.map((i) => [i.id, i]));
+  const parentIds = new Set(items.map((i) => i.parentId).filter((id): id is string => !!id));
 
   /** The config of the board this item lives on. */
   const cfgOf = (item: { boardId: string }) => configByBoard.get(item.boardId)!;
@@ -700,17 +710,19 @@ async function buildScheduleContext(
           );
         })
       );
-      const computed = scheduled ?? (cfg.alwaysComputed ? baseRange : null);
+      const constraint = { type: item.constraintType, date: item.constraintDate };
+      // A finish date that is pinned needs no predecessor and no start(set):
+      // the length alone counts the start back from it. Not for a summary that
+      // follows its children — its dates are their span, not a length of its own.
+      const followsChildren = parentIds.has(id) && !hasOwnScheduleRule(item, { predColumnId: cfg.predColumnId });
+      const computed =
+        scheduled ??
+        (cfg.alwaysComputed ? baseRange : null) ??
+        (followsChildren ? null : pinnedRange(myDays, constraint, cfg.mode, holidays));
       // A date the item has to respect whatever the chain wanted — a part that
       // does not arrive until the 15th, a demo that cannot move.
       const effective = computed
-        ? applyConstraint(
-            computed,
-            myDays,
-            { type: item.constraintType, date: item.constraintDate },
-            cfg.mode,
-            holidays
-          ).range
+        ? applyConstraint(computed, myDays, constraint, cfg.mode, holidays).range
         : null;
       if (effective) await writeRange(id, effective, myDays);
     }
@@ -1039,16 +1051,12 @@ export async function previewScheduleChange(
   if (!scheduled && alwaysComputed && baseRange) {
     scheduled = baseRange;
   }
+  const constraint = { type: item.constraintType, date: item.constraintDate };
+  if (!scheduled) scheduled = pinnedRange(myDays, constraint, mode, holidays);
   if (!scheduled) return null;
   // Same constraint the real recompute applies, so the preview shows the dates
   // that will actually be written rather than the unconstrained ones.
-  scheduled = applyConstraint(
-    scheduled,
-    myDays,
-    { type: item.constraintType, date: item.constraintDate },
-    mode,
-    holidays
-  ).range;
+  scheduled = applyConstraint(scheduled, myDays, constraint, mode, holidays).range;
 
   return {
     start: scheduled.start.toISOString().slice(0, 10),

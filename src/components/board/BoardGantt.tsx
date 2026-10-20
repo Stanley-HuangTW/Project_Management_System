@@ -38,6 +38,7 @@ import { canManageGroupStructure, canManageStructure, canEditGanttItem, canModif
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAccess } from "@/lib/groupRoles";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { toggleRowSelection } from "@/lib/rowSelection";
+import { pinnedScheduleReason } from "@/lib/constraints";
 import {
   barIndexRange,
   computeRolledUpDateRange,
@@ -1257,6 +1258,9 @@ export function BoardGantt({
         .join("、");
       return `此項目的時程是由子項目統計出來的,要改請改子項目的時間:${names}${children.length > 3 ? " 等" : ""}`;
     }
+
+    const pinned = pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate });
+    if (pinned) return pinned;
 
     if (predColumnId && linkColumnId) {
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
