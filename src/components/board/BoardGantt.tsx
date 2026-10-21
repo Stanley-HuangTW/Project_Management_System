@@ -30,6 +30,7 @@ import {
   Link2,
   Maximize2,
   Minimize2,
+  Search,
 } from "lucide-react";
 import NextLink from "next/link";
 import type { BoardWithData, ItemData, UserOption, ExternalPredecessor } from "@/types/board";
@@ -248,6 +249,9 @@ export function BoardGantt({
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const [groupFilterId, setGroupFilterId] = useState("");
   const [parentFilterId, setParentFilterId] = useState("");
+  // 依項目名稱搜尋(跟表格那一欄同一個規則:名稱包含、不分大小寫,符合的項目連同它的上層一起顯示)。
+  const [searchQuery, setSearchQuery] = useState("");
+  const searching = searchQuery.trim() !== "";
   const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
   const [scalePct, setScalePct] = useState(100);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -761,7 +765,7 @@ export function BoardGantt({
   const itemById = useMemo(() => new Map(board.items.map((i) => [i.id, i])), [board.items]);
 
   const visibleIds = useMemo(() => {
-    let ids = computeVisibleItemIds(board.items, filters);
+    let ids = computeVisibleItemIds(board.items, filters, searchQuery);
     if (groupFilterId) {
       const groupIds = new Set(board.items.filter((i) => i.groupId === groupFilterId).map((i) => i.id));
       ids = ids ? new Set([...ids].filter((id) => groupIds.has(id))) : groupIds;
@@ -778,7 +782,7 @@ export function BoardGantt({
       ids = ids ? new Set([...ids].filter((id) => subtree.has(id))) : subtree;
     }
     return ids;
-  }, [board.items, filters, groupFilterId, parentFilterId]);
+  }, [board.items, filters, searchQuery, groupFilterId, parentFilterId]);
 
   const teamUserIds = useMemo(
     () => subordinateIds(users, currentUserId),
@@ -1326,7 +1330,8 @@ export function BoardGantt({
     const children = siblings ?? itemsByParent.get(parentId) ?? [];
     return children.flatMap((item) => {
       const hasChildren = (itemsByParent.get(item.id)?.length ?? 0) > 0;
-      const isCollapsed = collapsed.has(item.id);
+      // 搜尋中不管收合:符合的項目可能藏在收合著的上層底下,收著就看不到了。
+      const isCollapsed = collapsed.has(item.id) && !searching;
       const range = ranges.get(item.id);
       const nameColor = ganttStatusColor(item);
       // 拖曳途中,被拖的這一列顯示「放開後會變成的 WBS 編號」。
@@ -1638,6 +1643,23 @@ export function BoardGantt({
             className="max-w-[200px] rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500"
           />
         </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜尋項目名稱..."
+              data-gantt-search
+              className="w-48 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 py-1 pl-7 pr-2 text-xs outline-none focus:border-blue-500"
+            />
+          </div>
+          {searching && (
+            <span className="text-xs text-neutral-400 dark:text-neutral-500" data-gantt-search-count>
+              {board.items.filter((i) => i.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).length} 個符合
+            </span>
+          )}
+        </div>
         {(groupFilterId || parentFilterId) && (
           <button
             type="button"
@@ -1664,14 +1686,13 @@ export function BoardGantt({
       </div>
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-2">
         <FilterBar columns={board.columns} users={users} filters={filters} onChange={setFilters} />
-        {/* The Gantt has no name search of its own, so a view saved in the
-            table keeps its query but does not apply it here. */}
         <SavedViewBar
           boardId={board.id}
-          currentConfig={{ filters, groupFilterId, searchQuery: "" }}
+          currentConfig={{ filters, groupFilterId, searchQuery }}
           onApply={(config) => {
             setFilters(config.filters);
             setGroupFilterId(config.groupFilterId);
+            setSearchQuery(config.searchQuery);
           }}
         />
       </div>
