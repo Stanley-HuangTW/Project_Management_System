@@ -28,7 +28,7 @@ import { KanbanLane } from "./KanbanLane";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
 import { useRecordedCellSave } from "./cell-editors/useCellSave";
-import { subordinateIds } from "@/lib/orgChart";
+import { teamIds as orgTeamIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
 
 // 逾期 first, then 未處理, then 實作中, then 已完成 last — same status
@@ -189,8 +189,10 @@ export function BoardKanban({
 
   const isSupervisor = userRole === "SUPERVISOR";
   const isMember = userRole === "MEMBER";
+  // 「我的團隊」含主管自己——只算部屬的話,沒有部屬(或部屬沒有項目)的主管一打開就是空的,
+  // 自己負責的項目反而看不到。跟報表分頁、儀表板的範圍一致。
   const teamIds = useMemo(
-    () => (isSupervisor ? [...subordinateIds(users, currentUserId)] : null),
+    () => (isSupervisor ? [...orgTeamIds(users, currentUserId)] : null),
     [isSupervisor, users, currentUserId]
   );
   const [scope, setScope] = useState<"team" | "all">(isSupervisor ? "team" : "all");
