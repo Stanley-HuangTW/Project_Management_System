@@ -35,6 +35,7 @@ export function PredPicker({
   boardId,
   value,
   options,
+  current,
   parentCode,
   parentItemId,
   disabled = false,
@@ -46,6 +47,10 @@ export function PredPicker({
   /** The stored Pred cell: comma-separated item ids, or a legacy WBS code. */
   value: string | null;
   options: PredOption[];
+  /** 正在編輯前置的這個工作項自己。它不能是自己的前置,所以不在 options 裡;
+   *  這裡另外給,清單照樣把它排在樹上原本的位置、標紅框(current task)、不能選,
+   *  使用者才看得出「我在清單的哪裡」。 */
+  current?: PredOption;
   /** Opening the list jumps here — the item's own parent is the most likely
    *  predecessor — without selecting it. */
   parentCode?: string;
@@ -105,7 +110,11 @@ export function PredPicker({
     () => (options.some((o) => o.boardId) ? options.filter((o) => o.boardId) : (fetched ?? [])),
     [options, fetched]
   );
-  const localOptions = useMemo(() => options.filter((o) => !o.boardId), [options]);
+  const localOptions = useMemo(() => {
+    const own = options.filter((o) => !o.boardId);
+    if (!current) return own;
+    return [...own, current].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  }, [options, current]);
 
   async function toggleCrossBoard(next: boolean) {
     setCrossBoard(next);
@@ -218,7 +227,8 @@ export function PredPicker({
       return;
     }
     const option = allOptions.find((o) => o.id === id);
-    if (option) commit([...selected, { ...option, relationship: null, lag: null }]);
+    // 新加的前置預設 FS(最常見的關係)。選了「預設」才是沿用此項目的 Link 欄位。
+    if (option) commit([...selected, { ...option, relationship: "FS", lag: null }]);
   }
 
   /** Changes one edge without touching the others. */
@@ -262,13 +272,14 @@ export function PredPicker({
     }
     setCollapsed(collapseAllExcept(chain, options));
     autoExpanded.current = "local";
-    if (!parentCode) return;
+    const scrollTo = current?.code || parentCode;
+    if (!scrollTo) return;
     // Popover.Content mounts into its portal on a render commit after
     // onOpenChange fires, so the target may not exist yet on the very next
     // frame — poll a few frames instead of assuming one rAF is enough.
     let attempts = 0;
     function tryScroll() {
-      const target = viewportRef.current?.querySelector('[data-code="' + CSS.escape(parentCode!) + '"]');
+      const target = viewportRef.current?.querySelector('[data-code="' + CSS.escape(scrollTo!) + '"]');
       if (target) {
         target.scrollIntoView({ block: "center" });
       } else if (attempts++ < 10) {
@@ -406,7 +417,7 @@ export function PredPicker({
                     title="這條依賴的關係型別;「預設」表示沿用此項目的 Link 欄位"
                     className="shrink-0 rounded border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 px-1 py-0.5 outline-none focus:border-blue-500"
                   >
-                    <option value="">預設</option>
+                    <option value="">預設(沿用 Link 欄)</option>
                     {RELATIONSHIPS.map((r) => (
                       <option key={r} value={r}>
                         {r}
@@ -450,6 +461,7 @@ export function PredPicker({
             ).map(({ option: o, depth, hasChildren }) => {
               const isSelected = selected.some((s) => s.id === o.id);
               const isCollapsed = collapsed.has(o.id);
+              const isCurrent = !!current && o.id === current.id;
               return (
                 <div key={o.id} className="flex items-center">
                   <span style={{ width: depth * 12 }} className="shrink-0" />
@@ -477,8 +489,15 @@ export function PredPicker({
                 <button
                   type="button"
                   data-code={o.code}
+                  data-current-task={isCurrent ? "" : undefined}
+                  disabled={isCurrent}
+                  title={isCurrent ? "目前這個工作項——不能選自己當前置" : undefined}
                   onClick={() => toggle(o.id)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  className={
+                    isCurrent
+                      ? "flex min-w-0 flex-1 cursor-not-allowed items-center justify-between gap-2 rounded border border-red-500 bg-red-50 px-2 py-1.5 text-left text-sm text-neutral-700 dark:bg-red-950/30 dark:text-neutral-100"
+                      : "flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  }
                 >
                   <span className="min-w-0 flex-1 break-words">
                     {/* 跨看板模式下,看板與分組已經在上面挑過了,再重複一次
@@ -491,6 +510,7 @@ export function PredPicker({
                       </span>
                     )}
                   </span>
+                  {isCurrent && <span className="shrink-0 text-[11px] font-medium text-red-600 dark:text-red-400">current task</span>}
                   {isSelected && <Check size={14} className="shrink-0 text-blue-600" />}
                 </button>
                 </div>

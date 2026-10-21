@@ -384,16 +384,23 @@ export function resolveLockedScheduleFields(
 
     if (predColumnId && linkColumnId) {
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
-      // One resolvable predecessor is enough: whichever end the relationship
-      // drives is computed, no matter how many things this item waits on.
-      const predIds = resolvePredValues(wbsIndex, item.groupId, predValue).filter(
-        (predId) => predId !== item.id
+      // Whichever end a relationship drives is computed, no matter how many
+      // things this item waits on. Each edge uses its own relationship when
+      // the Pred cell gives it one (a predecessor added in the picker is FS,
+      // whatever the Link column says) and the Link column otherwise — the
+      // same rule the schedule itself follows, so a locked cell is exactly a
+      // computed one.
+      const entries = parsePredEntries(wbsIndex, item.groupId, predValue).filter(
+        (entry) => entry.itemId !== item.id
       );
-      if (predIds.length > 0) {
+      if (entries.length > 0) {
         const linkValue = item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value;
-        const label = linkOptions.find((o) => o.id === linkValue)?.label;
-        if (label === "FS" || label === "SS") ensure(item.id).startLocked = true;
-        else if (label === "FF" || label === "SF") ensure(item.id).endLocked = true;
+        const linkLabel = linkOptions.find((o) => o.id === linkValue)?.label;
+        for (const entry of entries) {
+          const label = entry.relationship ?? linkLabel;
+          if (label === "FS" || label === "SS") ensure(item.id).startLocked = true;
+          else if (label === "FF" || label === "SF") ensure(item.id).endLocked = true;
+        }
       }
     }
 
@@ -1121,8 +1128,8 @@ export async function previewScheduleChange(
   const cellValues = item.cellValues.map((cv) => (cv.columnId === columnId ? { ...cv, value: newValue } : cv));
 
   const predValue = predColumnId ? cellValues.find((cv) => cv.columnId === predColumnId)?.value : null;
-  const predItemIds = predColumnId
-    ? resolvePredValues(wbsIndex, item.groupId, predValue).filter((predId) => predId !== itemId)
+  const predEntries = predColumnId
+    ? parsePredEntries(wbsIndex, item.groupId, predValue).filter((entry) => entry.itemId !== itemId)
     : [];
   const linkValue = linkColumnId ? cellValues.find((cv) => cv.columnId === linkColumnId)?.value : null;
   const relationship = linkOptions.find((o) => o.id === linkValue)?.label;
@@ -1140,20 +1147,13 @@ export async function previewScheduleChange(
     myDays = scheduleDaysOf(typeof daysValue === "number" ? daysValue : null, milestone);
   }
 
-  let scheduled: DateRange | null = null;
-  if (relationship && (RELATIONSHIP_TYPES as string[]).includes(relationship) && myDays !== null) {
-    // Same rule as recompute: the binding predecessor is the one that pushes
-    // this item latest.
-    scheduled = pickLatest(
-      predItemIds.map((predItemId) => {
-        const predItem = itemsById.get(predItemId);
-        const predRange = predItem ? getItemDateRange(predItem, startId, durId, mode, holidays) : null;
-        return predRange
-          ? computeScheduledRange(predRange, myDays, relationship as RelationshipType, lag, mode, holidays)
-          : null;
-      })
-    );
-  }
+  // Same rule as recompute — including an edge's own relationship and lag,
+  // so a predecessor added in the picker (FS, whatever the Link column says)
+  // previews the same dates it will get.
+  let scheduled: DateRange | null = scheduledFromPreds(predEntries, relationship, lag, myDays, mode, holidays, (predItemId) => {
+    const predItem = itemsById.get(predItemId);
+    return predItem ? getItemDateRange(predItem, startId, durId, mode, holidays) : null;
+  });
   if (!scheduled && alwaysComputed && baseRange) {
     scheduled = baseRange;
   }

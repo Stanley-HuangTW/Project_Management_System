@@ -53,6 +53,13 @@ export function PredCell({
   );
 
   const currentItem = groupItems.find((i) => i.id === itemId);
+  // 這個項目自己:不能當自己的前置(不在 options 裡),但清單要把它畫在原本的位置,標出「我在這裡」。
+  const current = useMemo<PredOption | undefined>(() => {
+    const code = codes.get(itemId);
+    return currentItem && code
+      ? { id: currentItem.id, code, name: currentItem.name, wbsCode: code, parentId: currentItem.parentId }
+      : undefined;
+  }, [currentItem, codes, itemId]);
   const parentCode = currentItem?.parentId ? codes.get(currentItem.parentId) : undefined;
   const save = useRecordedCellSave();
 
@@ -61,6 +68,7 @@ export function PredCell({
       boardId={boardId}
       value={value}
       options={options}
+      current={current}
       parentCode={parentCode}
       parentItemId={currentItem?.parentId ?? null}
       onChange={(next) => save({ boardId, itemId, columnId, before: value, after: next })}

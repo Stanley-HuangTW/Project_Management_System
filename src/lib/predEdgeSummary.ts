@@ -49,12 +49,20 @@ export function formatEdgeSuffix(edge: Pick<PredEdgeSummary, "relationship" | "l
 }
 
 /** The tooltip for a Link or Lag cell some of whose edges disagree with it:
- *  null when every edge is content with the column's own value. */
+ *  null when every edge is content with the column's own value.
+ *
+ *  columnValue is what the column effectively says ("FS" for an empty Link,
+ *  since a new predecessor now defaults to FS) — an edge that says the same
+ *  thing is not overriding anything, so it gets no marker. */
 export function describeEdgeOverrides(
   edges: PredEdgeSummary[],
-  kind: "relationship" | "lag"
+  kind: "relationship" | "lag",
+  columnValue?: RelationshipType | null
 ): string | null {
-  const overriding = edges.filter((e) => (kind === "relationship" ? e.relationship : e.lag) !== null);
+  const overriding = edges.filter((e) => {
+    const own = kind === "relationship" ? e.relationship : e.lag;
+    return own !== null && !(kind === "relationship" && columnValue && own === columnValue);
+  });
   if (overriding.length === 0) return null;
   const lines = overriding.map((e) =>
     kind === "relationship" ? `${e.label}:${e.relationship}` : `${e.label}:${e.lag! > 0 ? "+" : ""}${e.lag} 天`

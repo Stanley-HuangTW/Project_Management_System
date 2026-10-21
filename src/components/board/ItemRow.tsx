@@ -32,13 +32,14 @@ import { useDeleteItem } from "./useDeleteItem";
 import { useChangeLevel, levelDirectionOfKey, type LevelDirection } from "./useChangeLevel";
 import { LevelButtons } from "./LevelButtons";
 import { computeItemProgress } from "@/lib/progress";
-import type { ScheduleLock } from "@/lib/predecessorLink";
+import type { ScheduleLock, RelationshipType } from "@/lib/predecessorLink";
 import { pinnedScheduleReason } from "@/lib/constraints";
 import type { PredLamp } from "@/lib/predLamp";
 import { PredLampDot } from "./PredLampDot";
 import { ConstraintBadge } from "./ConstraintBadge";
 import { VisibilityModal } from "./VisibilityModal";
 import { summarizePredEdges, describeEdgeOverrides } from "@/lib/predEdgeSummary";
+import { getStatusOptions } from "@/types/column";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { ItemEventCells } from "./ItemEventCells";
 import { ItemProtoUnitCell } from "./ItemProtoUnitCell";
@@ -239,6 +240,13 @@ export function ItemRow({
 
   // This item's dependencies, each with whatever relationship and lag it
   // carries of its own — see summarizePredEdges.
+  // 這個項目的 Link 欄現在寫的是什麼;空白就當 FS(新加的前置預設 FS)。
+  const linkOptionId = linkColumnId ? valuesByColumn.get(linkColumnId) : undefined;
+  const linkLabel = linkColumnId
+    ? (getStatusOptions(columns.find((c) => c.id === linkColumnId)?.options).find((o) => o.id === linkOptionId)?.label as
+        | RelationshipType
+        | undefined)
+    : undefined;
   const predEdges = predColumnId
     ? summarizePredEdges(
         valuesByColumn.get(predColumnId),
@@ -664,7 +672,7 @@ export function ItemRow({
           // here the table shows a Lag that half the chain is not using.
           const overrideNote =
             col.id === linkColumnId
-              ? describeEdgeOverrides(predEdges, "relationship")
+              ? describeEdgeOverrides(predEdges, "relationship", linkLabel ?? "FS")
               : col.id === lagColumnId
                 ? describeEdgeOverrides(predEdges, "lag")
                 : null;

@@ -127,6 +127,39 @@ describe("resolveLockedScheduleFields", () => {
     expect(locks.get("c")).toBeUndefined();
   });
 
+  describe("which end a predecessor pins", () => {
+    const options = { statuses: [{ id: "fs", label: "FS", color: "#1" }, { id: "ff", label: "FF", color: "#2" }] };
+    const cell = (columnId: string, value: unknown) => ({ id: `${columnId}-cv`, itemId: "t", columnId, value: value as never });
+    const pred = { id: "p", parentId: null, order: 0, groupId: "g1", cellValues: [] };
+    const task = (cells: ReturnType<typeof cell>[]) => ({ id: "t", parentId: null, order: 1, groupId: "g1", cellValues: cells });
+    const lockOf = (t: ReturnType<typeof task>) =>
+      resolveLockedScheduleFields([pred, t], "predCol", "linkCol", options).get("t");
+
+    it("the Link column decides when the edge has no relationship of its own", () => {
+      expect(lockOf(task([cell("predCol", "p"), cell("linkCol", "fs")]))).toMatchObject({ startLocked: true, endLocked: false });
+      expect(lockOf(task([cell("predCol", "p"), cell("linkCol", "ff")]))).toMatchObject({ startLocked: false, endLocked: true });
+    });
+
+    it("an edge's own FS pins Start even though the Link column is empty (the picker's default)", () => {
+      expect(lockOf(task([cell("predCol", "p:FS")]))).toMatchObject({ startLocked: true, endLocked: false });
+    });
+
+    it("an edge's own relationship beats the Link column", () => {
+      expect(lockOf(task([cell("predCol", "p:FF"), cell("linkCol", "fs")]))).toMatchObject({ startLocked: false, endLocked: true });
+    });
+
+    it("mixed edges pin both ends — each is computed by one of them", () => {
+      const both = { ...pred, id: "q" };
+      const t = task([cell("predCol", "p:FS,q:FF")]);
+      const locks = resolveLockedScheduleFields([pred, both, t], "predCol", "linkCol", options);
+      expect(locks.get("t")).toMatchObject({ startLocked: true, endLocked: true });
+    });
+
+    it("a reference that resolves to nothing pins nothing", () => {
+      expect(lockOf(task([cell("predCol", "nobody:FS")]))).toBeUndefined();
+    });
+  });
+
   it("locks Start/Finish/Days for every item once manualStart/manualDuration are both configured, even without Pred", () => {
     const items = [
       { id: "a", parentId: null, order: 0, groupId: "g1", cellValues: [] },

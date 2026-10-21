@@ -52,6 +52,15 @@ describe("describeEdgeOverrides", () => {
     expect(note).not.toContain("1.2");
   });
 
+  it("an edge that says what the Link column already says (FS by default) overrides nothing", () => {
+    const fsEdges = summarizePredEdges("a1:FS,a2:FS", options);
+    expect(describeEdgeOverrides(fsEdges, "relationship", "FS")).toBeNull();
+    // 但跟欄位不一樣的還是要標出來
+    expect(describeEdgeOverrides(summarizePredEdges("a1:SS,a2:FS", options), "relationship", "FS")).toContain("1.1 底盤機構設計:SS");
+    // 沒給欄位值就照舊:任何明確的關係都算
+    expect(describeEdgeOverrides(fsEdges, "relationship")).not.toBeNull();
+  });
+
   it("says nothing when every edge is content with the column", () => {
     expect(describeEdgeOverrides(summarizePredEdges("a1,a2", options), "lag")).toBeNull();
     expect(describeEdgeOverrides(summarizePredEdges("a1,a2", options), "relationship")).toBeNull();

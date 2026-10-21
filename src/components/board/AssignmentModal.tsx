@@ -183,6 +183,11 @@ export function AssignmentModal({
           .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
       : [];
   const parentCode = item.parentId ? (predCodes?.get(item.parentId) ?? undefined) : undefined;
+  const ownPredCode = predCodes?.get(item.id);
+  // 這個項目自己:不能當自己的前置,但清單要把它畫在原本的位置(標紅框、不能選)。
+  const currentPredOption = ownPredCode
+    ? { id: item.id, code: ownPredCode, name: item.name, parentId: item.parentId }
+    : undefined;
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={`${item.name} — 人員分配`} size="lg">
@@ -292,6 +297,7 @@ export function AssignmentModal({
                       boardId={boardId}
                       value={typeof displayValue === "string" ? displayValue : null}
                       options={predOptions}
+                      current={currentPredOption}
                       parentCode={parentCode}
                       parentItemId={item.parentId ?? null}
                       disabled={fieldDisabled}
