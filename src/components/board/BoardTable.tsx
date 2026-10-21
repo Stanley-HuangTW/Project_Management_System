@@ -26,7 +26,9 @@ import type { Holiday, UserRole } from "@prisma/client";
 import { canManageStructure } from "@/lib/permissions";
 import { toggleRowSelection } from "@/lib/rowSelection";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
-import { computeAncestorIds } from "@/lib/wbs";
+import { computeAncestorIds, computeWbsCodes } from "@/lib/wbs";
+import { autoFitCap, fitNameColumnWidth } from "@/lib/nameColumnFit";
+import { createTextMeasurer } from "./textMeasure";
 import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
 import { computeRolledUpDateRange, manualScheduleHint as buildManualScheduleHint } from "@/lib/gantt";
 import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
@@ -198,6 +200,7 @@ export function BoardTable({
     [board.items, collapsedIds]
   );
   const hasAutoSizedRef = useRef(false);
+  const tableRootRef = useRef<HTMLDivElement>(null);
   const scrollPanesRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   function expandGroup(groupItems: ItemData[]) {
@@ -349,35 +352,44 @@ export function BoardTable({
     itemsByGroup.set(item.groupId, list);
   }
 
+  // 名稱欄一開始就寬到看得到每個項目的全名(含收合著的子項目),照畫面上真正的字型量字。
+  // 只做一次;使用者之後照樣可以拖。
   useEffect(() => {
-    if (hasAutoSizedRef.current) return;
-    const timer = setTimeout(() => {
-      if (hasAutoSizedRef.current) return;
+    if (hasAutoSizedRef.current || board.items.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      // 字型還沒載入完就量,量的是備用字型,中文字寬會差一截。
+      try {
+        await document.fonts?.ready;
+      } catch {}
+      const root = tableRootRef.current;
+      if (cancelled || hasAutoSizedRef.current || !root) return;
+      const measureText = createTextMeasurer(root.querySelector("[data-item-name-button]") ?? root);
+      if (!measureText) return;
       hasAutoSizedRef.current = true;
-      const ctx = document.createElement("canvas").getContext("2d");
-      if (!ctx) return;
-      ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-      const itemsById = new Map(board.items.map((i) => [i.id, i]));
-      let maxWidth = 0;
-      for (const item of board.items) {
-        let depth = 0;
-        let current = item;
-        while (current.parentId) {
-          const parent = itemsById.get(current.parentId);
-          if (!parent) break;
-          depth++;
-          current = parent;
-        }
-        const width = ctx.measureText(item.name).width + depth * 20 + NAME_CELL_CHROME_WIDTH;
-        if (width > maxWidth) maxWidth = width;
+      // WBS 編號只在自己的分組裡有意義,逐組算。
+      const itemsOfGroup = new Map<string, ItemData[]>();
+      for (const item of board.items) itemsOfGroup.set(item.groupId, [...(itemsOfGroup.get(item.groupId) ?? []), item]);
+      const codes = new Map<string, string>();
+      for (const groupItems of itemsOfGroup.values()) {
+        for (const [id, code] of computeWbsCodes(groupItems)) codes.set(id, code);
       }
-      if (maxWidth > 0) {
-        setNameWidth(
-          Math.min(AUTO_FIT_MAX_NAME_COLUMN_WIDTH, Math.max(DEFAULT_NAME_COLUMN_WIDTH, Math.ceil(maxWidth)))
-        );
-      }
-    }, 0);
-    return () => clearTimeout(timer);
+      setNameWidth(
+        fitNameColumnWidth({
+          items: board.items,
+          codeOf: (id) => codes.get(id),
+          // 編號是 12px 粗體,跟名稱之間隔 4px;名稱是 14px。
+          measure: (text, kind) => (kind === "code" ? measureText(text, 12, "700") + 4 : measureText(text, 14)),
+          indentPerLevel: 20,
+          chrome: NAME_CELL_CHROME_WIDTH,
+          min: DEFAULT_NAME_COLUMN_WIDTH,
+          max: autoFitCap(root.clientWidth || 1200, AUTO_FIT_MAX_NAME_COLUMN_WIDTH),
+        })
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [board.items]);
 
   function handleDragEnd(event: DragEndEvent) {
@@ -469,7 +481,7 @@ export function BoardTable({
   return (
     <ItemEventsProvider summaries={summaries}>
     <ItemProtoUnitsProvider data={protoUnits}>
-    <div className="flex h-full flex-col">
+    <div ref={tableRootRef} className="flex h-full flex-col">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <span className="shrink-0 whitespace-nowrap text-neutral-500 dark:text-neutral-400">專案(分組)</span>
         <select

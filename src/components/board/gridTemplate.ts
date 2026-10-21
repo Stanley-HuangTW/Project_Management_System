@@ -1,9 +1,9 @@
 export const DEFAULT_NAME_COLUMN_WIDTH = 220;
 export const MIN_NAME_COLUMN_WIDTH = 120;
 export const MAX_NAME_COLUMN_WIDTH = 1000;
-/** Cap for the auto-fit-to-longest-name default, kept well below MAX_NAME_COLUMN_WIDTH
- * so a single very long item name can't swallow the whole table on load; users can still
- * drag the column wider manually up to MAX_NAME_COLUMN_WIDTH. */
+/** Floor of the auto-fit cap (the cap itself is half the table's width, see autoFitCap): a
+ * single very long item name can't swallow the whole table on load, but a narrow pane still
+ * gets this much. Users can drag the column wider manually up to MAX_NAME_COLUMN_WIDTH. */
 export const AUTO_FIT_MAX_NAME_COLUMN_WIDTH = 400;
 
 /** Grid template for the data-columns pane only (everything except the

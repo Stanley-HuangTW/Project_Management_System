@@ -39,6 +39,8 @@ import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAcces
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { toggleRowSelection } from "@/lib/rowSelection";
 import { pinnedScheduleReason } from "@/lib/constraints";
+import { autoFitCap, fitNameColumnWidth } from "@/lib/nameColumnFit";
+import { createTextMeasurer } from "./textMeasure";
 import {
   barIndexRange,
   computeRolledUpDateRange,
@@ -118,7 +120,10 @@ const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 34, week: 10, month: 3 };
 const CHECKBOX_GUTTER = 20;
 const DEFAULT_LABEL_WIDTH = 260;
 const MIN_LABEL_WIDTH = 140;
-const MAX_LABEL_WIDTH = 560;
+/** 手動拖曳的上限;自動調整寬度的上限(autoFitCap 最多 720)不能比它大,不然一開始拖就被截回來。 */
+const MAX_LABEL_WIDTH = 720;
+/** 一列上名稱以外不隨項目變的寬度:左側勾選框的位置與邊距、收合箭頭、留言 / 指派 / 新增圖示、升降階按鈕與間距。 */
+const LABEL_CHROME_WIDTH = 210;
 
 type HeaderSegment = { key: string; label: string; sublabel?: string; days: number };
 
@@ -837,6 +842,40 @@ export function BoardGantt({
     }
     return map;
   }, [board.items, board.groups]);
+
+  // 名稱欄一開始就寬到看得到每個項目的全名(含收合著的子項目),照畫面上真正的字型量字,
+  // 不是固定寬度。只做一次;使用者之後照樣可以拖。
+  const labelFittedRef = useRef(false);
+  useEffect(() => {
+    if (labelFittedRef.current || board.items.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      // 字型還沒載入完就量,量的是備用字型,中文字寬會差一截。
+      try {
+        await document.fonts?.ready;
+      } catch {}
+      const scroller = scrollRef.current;
+      if (cancelled || labelFittedRef.current || !scroller) return;
+      const measureText = createTextMeasurer(scroller.querySelector("[data-item-name-button]") ?? scroller);
+      if (!measureText) return;
+      labelFittedRef.current = true;
+      setLabelWidth(
+        fitNameColumnWidth({
+          items: board.items,
+          codeOf: (id) => wbsCodes.get(id),
+          // 編號跟名稱同一個字級,中間隔 4px(mr-1)。
+          measure: (text, kind) => measureText(text, 14) + (kind === "code" ? 4 : 0),
+          indentPerLevel: 16,
+          chrome: LABEL_CHROME_WIDTH,
+          min: DEFAULT_LABEL_WIDTH,
+          max: autoFitCap(scroller.clientWidth || 1200, 320),
+        })
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [board.items, wbsCodes]);
 
   const linkOptions = useMemo(
     () => getStatusOptions(board.columns.find((c) => c.id === linkColumnId)?.options),
