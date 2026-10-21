@@ -576,8 +576,16 @@ model TodoItem {
   createdAt DateTime @default(now())
   /// 這個待辦事項的新增與完成要不要彙整進週報(預設要)。週報讀的是活動紀錄,改這個旗標時 todoItemId 對得上的紀錄一起改。
   inWeeklyReport Boolean @default(true)
+  /// 期限("YYYY-MM-DD",台北的日曆日)。null = 沒設期限。有設而且還沒完成的,到期前一天、當天、逾期後各提醒一次。
+  dueDate   String?
+  /// 提醒到哪一階段了:0 = 還沒提醒、1 = 已提醒「明天到期」、2 = 已提醒「今天到期」、3 = 已提醒「已逾期」。
+  /// 改期限時歸零,重新照新的期限提醒。
+  remindedStage Int @default(0)
+  /// 誰新增的待辦事項(提醒的收件人除了項目的負責人,也包含寫這一筆的人)。舊資料是 null。
+  createdById String?
 
   @@index([itemId])
+  @@index([dueDate])
 }
 
 model Assignment {
@@ -615,6 +623,8 @@ enum NotificationType {
   /// 結構變動影響的是整張排程網路,不只被指派的那個人。
   CREATED
   DELETED
+  /// 待辦事項的期限提醒(到期前一天、當天、逾期)。
+  DEADLINE
 }
 
 model AutomationRule {
@@ -1016,7 +1026,7 @@ model SystemSettings {
   emailNotificationsEnabled Boolean            @default(false)
   /// 這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼選,
   /// 那個類型的通知(站內與 email)都不會產生。
-  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED])
+  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE])
   levelColors               String[]           @default([])
   ganttDurationMode         GanttDurationMode  @default(BUSINESS)
   ganttOverdueColor         String             @default("#e2445c")

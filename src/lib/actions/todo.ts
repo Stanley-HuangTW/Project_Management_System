@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
+import { isValidDueDate } from "@/lib/todoDeadline";
 
 export async function listTodoItems(itemId: string) {
   const session = await requireSession();
@@ -19,21 +20,57 @@ export async function addTodoItem(
   itemId: string,
   text: string,
   /** 這個待辦事項的新增與完成要不要彙整進週報(預設要)。 */
-  inWeeklyReport = true
-) {
+  inWeeklyReport = true,
+  /** 期限("YYYY-MM-DD"),沒給就是沒有期限。 */
+  dueDate: string | null = null
+): Promise<{ error?: string }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
   const trimmed = text.trim();
-  if (!trimmed) return;
+  if (!trimmed) return {};
+  if (dueDate !== null && !isValidDueDate(dueDate)) return { error: "期限的日期格式不正確" };
 
   const count = await prisma.todoItem.count({ where: { itemId } });
-  const todo = await prisma.todoItem.create({ data: { itemId, text: trimmed, order: count, inWeeklyReport: inWeeklyReport !== false } });
-  await logActivity(itemId, session.userId, `新增待辦事項:「${trimmed}」`, {
+  const todo = await prisma.todoItem.create({
+    data: { itemId, text: trimmed, order: count, inWeeklyReport: inWeeklyReport !== false, dueDate, createdById: session.userId },
+  });
+  await logActivity(itemId, session.userId, `新增待辦事項:「${trimmed}」${dueDate ? `(期限 ${dueDate})` : ""}`, {
     kind: "TODO",
     todoItemId: todo.id,
     inWeeklyReport: todo.inWeeklyReport,
   });
   revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/**
+ * 設定(或清除,null)一個待辦事項的期限。改了期限就歸零提醒的階段——
+ * 重新照新的期限提醒:延後的不會因為以前提醒過就不再提醒,提前到今天的下一輪心跳就會提醒。
+ */
+export async function setTodoDueDate(
+  /** Not trusted for authorization — see requireItemBoardAccess below. */
+  _boardId: string,
+  itemId: string,
+  todoId: string,
+  dueDate: string | null
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  if (dueDate !== null && !isValidDueDate(dueDate)) return { error: "期限的日期格式不正確" };
+  const existing = await prisma.todoItem.findUnique({ where: { id: todoId } });
+  if (!existing || existing.itemId !== itemId) return { error: "待辦事項不存在" };
+  if (existing.dueDate === dueDate) return {};
+
+  await prisma.todoItem.update({ where: { id: todoId }, data: { dueDate, remindedStage: 0 } });
+  await logActivity(
+    itemId,
+    session.userId,
+    dueDate
+      ? `設定待辦事項期限:「${existing.text}」→ ${dueDate}`
+      : `清除待辦事項期限:「${existing.text}」(原本 ${existing.dueDate})`
+  );
+  revalidatePath(`/boards/${boardId}`);
+  return {};
 }
 
 export async function toggleTodoItem(

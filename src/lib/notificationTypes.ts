@@ -9,6 +9,7 @@ export const ALL_NOTIFICATION_TYPES: NotificationType[] = [
   "AUTOMATION",
   "CREATED",
   "DELETED",
+  "DEADLINE",
 ];
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
@@ -18,6 +19,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   AUTOMATION: "自動化規則",
   CREATED: "新增項目",
   DELETED: "刪除項目",
+  DEADLINE: "待辦事項期限提醒",
 };
 
 /**
@@ -35,4 +37,6 @@ export const DEFAULT_NOTIFICATION_PREFERENCE: Record<
   AUTOMATION: { inApp: true, email: true },
   CREATED: { inApp: true, email: false },
   DELETED: { inApp: true, email: false },
+  // 期限提醒是要人去做事的,email 預設也寄(個人與管理者都可以關)。
+  DEADLINE: { inApp: true, email: true },
 };

@@ -1,9 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
-import { addTodoItem, deleteTodoItem, listTodoItems, setTodoInWeeklyReport, toggleTodoItem } from "@/lib/actions/todo";
+import { CalendarPlus, Plus, Trash2, X } from "lucide-react";
+import {
+  addTodoItem,
+  deleteTodoItem,
+  listTodoItems,
+  setTodoDueDate,
+  setTodoInWeeklyReport,
+  toggleTodoItem,
+} from "@/lib/actions/todo";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { describeDeadline, formatDueShort, taipeiClock, type DeadlineTone } from "@/lib/todoDeadline";
+
+const TONE_CLASS: Record<DeadlineTone, string> = {
+  overdue: "text-red-600",
+  today: "text-orange-600",
+  soon: "text-amber-600",
+  later: "text-neutral-500 dark:text-neutral-400",
+};
 
 export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: string }) {
   const [todos, setTodos] = useState<Awaited<ReturnType<typeof listTodoItems>>>([]);
@@ -12,6 +27,11 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
   const { notify } = useDialogs();
   // 這個待辦事項的新增與完成要不要彙整進週報——預設要;新增之後下一個又回到預設。
   const [inWeekly, setInWeekly] = useState(true);
+  // 新增時選填的期限;正在改期限的那一筆。
+  const [dueText, setDueText] = useState("");
+  const [editingDueId, setEditingDueId] = useState<string | null>(null);
+  // 台北的今天——期限是台北的日曆日,「逾期」「明天到期」都跟它比。
+  const today = taipeiClock(new Date()).date;
 
   async function refresh() {
     setTodos(await listTodoItems(itemId));
@@ -35,9 +55,21 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
 
   async function handleAdd() {
     if (!text.trim()) return;
-    await addTodoItem(boardId, itemId, text.trim(), inWeekly);
+    const result = await addTodoItem(boardId, itemId, text.trim(), inWeekly, dueText || null);
+    if (result.error) {
+      await notify(result.error, { title: "無法新增" });
+      return;
+    }
     setText("");
     setInWeekly(true);
+    setDueText("");
+    await refresh();
+  }
+
+  async function changeDue(todoId: string, due: string | null) {
+    setEditingDueId(null);
+    const result = await setTodoDueDate(boardId, itemId, todoId, due);
+    if (result.error) await notify(result.error, { title: "無法設定期限" });
     await refresh();
   }
 
@@ -92,6 +124,58 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
             >
               {t.text}
             </span>
+            {editingDueId === t.id ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <input
+                  type="date"
+                  autoFocus
+                  defaultValue={t.dueDate ?? ""}
+                  data-todo-due-input={t.id}
+                  onChange={(e) => e.target.value && changeDue(t.id, e.target.value)}
+                  onBlur={() => setEditingDueId(null)}
+                  className="rounded border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
+                />
+                {t.dueDate && (
+                  <button
+                    type="button"
+                    // onMouseDown:輸入框的 onBlur 會先把編輯狀態收掉,click 就來不及了。
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      void changeDue(t.id, null);
+                    }}
+                    className="text-neutral-400 hover:text-red-600"
+                    aria-label="清除期限"
+                    title="清除期限"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </span>
+            ) : t.dueDate ? (
+              <button
+                type="button"
+                onClick={() => setEditingDueId(t.id)}
+                data-todo-due={t.id}
+                title={`期限 ${t.dueDate}(點一下修改)`}
+                className={`shrink-0 whitespace-nowrap rounded px-1 text-xs tabular-nums hover:bg-neutral-100 dark:hover:bg-neutral-700 ${
+                  t.done ? "text-neutral-400 dark:text-neutral-500" : TONE_CLASS[describeDeadline(today, t.dueDate).tone]
+                }`}
+              >
+                {formatDueShort(t.dueDate)}
+                {!t.done && `・${describeDeadline(today, t.dueDate).text}`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingDueId(t.id)}
+                data-todo-set-due={t.id}
+                className="shrink-0 text-neutral-300 dark:text-neutral-600 opacity-0 hover:text-blue-600 group-hover:opacity-100"
+                aria-label="設定期限"
+                title="設定期限(到期前一天、當天、逾期會提醒)"
+              >
+                <CalendarPlus size={14} />
+              </button>
+            )}
             <label
                 className={`flex shrink-0 items-center gap-1 text-[11px] ${false ? "text-neutral-300 dark:text-neutral-600" : "cursor-pointer text-neutral-500 dark:text-neutral-400"}`}
                 title={false ? "只有寫這一筆的人、主管與管理者可以改" : "勾選:這一筆的資訊會彙整進週報"}
@@ -118,6 +202,19 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
           placeholder="+ 新增待辦事項"
           className="flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-1.5 text-sm outline-none focus:border-blue-500"
         />
+        <label
+          className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-300"
+          title="選填:到期前一天、當天、逾期會提醒這個工作項目的負責人與新增的人"
+        >
+          期限
+          <input
+            type="date"
+            value={dueText}
+            onChange={(e) => setDueText(e.target.value)}
+            data-new-todo-due
+            className="rounded border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
+          />
+        </label>
         <label
           className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
           title="勾選:這個待辦事項的新增與完成會彙整進週報(預設勾選)"

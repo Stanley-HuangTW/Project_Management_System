@@ -5,6 +5,8 @@ import { requireSession } from "@/lib/session";
 import { boardWithDataArgs } from "@/types/board";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { DueListsSection } from "@/components/dashboard/DueListsSection";
+import { TodoDeadlinesSection } from "@/components/dashboard/TodoDeadlinesSection";
+import { taipeiClock, todoDeadlineEntries } from "@/lib/todoDeadline";
 import { subordinateIds } from "@/lib/orgChart";
 import { canManageStructure } from "@/lib/permissions";
 import {
@@ -141,6 +143,23 @@ export default async function DashboardPage({
         : withManagedResourceIds([session.userId]),
     holidays,
     completedAtByItem
+  );
+  // 工作項目底下、有設期限而且還沒完成的待辦事項。範圍跟上面的到期清單一樣:自己、(主管)加團隊、(管理者)全部。
+  const visibleItemIds = boards.flatMap((b) => b.items.map((i) => i.id));
+  const todoRows = visibleItemIds.length
+    ? await prisma.todoItem.findMany({
+        where: { done: false, dueDate: { not: null }, itemId: { in: visibleItemIds } },
+        select: { id: true, itemId: true, text: true, dueDate: true, done: true, createdById: true },
+      })
+    : [];
+  const todoDeadlines = todoDeadlineEntries(
+    boards,
+    todoRows,
+    isSupervisor
+      ? withManagedResourceIds([session.userId, ...teamMembers.map((m) => m.id)])
+      : isAdmin
+        ? undefined
+        : withManagedResourceIds([session.userId])
   );
   const personalItems = computePersonalItems(boards, [session.userId], userById, holidays);
   const myResourceIds = resourceIdsByManager.get(session.userId) ?? [];
@@ -304,6 +323,14 @@ export default async function DashboardPage({
         completedThisWeek={completedThisWeek}
         upcoming7={upcoming7}
         upcoming30={upcoming30}
+        allUsers={users}
+        currentUserId={session.userId}
+        userRole={session.role}
+      />
+
+      <TodoDeadlinesSection
+        entries={todoDeadlines}
+        today={taipeiClock(new Date()).date}
         allUsers={users}
         currentUserId={session.userId}
         userRole={session.role}
