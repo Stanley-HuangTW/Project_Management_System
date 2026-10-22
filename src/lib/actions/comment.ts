@@ -8,6 +8,7 @@ import { findMentionedUserIds } from "@/lib/mentions";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { canManageStructure } from "@/lib/permissions";
+import { publishChatEvent } from "@/lib/chatServer";
 
 export async function createComment(
   /** Not trusted for authorization — see requireItemBoardAccess below. */
@@ -50,6 +51,13 @@ export async function createComment(
   // 活動紀錄與「更新記錄」欄要看得出留言寫了什麼:帶上內容摘要(換行壓成空白、太長截短)。
   const flat = trimmed.replace(/\s+/g, " ").trim();
   await logActivity(itemId, session.userId, `新增留言:${flat.length > 80 ? `${flat.slice(0, 80)}…` : flat}`, { kind: "UPDATE" });
+
+  // 正開著這個工作項「更新」分頁的人(包括自己的其他分頁)馬上看到;推送失敗不影響留言本身。
+  try {
+    await publishChatEvent({ type: "comment", c: itemId, u: session.userId, m: comment.id });
+  } catch (err) {
+    console.error("comment push failed:", err);
+  }
 
   revalidatePath(`/boards/${boardId}`);
   return comment;

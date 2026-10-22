@@ -15,8 +15,8 @@ export type HubDeps = {
   latestId: () => Promise<number>;
   /** id 大於 afterId 的事件,舊的在前。 */
   fetchSince: (afterId: number, limit: number) => Promise<ChatEventRow[]>;
-  /** 這個人現在看不看得到這間對話。 */
-  canAccess: (actor: ChatActor, conversationId: string) => Promise<boolean>;
+  /** 這個人現在看不看得到這間對話(kind=conversation)或這個工作項(kind=item,工作項留言的即時更新用)。 */
+  canAccess: (actor: ChatActor, kind: "conversation" | "item", id: string) => Promise<boolean>;
   /** 清掉太舊的事件。 */
   purge: () => Promise<void>;
 };
@@ -139,16 +139,18 @@ export class ChatHub {
           if (sub.userId === row.userId) sub.send(payload);
           return;
         }
-        if (await this.allowed(sub, row.conversationId)) sub.send(payload);
+        const kind = row.type === "comment" ? "item" : "conversation";
+        if (await this.allowed(sub, kind, row.conversationId)) sub.send(payload);
       })
     );
   }
 
-  private async allowed(sub: Sub, conversationId: string): Promise<boolean> {
-    const cached = sub.access.get(conversationId);
+  private async allowed(sub: Sub, kind: "conversation" | "item", id: string): Promise<boolean> {
+    const key = `${kind}:${id}`;
+    const cached = sub.access.get(key);
     if (cached && this.now() - cached.at < this.accessTtlMs) return cached.ok;
-    const ok = await this.deps.canAccess({ userId: sub.userId, role: sub.role }, conversationId);
-    sub.access.set(conversationId, { ok, at: this.now() });
+    const ok = await this.deps.canAccess({ userId: sub.userId, role: sub.role }, kind, id);
+    sub.access.set(key, { ok, at: this.now() });
     return ok;
   }
 }

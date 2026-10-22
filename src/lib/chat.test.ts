@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
   MAX_GROUP_TITLE_LENGTH,
   MAX_MESSAGE_LENGTH,
   clockLabel,
@@ -8,13 +10,19 @@ import {
   dayLabel,
   directNotificationText,
   dmKeyOf,
+  formatFileSize,
   formatSseEvent,
+  isInlineImageName,
+  matchSnippet,
   mentionNotificationText,
+  messagePreview,
   normalizeGroupTitle,
   normalizeMessageBody,
   planChatNotifications,
+  safeAttachmentName,
   snippet,
   startsNewRun,
+  validateAttachments,
 } from "./chat";
 
 describe("dmKeyOf", () => {
@@ -36,6 +44,86 @@ describe("normalizeMessageBody", () => {
   it("refuses a message over the limit but takes one at the limit", () => {
     expect(normalizeMessageBody("a".repeat(MAX_MESSAGE_LENGTH))).toEqual({ body: "a".repeat(MAX_MESSAGE_LENGTH) });
     expect(normalizeMessageBody("a".repeat(MAX_MESSAGE_LENGTH + 1))).toHaveProperty("error");
+  });
+});
+
+describe("normalizeMessageBody with files", () => {
+  it("allows an empty text when files come along, but not otherwise", () => {
+    expect(normalizeMessageBody("  ", true)).toEqual({ body: "" });
+    expect(normalizeMessageBody("  ", false)).toHaveProperty("error");
+  });
+});
+
+describe("validateAttachments", () => {
+  const file = (name: string, size: number) => ({ name, size });
+
+  it("accepts files within the limits", () => {
+    expect(validateAttachments([file("a.png", 1), file("b.pdf", MAX_ATTACHMENT_BYTES)])).toBeNull();
+    expect(validateAttachments([])).toBeNull();
+  });
+
+  it("refuses too many, empty, and too large files, naming the file", () => {
+    expect(validateAttachments(Array.from({ length: MAX_ATTACHMENTS + 1 }, (_, i) => file(`f${i}`, 1)))).toContain(String(MAX_ATTACHMENTS));
+    expect(validateAttachments([file("空.txt", 0)])).toContain("空.txt");
+    expect(validateAttachments([file("big.zip", MAX_ATTACHMENT_BYTES + 1)])).toContain("big.zip");
+  });
+});
+
+describe("safeAttachmentName", () => {
+  it("removes path separators, reserved characters and leading dots", () => {
+    expect(safeAttachmentName("../../etc/passwd")).toBe("__.._etc_passwd");
+    expect(safeAttachmentName("a\\b:c*d?.png")).toBe("a_b_c_d_.png");
+    expect(safeAttachmentName(".htaccess")).toBe("_htaccess");
+    expect(safeAttachmentName("line\nbreak.txt")).toBe("line_break.txt");
+  });
+
+  it("keeps Chinese names and falls back for an empty one", () => {
+    expect(safeAttachmentName("樣機照片 v2.jpg")).toBe("樣機照片 v2.jpg");
+    expect(safeAttachmentName("   ")).toBe("file");
+    expect(safeAttachmentName("x".repeat(300)).length).toBe(120);
+  });
+});
+
+describe("isInlineImageName", () => {
+  it("shows raster images inline, never SVG", () => {
+    for (const n of ["a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp"]) expect(isInlineImageName(n)).toBe(true);
+    for (const n of ["x.svg", "y.pdf", "png", "z.png.exe"]) expect(isInlineImageName(n)).toBe(false);
+  });
+});
+
+describe("formatFileSize", () => {
+  it("picks a readable unit", () => {
+    expect(formatFileSize(512)).toBe("512 B");
+    expect(formatFileSize(1536)).toBe("1.5 KB");
+    expect(formatFileSize(200 * 1024)).toBe("200 KB");
+    expect(formatFileSize(3.5 * 1024 * 1024)).toBe("3.5 MB");
+  });
+});
+
+describe("messagePreview", () => {
+  it("uses the text, or says a file was sent when there is none", () => {
+    expect(messagePreview("hello", true)).toBe("hello");
+    expect(messagePreview("  ", true)).toBe("傳了檔案");
+    expect(messagePreview("", false)).toBe("");
+  });
+});
+
+describe("matchSnippet", () => {
+  it("cuts a window around the match with ellipses on the cut sides", () => {
+    const body = `${"前".repeat(50)}樣機到貨${"後".repeat(80)}`;
+    const s = matchSnippet(body, "樣機");
+    expect(s.startsWith("…")).toBe(true);
+    expect(s.endsWith("…")).toBe(true);
+    expect(s).toContain("樣機到貨");
+  });
+
+  it("matches case-insensitively and leaves short text whole", () => {
+    expect(matchSnippet("Check the DVT plan", "dvt")).toBe("Check the DVT plan");
+  });
+
+  it("falls back to the start of the text when nothing matches or the query is blank", () => {
+    expect(matchSnippet("abc", "zzz")).toBe("abc");
+    expect(matchSnippet("abc", "  ")).toBe("abc");
   });
 });
 

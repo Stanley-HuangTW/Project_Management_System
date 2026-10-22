@@ -22,9 +22,9 @@ function setup(options: { accessTtlMs?: number } = {}) {
       }
       return state.events.filter((e) => e.id > afterId).slice(0, limit);
     },
-    canAccess: async (actor, conversationId) => {
+    canAccess: async (actor, _kind, id) => {
       state.accessChecks++;
-      return (state.access[actor.userId] ?? []).includes(conversationId);
+      return (state.access[actor.userId] ?? []).includes(id);
     },
     purge: async () => {
       state.purges++;
@@ -58,6 +58,18 @@ describe("ChatHub", () => {
     expect(bob.got).toHaveLength(1);
     expect(carol.got).toEqual([]);
     await Promise.all([alice, bob, carol].map((l) => l.unsubscribe()));
+  });
+
+  it("pushes an item-comment event only to those who may open that item, never mixing it up with a conversation of the same id", async () => {
+    const { state, hub, publish, listen } = setup();
+    state.access = { alice: ["item1"], bob: [] };
+    const alice = await listen("alice");
+    const bob = await listen("bob");
+    publish("comment", "item1", "carol", "cm1");
+    await hub.poll();
+    expect(alice.got).toEqual([{ type: "comment", c: "item1", u: "carol", m: "cm1" }]);
+    expect(bob.got).toEqual([]);
+    await Promise.all([alice.unsubscribe(), bob.unsubscribe()]);
   });
 
   it("does not replay events from before the connection opened", async () => {

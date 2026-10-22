@@ -18,7 +18,7 @@ type ChatContextValue = {
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
-const EVENT_TYPES = ["message", "read", "deleted", "conversation"] as const;
+const EVENT_TYPES = ["message", "read", "deleted", "conversation", "comment"] as const;
 const UNREAD_DEBOUNCE_MS = 300;
 /** 推送萬一失靈(代理伺服器吃掉了串流……)的保底:定時重讀未讀數。 */
 const FALLBACK_POLL_MS = 60_000;
@@ -62,7 +62,8 @@ export function ChatProvider({ enabled, initialUnread, children }: { enabled: bo
     for (const type of EVENT_TYPES) {
       source.addEventListener(type, (e) => {
         emit(JSON.parse((e as MessageEvent<string>).data) as ChatEventPayload);
-        refreshUnread();
+        // 工作項留言的事件跟對話的未讀無關。
+        if (type !== "comment") refreshUnread();
       });
     }
     const poll = setInterval(refreshUnread, FALLBACK_POLL_MS);

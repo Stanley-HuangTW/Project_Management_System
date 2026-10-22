@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Send, Trash2 } from "lucide-react";
+import { ArrowDown, FileText, ListTodo, MessageSquareQuote, Paperclip, Send, Trash2, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { MentionText } from "@/components/board/item-detail/MentionText";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { deleteChatMessage, loadChatMessages, markChatRead, sendChatMessage } from "@/lib/actions/chat";
-import { clockLabel, dayKey, dayLabel, startsNewRun } from "@/lib/chat";
+import { clockLabel, dayKey, dayLabel, formatFileSize, startsNewRun, validateAttachments } from "@/lib/chat";
 import { activeMentionQuery } from "@/lib/mentions";
 import { isChatError, type ChatConversationDto, type ChatMessageDto, type ChatReadState } from "@/lib/chatTypes";
 import { useChat } from "./ChatProvider";
+import { ConvertMessageDialog } from "./ChatConvertDialog";
 
 type ChatUser = { id: string; name: string; avatarUrl: string | null };
 
@@ -33,6 +34,7 @@ export function ChatThread({
   onMarkedRead,
   onBack,
   actions,
+  jumpToMessageId = null,
 }: {
   conversation: ChatConversationDto & { id: string };
   users: ChatUser[];
@@ -43,6 +45,8 @@ export function ChatThread({
   onBack: () => void;
   /** 標題列右邊的按鈕(群組的加成員、改名、離開)。 */
   actions?: React.ReactNode;
+  /** 從搜尋結果點進來:載到那一則、捲過去、標一下。 */
+  jumpToMessageId?: string | null;
 }) {
   const { subscribe } = useChat();
   const { notify, confirm } = useDialogs();
@@ -56,6 +60,11 @@ export function ChatThread({
   const [sending, setSending] = useState(false);
   const [unseen, setUnseen] = useState(false);
   const [now] = useState(() => new Date());
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const [convert, setConvert] = useState<{ message: ChatMessageDto; mode: "todo" | "comment" } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const scroller = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -115,16 +124,41 @@ export function ChatThread({
         setLoading(false);
         return;
       }
-      setMessages(page.messages);
-      setHasMore(page.hasMore);
+      // 從搜尋結果點進來:一頁一頁往前載,直到載到那一則(最多 40 頁)。
+      let loaded = page.messages;
+      let more = page.hasMore;
+      if (jumpToMessageId) {
+        for (let pages = 0; pages < 40 && more && !loaded.some((m) => m.id === jumpToMessageId); pages++) {
+          const older = await loadChatMessages(conversationId, { beforeId: loaded[0].id });
+          if (cancelled || isChatError(older)) break;
+          loaded = mergeMessages(loaded, older.messages);
+          more = older.hasMore;
+        }
+        if (cancelled) return;
+      }
+      setMessages(loaded);
+      setHasMore(more);
       setReadStates(page.readStates);
       setLoading(false);
+      if (jumpToMessageId && loaded.some((m) => m.id === jumpToMessageId)) {
+        stick.current = false;
+        forceBottom.current = false;
+        setFlashId(jumpToMessageId);
+      }
       void markRead();
     })();
     return () => {
       cancelled = true;
     };
-  }, [conversationId, markRead, notify]);
+  }, [conversationId, markRead, notify, jumpToMessageId]);
+
+  // 跳到搜尋的那一則:捲到畫面中間,幾秒後取消標示。
+  useEffect(() => {
+    if (!flashId) return;
+    document.querySelector(`[data-chat-message="${flashId}"]`)?.scrollIntoView({ block: "center" });
+    const timer = setTimeout(() => setFlashId(null), 3000);
+    return () => clearTimeout(timer);
+  }, [flashId]);
 
   // 即時推送:這間對話有動靜、或推送重連了,就重讀。
   useEffect(
@@ -179,17 +213,32 @@ export function ChatThread({
     });
   }
 
+  function addFiles(list: File[]) {
+    if (list.length === 0) return;
+    const next = [...files, ...list];
+    const error = validateAttachments(next.map((f) => ({ name: f.name, size: f.size })));
+    if (error) {
+      void notify(error, { title: "無法加入檔案" });
+      return;
+    }
+    setFiles(next);
+  }
+
   async function send() {
     const text = draft.trim();
-    if (!text || sending) return;
+    if ((!text && files.length === 0) || sending) return;
     setSending(true);
-    const result = await sendChatMessage(conversationId, text);
+    const form = new FormData();
+    form.append("body", text);
+    for (const file of files) form.append("file", file);
+    const result = await sendChatMessage(conversationId, form);
     setSending(false);
     if (isChatError(result)) {
       await notify(result.error, { title: "訊息沒有送出" });
       return;
     }
     setDraft("");
+    setFiles([]);
     setCaret(0);
     forceBottom.current = true;
     setMessages((prev) => mergeMessages(prev, [result.message]));
@@ -271,7 +320,28 @@ export function ChatThread({
         : "私訊";
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div
+      className="relative flex h-full min-h-0 flex-1 flex-col"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragOver(false);
+        addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-blue-500/10 text-sm font-medium text-blue-700 ring-2 ring-inset ring-blue-400 dark:text-blue-300">
+          放開以加入檔案
+        </div>
+      )}
       <div className="flex items-center gap-2 border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-700">
         <button
           type="button"
@@ -320,7 +390,9 @@ export function ChatThread({
                 )}
                 <div
                   data-chat-message={m.id}
-                  className={`group flex gap-2 px-4 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 ${header ? "pt-2" : ""}`}
+                  className={`group flex gap-2 px-4 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 ${header ? "pt-2" : ""} ${
+                    flashId === m.id ? "bg-amber-50 ring-2 ring-inset ring-amber-300 dark:bg-amber-950/30" : ""
+                  }`}
                 >
                   <div className="w-8 shrink-0 pt-0.5">
                     {header && <Avatar name={m.authorName} avatarUrl={m.authorAvatarUrl} size={28} />}
@@ -335,9 +407,41 @@ export function ChatThread({
                     {m.deleted ? (
                       <p className="text-sm italic text-neutral-400">訊息已收回</p>
                     ) : (
-                      <div className="break-words">
-                        <MentionText body={m.body} users={users} />
-                      </div>
+                      <>
+                        {m.body && (
+                          <div className="break-words">
+                            <MentionText body={m.body} users={users} />
+                          </div>
+                        )}
+                        {m.attachments.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {m.attachments.map((a) =>
+                              a.isImage ? (
+                                <a key={a.id} href={`/api/chat/attachments/${a.id}`} target="_blank" rel="noreferrer" title={a.fileName}>
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- 對話附件走有權限檢查的 API,用不到 next/image */}
+                                  <img
+                                    src={`/api/chat/attachments/${a.id}`}
+                                    alt={a.fileName}
+                                    data-chat-image
+                                    className="max-h-60 max-w-xs rounded-md border border-neutral-200 object-contain dark:border-neutral-700"
+                                  />
+                                </a>
+                              ) : (
+                                <a
+                                  key={a.id}
+                                  href={`/api/chat/attachments/${a.id}`}
+                                  data-chat-file
+                                  className="flex items-center gap-2 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                                >
+                                  <FileText size={14} className="shrink-0 text-neutral-400" />
+                                  <span className="max-w-56 truncate">{a.fileName}</span>
+                                  <span className="shrink-0 text-neutral-400">{formatFileSize(a.size)}</span>
+                                </a>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
                     {m.id === lastMineId && receipt && (
                       <p data-chat-receipt className="text-right text-[10px] text-neutral-400">
@@ -345,16 +449,42 @@ export function ChatThread({
                       </p>
                     )}
                   </div>
-                  {mine && !m.deleted && (
-                    <button
-                      type="button"
-                      onClick={() => void recall(m)}
-                      title="收回"
-                      aria-label="收回這則訊息"
-                      className="self-start rounded p-1 text-neutral-400 opacity-0 hover:bg-neutral-200 hover:text-red-600 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-700"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                  {!m.deleted && (
+                    <div className="flex items-start self-start opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+                      {m.body && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setConvert({ message: m, mode: "todo" })}
+                            title="轉成工作項的待辦事項"
+                            aria-label="轉成待辦事項"
+                            className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-blue-600 dark:hover:bg-neutral-700"
+                          >
+                            <ListTodo size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConvert({ message: m, mode: "comment" })}
+                            title="轉成工作項的留言"
+                            aria-label="轉成工作項留言"
+                            className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-blue-600 dark:hover:bg-neutral-700"
+                          >
+                            <MessageSquareQuote size={13} />
+                          </button>
+                        </>
+                      )}
+                      {mine && (
+                        <button
+                          type="button"
+                          onClick={() => void recall(m)}
+                          title="收回"
+                          aria-label="收回這則訊息"
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-200 hover:text-red-600 dark:hover:bg-neutral-700"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -399,7 +529,49 @@ export function ChatThread({
             ))}
           </ul>
         )}
+        {files.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5" data-chat-pending-files>
+            {files.map((file, i) => (
+              <span
+                key={`${file.name}-${i}`}
+                className="flex items-center gap-1.5 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+              >
+                <FileText size={12} className="shrink-0 text-neutral-400" />
+                <span className="max-w-48 truncate">{file.name}</span>
+                <span className="text-neutral-400">{formatFileSize(file.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={`移除 ${file.name}`}
+                  className="text-neutral-400 hover:text-red-600"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            data-chat-file-input
+            onChange={(e) => {
+              addFiles(Array.from(e.target.files ?? []));
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            title="傳檔案或圖片(也可以直接拖進來、或貼上截圖)"
+            aria-label="加檔案"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            <Paperclip size={16} />
+          </button>
           <textarea
             ref={textarea}
             value={draft}
@@ -413,6 +585,13 @@ export function ChatThread({
               setDismissedAt(null);
             }}
             onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              // 貼上截圖或檔案:加成附件;貼文字照舊進輸入框。
+              if (e.clipboardData.files.length > 0) {
+                e.preventDefault();
+                addFiles(Array.from(e.clipboardData.files));
+              }
+            }}
             onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
             onClick={(e) => setCaret(e.currentTarget.selectionStart)}
             className="min-w-0 flex-1 resize-none rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
@@ -420,7 +599,7 @@ export function ChatThread({
           <button
             type="button"
             onClick={() => void send()}
-            disabled={!draft.trim() || sending}
+            disabled={(!draft.trim() && files.length === 0) || sending}
             data-chat-send
             aria-label="送出"
             className="flex h-9 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-3 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
@@ -430,6 +609,7 @@ export function ChatThread({
           </button>
         </div>
       </div>
+      {convert && <ConvertMessageDialog message={convert.message} mode={convert.mode} onClose={() => setConvert(null)} />}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import type { ChatKind } from "@prisma/client";
 
 export const MAX_MESSAGE_LENGTH = 4000;
 export const MAX_GROUP_TITLE_LENGTH = 40;
+export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 /** 同一個人連續發的訊息,間隔在這個時間內就併成一組(只有第一則顯示名字與頭像)。 */
 export const RUN_GAP_MS = 5 * 60 * 1000;
 
@@ -10,9 +12,10 @@ export function dmKeyOf(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
-export function normalizeMessageBody(raw: string): { body: string } | { error: string } {
+/** 只傳檔案、沒有文字的訊息也行(hasFiles)。 */
+export function normalizeMessageBody(raw: string, hasFiles = false): { body: string } | { error: string } {
   const body = raw.replace(/\r\n/g, "\n").trim();
-  if (!body) return { error: "訊息不可為空" };
+  if (!body && !hasFiles) return { error: "訊息不可為空" };
   if (body.length > MAX_MESSAGE_LENGTH) return { error: `訊息太長(最多 ${MAX_MESSAGE_LENGTH} 字)` };
   return { body };
 }
@@ -28,6 +31,49 @@ export function normalizeGroupTitle(raw: string): { title: string } | { error: s
 export function snippet(body: string, max = 60): string {
   const flat = body.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+/** 檔案的數量與大小是否在限制內;回傳錯誤訊息,沒問題回 null。 */
+export function validateAttachments(files: { name: string; size: number }[]): string | null {
+  if (files.length > MAX_ATTACHMENTS) return `一則訊息最多 ${MAX_ATTACHMENTS} 個檔案`;
+  const empty = files.find((f) => f.size === 0);
+  if (empty) return `「${empty.name}」是空的檔案`;
+  const big = files.find((f) => f.size > MAX_ATTACHMENT_BYTES);
+  if (big) return `「${big.name}」超過 ${MAX_ATTACHMENT_BYTES / 1024 / 1024}MB,請改用雲端硬碟連結`;
+  return null;
+}
+
+/** 存到磁碟用的檔名:去掉路徑分隔與控制字元(不信任使用者給的檔名)。 */
+export function safeAttachmentName(name: string): string {
+  const cleaned = name.replace(/[/\\:*?"<>|\u0000-\u001f]/g, "_").trim().replace(/^\.+/, "_");
+  return cleaned.slice(0, 120) || "file";
+}
+
+/** 可以直接顯示在訊息裡的圖片。SVG 不算:它能夾帶 script,一律當檔案下載。 */
+export function isInlineImageName(name: string): boolean {
+  return /\.(png|jpe?g|gif|webp)$/i.test(name);
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 清單與通知裡這則訊息的一行摘要:有文字用文字,只有檔案就寫傳了檔案。 */
+export function messagePreview(body: string, hasFiles: boolean, max = 60): string {
+  return body.trim() ? snippet(body, max) : hasFiles ? "傳了檔案" : "";
+}
+
+/** 搜尋結果裡的一小段:命中的字前後各取一些,太長的用 … 收尾。 */
+export function matchSnippet(body: string, query: string, before = 30, after = 60): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  const q = query.trim().toLowerCase();
+  const at = q ? flat.toLowerCase().indexOf(q) : -1;
+  if (at < 0) return snippet(flat, before + after);
+  const from = Math.max(0, at - before);
+  const to = Math.min(flat.length, at + q.length + after);
+  return `${from > 0 ? "…" : ""}${flat.slice(from, to)}${to < flat.length ? "…" : ""}`;
 }
 
 /** 這則訊息要不要重新顯示名字與頭像:換人、隔太久、或換了一天。 */
@@ -68,12 +114,12 @@ export function conversationTitle(c: { kind: ChatKind; title: string | null; boa
   return c.title ?? "聊天室";
 }
 
-export type ChatEventType = "message" | "read" | "deleted" | "conversation";
+export type ChatEventType = "message" | "read" | "deleted" | "conversation" | "comment";
 
 /** 推給瀏覽器的事件內容:只有「哪裡有變」,不帶訊息本文——內容一律由瀏覽器再用有權限檢查的 action 去讀。 */
 export type ChatEventPayload = {
   type: ChatEventType;
-  /** conversationId */
+  /** conversationId;comment 事件(工作項有新留言)是工作項 id。 */
   c: string;
   /** 發訊息 / 讀的人;conversation 事件則是要通知的人。 */
   u: string | null;

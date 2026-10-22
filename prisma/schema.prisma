@@ -2206,9 +2206,25 @@ model ChatMessage {
   createdAt      DateTime         @default(now())
   /// 收回:訊息還留著(別人的回覆、已讀時間都對得上),內容不再顯示。
   deletedAt      DateTime?
+  attachments    ChatAttachment[]
 
   @@index([conversationId, createdAt])
   @@index([authorId])
+}
+
+/// 對話裡傳的檔案與圖片。檔案放在 public/uploads/chat/ 底下,但不直接對外服務,
+/// 一律走 /api/chat/attachments/:id,先檢查看不看得到那間對話。
+model ChatAttachment {
+  id        String      @id @default(cuid())
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName  String
+  /// 磁碟上的位置(相對於 public/)。
+  url       String
+  size      Int
+  createdAt DateTime    @default(now())
+
+  @@index([messageId])
 }
 
 /// 即時推送的收件匣:每個 worker 行程定時讀新的列、推給自己手上連線的人。
@@ -2217,10 +2233,12 @@ model ChatMessage {
 /// 就能從這張表補發漏掉的。舊的列會被清掉,只留最近一天。
 model ChatEvent {
   id             Int      @id @default(autoincrement())
-  /// message(新訊息)/ read(已讀)/ deleted(收回)/ conversation(對話清單有變:被加進群組……)。
+  /// message(新訊息)/ read(已讀)/ deleted(收回)/ conversation(對話清單有變:被加進群組……)/
+  /// comment(工作項有新留言,讓開著那個工作項的人即時看到)。
   type           String
+  /// 事件發生的對象:對話 id;comment 事件是工作項 id。
   conversationId String
-  /// message、deleted:發訊息的人;read:讀的人;conversation:要通知的那個人。
+  /// message、deleted、comment:發訊息或留言的人;read:讀的人;conversation:要通知的那個人。
   userId         String?
   messageId      String?
   createdAt      DateTime @default(now())

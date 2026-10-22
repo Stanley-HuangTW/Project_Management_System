@@ -1,20 +1,36 @@
+import { mkdir, unlink, writeFile } from "fs/promises";
+import path from "path";
+import { randomBytes } from "crypto";
 import { Prisma, type ChatKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
 import { accessibleBoardWhere, canAccessBoard } from "@/lib/boardAccess";
 import { findMentionedUserIds } from "@/lib/mentions";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
+import { visibleItemIdsForBoards } from "@/lib/serverVisibility";
 import {
   conversationTitle,
   dmKeyOf,
+  isInlineImageName,
+  matchSnippet,
+  messagePreview,
   normalizeGroupTitle,
   normalizeMessageBody,
   planChatNotifications,
-  snippet,
+  safeAttachmentName,
+  validateAttachments,
   type ChatEventPayload,
 } from "@/lib/chat";
 import { ChatHub, type ChatActor } from "@/lib/chatHub";
-import type { ChatConversationDto, ChatMessageDto, ChatMessagePage, ChatReadState, ChatResult } from "@/lib/chatTypes";
+import type {
+  ChatConversationDto,
+  ChatItemHit,
+  ChatMessageDto,
+  ChatMessagePage,
+  ChatReadState,
+  ChatResult,
+  ChatSearchHit,
+} from "@/lib/chatTypes";
 
 /** 動手的人:id、角色(看板權限要看)、名字(通知要寫)。 */
 export type ChatSender = ChatActor & { name: string };
@@ -38,7 +54,7 @@ export function getChatHub(): ChatHub {
       latestId: async () => (await prisma.chatEvent.aggregate({ _max: { id: true } }))._max.id ?? 0,
       fetchSince: (afterId, limit) =>
         prisma.chatEvent.findMany({ where: { id: { gt: afterId } }, orderBy: { id: "asc" }, take: limit }),
-      canAccess: (actor, conversationId) => canAccessConversationId(actor, conversationId),
+      canAccess: (actor, kind, id) => (kind === "item" ? canAccessItem(actor, id) : canAccessConversationId(actor, id)),
       purge: async () => {
         await prisma.chatEvent.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 24 * 3600 * 1000) } } });
       },
@@ -73,6 +89,12 @@ export async function canAccessConversationId(actor: ChatActor, conversationId: 
   return conv ? canAccessConversation(actor, conv) : false;
 }
 
+/** 工作項留言的即時更新:看得到那個工作項所在的看板才收得到(事件只帶工作項 id,內容由瀏覽器再讀)。 */
+async function canAccessItem(actor: ChatActor, itemId: string): Promise<boolean> {
+  const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
+  return item ? canAccessBoard(asSession(actor), item.boardId) : false;
+}
+
 const NOT_FOUND = "找不到這個對話,或者你沒有權限";
 
 async function accessibleConversation(actor: ChatActor, conversationId: string) {
@@ -102,15 +124,16 @@ export async function getUnreadTotal(actor: ChatActor): Promise<number> {
   return total;
 }
 
-type LastMessageRow = { conversationId: string; authorId: string; body: string; deletedAt: Date | null; createdAt: Date };
+type LastMessageRow = { conversationId: string; authorId: string; body: string; deletedAt: Date | null; createdAt: Date; hasFiles: boolean };
 
 async function lastMessages(conversationIds: string[]): Promise<Map<string, LastMessageRow>> {
   if (conversationIds.length === 0) return new Map();
   const rows = await prisma.$queryRaw<LastMessageRow[]>(Prisma.sql`
-    select distinct on ("conversationId") "conversationId", "authorId", "body", "deletedAt", "createdAt"
-    from "ChatMessage"
-    where "conversationId" = any(${conversationIds}::text[])
-    order by "conversationId", "createdAt" desc`);
+    select distinct on (m."conversationId") m."conversationId", m."authorId", m."body", m."deletedAt", m."createdAt",
+      exists (select 1 from "ChatAttachment" a where a."messageId" = m."id") as "hasFiles"
+    from "ChatMessage" m
+    where m."conversationId" = any(${conversationIds}::text[])
+    order by m."conversationId", m."createdAt" desc`);
   return new Map(rows.map((r) => [r.conversationId, r]));
 }
 
@@ -152,7 +175,7 @@ export async function listConversations(actor: ChatSender): Promise<ChatConversa
     const m = id ? last.get(id) : undefined;
     if (!m) return { at: null, preview: null };
     const who = m.authorId === me ? "你" : (authorName.get(m.authorId) ?? "");
-    const text = m.deletedAt ? "訊息已收回" : snippet(m.body, 40);
+    const text = m.deletedAt ? "訊息已收回" : messagePreview(m.body, m.hasFiles, 40);
     return { at: m.createdAt.toISOString(), preview: who ? `${who}:${text}` : text };
   };
 
@@ -205,9 +228,13 @@ type MessageRow = {
   createdAt: Date;
   deletedAt: Date | null;
   author: { name: string; avatarUrl: string | null };
+  attachments: { id: string; fileName: string; size: number }[];
 };
 
-const messageInclude = { author: { select: { name: true, avatarUrl: true } } } as const;
+const messageInclude = {
+  author: { select: { name: true, avatarUrl: true } },
+  attachments: { select: { id: true, fileName: true, size: true }, orderBy: { createdAt: "asc" } },
+} as const;
 
 function toMessageDto(row: MessageRow): ChatMessageDto {
   return {
@@ -218,6 +245,7 @@ function toMessageDto(row: MessageRow): ChatMessageDto {
     authorAvatarUrl: row.author.avatarUrl,
     body: row.deletedAt ? "" : row.body,
     deleted: row.deletedAt !== null,
+    attachments: row.deletedAt ? [] : row.attachments.map((a) => ({ ...a, isImage: isInlineImageName(a.fileName) })),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -377,15 +405,41 @@ export async function leaveGroup(actor: ChatActor, conversationId: string): Prom
   if (!(await groupOf(actor, conversationId))) return { error: NOT_FOUND };
   await prisma.chatMember.delete({ where: { conversationId_userId: { conversationId, userId: actor.userId } } });
   const left = await prisma.chatMember.count({ where: { conversationId } });
-  if (left === 0) await prisma.chatConversation.delete({ where: { id: conversationId } });
+  if (left === 0) {
+    const files = await prisma.chatAttachment.findMany({ where: { message: { conversationId } }, select: { url: true } });
+    await prisma.chatConversation.delete({ where: { id: conversationId } });
+    await unlinkQuietly(files.map((f) => f.url));
+  }
   return { ok: true };
 }
 
 // ── 發訊息、已讀、收回 ──────────────────────────────────────
 
-export async function sendMessage(actor: ChatSender, conversationId: string, rawBody: string): Promise<ChatResult<{ message: ChatMessageDto }>> {
-  const norm = normalizeMessageBody(rawBody);
+/** 瀏覽器傳上來的一個檔案。 */
+export type ChatUpload = { name: string; bytes: Buffer };
+
+const UPLOAD_ROOT = () => path.join(process.cwd(), "public", "uploads", "chat");
+
+async function unlinkQuietly(urls: string[]): Promise<void> {
+  for (const url of urls) {
+    try {
+      await unlink(path.join(process.cwd(), "public", url));
+    } catch {
+      // 檔案本來就不在了;資料庫那邊刪掉才是重點。
+    }
+  }
+}
+
+export async function sendMessage(
+  actor: ChatSender,
+  conversationId: string,
+  rawBody: string,
+  files: ChatUpload[] = []
+): Promise<ChatResult<{ message: ChatMessageDto }>> {
+  const norm = normalizeMessageBody(rawBody, files.length > 0);
   if ("error" in norm) return { error: norm.error };
+  const fileError = validateAttachments(files.map((f) => ({ name: f.name, size: f.bytes.length })));
+  if (fileError) return { error: fileError };
   const conv = await accessibleConversation(actor, conversationId);
   if (!conv) return { error: NOT_FOUND };
 
@@ -393,10 +447,27 @@ export async function sendMessage(actor: ChatSender, conversationId: string, raw
   // 比這則訊息早,所以這則會算他的未讀。
   if (conv.kind === "BOARD" && conv.boardId) await ensureBoardChannelMembers(conv.id, conv.boardId);
 
-  const row = await prisma.chatMessage.create({
-    data: { conversationId, authorId: actor.userId, body: norm.body },
-    include: messageInclude,
-  });
+  // 檔案先寫到磁碟,訊息與檔案紀錄一起建;建失敗就把剛寫的檔案收掉,不留孤兒。
+  const stored: { fileName: string; url: string; size: number }[] = [];
+  if (files.length > 0) {
+    const dir = path.join(UPLOAD_ROOT(), conversationId);
+    await mkdir(dir, { recursive: true });
+    for (const file of files) {
+      const storedName = `${Date.now()}-${randomBytes(4).toString("hex")}-${safeAttachmentName(file.name)}`;
+      await writeFile(path.join(dir, storedName), file.bytes);
+      stored.push({ fileName: file.name, url: `/uploads/chat/${conversationId}/${storedName}`, size: file.bytes.length });
+    }
+  }
+  let row;
+  try {
+    row = await prisma.chatMessage.create({
+      data: { conversationId, authorId: actor.userId, body: norm.body, attachments: { create: stored } },
+      include: messageInclude,
+    });
+  } catch (err) {
+    await unlinkQuietly(stored.map((a) => a.url));
+    throw err;
+  }
   await prisma.chatConversation.update({ where: { id: conversationId }, data: { lastMessageAt: row.createdAt } });
   // 自己發的,當然讀到這裡了。
   await prisma.chatMember.upsert({
@@ -405,14 +476,15 @@ export async function sendMessage(actor: ChatSender, conversationId: string, raw
     update: { lastReadAt: row.createdAt },
   });
   await publishChatEvent({ type: "message", c: conversationId, u: actor.userId, m: row.id });
-  await notifyNewMessage(actor, conv, norm.body);
+  await notifyNewMessage(actor, conv, norm.body, files.length > 0);
   return { message: toMessageDto(row) };
 }
 
 async function notifyNewMessage(
   actor: ChatSender,
   conv: { id: string; kind: ChatKind; boardId: string | null; title: string | null; board: { name: string } | null },
-  body: string
+  body: string,
+  hasFiles: boolean
 ): Promise<void> {
   const users = await prisma.user.findMany({ select: { id: true, name: true, role: true } });
   const mentioned = findMentionedUserIds(body, users).filter((id) => id !== actor.userId);
@@ -466,7 +538,7 @@ async function notifyNewMessage(
   void (async () => {
     for (const n of plan) {
       try {
-        await notifyEmailIfNeeded(n.userId, "CHAT", `${n.message}\n\n${snippet(body, 120)}`);
+        await notifyEmailIfNeeded(n.userId, "CHAT", `${n.message}\n\n${messagePreview(body, hasFiles, 120)}`);
       } catch (err) {
         console.error("chat email failed:", err);
       }
@@ -502,7 +574,101 @@ export async function deleteMessage(actor: ChatActor, messageId: string): Promis
   if (!message || !(await accessibleConversation(actor, message.conversationId))) return { error: "找不到這則訊息" };
   if (message.authorId !== actor.userId) return { error: "只能收回自己的訊息" };
   if (message.deletedAt) return { ok: true };
+  const files = await prisma.chatAttachment.findMany({ where: { messageId }, select: { url: true } });
   await prisma.chatMessage.update({ where: { id: messageId }, data: { deletedAt: new Date() } });
+  // 收回就是大家都看不到了:檔案也一起刪,不能只藏起訊息、檔案還躺在磁碟上。
+  await prisma.chatAttachment.deleteMany({ where: { messageId } });
+  await unlinkQuietly(files.map((f) => f.url));
   await publishChatEvent({ type: "deleted", c: message.conversationId, u: actor.userId, m: messageId });
   return { ok: true };
+}
+
+// ── 搜尋 ────────────────────────────────────────────────────
+
+const SEARCH_LIMIT = 30;
+
+/**
+ * 在這個人看得到的對話裡搜訊息內容:他在的私訊與群組,加上他看得到的看板的頻道。
+ * 從「他能進的對話」出發再查,不是查完再過濾——查到再擋,結果數量與排序就已經洩漏了別人的對話。
+ * 收回的訊息不搜。
+ */
+export async function searchMessages(actor: ChatSender, rawQuery: string): Promise<ChatSearchHit[]> {
+  const query = rawQuery.trim();
+  if (query.length < 2) return [];
+  const me = actor.userId;
+  const [boards, mine] = await Promise.all([
+    prisma.board.findMany({
+      where: { ...accessibleBoardWhere(asSession(actor)), chatConversation: { isNot: null } },
+      select: { name: true, chatConversation: { select: { id: true } } },
+    }),
+    prisma.chatConversation.findMany({
+      where: { kind: { in: ["DM", "GROUP"] }, members: { some: { userId: me } } },
+      select: { id: true, kind: true, title: true, members: { select: { userId: true, user: { select: { name: true } } } } },
+    }),
+  ]);
+  const titles = new Map<string, { title: string; kind: "BOARD" | "DM" | "GROUP" }>();
+  for (const b of boards) if (b.chatConversation) titles.set(b.chatConversation.id, { title: b.name, kind: "BOARD" });
+  for (const c of mine) {
+    const other = c.kind === "DM" ? c.members.find((m) => m.userId !== me) : undefined;
+    titles.set(c.id, {
+      title: conversationTitle({ kind: c.kind, title: c.title, boardName: null, otherName: other?.user.name ?? null }),
+      kind: c.kind as "DM" | "GROUP",
+    });
+  }
+  if (titles.size === 0) return [];
+
+  const rows = await prisma.chatMessage.findMany({
+    where: { conversationId: { in: [...titles.keys()] }, deletedAt: null, body: { contains: query, mode: "insensitive" } },
+    orderBy: { createdAt: "desc" },
+    take: SEARCH_LIMIT,
+    select: { id: true, conversationId: true, body: true, createdAt: true, author: { select: { name: true } } },
+  });
+  return rows.map((r) => {
+    const t = titles.get(r.conversationId)!;
+    return {
+      messageId: r.id,
+      conversationKey: r.conversationId,
+      conversationTitle: t.title,
+      kind: t.kind,
+      authorName: r.author.name,
+      createdAt: r.createdAt.toISOString(),
+      excerpt: matchSnippet(r.body, query),
+    };
+  });
+}
+
+/**
+ * 把訊息轉成待辦事項或留言時挑項目:所有看得到的看板上、名稱含關鍵字的工作項。
+ * 跟全站搜尋一樣,私人項目與私人分組也要擋(看板進得去,不代表裡面每一列都看得到)。
+ */
+export async function searchItemsForChat(actor: ChatSender, rawQuery: string): Promise<ChatItemHit[]> {
+  const query = rawQuery.trim();
+  if (query.length < 1) return [];
+  const boards = await prisma.board.findMany({ where: accessibleBoardWhere(asSession(actor)), select: { id: true, name: true } });
+  if (boards.length === 0) return [];
+  const visible = await visibleItemIdsForBoards(boards.map((b) => b.id), asSession(actor));
+  const boardName = new Map(boards.map((b) => [b.id, b.name]));
+  const items = await prisma.item.findMany({
+    where: { boardId: { in: boards.map((b) => b.id) }, deletedAt: null, name: { contains: query, mode: "insensitive" } },
+    select: { id: true, name: true, boardId: true },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+  });
+  return items
+    .filter((i) => visible.has(i.id))
+    .slice(0, 20)
+    .map((i) => ({ itemId: i.id, boardId: i.boardId, name: i.name, boardName: boardName.get(i.boardId) ?? "" }));
+}
+
+// ── 附件下載 ────────────────────────────────────────────────
+
+/** 這個人看不看得到這個附件(看得到它所在的那間對話,而且訊息沒被收回)。給 /api/chat/attachments 用。 */
+export async function findAccessibleAttachment(actor: ChatActor, attachmentId: string): Promise<{ fileName: string; url: string } | null> {
+  const attachment = await prisma.chatAttachment.findUnique({
+    where: { id: attachmentId },
+    select: { fileName: true, url: true, message: { select: { conversationId: true, deletedAt: true } } },
+  });
+  if (!attachment || attachment.message.deletedAt) return null;
+  if (!(await canAccessConversationId(actor, attachment.message.conversationId))) return null;
+  return { fileName: attachment.fileName, url: attachment.url };
 }

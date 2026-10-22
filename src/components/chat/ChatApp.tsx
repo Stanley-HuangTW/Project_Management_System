@@ -12,9 +12,10 @@ import {
   openBoardChat,
   openDirectChat,
   renameChatGroup,
+  searchChatMessages,
 } from "@/lib/actions/chat";
 import { clockLabel, dayKey, dayLabel } from "@/lib/chat";
-import { isChatError, type ChatConversationDto } from "@/lib/chatTypes";
+import { isChatError, type ChatConversationDto, type ChatSearchHit } from "@/lib/chatTypes";
 import { AddMembersDialog, NewDirectChatDialog, NewGroupChatDialog } from "./ChatDialogs";
 import { ChatThread } from "./ChatThread";
 import { useChat } from "./ChatProvider";
@@ -60,6 +61,10 @@ export function ChatApp({
   const [newGroup, setNewGroup] = useState(false);
   const [addMembers, setAddMembers] = useState(false);
   const [now] = useState(() => new Date());
+  const [hits, setHits] = useState<ChatSearchHit[]>([]);
+  /** 從搜尋結果點進來要跳到哪一則;nonce 讓同一則被連點兩次也會重新跳。 */
+  const [jump, setJump] = useState<{ conversationKey: string; messageId: string; nonce: number } | null>(null);
+  const jumpNonce = useRef(0);
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reload = useCallback(async () => {
@@ -76,7 +81,14 @@ export function ChatApp({
   }, [reload]);
 
   // 有人發言、已讀、被加進群組、推送重連:重讀清單(預覽、未讀數、新的對話)。
-  useEffect(() => subscribe(() => scheduleReload()), [subscribe, scheduleReload]);
+  useEffect(
+    () =>
+      subscribe((event) => {
+        // 工作項留言的事件跟對話清單無關。
+        if (event.type !== "comment") scheduleReload();
+      }),
+    [subscribe, scheduleReload]
+  );
 
   // 推送沒連上就退回定時重讀,不讓畫面靜靜地過期。
   useEffect(() => {
@@ -97,6 +109,22 @@ export function ChatApp({
     setConversations((prev) => prev.map((c) => (c.key === activeKey && c.unread > 0 ? { ...c, unread: 0 } : c)));
     scheduleReload();
   }, [activeKey, scheduleReload]);
+
+  // 輸入兩個字以上就連訊息內容一起搜(對話標題的篩選照舊即時)。
+  useEffect(() => {
+    const q = filter.trim();
+    if (q.length < 2) return;
+    let stale = false;
+    const timer = setTimeout(async () => {
+      const found = await searchChatMessages(q);
+      if (!stale) setHits(found);
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [filter]);
+  const shownHits = filter.trim().length >= 2 ? hits : [];
 
   const active = conversations.find((c) => c.key === activeKey) ?? null;
   const others = useMemo(() => users.filter((u) => u.id !== currentUserId), [users, currentUserId]);
@@ -122,7 +150,15 @@ export function ChatApp({
     pushUrl(conversationId);
   }
 
+  function openHit(hit: ChatSearchHit) {
+    jumpNonce.current += 1;
+    setJump({ conversationKey: hit.conversationKey, messageId: hit.messageId, nonce: jumpNonce.current });
+    setActiveKey(hit.conversationKey);
+    pushUrl(hit.conversationKey);
+  }
+
   async function select(c: ChatConversationDto) {
+    setJump(null);
     if (c.id) {
       setActiveKey(c.key);
       pushUrl(c.id);
@@ -194,12 +230,12 @@ export function ChatApp({
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="找對話…"
+            placeholder="找對話或訊息…"
             className="w-full rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-          {sections.length === 0 && <p className="px-4 py-6 text-center text-xs text-neutral-400">沒有對話。按上面的按鈕開始。</p>}
+          {sections.length === 0 && shownHits.length === 0 && <p className="px-4 py-6 text-center text-xs text-neutral-400">{filter.trim() ? "沒有符合的對話或訊息。" : "沒有對話。按上面的按鈕開始。"}</p>}
           {sections.map((section) => (
             <div key={section.id}>
               <p className="px-4 pb-1 pt-3 text-[11px] font-medium text-neutral-400">{section.label}</p>
@@ -245,13 +281,36 @@ export function ChatApp({
               ))}
             </div>
           ))}
+          {shownHits.length > 0 && (
+            <div>
+              <p className="px-4 pb-1 pt-3 text-[11px] font-medium text-neutral-400">訊息({shownHits.length}{shownHits.length >= 30 ? "+" : ""})</p>
+              {shownHits.map((hit) => (
+                <button
+                  key={hit.messageId}
+                  type="button"
+                  data-chat-hit={hit.messageId}
+                  onClick={() => openHit(hit)}
+                  className="block w-full px-4 py-1.5 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                >
+                  <span className="flex items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-neutral-800 dark:text-neutral-100">
+                      {hit.conversationTitle}・{hit.authorName}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-neutral-400">{dayLabel(hit.createdAt, now)}</span>
+                  </span>
+                  <span className="block truncate text-[11px] text-neutral-500 dark:text-neutral-400">{hit.excerpt}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </aside>
 
       <section className={`${activeWithId ? "flex" : "hidden md:flex"} min-w-0 flex-1`}>
         {activeWithId ? (
           <ChatThread
-            key={activeWithId.id}
+            key={`${activeWithId.id}:${jump?.conversationKey === activeWithId.key ? jump.nonce : 0}`}
+            jumpToMessageId={jump?.conversationKey === activeWithId.key ? jump.messageId : null}
             conversation={activeWithId}
             users={users}
             currentUserId={currentUserId}

@@ -9,6 +9,7 @@ import { canManageStructure } from "@/lib/permissions";
 import type { UserRole } from "@prisma/client";
 import { activeMentionQuery } from "@/lib/mentions";
 import { MentionText } from "./MentionText";
+import { useChat } from "@/components/chat/ChatProvider";
 
 export function UpdatesTab({
   boardId,
@@ -26,6 +27,7 @@ export function UpdatesTab({
   userRole: UserRole;
 }) {
   const { notify } = useDialogs();
+  const { subscribe } = useChat();
   // 這則更新要不要彙整進週報——預設要;送出之後下一則又回到預設。
   const [inWeekly, setInWeekly] = useState(true);
   const [comments, setComments] = useState<Awaited<ReturnType<typeof listComments>>>([]);
@@ -66,6 +68,17 @@ export function UpdatesTab({
       cancelled = true;
     };
   }, [itemId]);
+
+  // 別人(或自己的另一個分頁)在這個工作項留言了,或即時推送重連了:重讀留言,不用重新開視窗。
+  useEffect(
+    () =>
+      subscribe((event) => {
+        if (event.type === "open" || (event.type === "comment" && event.c === itemId)) {
+          listComments(itemId).then(setComments, () => {});
+        }
+      }),
+    [subscribe, itemId]
+  );
 
   function insertMention(name: string) {
     if (!query) return;

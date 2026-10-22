@@ -19,6 +19,14 @@ export type ChatConversationDto = {
   lastPreview: string | null;
 };
 
+export type ChatAttachmentDto = {
+  id: string;
+  fileName: string;
+  size: number;
+  /** 圖片:直接顯示在訊息裡。其他檔案是下載連結。 */
+  isImage: boolean;
+};
+
 export type ChatMessageDto = {
   id: string;
   conversationId: string;
@@ -28,9 +36,27 @@ export type ChatMessageDto = {
   /** 收回的訊息內容是空字串。 */
   body: string;
   deleted: boolean;
+  /** 收回的訊息沒有檔案。 */
+  attachments: ChatAttachmentDto[];
   /** ISO 字串 */
   createdAt: string;
 };
+
+/** 訊息搜尋的一筆結果。 */
+export type ChatSearchHit = {
+  messageId: string;
+  /** 那間對話在清單上的 key(跟 ChatConversationDto.key 一樣)。 */
+  conversationKey: string;
+  conversationTitle: string;
+  kind: "BOARD" | "DM" | "GROUP";
+  authorName: string;
+  /** ISO 字串 */
+  createdAt: string;
+  excerpt: string;
+};
+
+/** 把訊息轉成待辦事項 / 留言時,挑項目用的搜尋結果。 */
+export type ChatItemHit = { itemId: string; boardId: string; name: string; boardName: string };
 
 /** 私訊與群組的已讀位置(誰讀到什麼時候);看板頻道人多,不追蹤顯示。 */
 export type ChatReadState = { userId: string; lastReadAt: string };

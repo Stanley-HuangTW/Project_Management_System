@@ -3,7 +3,7 @@
 import { requireSession } from "@/lib/session";
 import * as chat from "@/lib/chatServer";
 import type { ChatSender } from "@/lib/chatServer";
-import type { ChatConversationDto, ChatMessageDto, ChatMessagePage, ChatResult } from "@/lib/chatTypes";
+import type { ChatConversationDto, ChatItemHit, ChatMessageDto, ChatMessagePage, ChatResult, ChatSearchHit } from "@/lib/chatTypes";
 
 /**
  * 管理者「代操作」別人的帳號時不能用對話:發出去的訊息會變成那個人說的話,
@@ -33,9 +33,26 @@ export async function loadChatMessages(
   return "error" in me ? me : chat.loadMessages(me, conversationId, cursor);
 }
 
-export async function sendChatMessage(conversationId: string, body: string): Promise<ChatResult<{ message: ChatMessageDto }>> {
+/** formData:`body` 是文字,`file` 是零到多個檔案(同名欄位重複)。 */
+export async function sendChatMessage(conversationId: string, formData: FormData): Promise<ChatResult<{ message: ChatMessageDto }>> {
   const me = await sender();
-  return "error" in me ? me : chat.sendMessage(me, conversationId, body);
+  if ("error" in me) return me;
+  const body = formData.get("body");
+  const files: chat.ChatUpload[] = [];
+  for (const entry of formData.getAll("file")) {
+    if (entry instanceof File && entry.name) files.push({ name: entry.name, bytes: Buffer.from(await entry.arrayBuffer()) });
+  }
+  return chat.sendMessage(me, conversationId, typeof body === "string" ? body : "", files);
+}
+
+export async function searchChatMessages(query: string): Promise<ChatSearchHit[]> {
+  const me = await sender();
+  return "error" in me ? [] : chat.searchMessages(me, query);
+}
+
+export async function searchChatItems(query: string): Promise<ChatItemHit[]> {
+  const me = await sender();
+  return "error" in me ? [] : chat.searchItemsForChat(me, query);
 }
 
 export async function markChatRead(conversationId: string): Promise<ChatResult<{ ok: true }>> {
