@@ -16,11 +16,13 @@ export default async function GroupRolesSettingsPage() {
       select: {
         id: true,
         name: true,
+        roleAssignments: { select: { role: true, userId: true } },
         groups: {
           orderBy: { order: "asc" },
           select: {
             id: true,
             name: true,
+            roleOverrides: true,
             roleAssignments: { select: { role: true, userId: true } },
             members: { select: { discipline: true, userId: true } },
             resourceMembers: { select: { resourceId: true } },
@@ -51,7 +53,7 @@ export default async function GroupRolesSettingsPage() {
     <div className="p-6">
       <h1 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">分組角色設定</h1>
       <p className="mb-4 text-sm text-neutral-400 dark:text-neutral-500">
-        設定每個分組的 Team Leader / SW-HW-ME-QA DM / PMM / PMD,決定誰能在該分組調整時程或管理項目。
+        設定 Team Leader(專案負責人)/ SW-HW-ME-QA DM / PMM / PMD,決定誰能調整時程或管理項目。每個看板先設「看板角色」,底下的分組預設沿用;分組可以逐一角色改成自己的。
       </p>
       <GroupRolesPage boards={boards} users={assignees} />
     </div>

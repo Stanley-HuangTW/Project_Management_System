@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireStructureAccess } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
+import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
 
 export async function createGroup(boardId: string, name: string) {
   const session = await requireSession();
@@ -16,6 +17,8 @@ export async function createGroup(boardId: string, name: string) {
   const group = await prisma.group.create({
     data: { boardId, name: trimmed, order: count },
   });
+  // 新分組沿用看板設定的角色。
+  await syncGroupRolesFromBoard(boardId, { groupId: group.id });
 
   revalidatePath(`/boards/${boardId}`);
   return group;

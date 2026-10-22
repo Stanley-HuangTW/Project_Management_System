@@ -158,6 +158,7 @@ model User {
   reportRecipientFor      ProgramReportRecipient[]
   chatMemberships         ChatMember[]
   chatMessages            ChatMessage[]
+  boardRoleAssignments    BoardRoleAssignment[]    @relation("BoardRoleAssignments")
 }
 
 // A non-login entity (tool, equipment, external vendor/supplier) that can be
@@ -284,6 +285,7 @@ model Board {
   timeTemplates       TimeTemplate[]
   mantisConnection    MantisConnection?
   chatConversation    ChatConversation?
+  roleAssignments     BoardRoleAssignment[]
 }
 
 model BoardMember {
@@ -313,11 +315,28 @@ model Group {
 
   items                 Item[]
   automationMoveTargets AutomationRule[]
+  /// 這個分組「自己設定」的角色(不沿用看板的)。有列在這裡的角色,名單以分組自己的為準,看板改了也不動它;
+  /// 沒列的角色,名單就是看板角色(BoardRoleAssignment)的複本,由 boardRolesServer 負責同步。
+  roleOverrides         GroupRole[]           @default([])
   roleAssignments       GroupRoleAssignment[]
   members               GroupMember[]
   resourceMembers       GroupResourceMember[]
 
   @@index([boardId])
+}
+
+/// 看板層級的角色:每個分組預設沿用這裡的名單(分組可以逐一角色改成自己的,見 Group.roleOverrides)。
+/// 實際生效的權限仍然讀 GroupRoleAssignment——沒有自己設定的角色,那裡的列就是這裡的複本。
+model BoardRoleAssignment {
+  id      String    @id @default(cuid())
+  boardId String
+  board   Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  role    GroupRole
+  userId  String
+  user    User      @relation("BoardRoleAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, role, userId])
+  @@index([userId])
 }
 
 // A user holding TEAM_LEADER or PMD for a Group can edit the schedule

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { subordinateIds, teamIds, wouldCreateCycle, orgDepth } from "./orgChart";
+import { subordinateIds, teamIds, teamViewIds, wouldCreateCycle, orgDepth } from "./orgChart";
 
 // Stanley(管理者) → Henry(主管) → Wenwei(團隊成員),外加一個不相干的分支。
 const org = [
@@ -39,6 +39,33 @@ describe("subordinateIds", () => {
 describe("teamIds", () => {
   it("含自己", () => {
     expect(teamIds(org, "henry")).toEqual(new Set(["henry", "wenwei", "warren"]));
+  });
+});
+
+describe("teamViewIds", () => {
+  it("主管:自己加下轄(跟 teamIds 一樣)", () => {
+    expect(teamViewIds(org, "henry", { isSupervisor: true, principals: [] })).toEqual(teamIds(org, "henry"));
+  });
+
+  it("副主管:他代簽的主管的下轄加自己,不含那位主管本人", () => {
+    // wenwei 是副主管、代 henry 簽核:看得到 henry 底下的人(含自己),看不到 henry
+    expect(teamViewIds(org, "wenwei", { isSupervisor: false, principals: ["henry"] })).toEqual(new Set(["wenwei", "warren"]));
+  });
+
+  it("副主管不一定在那位主管的下轄裡(跨部門代簽):自己仍然算進去", () => {
+    expect(teamViewIds(org, "janet", { isSupervisor: false, principals: ["henry"] })).toEqual(new Set(["janet", "wenwei", "warren"]));
+  });
+
+  it("可以代好幾位主管,名單合起來", () => {
+    expect(teamViewIds(org, "wenwei", { isSupervisor: false, principals: ["henry", "jason"] })).toEqual(new Set(["wenwei", "warren", "janet"]));
+  });
+
+  it("又是主管、又是副主管:兩邊合起來", () => {
+    expect(teamViewIds(org, "jason", { isSupervisor: true, principals: ["henry"] })).toEqual(new Set(["jason", "janet", "wenwei", "warren"]));
+  });
+
+  it("不是主管也沒代簽誰:沒有團隊可看(null)", () => {
+    expect(teamViewIds(org, "wenwei", { isSupervisor: false, principals: [] })).toBeNull();
   });
 });
 

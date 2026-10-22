@@ -10,7 +10,7 @@ import { OrderedSections } from "@/components/dashboard/OrderedSections";
 import { DashboardOrderButton } from "@/components/dashboard/DashboardOrderButton";
 import { DASHBOARD_SECTIONS, orderDashboardSections } from "@/lib/dashboardSections";
 import { taipeiClock, todoDeadlineEntries } from "@/lib/todoDeadline";
-import { subordinateIds } from "@/lib/orgChart";
+import { teamViewIdsOf } from "@/lib/orgChartServer";
 import { canManageStructure } from "@/lib/permissions";
 import {
   computeTeamWorkload,
@@ -107,13 +107,15 @@ export default async function DashboardPage({
   }
   const isSupervisor = session.role === "SUPERVISOR";
   const isAdmin = session.role === "ADMIN";
-  const below = subordinateIds(users, session.userId);
-  const teamMembers = isSupervisor ? users.filter((u) => below.has(u.id)) : [];
+  // 看團隊的資格:主管,或副主管(可代主管簽核的人)。副主管只多了「看」,指派權限(下面的 assignableUsers)不變。
+  const team = await teamViewIdsOf(session, users);
+  const hasTeam = team !== null;
+  const teamMembers = team ? users.filter((u) => team.has(u.id) && u.id !== session.userId) : [];
   // Admins see the whole org's workload; supervisors see their own plus
   // their team's (they do real work too, not just oversight); plain members
   // only see their own — not everyone else's.
   const currentUser = users.find((u) => u.id === session.userId);
-  const workloadScope = isSupervisor
+  const workloadScope = hasTeam
     ? currentUser
       ? [currentUser, ...teamMembers]
       : teamMembers
@@ -139,7 +141,7 @@ export default async function DashboardPage({
   );
   const { overdue, completedThisWeek, upcoming7, upcoming30 } = computeDashboardDueLists(
     boards,
-    isSupervisor
+    hasTeam
       ? withManagedResourceIds([session.userId, ...teamMembers.map((m) => m.id)])
       : isAdmin
         ? undefined
@@ -158,7 +160,7 @@ export default async function DashboardPage({
   const todoDeadlines = todoDeadlineEntries(
     boards,
     todoRows,
-    isSupervisor
+    hasTeam
       ? withManagedResourceIds([session.userId, ...teamMembers.map((m) => m.id)])
       : isAdmin
         ? undefined
@@ -167,7 +169,7 @@ export default async function DashboardPage({
   const personalItems = computePersonalItems(boards, [session.userId], userById, holidays);
   const myResourceIds = resourceIdsByManager.get(session.userId) ?? [];
   const myResourceItems = computePersonalItems(boards, myResourceIds, userById, holidays);
-  const teamItems = isSupervisor
+  const teamItems = hasTeam
     ? computePersonalItems(boards, withManagedResourceIds(teamMembers.map((m) => m.id)), userById, holidays)
     : [];
 
@@ -229,7 +231,7 @@ export default async function DashboardPage({
   const dashboardOrder = me?.dashboardOrder ?? [];
   const defaultSections = DASHBOARD_SECTIONS.filter(
     (section) =>
-      (section.id !== "teamItems" || isSupervisor) && (section.id !== "myResourceItems" || myResourceIds.length > 0)
+      (section.id !== "teamItems" || hasTeam) && (section.id !== "myResourceItems" || myResourceIds.length > 0)
   ).map((section) => ({ id: section.id as string, label: section.label as string }));
   const orderedSectionRows = orderDashboardSections(defaultSections, dashboardOrder);
 
@@ -261,13 +263,13 @@ export default async function DashboardPage({
       <OpenRisksCard
         key="openRisks"
         rows={await loadOpenRiskRows(boards)}
-        relatedUserIds={isSupervisor ? [session.userId, ...teamMembers.map((m) => m.id)] : [session.userId]}
+        relatedUserIds={hasTeam ? [session.userId, ...teamMembers.map((m) => m.id)] : [session.userId]}
         defaultAll={isAdmin}
       />
 
       <TeamWorkloadCard
         key="teamWorkload"
-        title={isSupervisor ? "我的團隊工作量總覽" : isAdmin ? "團隊工作量總覽" : "我的工作量總覽"}
+        title={hasTeam ? "我的團隊工作量總覽" : isAdmin ? "團隊工作量總覽" : "我的工作量總覽"}
         day={teamWorkloadDay}
         week={teamWorkloadWeek}
         month={teamWorkloadMonth}
@@ -363,7 +365,7 @@ export default async function DashboardPage({
         userRole={session.role}
       />
 
-      {isSupervisor && (
+      {hasTeam && (
         <section key="teamItems">
           <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">
             團隊項目({teamItems.length})

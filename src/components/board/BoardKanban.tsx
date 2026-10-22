@@ -28,7 +28,7 @@ import { KanbanLane } from "./KanbanLane";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
 import { useRecordedCellSave } from "./cell-editors/useCellSave";
-import { teamIds as orgTeamIds } from "@/lib/orgChart";
+import { teamViewIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
 
 // 逾期 first, then 未處理, then 實作中, then 已完成 last — same status
@@ -158,6 +158,7 @@ export function BoardKanban({
   users,
   userRole,
   currentUserId,
+  teamPrincipalIds = [],
   holidays,
   completedAtByItem,
 }: {
@@ -168,6 +169,8 @@ export function BoardKanban({
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
+  /** 副主管可以代簽的主管(「我的團隊」加上他們的下轄)。 */
+  teamPrincipalIds?: string[];
   holidays: Holiday[];
   /** 工作項實際切成完成的時間(ISO),「本週完成」那一欄以它為準。 */
   completedAtByItem?: Record<string, string>;
@@ -191,15 +194,16 @@ export function BoardKanban({
   const isMember = userRole === "MEMBER";
   // 「我的團隊」含主管自己——只算部屬的話,沒有部屬(或部屬沒有項目)的主管一打開就是空的,
   // 自己負責的項目反而看不到。跟報表分頁、儀表板的範圍一致。
-  const teamIds = useMemo(
-    () => (isSupervisor ? [...orgTeamIds(users, currentUserId)] : null),
-    [isSupervisor, users, currentUserId]
-  );
-  const [scope, setScope] = useState<"team" | "all">(isSupervisor ? "team" : "all");
+  // 副主管(可代主管簽核的人)也有團隊:他代簽的主管的下轄加上自己。
+  const teamIds = useMemo(() => {
+    const team = teamViewIds(users, currentUserId, { isSupervisor, principals: teamPrincipalIds });
+    return team ? [...team] : null;
+  }, [isSupervisor, users, currentUserId, teamPrincipalIds]);
+  const [scope, setScope] = useState<"team" | "all">(teamIds ? "team" : "all");
   // Members only ever see their own items — there's no "all" toggle for them,
-  // unlike supervisors who can widen to the whole board.
+  // unlike supervisors who can widen to the whole board. A deputy member sees their team's items.
   const effectiveTeamIds = useMemo(
-    () => (isMember ? [currentUserId] : scope === "team" ? teamIds : null),
+    () => (isMember ? (teamIds ?? [currentUserId]) : scope === "team" ? teamIds : null),
     [isMember, currentUserId, scope, teamIds]
   );
   const scopedItems = effectiveTeamIds

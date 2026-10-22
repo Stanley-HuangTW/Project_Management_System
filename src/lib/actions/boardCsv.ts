@@ -11,6 +11,7 @@ import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
+import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
 import { boardWithDataArgs, type ItemData, type ColumnData } from "@/types/board";
 import {
   DEFAULT_STATUS_PALETTE,
@@ -229,6 +230,8 @@ export async function importBoardCsv(csvText: string): Promise<CsvImportResult> 
       data: { boardId: board.id, name: row.groupName, order: nextGroupOrder++ },
       select: { id: true },
     });
+    // 匯入新建的分組沿用看板設定的角色。
+    await syncGroupRolesFromBoard(board.id, { groupId: created.id });
     groupIdByName.set(row.groupName, created.id);
   }
 

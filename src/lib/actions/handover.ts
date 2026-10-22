@@ -10,6 +10,10 @@ import { resyncBoardLabour } from "@/lib/actions/labourSheet";
 import { pickStatusColumnId } from "@/lib/itemEvents";
 import { getPersonIds, getStatusOptions } from "@/types/column";
 import { currentMonthTaipei, isUnfinished, mergeAllocationPct, replacePersonValue, slotIsOngoing } from "@/lib/handover";
+import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
+
+/** 交接清單裡「看板層級角色」那幾列的 id 前綴(跟分組角色的列區分)。 */
+const BOARD_ROLE_PREFIX = "board:";
 
 /**
  * 工作交接(使用者管理):把一個人名下還沒做完的工作交給另一個人。只有管理者能用。
@@ -144,7 +148,7 @@ export async function previewHandover(fromId: string, toId: string): Promise<{ e
   rows.sort((a, b) => a.boardName.localeCompare(b.boardName, "zh-TW") || a.itemName.localeCompare(b.itemName, "zh-TW", { numeric: true }));
 
   const openRisk = { status: { not: "CLOSED" as const }, board: { deletedAt: null } };
-  const [owned, reviewing, slots, roles] = await Promise.all([
+  const [owned, reviewing, slots, groupRoles, boardRoles] = await Promise.all([
     prisma.riskEntry.findMany({ where: { ownerId: fromId, ...openRisk }, select: { id: true, title: true, kind: true, board: { select: { name: true } } } }),
     prisma.riskReviewer.findMany({
       where: { userId: fromId, approvedAt: null, risk: openRisk },
@@ -156,7 +160,11 @@ export async function previewHandover(fromId: string, toId: string): Promise<{ e
     }),
     prisma.groupRoleAssignment.findMany({
       where: { userId: fromId, group: { board: { deletedAt: null } } },
-      select: { id: true, role: true, group: { select: { name: true, board: { select: { name: true } } } } },
+      select: { id: true, role: true, group: { select: { name: true, roleOverrides: true, board: { select: { name: true } } } } },
+    }),
+    prisma.boardRoleAssignment.findMany({
+      where: { userId: fromId, board: { deletedAt: null } },
+      select: { id: true, role: true, board: { select: { name: true } } },
     }),
   ]);
   const riskById = new Map<string, HandoverRiskRow>();
@@ -177,7 +185,13 @@ export async function previewHandover(fromId: string, toId: string): Promise<{ e
       slots: slots
         .filter((s) => slotIsOngoing(s.months.map((m) => m.month), month))
         .map((s) => ({ slotId: s.id, label: s.label, func: s.func, boardName: s.board.name })),
-      roles: roles.map((r) => ({ roleId: r.id, role: r.role, groupName: r.group.name, boardName: r.group.board.name })),
+      // 沿用看板的角色(分組裡的列只是看板名單的複本)不單獨列:交接看板那一列,各分組跟著換。
+      roles: [
+        ...boardRoles.map((r) => ({ roleId: `${BOARD_ROLE_PREFIX}${r.id}`, role: r.role, groupName: "整個看板(沿用的分組一起換)", boardName: r.board.name })),
+        ...groupRoles
+          .filter((r) => r.group.roleOverrides.includes(r.role))
+          .map((r) => ({ roleId: r.id, role: r.role, groupName: r.group.name, boardName: r.group.board.name })),
+      ],
     },
   };
 }
@@ -264,9 +278,24 @@ export async function executeHandover(args: {
           for (const s of slots) slotBoardIds.add(s.boardId);
         }
 
+        const syncBoardIds = new Set<string>();
         for (const roleId of new Set(args.roleIds)) {
-          const role = await tx.groupRoleAssignment.findUnique({ where: { id: roleId } });
+          if (roleId.startsWith(BOARD_ROLE_PREFIX)) {
+            const boardRole = await tx.boardRoleAssignment.findUnique({ where: { id: roleId.slice(BOARD_ROLE_PREFIX.length) } });
+            if (!boardRole || boardRole.userId !== from.id) continue;
+            const already = await tx.boardRoleAssignment.findUnique({
+              where: { boardId_role_userId: { boardId: boardRole.boardId, role: boardRole.role, userId: to.id } },
+            });
+            if (already) await tx.boardRoleAssignment.delete({ where: { id: boardRole.id } });
+            else await tx.boardRoleAssignment.update({ where: { id: boardRole.id }, data: { userId: to.id } });
+            syncBoardIds.add(boardRole.boardId);
+            rolesMoved += 1;
+            continue;
+          }
+          const role = await tx.groupRoleAssignment.findUnique({ where: { id: roleId }, include: { group: { select: { roleOverrides: true } } } });
           if (!role || role.userId !== from.id) continue;
+          // 沿用看板的角色跟著看板那一列走,不能單獨改這個分組(下一次同步又會被蓋回去)。
+          if (!role.group.roleOverrides.includes(role.role)) continue;
           const already = await tx.groupRoleAssignment.findUnique({
             where: { groupId_role_userId: { groupId: role.groupId, role: role.role, userId: to.id } },
           });
@@ -274,6 +303,7 @@ export async function executeHandover(args: {
           else await tx.groupRoleAssignment.update({ where: { id: role.id }, data: { userId: to.id } });
           rolesMoved += 1;
         }
+        for (const boardId of syncBoardIds) await syncGroupRolesFromBoard(boardId, {}, tx);
       },
       { timeout: 60_000, maxWait: 10_000 }
     );

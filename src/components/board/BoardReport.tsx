@@ -21,7 +21,7 @@ import { ProgressCurveChart } from "./ProgressCurveChart";
 import { CostReport } from "./CostReport";
 import { DelayReport } from "./DelayReport";
 import { computeWbsCodes } from "@/lib/wbs";
-import { teamIds as orgTeamIds } from "@/lib/orgChart";
+import { teamViewIds } from "@/lib/orgChart";
 
 /** WBS code for every item on the board, computed per group (codes are
  *  group-scoped, same rule as the table's own WBS badges). */
@@ -165,18 +165,23 @@ export function BoardReport({
   users,
   userRole,
   currentUserId,
+  teamPrincipalIds = [],
   holidays,
 }: {
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
+  /** 副主管可以代簽的主管(「我的團隊」加上他們的下轄)。 */
+  teamPrincipalIds?: string[];
   holidays: Holiday[];
 }) {
   const router = useRouter();
   const isSupervisor = userRole === "SUPERVISOR";
-  const teamIds = isSupervisor ? [...orgTeamIds(users, currentUserId)] : null;
-  const [scope, setScope] = useState<"team" | "all">(isSupervisor ? "team" : "all");
+  // 副主管(可代主管簽核的人)也有團隊可看。
+  const team = teamViewIds(users, currentUserId, { isSupervisor, principals: teamPrincipalIds });
+  const teamIds = team ? [...team] : null;
+  const [scope, setScope] = useState<"team" | "all">(team ? "team" : "all");
   const effectiveTeamIds = scope === "team" ? teamIds : null;
   const [listModal, setListModal] = useState<{ title: string; items: ItemData[] } | null>(null);
 
@@ -195,7 +200,7 @@ export function BoardReport({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        {isSupervisor ? (
+        {team ? (
           <div className="flex overflow-hidden rounded-md border border-neutral-200 dark:border-neutral-700 text-xs">
             <button
               type="button"

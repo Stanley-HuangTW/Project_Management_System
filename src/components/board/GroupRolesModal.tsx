@@ -6,7 +6,14 @@ import { Modal } from "@/components/ui/Modal";
 import { MultiSelect } from "@/components/ui/MultiSelect";
 import type { UserOption } from "@/types/board";
 import type { GroupDiscipline, GroupRole } from "@prisma/client";
-import { setGroupRoleAssignments, setGroupMembers, setGroupResourceMembers } from "@/lib/actions/groupRoles";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import {
+  setBoardRoleAssignments,
+  setGroupRoleAssignments,
+  setGroupRoleInherit,
+  setGroupMembers,
+  setGroupResourceMembers,
+} from "@/lib/actions/groupRoles";
 
 /** The slice of Group data this modal actually needs — kept structural
  *  (rather than importing the full GroupData) so both the board page's
@@ -15,6 +22,8 @@ export type GroupRolesData = {
   id: string;
   name: string;
   roleAssignments: { role: GroupRole; userId: string }[];
+  /** 這個分組自己設定的角色(不沿用看板)。看板層級(mode="board")用不到,給空陣列。 */
+  roleOverrides: GroupRole[];
   members: { discipline: GroupDiscipline; userId: string }[];
   resourceMembers: { resourceId: string }[];
 };
@@ -81,20 +90,29 @@ function inDiscipline(user: UserOption, discipline: GroupDiscipline): boolean {
   return UNIT_ALIASES[discipline].includes(unit);
 }
 
+/**
+ * mode="group":一個分組的角色、實作成員、Resource;每個角色可以「沿用看板」或自己設定。
+ * mode="board":看板層級的角色(group 參數放的是看板:id=看板 id、name=看板名稱),
+ * 所有沒有自己設定的分組都跟著這裡走。
+ */
 export function GroupRolesModal({
   boardId,
   group,
   users,
   open,
   onOpenChange,
+  mode = "group",
 }: {
   boardId: string;
   group: GroupRolesData;
   users: UserOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode?: "group" | "board";
 }) {
   const router = useRouter();
+  const { notify } = useDialogs();
+  const boardMode = mode === "board";
   const [pending, setPending] = useState<string | null>(null);
   /** 哪幾列被要求「顯示全部部門」。key 跟 pending 同一套命名。 */
   const [showAll, setShowAll] = useState<Set<string>>(new Set());
@@ -136,7 +154,24 @@ export function GroupRolesModal({
     const next = current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId];
     setPending(`role:${role}`);
     try {
-      await setGroupRoleAssignments(boardId, group.id, role, next);
+      if (boardMode) {
+        const result = await setBoardRoleAssignments(boardId, role, next);
+        if (result.error) await notify(result.error);
+      } else {
+        await setGroupRoleAssignments(boardId, group.id, role, next);
+      }
+      router.refresh();
+    } finally {
+      setPending(null);
+    }
+  }
+
+  /** 分組的某個角色:改成沿用看板 / 改成自己設定。 */
+  async function toggleInherit(role: GroupRole, inherit: boolean) {
+    setPending(`role:${role}`);
+    try {
+      const result = await setGroupRoleInherit(boardId, group.id, role, inherit);
+      if (result.error) await notify(result.error);
       router.refresh();
     } finally {
       setPending(null);
@@ -194,13 +229,16 @@ export function GroupRolesModal({
   }
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={`${group.name} — 分組角色設定`} size="xl">
+    <Modal open={open} onOpenChange={onOpenChange} title={boardMode ? `${group.name} — 看板角色` : `${group.name} — 分組角色設定`} size="xl">
       <div className="space-y-5">
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">角色</h3>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
-            Team Leader 與 PMD(專案 PM)可調整此分組任何項目的時程(拖曳甘特圖、改起訖日)。
-            SW/EE/ME/QA DM 可在此分組新增/指派項目、管理各自領域成員的進度,範圍僅限此分組。
+            {boardMode
+              ? "設在這裡的角色,這個看板的每個分組預設都沿用(Team Leader 就是這個專案的負責人)。分組如果自己改過某個角色,就以分組的為準,不受這裡影響;分組可以在「分組角色設定」逐一角色改回沿用看板。"
+              : "每個角色旁邊勾「沿用看板」,名單就跟看板設定的一樣、看板改了也跟著改;取消勾選才能在這個分組另外挑人。"}
+            Team Leader 與 PMD(專案 PM)可調整分組任何項目的時程(拖曳甘特圖、改起訖日)。
+            SW/EE/ME/QA DM 可在分組新增/指派項目、管理各自領域成員的進度,範圍僅限該分組。
             PMM(行銷 PM)目前僅作花名冊,不授予額外權限。
             DM 的人選預設只列該部門的人,Team Leader / PMM / PMD 則是任一部門任一人。
           </p>
@@ -212,8 +250,9 @@ export function GroupRolesModal({
                 group.roleAssignments.filter((a) => a.role === role).map((a) => a.userId)
               );
               const { options, scoped, deptEmpty } = optionsFor(key, discipline, selectedIds);
+              const inherited = !boardMode && !group.roleOverrides.includes(role);
               return (
-                <div key={role} className="flex items-center gap-2">
+                <div key={role} className="flex items-center gap-2" data-role-row={role}>
                   <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                     {ROLE_LABELS[role]}
                   </span>
@@ -224,7 +263,7 @@ export function GroupRolesModal({
                       hint: scoped ? undefined : (u.discipline ?? undefined),
                     }))}
                     selectedIds={selectedIds}
-                    disabled={pending === key}
+                    disabled={pending === key || inherited}
                     placeholder={
                       discipline && scoped ? `未指定(${DISCIPLINE_LABELS[discipline]} 部門)` : "未指定"
                     }
@@ -232,12 +271,29 @@ export function GroupRolesModal({
                     footer={scopeFooter(key, discipline, deptEmpty)}
                     onToggle={(userId) => toggleRole(role, userId)}
                   />
+                  {!boardMode && (
+                    <label
+                      className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400"
+                      title="勾選:名單跟看板設定的一樣,看板改了這裡跟著改。取消勾選:這個分組自己挑人。"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={inherited}
+                        disabled={pending === key}
+                        onChange={(e) => void toggleInherit(role, e.target.checked)}
+                        className="h-3 w-3"
+                        data-role-inherit={role}
+                      />
+                      沿用看板
+                    </label>
+                  )}
                 </div>
               );
             })}
           </div>
         </section>
 
+        {!boardMode && (
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">實作成員</h3>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
@@ -273,7 +329,9 @@ export function GroupRolesModal({
           </div>
         </section>
 
-        {resources.length > 0 && (
+        )}
+
+        {!boardMode && resources.length > 0 && (
           <section>
             <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">Resource 成員</h3>
             <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">花名冊用途,Resource 沒有登入帳號、不會取得任何操作權限。</p>

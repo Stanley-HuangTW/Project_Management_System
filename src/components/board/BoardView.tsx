@@ -30,6 +30,7 @@ import {
   type BoardAdminAction,
 } from "./BoardAdminActions";
 import { ExportGanttModal } from "./ExportGanttModal";
+import { GroupRolesModal } from "./GroupRolesModal";
 import type { ProtoUnitsData } from "./ItemProtoUnitsContext";
 
 export function BoardView({
@@ -48,11 +49,14 @@ export function BoardView({
   hasMantis,
   eventSummaries,
   protoUnits,
+  teamPrincipalIds = [],
 }: {
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
+  /** 這個人(副主管)可以代簽的主管——「我的團隊」除了自己的下轄,還要加上他們的。 */
+  teamPrincipalIds?: string[];
   highlightItemId?: string | null;
   /** 隨每次點擊都不同的值(時間戳記)——同一個項目被連點兩次,highlightItemId
    *  本身不會變,得靠這個才分得出「又點了一次」跟「沒事」。 */
@@ -107,6 +111,7 @@ export function BoardView({
   const [exportOpen, setExportOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [rolesOpen, setRolesOpen] = useState(false);
 
   const statusColumns = board.columns.filter((c) => c.type === "STATUS");
   // 看板檢視預設依名為「Status」的欄位分組(沒有就用第一個狀態欄位)。
@@ -125,14 +130,17 @@ export function BoardView({
     const list: BoardAdminAction[] = [];
     if (canManageBoard(userRole)) list.push("import", "export", "resources");
     if (canManageStructure(userRole)) list.push("automation", "templates", "trash");
+    // 看板角色:管理者與看板擁有者。
+    if (userRole === "ADMIN" || board.ownerId === currentUserId) list.push("roles");
     return list;
-  }, [userRole]);
+  }, [userRole, board.ownerId, currentUserId]);
   const openAdminAction = useCallback((action: BoardAdminAction) => {
     if (action === "import") setImportOpen(true);
     else if (action === "export") setExportOpen(true);
     else if (action === "resources") setResourceMappingOpen(true);
     else if (action === "trash") setTrashOpen(true);
     else if (action === "templates") setTemplatesOpen(true);
+    else if (action === "roles") setRolesOpen(true);
     else setAutomationOpen(true);
   }, []);
   useRegisterBoardAdminActions(board.id, adminActions, openAdminAction);
@@ -309,6 +317,7 @@ export function BoardView({
             users={users}
             userRole={userRole}
             currentUserId={currentUserId}
+            teamPrincipalIds={teamPrincipalIds}
             holidays={holidays}
             completedAtByItem={completedAtByItem}
           />
@@ -347,6 +356,7 @@ export function BoardView({
             users={users}
             userRole={userRole}
             currentUserId={currentUserId}
+            teamPrincipalIds={teamPrincipalIds}
             holidays={holidays}
           />
         )}
@@ -407,6 +417,17 @@ export function BoardView({
 
       {canManageStructure(userRole) && (
         <ProjectTemplateModal groups={board.groups} open={templatesOpen} onOpenChange={setTemplatesOpen} />
+      )}
+
+      {(userRole === "ADMIN" || board.ownerId === currentUserId) && (
+        <GroupRolesModal
+          mode="board"
+          boardId={board.id}
+          group={{ id: board.id, name: board.name, roleAssignments: board.roleAssignments, roleOverrides: [], members: [], resourceMembers: [] }}
+          users={users}
+          open={rolesOpen}
+          onOpenChange={setRolesOpen}
+        />
       )}
 
     </div>

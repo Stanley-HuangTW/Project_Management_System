@@ -61,6 +61,7 @@ const ADMIN_ACTIONS: { id: BoardAdminAction; label: string; Icon: typeof Upload 
   { id: "import", label: "匯入", Icon: Download },
   { id: "export", label: "匯出", Icon: Upload },
   { id: "resources", label: "Resource 對應", Icon: Users2 },
+  { id: "roles", label: "看板角色", Icon: Shield },
   { id: "automation", label: "自動化", Icon: Zap },
   { id: "templates", label: "專案範本", Icon: Copy },
   { id: "trash", label: "垃圾桶", Icon: Trash2 },
@@ -551,7 +552,10 @@ export function BoardSidebar({
               </Link>
               {(canManageBoardRow || allowedAdminActions.size > 0) && (
                 <RowMenu>
-                  {ADMIN_ACTIONS.filter((a) => allowedAdminActions.has(a.id)).map(
+                  {ADMIN_ACTIONS.filter((a) =>
+                    // 看板角色:管理者與這塊看板的擁有者(擁有者才看得到自己看板的這一項)。
+                    a.id === "roles" ? userRole === "ADMIN" || board.ownerId === currentUserId : allowedAdminActions.has(a.id)
+                  ).map(
                     ({ id, label, Icon }) => (
                       <RowMenuItem
                         key={id}

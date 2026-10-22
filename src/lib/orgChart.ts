@@ -44,6 +44,27 @@ export function teamIds(users: OrgNode[], rootId: string): Set<string> {
 }
 
 /**
+ * 「我的團隊」要看哪些人(只是看,不含任何管理權限):
+ * - 主管:自己加下轄;
+ * - 副主管(組織架構圖上勾了「可代主管簽核」的人):他代簽的那幾位主管的下轄,加上自己;
+ * - 兩種身分都有就合起來。
+ * 都不是就回 null(沒有團隊可看)。principals = 他可以代簽的主管(見 approvalLevelsServer.loadDelegations)。
+ */
+export function teamViewIds(
+  users: OrgNode[],
+  selfId: string,
+  options: { isSupervisor: boolean; principals: readonly string[] }
+): Set<string> | null {
+  if (!options.isSupervisor && options.principals.length === 0) return null;
+  const ids = new Set<string>([selfId]);
+  if (options.isSupervisor) for (const id of subordinateIds(users, selfId)) ids.add(id);
+  for (const principal of options.principals) {
+    for (const id of subordinateIds(users, principal)) ids.add(id);
+  }
+  return ids;
+}
+
+/**
  * 把 supervisorId 指給 userId 會不會繞成環。自己指自己算,A→B→A 也算 ——
  * 一旦成環,這群人就會從組織圖上消失(誰的下轄範圍都不包含他們),而且
  * 每一次走訪都得靠 visited 才收得住。

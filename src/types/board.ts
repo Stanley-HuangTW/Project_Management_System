@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 
 export const boardWithDataArgs = Prisma.validator<Prisma.BoardDefaultArgs>()({
   include: {
+    // 看板層級的角色(分組預設沿用的名單)。
+    roleAssignments: { select: { role: true, userId: true } },
     groups: {
       orderBy: { order: "asc" },
       include: {
