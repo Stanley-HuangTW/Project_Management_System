@@ -151,6 +151,15 @@ export function formatEventDateTime(value: Date | string): string {
 /** 項目視窗的分頁(跟 ItemDetailModal 的 TABS 同一組 id)。 */
 export type ItemDetailTab = "updates" | "files" | "links" | "activity" | "card" | "checklist" | "cost";
 
+/**
+ * 「更新記錄」點下去,項目卡片要標出哪一個欄位:狀態與其他欄位的修改,訊息開頭是「欄位名稱」
+ * (例如「「duration」:28 → 29」);留言、連結、待辦事項沒有對應的欄位,回 null。
+ */
+export function eventTargetField(kind: ItemEventKind, summary: string): string | null {
+  if (kind !== "FIELD" && kind !== "STATUS") return null;
+  return /^「([^」]+)」/.exec(summary.trim())?.[1] ?? null;
+}
+
 /** 「更新記錄」點下去要跳哪一頁:更新跳「更新」、連結跳「連結」、待辦事項跳「待辦事項」,狀態與其他欄位跳「項目卡片」。 */
 export function eventTargetTab(kind: ItemEventKind): ItemDetailTab {
   switch (kind) {

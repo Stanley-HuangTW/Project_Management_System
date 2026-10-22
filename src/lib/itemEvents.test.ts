@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetTab, pickStatusTimes, formatEventTime, formatEventDateTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
+import { classifyStatusOption, completedAtOf, describeEvent, describeRiskEvent, eventTargetField, eventTargetTab, pickStatusTimes, formatEventTime, formatEventDateTime, taipeiDateOf, type ItemEventKind } from "./itemEvents";
 
 describe("classifyStatusOption", () => {
   it("標籤叫 Completed / Done / 完成 / 已完成:完成(匯入的看板選項是隨機 id,只能看標籤)", () => {
@@ -44,6 +44,21 @@ describe("台灣時間", () => {
     expect(taipeiDateOf("2026-10-11T17:30:00.000Z")).toBe("2026-10-12");
     expect(formatEventTime("2026-10-12T01:12:57.000Z")).toBe("10/12 09:12");
     expect(formatEventTime("2026-10-11T17:05:00.000Z")).toBe("10/12 01:05");
+  });
+});
+
+describe("eventTargetField", () => {
+  it("names the field a field-change or status event is about", () => {
+    expect(eventTargetField("FIELD", "「duration」:28 → 29")).toBe("duration");
+    expect(eventTargetField("FIELD", "「start(set)」已更新:2026-10-08 → 2026-08-10")).toBe("start(set)");
+    expect(eventTargetField("STATUS", "「Status」:Planned → Completed")).toBe("Status");
+  });
+
+  it("has no field for comments, links and todos, or a message that does not start with one", () => {
+    expect(eventTargetField("UPDATE", "「Status」誤判")).toBeNull();
+    expect(eventTargetField("LINK", "新增連結:「規格書」")).toBeNull();
+    expect(eventTargetField("TODO", "新增待辦事項:「送樣」")).toBeNull();
+    expect(eventTargetField("FIELD", "批次搬移到「二、项目执行」底下")).toBeNull();
   });
 });
 

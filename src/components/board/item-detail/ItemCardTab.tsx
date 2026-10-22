@@ -48,6 +48,7 @@ export function ItemCardTab({
   manualScheduleHint,
   userRole,
   currentUserId,
+  highlightField,
 }: {
   boardId: string;
   item: ItemData;
@@ -75,7 +76,24 @@ export function ItemCardTab({
   manualScheduleHint?: string;
   userRole: UserRole;
   currentUserId: string;
+  /** 從「更新記錄」點進來:要標出來的欄位名稱(捲到那一列、閃一下)。 */
+  highlightField?: string | null;
 }) {
+  // 閃著標出來的欄位:一開始等畫面排好再捲過去,幾秒後自己消掉。
+  const [flashField, setFlashField] = useState<string | null>(null);
+  useEffect(() => {
+    if (!highlightField) return;
+    const show = setTimeout(() => {
+      const row = [...document.querySelectorAll<HTMLElement>("[data-card-field]")].find((el) => el.dataset.cardField === highlightField);
+      row?.scrollIntoView({ block: "center" });
+      setFlashField(highlightField);
+    }, 150);
+    const hide = setTimeout(() => setFlashField(null), 3500);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(hide);
+    };
+  }, [highlightField]);
   const [todoStats, setTodoStats] = useState<{ done: number; total: number } | null>(null);
   const { notify } = useDialogs();
   const history = useEditHistory();
@@ -222,7 +240,11 @@ export function ItemCardTab({
                 : null
             : null;
         return (
-          <div key={col.id}>
+          <div
+            key={col.id}
+            data-card-field={col.name}
+            className={flashField === col.name ? "rounded bg-amber-50 ring-2 ring-amber-400 transition dark:bg-amber-950/30" : "transition"}
+          >
             <div
               className={`flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5 ${
                 scheduleBlockedReason ? "cursor-not-allowed" : ""

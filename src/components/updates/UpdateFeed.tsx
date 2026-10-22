@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { describeEvent, describeRiskEvent, eventTargetTab, formatEventTime } from "@/lib/itemEvents";
+import type { UserRole } from "@prisma/client";
+import { describeEvent, describeRiskEvent, eventTargetField, eventTargetTab, formatEventTime, type ItemDetailTab } from "@/lib/itemEvents";
 import type { UpdateFeedRow } from "@/lib/updateFeed";
 import { EventBadge } from "@/components/board/EventBadge";
-
-/** 每次點都不同的值——同一個項目連點兩次也會再打開一次。放在元件外面:Date.now() 是不純的呼叫,react-hooks/purity 不讓寫在元件裡(通知列表同一個做法)。 */
-function nonce(): string {
-  return String(Date.now());
-}
+import { ItemDetailModal } from "@/components/board/ItemDetailModal";
+import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
+import { useDialogs } from "@/components/ui/DialogProvider";
+import type { UserOption } from "@/types/board";
 
 const selectClass =
   "rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
@@ -17,10 +17,25 @@ const selectClass =
 /**
  * 更新記錄頁:一筆一筆列出,格式跟通知列表一樣(類型標籤、看板 › 分組、WBS 與項目名稱、改了什麼、誰・什麼時候)。
  * 工作項的更新、風險與問題的新增 / 指派 / 變更都在這裡。預設只看「與我有關」的(我做的、指派給我的、我負責或審核的),
- * 可以切到「全部」,再依看板、人、類型篩選;點一筆跳到那個工作項(停在對應的分頁)或那個看板的風險分頁。
+ * 可以切到「全部」,再依看板、人、類型篩選;點一筆就地打開那個工作項的詳細資訊(停在對應的分頁、標出改的欄位),
+ * 不離開這一頁;風險與問題沒有工作項詳細資訊,跳到那個看板的風險分頁。
  */
-export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
+export function UpdateFeed({
+  rows,
+  users,
+  currentUserId,
+  userRole,
+}: {
+  rows: UpdateFeedRow[];
+  users: UserOption[];
+  currentUserId: string;
+  userRole: UserRole;
+}) {
   const router = useRouter();
+  const { notify } = useDialogs();
+  // 工作項的更新:就地打開項目詳細資訊(對應的分頁、欄位),不離開這一頁、不跳到看板表格。
+  const [detail, setDetail] = useState<{ context: ItemDetailContext; tab: ItemDetailTab; field: string | null } | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [board, setBoard] = useState("");
   const [actor, setActor] = useState("");
@@ -40,14 +55,25 @@ export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
     ({ row, view }) => (!board || row.boardId === board) && (!actor || row.actorName === actor) && (!type || view.label === type)
   );
 
-  function open(row: UpdateFeedRow) {
-    // 風險 / 問題沒有工作項:直接開那個看板的風險分頁。
+  async function open(row: UpdateFeedRow) {
+    // 風險 / 問題沒有工作項詳細資訊:直接開那個看板的風險分頁。
     if (row.risk) {
       router.push(`/boards/${row.boardId}?view=risks`);
       return;
     }
-    const tab = eventTargetTab(row.kind);
-    router.push(`/boards/${row.boardId}?highlight=${row.itemId}&highlightAt=${nonce()}&highlightTab=${tab}`);
+    setOpeningId(row.id);
+    try {
+      const context = await loadItemDetailContext(row.itemId);
+      if (!context) {
+        await notify("找不到這個項目,或者沒有存取權限");
+        return;
+      }
+      setDetail({ context, tab: eventTargetTab(row.kind), field: eventTargetField(row.kind, row.summary) });
+    } catch (err) {
+      await notify(err instanceof Error ? err.message : "載入失敗");
+    } finally {
+      setOpeningId(null);
+    }
   }
 
   const tab = (key: "mine" | "all", label: string, count: number) => (
@@ -115,8 +141,10 @@ export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
             <li key={row.id}>
               <button
                 type="button"
-                onClick={() => open(row)}
-                className="flex w-full flex-col gap-1 px-4 py-2.5 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                onClick={() => void open(row)}
+                disabled={openingId === row.id}
+                data-update-row={row.id}
+                className="flex w-full flex-col gap-1 px-4 py-2.5 text-left hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
               >
                 <span className="flex items-center gap-1.5">
                   <EventBadge label={view.label} tone={view.tone} />
@@ -139,6 +167,26 @@ export function UpdateFeed({ rows }: { rows: UpdateFeedRow[] }) {
           ))}
         </ul>
       )}
+
+      <ItemDetailModal
+        boardId={detail?.context.boardId ?? ""}
+        item={detail?.context.item ?? null}
+        columns={detail?.context.columns ?? []}
+        users={users}
+        progressColumnId={detail?.context.progressColumnId ?? null}
+        ganttStartColumnId={detail?.context.ganttStartColumnId}
+        ganttDurationColumnId={detail?.context.ganttDurationColumnId}
+        ganttEndColumnId={detail?.context.ganttEndColumnId}
+        predColumnId={detail?.context.predColumnId}
+        linkColumnId={detail?.context.linkColumnId}
+        groupItems={detail?.context.groupItems}
+        userRole={userRole}
+        currentUserId={currentUserId}
+        open={detail !== null}
+        onOpenChange={(open) => !open && setDetail(null)}
+        initialTab={detail?.tab ?? "updates"}
+        highlightField={detail?.field ?? null}
+      />
     </div>
   );
 }

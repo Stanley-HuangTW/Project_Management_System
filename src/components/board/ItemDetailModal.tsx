@@ -49,6 +49,7 @@ export function ItemDetailModal({
   open,
   onOpenChange,
   initialTab = "updates",
+  highlightField,
 }: {
   boardId: string;
   item: ItemData | null;
@@ -79,6 +80,8 @@ export function ItemDetailModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialTab?: TabId;
+  /** 項目卡片要標出來的欄位名稱(「更新記錄」點進來時)。 */
+  highlightField?: string | null;
 }) {
   const [tab, setTab] = useState<TabId>(initialTab);
   // Reset to initialTab each time the modal transitions open, without
@@ -152,6 +155,7 @@ export function ItemDetailModal({
           manualScheduleHint={manualScheduleHint}
           userRole={userRole}
           currentUserId={currentUserId}
+          highlightField={highlightField}
         />
       )}
       {tab === "checklist" && <ChecklistTab boardId={boardId} itemId={item.id} />}
