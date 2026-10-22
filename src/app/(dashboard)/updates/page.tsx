@@ -20,7 +20,7 @@ export default async function UpdatesPage() {
       <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         工作項的更新與變化,以及風險、問題的新增、指派、變更,新的在前。預設只看「與我有關」的:我做的、指派給我的工作項、我負責或審核的風險與問題;
         按「全部」可以看整個看板上所有人發生的事。跟通知不同的是,通知只在「被指派、被提到」那一刻提醒你。
-        點一筆跳到那個工作項(留言跳「更新」分頁,狀態與欄位修改跳「項目卡片」),風險與問題跳到那個看板的風險分頁。
+        點一筆就地跳出那個工作項的詳細資訊(留言跳「更新」分頁,狀態與欄位修改跳「項目卡片」並標出改到的欄位),風險與問題跳到那個看板的風險分頁。
       </p>
       <UpdateFeed rows={rows} users={users} currentUserId={session.userId} userRole={session.role} />
     </div>

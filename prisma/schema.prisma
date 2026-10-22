@@ -156,6 +156,8 @@ model User {
   reserveDraws            ReserveDraw[]            @relation("ReserveDrawDecider")
   gateDecisions           Gate[]                   @relation("GateDecidedBy")
   reportRecipientFor      ProgramReportRecipient[]
+  chatMemberships         ChatMember[]
+  chatMessages            ChatMessage[]
 }
 
 // A non-login entity (tool, equipment, external vendor/supplier) that can be
@@ -281,6 +283,7 @@ model Board {
   activityTimeEntries ActivityTimeEntry[]
   timeTemplates       TimeTemplate[]
   mantisConnection    MantisConnection?
+  chatConversation    ChatConversation?
 }
 
 model BoardMember {
@@ -627,6 +630,8 @@ enum NotificationType {
   DELETED
   /// 待辦事項的期限提醒(到期前一天、當天、逾期)。
   DEADLINE
+  /// 對話:被 @ 提到、收到私訊或群組新訊息。
+  CHAT
 }
 
 model AutomationRule {
@@ -665,6 +670,9 @@ model Notification {
   /// 風險/問題(含 Mantis 同步來的)被指派為負責人或審核人的通知。
   riskId    String?
   risk      RiskEntry?       @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  /// 對話的通知(被 @ 提到、收到私訊)沒有工作項也沒有風險,指到那個對話。
+  conversationId String?
+  conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   message   String
   read      Boolean          @default(false)
   createdAt DateTime         @default(now())
@@ -672,6 +680,7 @@ model Notification {
   @@index([userId])
   @@index([itemId])
   @@index([riskId])
+  @@index([conversationId])
 }
 
 /// 一個人對某一種通知類型的偏好——站內要不要收、email 要不要寄。沒有這筆
@@ -1028,7 +1037,7 @@ model SystemSettings {
   emailNotificationsEnabled Boolean            @default(false)
   /// 這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼選,
   /// 那個類型的通知(站內與 email)都不會產生。
-  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE])
+  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE, CHAT])
   levelColors               String[]           @default([])
   ganttDurationMode         GanttDurationMode  @default(BUSINESS)
   ganttOverdueColor         String             @default("#e2445c")
@@ -2138,4 +2147,83 @@ model OAuthToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+enum ChatKind {
+  /// 看板頻道:每個看板一間,看得到看板的人都能進來聊。
+  BOARD
+  /// 兩個人的私訊。
+  DM
+  /// 自己挑成員建的聊天室。
+  GROUP
+}
+
+model ChatConversation {
+  id            String   @id @default(cuid())
+  kind          ChatKind
+  /// BOARD 才有:每個看板最多一間頻道。
+  boardId       String?  @unique
+  board         Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// DM 才有:兩個人的 id 排序後用「:」接起來,同一對人只會有一間私訊。
+  dmKey         String?  @unique
+  /// GROUP 才有:聊天室名稱。
+  title         String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  /// 最後一則訊息的時間——對話清單依它排序。
+  lastMessageAt DateTime @default(now())
+
+  members       ChatMember[]
+  messages      ChatMessage[]
+  notifications Notification[]
+
+  @@index([kind])
+  @@index([lastMessageAt])
+}
+
+/// 誰在這間對話裡,以及讀到哪裡。BOARD 頻道的成員資格看看板權限、不看這張表;
+/// 這裡的列只用來記每個人的已讀時間(第一次打開、或有人發言時才建)。
+model ChatMember {
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 讀到哪一則(那一則的時間):未讀 = 比它晚、而且不是自己發的訊息。
+  lastReadAt     DateTime         @default(now())
+  joinedAt       DateTime         @default(now())
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body           String
+  createdAt      DateTime         @default(now())
+  /// 收回:訊息還留著(別人的回覆、已讀時間都對得上),內容不再顯示。
+  deletedAt      DateTime?
+
+  @@index([conversationId, createdAt])
+  @@index([authorId])
+}
+
+/// 即時推送的收件匣:每個 worker 行程定時讀新的列、推給自己手上連線的人。
+/// 用資料庫當匯流排,是因為 server.js 是多行程(cluster),一個行程收到的
+/// 訊息要讓所有行程上的連線都看得到;斷線重連時瀏覽器帶 Last-Event-ID 回來,
+/// 就能從這張表補發漏掉的。舊的列會被清掉,只留最近一天。
+model ChatEvent {
+  id             Int      @id @default(autoincrement())
+  /// message(新訊息)/ read(已讀)/ deleted(收回)/ conversation(對話清單有變:被加進群組……)。
+  type           String
+  conversationId String
+  /// message、deleted:發訊息的人;read:讀的人;conversation:要通知的那個人。
+  userId         String?
+  messageId      String?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
 }

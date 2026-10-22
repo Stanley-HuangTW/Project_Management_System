@@ -10,6 +10,7 @@ export const ALL_NOTIFICATION_TYPES: NotificationType[] = [
   "CREATED",
   "DELETED",
   "DEADLINE",
+  "CHAT",
 ];
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
@@ -20,6 +21,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   CREATED: "新增項目",
   DELETED: "刪除項目",
   DEADLINE: "待辦事項期限提醒",
+  CHAT: "對話(被提到、私訊與群組新訊息)",
 };
 
 /**
@@ -39,4 +41,6 @@ export const DEFAULT_NOTIFICATION_PREFERENCE: Record<
   DELETED: { inApp: true, email: false },
   // 期限提醒是要人去做事的,email 預設也寄(個人與管理者都可以關)。
   DEADLINE: { inApp: true, email: true },
+  // 被 @ 到、收到私訊,是有人在等你回的;同一段未讀只通知第一次,不會一則一封。
+  CHAT: { inApp: true, email: true },
 };

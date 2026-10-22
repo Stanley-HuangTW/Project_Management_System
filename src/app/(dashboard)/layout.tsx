@@ -8,6 +8,8 @@ import { applyStoredOrder } from "@/lib/sidebarOrder";
 import { BoardAdminActionsProvider } from "@/components/board/BoardAdminActions";
 import { DialogProvider } from "@/components/ui/DialogProvider";
 import { ImpersonationBanner } from "@/components/sidebar/ImpersonationBanner";
+import { ChatProvider } from "@/components/chat/ChatProvider";
+import { getUnreadTotal } from "@/lib/chatServer";
 
 export default async function DashboardLayout({
   children,
@@ -35,6 +37,9 @@ export default async function DashboardLayout({
     select: { id: true, name: true },
   });
   const isApprover = await hasApprovalRole();
+  // 代操作時不開對話(發言會變成被代操作的人說的)。
+  const chatEnabled = !session.impersonatorId;
+  const chatUnread = chatEnabled ? await getUnreadTotal(session) : 0;
   const programs = applyStoredOrder(programRows, currentUser?.programOrder ?? []).map((program) => ({
     ...program,
     boardCount: boards.filter((b) => b.programId === program.id).length,
@@ -42,6 +47,7 @@ export default async function DashboardLayout({
 
   return (
     <DialogProvider>
+    <ChatProvider enabled={chatEnabled} initialUnread={chatUnread}>
     <BoardAdminActionsProvider>
       <div className="flex h-screen w-full flex-col">
       {session.impersonatorId && (
@@ -63,6 +69,7 @@ export default async function DashboardLayout({
       </div>
       </div>
     </BoardAdminActionsProvider>
+    </ChatProvider>
     </DialogProvider>
   );
 }

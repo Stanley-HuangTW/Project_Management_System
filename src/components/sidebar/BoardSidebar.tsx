@@ -26,6 +26,7 @@ import {
   ScrollText,
   FileText,
   History,
+  MessageCircle,
   Clock,
   DatabaseBackup,
   Network,
@@ -39,6 +40,7 @@ import { SearchBox } from "@/components/search/SearchBox";
 import { Avatar } from "@/components/ui/Avatar";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { useChat } from "@/components/chat/ChatProvider";
 import { useBoardAdminActions, type BoardAdminAction } from "@/components/board/BoardAdminActions";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { ProfileModal } from "./ProfileModal";
@@ -93,6 +95,7 @@ export function BoardSidebar({
   /** 管理者正以別人的身分檢視(userName / userRole 是被檢視的人)。 */
   impersonating?: boolean;
 }) {
+  const { unread: chatUnread } = useChat();
   const canManage = canManageBoard(userRole);
   /** 重新命名/刪除:ADMIN 一律可以;SUPERVISOR 限自己建立的看板。 */
   function canManageThisBoard(board: Board): boolean {
@@ -418,6 +421,25 @@ export function BoardSidebar({
         >
           <History size={14} className="shrink-0" />
           更新記錄
+        </Link>
+        <Link
+          href="/chat"
+          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+            pathname === "/chat"
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <MessageCircle size={14} className="shrink-0" />
+          對話
+          {chatUnread > 0 && (
+            <span
+              data-chat-unread
+              className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-medium text-white"
+            >
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </span>
+          )}
         </Link>
         <Link
           href="/timesheet"

@@ -70,6 +70,11 @@ export function NotificationBell() {
       setUnreadCount((c) => Math.max(0, c - 1));
     }
     setOpen(false);
+    // 對話的通知:去那間對話(沒有看板、工作項可跳)。
+    if (n.conversationId) {
+      router.push(`/chat?c=${n.conversationId}`);
+      return;
+    }
     // highlightAt changes on every click, even re-clicking the same
     // notification twice — the board page's "open the item card" logic keys
     // off it rather than just the item id, since the id alone is identical
@@ -169,6 +174,7 @@ export function NotificationBell() {
                   </span>
                 </span>
 
+                {n.title && (
                 <span className="truncate font-medium text-neutral-900 dark:text-neutral-100">
                   {n.wbsCode && (
                     <span className="mr-1.5 font-normal text-neutral-400 dark:text-neutral-500 tabular-nums">
@@ -182,6 +188,7 @@ export function NotificationBell() {
                     </span>
                   )}
                 </span>
+                )}
 
                 <span className="text-xs text-neutral-600 dark:text-neutral-300">{n.message}</span>
 

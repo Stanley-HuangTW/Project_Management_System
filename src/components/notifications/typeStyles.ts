@@ -7,4 +7,5 @@ export const NOTIFICATION_TYPE_STYLES: Record<string, { label: string; className
   COMMENTED: { label: "留言", className: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300" },
   AUTOMATION: { label: "自動化", className: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300" },
   DEADLINE: { label: "期限", className: "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300" },
+  CHAT: { label: "對話", className: "bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300" },
 };
