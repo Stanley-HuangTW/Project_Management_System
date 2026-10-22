@@ -83,6 +83,8 @@ model User {
   /// 這個人自己排的側邊欄順序(看板 id、專案群組 id,由上到下)。沒在清單裡的(例如新建的)接在最後,照建立時間。
   boardOrder   String[] @default([])
   programOrder String[] @default([])
+  /// 這個人自己排的儀表板區塊順序(區塊 id,由上到下)。沒在清單裡的區塊接在最後、照預設順序。
+  dashboardOrder String[] @default([])
 
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?

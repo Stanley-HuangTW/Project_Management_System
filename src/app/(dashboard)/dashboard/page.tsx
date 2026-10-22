@@ -6,6 +6,9 @@ import { boardWithDataArgs } from "@/types/board";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { DueListsSection } from "@/components/dashboard/DueListsSection";
 import { TodoDeadlinesSection } from "@/components/dashboard/TodoDeadlinesSection";
+import { OrderedSections } from "@/components/dashboard/OrderedSections";
+import { DashboardOrderButton } from "@/components/dashboard/DashboardOrderButton";
+import { DASHBOARD_SECTIONS, orderDashboardSections } from "@/lib/dashboardSections";
 import { taipeiClock, todoDeadlineEntries } from "@/lib/todoDeadline";
 import { subordinateIds } from "@/lib/orgChart";
 import { canManageStructure } from "@/lib/permissions";
@@ -221,29 +224,49 @@ export default async function DashboardPage({
     };
   }
 
+  // 區塊的先後順序是每個人自己排的(存在帳號上);沒排過的照預設。只列這個人真的看得到的區塊。
+  const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { dashboardOrder: true } });
+  const dashboardOrder = me?.dashboardOrder ?? [];
+  const defaultSections = DASHBOARD_SECTIONS.filter(
+    (section) =>
+      (section.id !== "teamItems" || isSupervisor) && (section.id !== "myResourceItems" || myResourceIds.length > 0)
+  ).map((section) => ({ id: section.id as string, label: section.label as string }));
+  const orderedSectionRows = orderDashboardSections(defaultSections, dashboardOrder);
+
   return (
     <div className="mx-auto max-w-5xl space-y-8 p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">儀表板</h1>
-        <DashboardBoardFilter
-          key={filterBoardIds.join(",")}
-          boards={allBoards.map((b) => ({ id: b.id, name: b.name }))}
-          selectedIds={filterBoardIds}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <DashboardOrderButton
+            sections={orderedSectionRows}
+            defaultSections={defaultSections}
+            readOnlyReason={session.impersonatorId ? "你正在代操作別人的帳號,不能改對方的儀表板順序。" : undefined}
+          />
+          <DashboardBoardFilter
+            key={filterBoardIds.join(",")}
+            boards={allBoards.map((b) => ({ id: b.id, name: b.name }))}
+            selectedIds={filterBoardIds}
+          />
+        </div>
       </div>
+
+      <OrderedSections order={dashboardOrder}>
 
       {/* Above the workload cards on purpose: money that has already been
           committed is the one thing on this page nobody can undo later. */}
-      <BudgetAlertCard alerts={await budgetAlerts(session)} />
+      <BudgetAlertCard key="budgetAlerts" alerts={await budgetAlerts(session)} />
 
       {/* 風險、問題(含 Mantis 同步來的)還沒結案的,讓使用者一眼看到還有哪些事沒做完。 */}
       <OpenRisksCard
+        key="openRisks"
         rows={await loadOpenRiskRows(boards)}
         relatedUserIds={isSupervisor ? [session.userId, ...teamMembers.map((m) => m.id)] : [session.userId]}
         defaultAll={isAdmin}
       />
 
       <TeamWorkloadCard
+        key="teamWorkload"
         title={isSupervisor ? "我的團隊工作量總覽" : isAdmin ? "團隊工作量總覽" : "我的工作量總覽"}
         day={teamWorkloadDay}
         week={teamWorkloadWeek}
@@ -252,6 +275,7 @@ export default async function DashboardPage({
       />
 
       <OverAllocationCard
+        key="overAllocation"
         users={workloadScope.map((u) => ({ id: u.id, name: u.name }))}
         tasksByUser={tasksByUser}
         floatByItemId={floatByItemId}
@@ -262,6 +286,7 @@ export default async function DashboardPage({
       />
 
       <WorkloadDetailSection
+        key="workloadDetail"
         users={workloadScope.map((u) => ({ id: u.id, name: u.name }))}
         tasksByUser={tasksByUser}
         weeks={weekColumns}
@@ -274,7 +299,7 @@ export default async function DashboardPage({
         userRole={session.role}
       />
 
-      <section>
+      <section key="boardProgress">
         <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">看板進度總覽</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           {boardProgress.map((b) => (
@@ -319,6 +344,7 @@ export default async function DashboardPage({
       </section>
 
       <DueListsSection
+        key="dueLists"
         overdue={overdue}
         completedThisWeek={completedThisWeek}
         upcoming7={upcoming7}
@@ -329,6 +355,7 @@ export default async function DashboardPage({
       />
 
       <TodoDeadlinesSection
+        key="todoDeadlines"
         entries={todoDeadlines}
         today={taipeiClock(new Date()).date}
         allUsers={users}
@@ -337,7 +364,7 @@ export default async function DashboardPage({
       />
 
       {isSupervisor && (
-        <section>
+        <section key="teamItems">
           <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">
             團隊項目({teamItems.length})
           </h2>
@@ -353,7 +380,7 @@ export default async function DashboardPage({
         </section>
       )}
 
-      <section>
+      <section key="myItems">
         <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">
           我的項目({personalItems.length})
         </h2>
@@ -369,7 +396,7 @@ export default async function DashboardPage({
       </section>
 
       {myResourceIds.length > 0 && (
-        <section>
+        <section key="myResourceItems">
           <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">
             我的團隊項目({myResourceItems.length})
           </h2>
@@ -384,6 +411,7 @@ export default async function DashboardPage({
           />
         </section>
       )}
+      </OrderedSections>
     </div>
   );
 }
