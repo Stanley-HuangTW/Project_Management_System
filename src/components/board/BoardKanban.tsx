@@ -158,7 +158,7 @@ export function BoardKanban({
   users,
   userRole,
   currentUserId,
-  teamPrincipalIds = [],
+  deputyTeam = [],
   holidays,
   completedAtByItem,
 }: {
@@ -169,8 +169,8 @@ export function BoardKanban({
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
-  /** 副主管可以代簽的主管(「我的團隊」加上他們的下轄)。 */
-  teamPrincipalIds?: string[];
+  /** 副主管負責的部門的人(「我的團隊」加上他們)。 */
+  deputyTeam?: string[];
   holidays: Holiday[];
   /** 工作項實際切成完成的時間(ISO),「本週完成」那一欄以它為準。 */
   completedAtByItem?: Record<string, string>;
@@ -196,9 +196,9 @@ export function BoardKanban({
   // 自己負責的項目反而看不到。跟報表分頁、儀表板的範圍一致。
   // 副主管(可代主管簽核的人)也有團隊:他代簽的主管的下轄加上自己。
   const teamIds = useMemo(() => {
-    const team = teamViewIds(users, currentUserId, { isSupervisor, principals: teamPrincipalIds });
+    const team = teamViewIds(users, currentUserId, { isSupervisor, deputyTeam });
     return team ? [...team] : null;
-  }, [isSupervisor, users, currentUserId, teamPrincipalIds]);
+  }, [isSupervisor, users, currentUserId, deputyTeam]);
   const [scope, setScope] = useState<"team" | "all">(teamIds ? "team" : "all");
   // Members only ever see their own items — there's no "all" toggle for them,
   // unlike supervisors who can widen to the whole board. A deputy member sees their team's items.

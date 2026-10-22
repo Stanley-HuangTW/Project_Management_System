@@ -1,4 +1,4 @@
-import { loadDelegations } from "@/lib/approvalLevelsServer";
+import { deputyTeamIdsOf } from "@/lib/orgChartServer";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
@@ -87,7 +87,7 @@ export default async function BoardPage({
       hasMantis={hasMantis}
       eventSummaries={eventSummaries}
       protoUnits={protoUnits}
-      teamPrincipalIds={(await loadDelegations()).get(session.userId) ?? []}
+      deputyTeam={await deputyTeamIdsOf(session.userId)}
       ownerDefaultPct={(await getSystemSettings()).ownerDefaultAllocationPct}
     />
   );

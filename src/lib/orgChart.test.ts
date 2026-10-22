@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { subordinateIds, teamIds, teamViewIds, wouldCreateCycle, orgDepth } from "./orgChart";
+import { deputyTeamIds, subordinateIds, teamIds, teamViewIds, wouldCreateCycle, orgDepth } from "./orgChart";
 
 // Stanley(管理者) → Henry(主管) → Wenwei(團隊成員),外加一個不相干的分支。
 const org = [
@@ -42,30 +42,78 @@ describe("teamIds", () => {
   });
 });
 
+// 研發處(Thomas)底下:新技術研發部(SY)、專案室(Thomas 兼任主管,底下還有試作課)、專案管理部(Charles)
+const units = [
+  { id: "rd", parentId: null, headId: "thomas" },
+  { id: "nt", parentId: "rd", headId: "sy" },
+  { id: "pr", parentId: "rd", headId: "thomas" },
+  { id: "pm", parentId: "rd", headId: "charles" },
+  { id: "lab", parentId: "pr", headId: "sam" },
+];
+const members = [
+  { id: "thomas", orgNodeId: "rd" },
+  { id: "rdA", orgNodeId: "rd" },
+  { id: "sy", orgNodeId: "nt" },
+  { id: "jaja", orgNodeId: "nt" },
+  { id: "tony", orgNodeId: "pr" },
+  { id: "schumi", orgNodeId: "pr" },
+  { id: "thomas-also", orgNodeId: "pr" },
+  { id: "charles", orgNodeId: "pm" },
+  { id: "pm1", orgNodeId: "pm" },
+  { id: "sam", orgNodeId: "lab" },
+  { id: "s1", orgNodeId: "lab" },
+  { id: "nobody", orgNodeId: null },
+];
+
+describe("deputyTeamIds", () => {
+  it("副主管只看他那個部門(加底下子部門)的人,不是那位主管整條下轄(主管同時是更大部門的主管)", () => {
+    // SY 是專案室的副主管:專案室成員 + 試作課的主管與成員;看不到研發處別的部門(新技術研發部、專案管理部)的人
+    expect(deputyTeamIds(units, members, ["pr"])).toEqual(new Set(["tony", "schumi", "thomas-also", "sam", "s1"]));
+  });
+
+  it("不含部門自己的主管(就算他兼任、也被列在成員裡)", () => {
+    const withHead = [...members, { id: "thomas", orgNodeId: "pr" }];
+    expect(deputyTeamIds(units, withHead, ["pr"]).has("thomas")).toBe(false);
+  });
+
+  it("葉子部門:只有那個部門的成員", () => {
+    expect(deputyTeamIds(units, members, ["pm"])).toEqual(new Set(["pm1"]));
+  });
+
+  it("副主管好幾個部門:名單合起來", () => {
+    expect(deputyTeamIds(units, members, ["pm", "lab"])).toEqual(new Set(["pm1", "s1"]));
+  });
+
+  it("沒有部門、找不到的部門:空的;沒掛部門的人不會被算進來", () => {
+    expect(deputyTeamIds(units, members, [])).toEqual(new Set());
+    expect(deputyTeamIds(units, members, ["不存在"])).toEqual(new Set());
+    expect(deputyTeamIds(units, members, ["rd"]).has("nobody")).toBe(false);
+  });
+
+  it("部門資料有環也停得下來", () => {
+    const loop = [
+      { id: "a", parentId: "b", headId: "ha" },
+      { id: "b", parentId: "a", headId: "hb" },
+    ];
+    expect(deputyTeamIds(loop, [{ id: "m", orgNodeId: "b" }], ["a"])).toEqual(new Set(["hb", "m"]));
+  });
+});
+
 describe("teamViewIds", () => {
   it("主管:自己加下轄(跟 teamIds 一樣)", () => {
-    expect(teamViewIds(org, "henry", { isSupervisor: true, principals: [] })).toEqual(teamIds(org, "henry"));
+    expect(teamViewIds(org, "henry", { isSupervisor: true, deputyTeam: [] })).toEqual(teamIds(org, "henry"));
   });
 
-  it("副主管:他代簽的主管的下轄加自己,不含那位主管本人", () => {
-    // wenwei 是副主管、代 henry 簽核:看得到 henry 底下的人(含自己),看不到 henry
-    expect(teamViewIds(org, "wenwei", { isSupervisor: false, principals: ["henry"] })).toEqual(new Set(["wenwei", "warren"]));
+  it("副主管:自己加他負責部門的人", () => {
+    expect(teamViewIds(org, "wenwei", { isSupervisor: false, deputyTeam: ["warren"] })).toEqual(new Set(["wenwei", "warren"]));
   });
 
-  it("副主管不一定在那位主管的下轄裡(跨部門代簽):自己仍然算進去", () => {
-    expect(teamViewIds(org, "janet", { isSupervisor: false, principals: ["henry"] })).toEqual(new Set(["janet", "wenwei", "warren"]));
+  it("又是主管、又是副主管:兩邊合起來(SY:新技術研發部的主管、專案室的副主管)", () => {
+    expect(teamViewIds(org, "henry", { isSupervisor: true, deputyTeam: ["janet"] })).toEqual(new Set(["henry", "wenwei", "warren", "janet"]));
   });
 
-  it("可以代好幾位主管,名單合起來", () => {
-    expect(teamViewIds(org, "wenwei", { isSupervisor: false, principals: ["henry", "jason"] })).toEqual(new Set(["wenwei", "warren", "janet"]));
-  });
-
-  it("又是主管、又是副主管:兩邊合起來", () => {
-    expect(teamViewIds(org, "jason", { isSupervisor: true, principals: ["henry"] })).toEqual(new Set(["jason", "janet", "wenwei", "warren"]));
-  });
-
-  it("不是主管也沒代簽誰:沒有團隊可看(null)", () => {
-    expect(teamViewIds(org, "wenwei", { isSupervisor: false, principals: [] })).toBeNull();
+  it("不是主管、也不是任何部門的副主管:沒有團隊可看(null)", () => {
+    expect(teamViewIds(org, "wenwei", { isSupervisor: false, deputyTeam: [] })).toBeNull();
   });
 });
 

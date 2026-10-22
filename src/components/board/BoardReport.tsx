@@ -165,21 +165,21 @@ export function BoardReport({
   users,
   userRole,
   currentUserId,
-  teamPrincipalIds = [],
+  deputyTeam = [],
   holidays,
 }: {
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
-  /** 副主管可以代簽的主管(「我的團隊」加上他們的下轄)。 */
-  teamPrincipalIds?: string[];
+  /** 副主管負責的部門的人(「我的團隊」加上他們)。 */
+  deputyTeam?: string[];
   holidays: Holiday[];
 }) {
   const router = useRouter();
   const isSupervisor = userRole === "SUPERVISOR";
   // 副主管(可代主管簽核的人)也有團隊可看。
-  const team = teamViewIds(users, currentUserId, { isSupervisor, principals: teamPrincipalIds });
+  const team = teamViewIds(users, currentUserId, { isSupervisor, deputyTeam });
   const teamIds = team ? [...team] : null;
   const [scope, setScope] = useState<"team" | "all">(team ? "team" : "all");
   const effectiveTeamIds = scope === "team" ? teamIds : null;

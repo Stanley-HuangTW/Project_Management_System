@@ -49,14 +49,14 @@ export function BoardView({
   hasMantis,
   eventSummaries,
   protoUnits,
-  teamPrincipalIds = [],
+  deputyTeam = [],
 }: {
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
-  /** 這個人(副主管)可以代簽的主管——「我的團隊」除了自己的下轄,還要加上他們的。 */
-  teamPrincipalIds?: string[];
+  /** 這個人(副主管)負責的部門的人——「我的團隊」除了自己的下轄,還要加上他們。 */
+  deputyTeam?: string[];
   highlightItemId?: string | null;
   /** 隨每次點擊都不同的值(時間戳記)——同一個項目被連點兩次,highlightItemId
    *  本身不會變,得靠這個才分得出「又點了一次」跟「沒事」。 */
@@ -317,7 +317,7 @@ export function BoardView({
             users={users}
             userRole={userRole}
             currentUserId={currentUserId}
-            teamPrincipalIds={teamPrincipalIds}
+            deputyTeam={deputyTeam}
             holidays={holidays}
             completedAtByItem={completedAtByItem}
           />
@@ -356,7 +356,7 @@ export function BoardView({
             users={users}
             userRole={userRole}
             currentUserId={currentUserId}
-            teamPrincipalIds={teamPrincipalIds}
+            deputyTeam={deputyTeam}
             holidays={holidays}
           />
         )}
