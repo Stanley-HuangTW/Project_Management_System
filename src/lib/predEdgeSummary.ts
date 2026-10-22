@@ -40,6 +40,19 @@ export function summarizePredEdges(
   return summaries;
 }
 
+const RELATIONSHIP_LABELS: readonly string[] = ["FS", "SS", "FF", "SF"];
+
+/**
+ * 新選一個前置時,這條依賴的關聯類型該是什麼:
+ *  - 這個項目的 Link 欄已經填了關係(FS / SS / FF / SF)→ null,也就是「預設」,沿用 Link 欄——
+ *    使用者已經挑過了,新前置不該偷偷蓋過它;
+ *  - Link 欄空白(或不是四種關係)→ "FS"(最常見的關係),而且寫明在這條依賴上,
+ *    不然 Link 空白就排不出日期。
+ */
+export function defaultNewPredRelationship(linkLabel: string | null | undefined): RelationshipType | null {
+  return linkLabel && RELATIONSHIP_LABELS.includes(linkLabel) ? null : "FS";
+}
+
 /** "SS-2" / "FS" / "+3" / "" — what this edge overrides, in the notation the
  *  cell actually stores. */
 export function formatEdgeSuffix(edge: Pick<PredEdgeSummary, "relationship" | "lag">): string {

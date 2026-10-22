@@ -3,6 +3,9 @@
 import { useMemo } from "react";
 import { computeWbsCodes } from "@/lib/wbs";
 import { useRecordedCellSave } from "./useCellSave";
+import { useEditHistory } from "../EditHistoryProvider";
+import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
+import { getStatusOptions } from "@/types/column";
 import { PredPicker } from "./PredPicker";
 import type { ItemData, PredOption } from "@/types/board";
 
@@ -62,6 +65,14 @@ export function PredCell({
   }, [currentItem, codes, itemId]);
   const parentCode = currentItem?.parentId ? codes.get(currentItem.parentId) : undefined;
   const save = useRecordedCellSave();
+  const history = useEditHistory();
+  // 選的當下才讀這個項目的 Link 欄(看板最新的資料);不在看板裡(例如儀表板打開的卡片)就當空白 → FS。
+  const getDefaultRelationship = () => {
+    const board = history?.getBoard();
+    const linkColumn = board?.columns.find((c) => c.id === board.linkColumnId);
+    const linkValue = board?.items.find((i) => i.id === itemId)?.cellValues.find((cv) => cv.columnId === linkColumn?.id)?.value;
+    return defaultNewPredRelationship(getStatusOptions(linkColumn?.options).find((o) => o.id === linkValue)?.label);
+  };
 
   return (
     <PredPicker
@@ -69,6 +80,7 @@ export function PredCell({
       value={value}
       options={options}
       current={current}
+      getDefaultRelationship={getDefaultRelationship}
       parentCode={parentCode}
       parentItemId={currentItem?.parentId ?? null}
       onChange={(next) => save({ boardId, itemId, columnId, before: value, after: next })}

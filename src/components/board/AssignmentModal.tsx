@@ -17,6 +17,7 @@ import { PredPicker } from "./cell-editors/PredPicker";
 import { PredLampDot } from "./PredLampDot";
 import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
+import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
 import { computeWbsCodes } from "@/lib/wbs";
 
 export function AssignmentModal({
@@ -298,6 +299,11 @@ export function AssignmentModal({
                       value={typeof displayValue === "string" ? displayValue : null}
                       options={predOptions}
                       current={currentPredOption}
+                      getDefaultRelationship={() => {
+                        const linkValue = item.cellValues.find((cv) => cv.columnId === linkColumnId)?.value;
+                        const linkColumn = columns?.find((c) => c.id === linkColumnId);
+                        return defaultNewPredRelationship(getStatusOptions(linkColumn?.options).find((o) => o.id === linkValue)?.label);
+                      }}
                       parentCode={parentCode}
                       parentItemId={item.parentId ?? null}
                       disabled={fieldDisabled}

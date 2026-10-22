@@ -36,6 +36,7 @@ export function PredPicker({
   value,
   options,
   current,
+  getDefaultRelationship,
   parentCode,
   parentItemId,
   disabled = false,
@@ -51,6 +52,9 @@ export function PredPicker({
    *  這裡另外給,清單照樣把它排在樹上原本的位置、標紅框(current task)、不能選,
    *  使用者才看得出「我在清單的哪裡」。 */
   current?: PredOption;
+  /** 新選一個前置時,這條依賴的關聯類型:null = 沿用這個項目的 Link 欄(已經填了),
+   *  否則是關係型別。每次選的當下才問(不是畫面重畫時),所以讀得到最新的 Link 欄。沒給就是 FS。 */
+  getDefaultRelationship?: () => RelationshipType | null;
   /** Opening the list jumps here — the item's own parent is the most likely
    *  predecessor — without selecting it. */
   parentCode?: string;
@@ -227,8 +231,9 @@ export function PredPicker({
       return;
     }
     const option = allOptions.find((o) => o.id === id);
-    // 新加的前置預設 FS(最常見的關係)。選了「預設」才是沿用此項目的 Link 欄位。
-    if (option) commit([...selected, { ...option, relationship: "FS", lag: null }]);
+    // 新加的前置:Link 欄已經填了關係就沿用它(預設),空白才預設 FS 並寫在這條依賴上。
+    const relationship = getDefaultRelationship ? getDefaultRelationship() : "FS";
+    if (option) commit([...selected, { ...option, relationship, lag: null }]);
   }
 
   /** Changes one edge without touching the others. */

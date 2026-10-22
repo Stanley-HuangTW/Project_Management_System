@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizePredEdges, formatEdgeSuffix, describeEdgeOverrides } from "./predEdgeSummary";
+import { summarizePredEdges, formatEdgeSuffix, describeEdgeOverrides, defaultNewPredRelationship } from "./predEdgeSummary";
 
 const options = [
   { id: "a1", code: "1.1", name: "底盤機構設計" },
@@ -40,6 +40,19 @@ describe("formatEdgeSuffix", () => {
     expect(formatEdgeSuffix({ relationship: "FS", lag: null })).toBe("FS");
     expect(formatEdgeSuffix({ relationship: null, lag: 3 })).toBe("+3");
     expect(formatEdgeSuffix({ relationship: null, lag: null })).toBe("");
+  });
+});
+
+describe("defaultNewPredRelationship", () => {
+  it("follows the Link column when it already says something", () => {
+    for (const label of ["FS", "SS", "FF", "SF"]) expect(defaultNewPredRelationship(label)).toBeNull();
+  });
+
+  it("is FS, written on the edge, when the Link column is empty or not a relationship", () => {
+    expect(defaultNewPredRelationship(undefined)).toBe("FS");
+    expect(defaultNewPredRelationship(null)).toBe("FS");
+    expect(defaultNewPredRelationship("")).toBe("FS");
+    expect(defaultNewPredRelationship("Blocked")).toBe("FS");
   });
 });
 
