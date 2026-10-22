@@ -78,6 +78,7 @@ export function BoardSidebar({
   boards,
   programs,
   isApprover,
+  projectDashboards = [],
   userName,
   userRole,
   currentUserId,
@@ -89,6 +90,8 @@ export function BoardSidebar({
   /** Whether anybody reports to this person (or they are an ADMIN) — the
    *  審核 link is pointless otherwise. */
   isApprover: boolean;
+  /** 這個人有專案角色的看板:儀表板底下每個一個「看板名稱-儀表板」子項。 */
+  projectDashboards?: { id: string; name: string }[];
   userName: string;
   userRole: UserRole;
   currentUserId: string;
@@ -115,6 +118,8 @@ export function BoardSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [settingsOpen, setSettingsOpen] = useState(true);
+  const [dashboardOpen, setDashboardOpen] = useState(true);
+  const inDashboardGroup = pathname === "/dashboard" || pathname.startsWith("/dashboard/project/");
   /** 使用者管理、組織架構圖是系統設定的子項目。 */
   const inSettingsGroup = pathname === "/settings" || pathname === "/users" || pathname === "/org-chart";
   const [isPending, startTransition] = useTransition();
@@ -325,17 +330,66 @@ export function BoardSidebar({
       )}
 
       <nav className="flex-1 space-y-0.5 overflow-auto px-2" onClick={() => setMobileOpen(false)}>
-        <Link
-          href="/dashboard"
-          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-            pathname === "/dashboard"
-              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          }`}
-        >
-          <LayoutDashboard size={14} className="shrink-0" />
-          儀表板
-        </Link>
+        {projectDashboards.length === 0 ? (
+          <Link
+            href="/dashboard"
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+              pathname === "/dashboard"
+                ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <LayoutDashboard size={14} className="shrink-0" />
+            儀表板
+          </Link>
+        ) : (
+          <div data-nav-group="dashboard">
+            <div className="flex items-center">
+              <span className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm text-neutral-700 dark:text-neutral-100">
+                <LayoutDashboard size={14} className="shrink-0" />
+                儀表板
+              </span>
+              <button
+                type="button"
+                onClick={() => setDashboardOpen((open) => !open)}
+                aria-label={dashboardOpen || inDashboardGroup ? "收合儀表板的子項目" : "展開儀表板的子項目"}
+                aria-expanded={dashboardOpen || inDashboardGroup}
+                className="shrink-0 rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+              >
+                {dashboardOpen || inDashboardGroup ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              </button>
+            </div>
+            {(dashboardOpen || inDashboardGroup) && (
+              <div className="ml-3 space-y-0.5 border-l border-neutral-200 pl-1.5 dark:border-neutral-700">
+                <Link
+                  href="/dashboard"
+                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                    pathname === "/dashboard"
+                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                      : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  我的儀表板
+                </Link>
+                {projectDashboards.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/dashboard/project/${p.id}`}
+                    title={`${p.name}-儀表板`}
+                    data-project-dashboard={p.id}
+                    className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                      pathname === `/dashboard/project/${p.id}`
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                        : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                    }`}
+                  >
+                    <span className="truncate">{p.name}-儀表板</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div data-nav-group="settings">
           <div className="flex items-center">
             <Link

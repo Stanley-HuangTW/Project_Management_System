@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardWithData } from "@/types/board";
 import { computeLeaderOverview } from "./leaderOverview";
+import type { ProjectScope } from "./projectRoles";
 
 /** 專案負責人總覽:只造這支函式用得到的欄位。 */
 const START = "c_start";
@@ -122,6 +123,45 @@ describe("computeLeaderOverview", () => {
   it("人員被刪掉、名稱查不到:不會壞掉,寫(已刪除的使用者)", () => {
     const o = computeLeaderOverview([board([item("Z", "2026-10-05", 3, "plan", ["ghost"])])], nameOf, new Set(), {})[0];
     expect(o.people[0].name).toBe("(已刪除的使用者)");
+  });
+
+  describe("依角色篩範圍", () => {
+    const done = { C: "2026-10-12T01:00:00.000Z", D: "2026-10-02T01:00:00.000Z" };
+    const run = (scope: ProjectScope | null) => computeLeaderOverview([b()], nameOf, new Set(), done, () => scope)[0];
+    const dm = (...ids: string[]): ProjectScope => ({ roles: ["SW_DM"], groups: new Map([["g1", new Set(ids)]]) });
+
+    it("DM:只看自己組員(名單上的人)負責的工作項,別人的、沒人負責的都不算", () => {
+      const o = run(dm("alice"));
+      expect(o.overdue.map((e) => e.itemName)).toEqual(["A"]);
+      expect(o.upcoming7.map((e) => e.itemName)).toEqual(["B", "F"]);
+      expect(o.completedThisWeek).toEqual([]);
+      expect(o.unassignedCount).toBe(0);
+    });
+
+    it("DM:人員清單只列名單上的人;跟外人共同負責的項目仍算,但外人不會出現成一列", () => {
+      const o = run(dm("alice"));
+      expect(o.people.map((p) => p.id)).toEqual(["alice"]);
+      // F 是 alice 與 bob 共同負責:alice 名下有 F,清單上寫出兩個負責人
+      expect(o.people[0].items.map((i) => i.itemName)).toContain("F");
+      expect(o.upcoming7.find((e) => e.itemName === "F")!.assignees).toEqual(["Alice", "Bob"]);
+    });
+
+    it("名單有兩個人:兩個人的項目都算", () => {
+      const o = run(dm("alice", "bob"));
+      expect(o.people.map((p) => p.id).sort()).toEqual(["alice", "bob"]);
+      expect(o.completedThisWeek.map((e) => e.itemName)).toEqual(["C"]);
+    });
+
+    it("整個分組(Team Leader / PMD)跟沒有範圍一樣", () => {
+      const all: ProjectScope = { roles: ["TEAM_LEADER"], groups: new Map([["g1", "all" as const]]) };
+      expect(run(all)).toEqual(run(null));
+    });
+
+    it("在這個分組沒有任何角色:什麼都不算", () => {
+      const o = run({ roles: ["TEAM_LEADER"], groups: new Map([["別的分組", "all" as const]]) });
+      expect(o.overdue).toEqual([]);
+      expect(o.people).toEqual([]);
+    });
   });
 
   it("沒有排程欄位的看板:不會當掉,只是沒有清單", () => {

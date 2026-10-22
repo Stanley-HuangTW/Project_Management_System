@@ -12,7 +12,6 @@ import { applyStoredOrder, sanitizeOrder } from "@/lib/sidebarOrder";
 export const DASHBOARD_SECTIONS = [
   { id: "budgetAlerts", label: "預算警示" },
   { id: "openRisks", label: "未結案的風險與問題" },
-  { id: "projectLeader", label: "專案負責人總覽(Team Leader)" },
   { id: "teamWorkload", label: "工作量總覽" },
   { id: "overAllocation", label: "過度配置" },
   { id: "workloadDetail", label: "成員工作量明細" },
@@ -21,7 +20,7 @@ export const DASHBOARD_SECTIONS = [
   { id: "todoDeadlines", label: "工作項目的待辦事項期限" },
   { id: "teamItems", label: "團隊項目(主管)" },
   { id: "myItems", label: "我的項目" },
-  { id: "myResourceItems", label: "我的團隊項目(你擔任窗口的資源)" },
+  { id: "myResourceItems", label: "我負責窗口的資源的項目" },
 ] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]["id"];

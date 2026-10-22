@@ -3,11 +3,14 @@ import { getPersonIds } from "@/types/column";
 import { getItemDateRange } from "@/lib/gantt";
 import { classifyItemStatus, computeDashboardDueLists, resolveStatusColumn, type DueItemEntry, type ItemStatusKind } from "@/lib/dashboard";
 import { computeWbsCodes } from "@/lib/wbs";
+import { personInScope, type ProjectScope } from "@/lib/projectRoles";
 
 /**
- * 專案負責人(Team Leader)的總覽:一個專案(看板)裡每個人的時程,以及整個專案逾期、本週完成、未來 7 天的工作項。
+ * 專案儀表板:一個專案(看板)裡每個人的時程,以及整個專案逾期、本週完成、未來 7 天的工作項。
  * 全部是純函式、吃儀表板已經載入的看板資料,日期一律輸出成 YYYY-MM-DD 字串(要從伺服器元件送到畫面)。
  * 逾期 / 本週完成 / 未來 7 天的定義跟儀表板的「待辦事項到期清單」同一套(computeDashboardDueLists),不另外算。
+ * 看得到誰:Team Leader / PMD 是整個分組;DM 是自己職能的組員加自己(見 projectRoles.ts)——
+ * 給了 scopeOf 就照它篩,沒給(或回 null)就是整個專案。
  */
 
 export type LeaderEntry = {
@@ -77,11 +80,27 @@ export function computeLeaderOverview(
   /** id → 顯示名稱(使用者與資源都要,PERSON 欄位可能放資源)。 */
   nameOf: ReadonlyMap<string, string>,
   holidays: Set<string>,
-  completedAtByItem: Record<string, string>
+  completedAtByItem: Record<string, string>,
+  scopeOf?: (board: BoardWithData) => ProjectScope | null
 ): LeaderBoardOverview[] {
   return boards.map((board) => {
-    const lists = computeDashboardDueLists([board], undefined, holidays, completedAtByItem);
+    const scope = scopeOf?.(board) ?? null;
+    // 這個工作項算不算「你的」:沒有範圍就全算;有範圍的話,整個分組的算,名單分組要有名單上的人負責。
+    const includeItem = (item: ItemData): boolean => {
+      if (!scope) return true;
+      const groupScope = scope.groups.get(item.groupId);
+      if (groupScope === "all") return true;
+      return groupScope !== undefined && assigneeIdsOf(board, item).some((id) => groupScope.has(id));
+    };
+    const personVisible = (item: ItemData, personId: string): boolean => !scope || personInScope(scope.groups.get(item.groupId), personId);
+
+    const all = computeDashboardDueLists([board], undefined, holidays, completedAtByItem);
     const itemById = new Map(board.items.map((i) => [i.id, i]));
+    const lists = {
+      overdue: all.overdue.filter((e) => includeItem(itemById.get(e.itemId)!)),
+      completedThisWeek: all.completedThisWeek.filter((e) => includeItem(itemById.get(e.itemId)!)),
+      upcoming7: all.upcoming7.filter((e) => includeItem(itemById.get(e.itemId)!)),
+    };
     const names = (itemId: string) => assigneeIdsOf(board, itemById.get(itemId)!).map((id) => nameOf.get(id) ?? "(已刪除的使用者)");
     const toEntry = (e: DueItemEntry): LeaderEntry => ({
       itemId: e.itemId,
@@ -107,7 +126,8 @@ export function computeLeaderOverview(
 
     const people = new Map<string, LeaderPerson>();
     for (const item of board.items) {
-      const assigneeIds = assigneeIdsOf(board, item);
+      if (!includeItem(item)) continue;
+      const assigneeIds = assigneeIdsOf(board, item).filter((id) => personVisible(item, id));
       if (assigneeIds.length === 0) continue;
       const range =
         board.ganttStartColumnId && board.ganttDurationColumnId

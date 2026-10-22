@@ -118,48 +118,37 @@ function PersonRow({ boardId, person }: { boardId: string; person: LeaderPerson 
 }
 
 /**
- * 專案負責人(Team Leader)的總覽。每個你帶的專案(看板)一塊:整個專案逾期、本週完成、未來 7 天的工作項,
- * 以及專案裡每個人的時程(點開看他每一項的起訖與狀態)。
+ * 專案儀表板的內容:這個專案逾期、本週完成、未來 7 天的工作項,以及每個人的時程(點開看每一項的起訖與狀態)。
+ * 範圍(整個專案或只有你的組員)已經在 computeLeaderOverview 篩好。
  */
-export function ProjectLeaderCard({ boards }: { boards: LeaderBoardOverview[] }) {
+export function ProjectDashboardView({ board }: { board: LeaderBoardOverview }) {
   return (
-    <section>
-      <h2 className="mb-1 text-sm font-semibold text-neutral-700 dark:text-neutral-100">專案負責人總覽</h2>
-      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        你是這些專案的 Team Leader。逾期、本週完成、未來 7 天跟「待辦事項到期清單」同一個算法,但這裡是整個專案、所有人。
-      </p>
-      <div className="space-y-5">
-        {boards.map((board) => (
-          <div key={board.boardId} data-leader-board={board.boardId} className="rounded-md border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Link href={`/boards/${board.boardId}`} className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100">
-                {board.boardName}
-              </Link>
-              <Pill tone={board.overdue.length > 0 ? "red" : "gray"}>逾期 {board.overdue.length}</Pill>
-              <Pill tone="green">本週完成 {board.completedThisWeek.length}</Pill>
-              <Pill tone="blue">未來 7 天 {board.upcoming7.length}</Pill>
-              {board.unassignedCount > 0 && <Pill tone="amber">沒有人負責 {board.unassignedCount}</Pill>}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              <EntryList id="overdue" boardId={board.boardId} title="逾期" tone="red" entries={board.overdue} emptyText="沒有逾期的工作項" />
-              <EntryList id="completedThisWeek" boardId={board.boardId} title="本週完成" tone="green" entries={board.completedThisWeek} emptyText="這週還沒有完成的工作項" />
-              <EntryList id="upcoming7" boardId={board.boardId} title="未來 7 天" tone="blue" entries={board.upcoming7} emptyText="未來 7 天沒有到期的工作項" />
-            </div>
-
-            <h3 className="mb-1 mt-4 text-xs font-semibold text-neutral-600 dark:text-neutral-300">各人員時程({board.people.length} 人)</h3>
-            {board.people.length === 0 ? (
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">這個專案還沒有工作項指派給任何人。</p>
-            ) : (
-              <div className="rounded-md border border-neutral-200 dark:border-neutral-700">
-                {board.people.map((person) => (
-                  <PersonRow key={person.id} boardId={board.boardId} person={person} />
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+    <div data-leader-board={board.boardId} className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Pill tone={board.overdue.length > 0 ? "red" : "gray"}>逾期 {board.overdue.length}</Pill>
+        <Pill tone="green">本週完成 {board.completedThisWeek.length}</Pill>
+        <Pill tone="blue">未來 7 天 {board.upcoming7.length}</Pill>
+        {board.unassignedCount > 0 && <Pill tone="amber">沒有人負責 {board.unassignedCount}</Pill>}
       </div>
-    </section>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <EntryList id="overdue" boardId={board.boardId} title="逾期" tone="red" entries={board.overdue} emptyText="沒有逾期的工作項" />
+        <EntryList id="completedThisWeek" boardId={board.boardId} title="本週完成" tone="green" entries={board.completedThisWeek} emptyText="這週還沒有完成的工作項" />
+        <EntryList id="upcoming7" boardId={board.boardId} title="未來 7 天" tone="blue" entries={board.upcoming7} emptyText="未來 7 天沒有到期的工作項" />
+      </div>
+
+      <div>
+        <h2 className="mb-1 text-sm font-semibold text-neutral-700 dark:text-neutral-100">各人員時程({board.people.length} 人)</h2>
+        {board.people.length === 0 ? (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">沒有工作項指派給你範圍內的人。</p>
+        ) : (
+          <div className="rounded-md border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900">
+            {board.people.map((person) => (
+              <PersonRow key={person.id} boardId={board.boardId} person={person} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

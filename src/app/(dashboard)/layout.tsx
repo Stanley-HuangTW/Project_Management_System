@@ -10,6 +10,7 @@ import { DialogProvider } from "@/components/ui/DialogProvider";
 import { ImpersonationBanner } from "@/components/sidebar/ImpersonationBanner";
 import { ChatProvider } from "@/components/chat/ChatProvider";
 import { getUnreadTotal } from "@/lib/chatServer";
+import { PROJECT_DASHBOARD_ROLES } from "@/lib/projectRoles";
 
 export default async function DashboardLayout({
   children,
@@ -37,6 +38,14 @@ export default async function DashboardLayout({
     select: { id: true, name: true },
   });
   const isApprover = await hasApprovalRole();
+  // 這個人在哪些看板上有專案角色(Team Leader、PMD、各職能 DM):每個看板一個「看板名稱-儀表板」子項。
+  // 看板層級的角色已經複製到分組裡(見 boardRolesServer),所以只要查分組的角色。
+  const projectRoleRows = await prisma.groupRoleAssignment.findMany({
+    where: { userId: session.userId, role: { in: PROJECT_DASHBOARD_ROLES }, group: { board: { deletedAt: null } } },
+    select: { group: { select: { boardId: true } } },
+  });
+  const projectBoardIds = new Set(projectRoleRows.map((r) => r.group.boardId));
+  const projectDashboards = boards.filter((b) => projectBoardIds.has(b.id)).map((b) => ({ id: b.id, name: b.name }));
   // 代操作時不開對話(發言會變成被代操作的人說的)。
   const chatEnabled = !session.impersonatorId;
   const chatUnread = chatEnabled ? await getUnreadTotal(session) : 0;
@@ -58,6 +67,7 @@ export default async function DashboardLayout({
           boards={boards}
           programs={programs}
           isApprover={isApprover}
+          projectDashboards={projectDashboards}
           userName={session.name}
           userRole={session.role}
           currentUserId={session.userId}
