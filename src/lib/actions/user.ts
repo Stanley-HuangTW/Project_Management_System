@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
 import { resyncBoardLabour } from "@/lib/actions/labourSheet";
-import type { UserRole } from "@prisma/client";
+import { Prisma, type UserRole } from "@prisma/client";
 
 export async function listUsers() {
   await requireSession();
@@ -190,61 +190,77 @@ export async function updateUserHourlyRate(userId: string, rate: number | null) 
  * 一旦組織圖可以超過兩階,「指自己」就不再是唯一會繞回來的指派 ——
  * A→B→A 也是,而且成環的那一群人會從每個人的下轄範圍裡消失。
  */
-async function requireNoCycle(userId: string, supervisorId: string | null) {
-  if (!supervisorId) return;
+async function cycleError(userId: string, supervisorId: string | null): Promise<string | null> {
+  if (!supervisorId) return null;
   const users = await prisma.user.findMany({ select: { id: true, supervisorId: true } });
-  if (wouldCreateCycle(users, userId, supervisorId)) {
-    const who = await prisma.user.findUnique({ where: { id: supervisorId }, select: { name: true } });
-    throw new Error(
-      userId === supervisorId
-        ? "不可指定自己為主管"
-        : `不可指定「${who?.name ?? supervisorId}」為主管:他在這個人的下轄範圍裡,會繞成一圈`
-    );
-  }
+  if (!wouldCreateCycle(users, userId, supervisorId)) return null;
+  const who = await prisma.user.findUnique({ where: { id: supervisorId }, select: { name: true } });
+  return userId === supervisorId
+    ? "不可指定自己為主管"
+    : `不可指定「${who?.name ?? supervisorId}」為主管:他在這個人的下轄範圍裡,會繞成一圈`;
 }
 
+async function requireNoCycle(userId: string, supervisorId: string | null) {
+  const error = await cycleError(userId, supervisorId);
+  if (error) throw new Error(error);
+}
+
+/** Email 已經有人註冊了。新增、修改使用者都用這句。 */
+const EMAIL_TAKEN = "此 Email 已經有人註冊了,請改用別的 Email";
+
+/**
+ * 預期會發生的錯誤(Email 重複、欄位沒填……)用回傳值帶回去,不用丟例外:production 的 Next.js 會把
+ * 丟出來的錯誤訊息洗成「Minified React error #441」,畫面上就看不到原因了。
+ */
 export async function createUser(
   name: string,
   email: string,
   password: string,
   role: UserRole,
   supervisorId: string | null
-) {
+): Promise<{ error?: string }> {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以新增使用者");
+    return { error: "只有管理員可以新增使用者" };
   }
 
   const trimmedName = name.trim();
   const trimmedEmail = email.trim().toLowerCase();
   if (!trimmedName || !trimmedEmail || !password) {
-    throw new Error("姓名、Email、密碼皆為必填");
+    return { error: "姓名、Email、密碼皆為必填" };
   }
   if (password.length < 8) {
-    throw new Error("密碼至少需要 8 個字元");
+    return { error: "密碼至少需要 8 個字元" };
   }
 
   const existing = await prisma.user.findUnique({ where: { email: trimmedEmail } });
   if (existing) {
-    throw new Error("此 Email 已被使用");
+    return { error: EMAIL_TAKEN };
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
   const maxOrder = await prisma.user.aggregate({ _max: { order: true } });
-  await prisma.user.create({
-    data: {
-      name: trimmedName,
-      email: trimmedEmail,
-      passwordHash,
-      role,
-      // 主管本來一律被寫成 null,所以組織圖鎖死在剛好兩階。現在誰都可以有
-      // 自己的主管,階層要幾階由填法決定。
-      supervisorId,
-      order: (maxOrder._max.order ?? -1) + 1,
-    },
-  });
+  try {
+    await prisma.user.create({
+      data: {
+        name: trimmedName,
+        email: trimmedEmail,
+        passwordHash,
+        role,
+        // 主管本來一律被寫成 null,所以組織圖鎖死在剛好兩階。現在誰都可以有
+        // 自己的主管,階層要幾階由填法決定。
+        supervisorId,
+        order: (maxOrder._max.order ?? -1) + 1,
+      },
+    });
+  } catch (err) {
+    // 兩個人同時用同一個 Email 新增:上面的檢查都沒擋到,資料庫的唯一限制會擋。
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { error: EMAIL_TAKEN };
+    throw err;
+  }
 
   revalidatePath("/users");
+  return {};
 }
 
 export async function updateUser(
@@ -253,79 +269,88 @@ export async function updateUser(
   email: string,
   role: UserRole,
   supervisorId: string | null
-) {
+): Promise<{ error?: string }> {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以修改使用者");
+    return { error: "只有管理員可以修改使用者" };
   }
 
   const trimmedName = name.trim();
   const trimmedEmail = email.trim().toLowerCase();
   if (!trimmedName || !trimmedEmail) {
-    throw new Error("姓名、Email 皆為必填");
+    return { error: "姓名、Email 皆為必填" };
   }
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) {
-    throw new Error("找不到使用者");
+    return { error: "找不到使用者" };
   }
   // 掛在組織架構圖上的人,所屬主管由架構圖決定,這裡改不動。
   const orgManaged = !!target.orgNodeId;
-  if (!orgManaged) await requireNoCycle(userId, supervisorId);
+  if (!orgManaged) {
+    const cycle = await cycleError(userId, supervisorId);
+    if (cycle) return { error: cycle };
+  }
 
   const emailOwner = await prisma.user.findUnique({ where: { email: trimmedEmail } });
   if (emailOwner && emailOwner.id !== userId) {
-    throw new Error("此 Email 已被使用");
+    return { error: EMAIL_TAKEN };
   }
 
   if (target.role === "ADMIN" && role !== "ADMIN") {
     const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
     if (adminCount <= 1) {
-      throw new Error("至少需保留一位管理者");
+      return { error: "至少需保留一位管理者" };
     }
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: userId },
-      data: {
-        name: trimmedName,
-        email: trimmedEmail,
-        role,
-        supervisorId: orgManaged ? target.supervisorId : supervisorId,
-      },
-    });
-    // 不再帶人的話,他的部屬往上接一層,而不是全部變成「未設定」—— 兩階
-    // 的時候上面沒有人可以接,所以只能清空;現在有了,清空等於把一整支
-    // 從組織圖上砍掉。
-    if (target.role === "SUPERVISOR" && role === "MEMBER") {
-      await tx.user.updateMany({
-        where: { supervisorId: userId },
-        data: { supervisorId },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          name: trimmedName,
+          email: trimmedEmail,
+          role,
+          supervisorId: orgManaged ? target.supervisorId : supervisorId,
+        },
       });
-    }
-  });
+      // 不再帶人的話,他的部屬往上接一層,而不是全部變成「未設定」—— 兩階
+      // 的時候上面沒有人可以接,所以只能清空;現在有了,清空等於把一整支
+      // 從組織圖上砍掉。
+      if (target.role === "SUPERVISOR" && role === "MEMBER") {
+        await tx.user.updateMany({
+          where: { supervisorId: userId },
+          data: { supervisorId },
+        });
+      }
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { error: EMAIL_TAKEN };
+    throw err;
+  }
 
   revalidatePath("/users");
+  return {};
 }
 
-export async function deleteUser(userId: string) {
+export async function deleteUser(userId: string): Promise<{ error?: string }> {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以刪除使用者");
+    return { error: "只有管理員可以刪除使用者" };
   }
   if (session.userId === userId) {
-    throw new Error("不可刪除自己的帳號");
+    return { error: "不可刪除自己的帳號" };
   }
 
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) {
-    throw new Error("找不到使用者");
+    return { error: "找不到使用者" };
   }
 
   if (target.role === "ADMIN") {
     const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
     if (adminCount <= 1) {
-      throw new Error("至少需保留一位管理者");
+      return { error: "至少需保留一位管理者" };
     }
   }
 
@@ -335,10 +360,10 @@ export async function deleteUser(userId: string) {
     prisma.attachment.count({ where: { uploaderId: userId } }),
   ]);
   if (boardCount > 0) {
-    throw new Error(`此使用者擁有 ${boardCount} 個看板,請先轉移看板擁有者或刪除該看板後再刪除使用者`);
+    return { error: `此使用者擁有 ${boardCount} 個看板,請先轉移看板擁有者或刪除該看板後再刪除使用者` };
   }
   if (commentCount > 0 || attachmentCount > 0) {
-    throw new Error("此使用者仍有留言或上傳檔案紀錄,無法刪除");
+    return { error: "此使用者仍有留言或上傳檔案紀錄,無法刪除" };
   }
 
   // 被指到的人力表名額會變成沒指定人(外鍵 SetNull),它的人力預算就改回單位標準月薪。
@@ -347,6 +372,7 @@ export async function deleteUser(userId: string) {
   for (const boardId of slotBoardIds) await resyncBoardLabour(boardId);
 
   revalidatePath("/users");
+  return {};
 }
 
 export async function reorderUsers(orderedUserIds: string[]) {
@@ -405,13 +431,13 @@ export async function updateUserAvatar(userId: string, avatarUrl: string | null)
   revalidatePath("/dashboard");
 }
 
-export async function adminResetUserPassword(userId: string, newPassword: string) {
+export async function adminResetUserPassword(userId: string, newPassword: string): Promise<{ error?: string }> {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以重設使用者密碼");
+    return { error: "只有管理員可以重設使用者密碼" };
   }
   if (newPassword.length < 8) {
-    throw new Error("密碼至少需要 8 個字元");
+    return { error: "密碼至少需要 8 個字元" };
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -427,6 +453,7 @@ export async function adminResetUserPassword(userId: string, newPassword: string
   });
 
   revalidatePath("/users");
+  return {};
 }
 
 /** Self-service version of updateUserAvatar — any logged-in user may set

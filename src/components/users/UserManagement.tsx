@@ -465,7 +465,11 @@ export function UserManagement({
     setSubmitting(true);
     setError(null);
     try {
-      await createUser(name, email, password, role, supervisorId || null);
+      const result = await createUser(name, email, password, role, supervisorId || null);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
       setOpen(false);
       reset();
     } catch (err) {
@@ -491,7 +495,11 @@ export function UserManagement({
     setEditSubmitting(true);
     setEditError(null);
     try {
-      await updateUser(editTarget.id, editName, editEmail, editRole, editSupervisorId || null);
+      const result = await updateUser(editTarget.id, editName, editEmail, editRole, editSupervisorId || null);
+      if (result.error) {
+        setEditError(result.error);
+        return;
+      }
       // 這個權限只在「主管」身上有意思:改成別的角色時順便收回,不留一個沒人看得到的旗標。
       const nextCanViewAll = editRole === "SUPERVISOR" && editCanViewAll;
       if (nextCanViewAll !== editTarget.canViewAllTimesheets) {
@@ -517,7 +525,8 @@ export function UserManagement({
     if (!ok) return;
     setDeleteError(null);
     try {
-      await deleteUser(user.id);
+      const result = await deleteUser(user.id);
+      if (result.error) setDeleteError(result.error);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "刪除失敗");
     }
@@ -534,7 +543,11 @@ export function UserManagement({
     setResetSubmitting(true);
     setResetError(null);
     try {
-      await adminResetUserPassword(resetTarget.id, resetPasswordValue);
+      const result = await adminResetUserPassword(resetTarget.id, resetPasswordValue);
+      if (result.error) {
+        setResetError(result.error);
+        return;
+      }
       setResetTarget(null);
     } catch (err) {
       setResetError(err instanceof Error ? err.message : "重設密碼失敗");
