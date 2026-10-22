@@ -12,6 +12,7 @@ import { applyStoredOrder, sanitizeOrder } from "@/lib/sidebarOrder";
 export const DASHBOARD_SECTIONS = [
   { id: "budgetAlerts", label: "預算警示" },
   { id: "openRisks", label: "未結案的風險與問題" },
+  { id: "projectLeader", label: "專案負責人總覽(Team Leader)" },
   { id: "teamWorkload", label: "工作量總覽" },
   { id: "overAllocation", label: "過度配置" },
   { id: "workloadDetail", label: "成員工作量明細" },

@@ -44,6 +44,8 @@ import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import { leaveDaysByUser } from "@/lib/actions/leave";
 import { DashboardBoardFilter } from "@/components/dashboard/DashboardBoardFilter";
 import { OpenRisksCard } from "@/components/dashboard/OpenRisksCard";
+import { ProjectLeaderCard } from "@/components/dashboard/ProjectLeaderCard";
+import { computeLeaderOverview } from "@/lib/leaderOverview";
 import { loadOpenRiskRows } from "@/lib/dashboardRisksServer";
 import {
   DASHBOARD_BOARD_COOKIE,
@@ -166,6 +168,24 @@ export default async function DashboardPage({
         ? undefined
         : withManagedResourceIds([session.userId])
   );
+  // 專案負責人(Team Leader):看板層級或任一分組的 Team Leader 都算(沿用看板的分組,複本也在 GroupRoleAssignment)。
+  const [ledByGroup, ledByBoard] = await Promise.all([
+    prisma.groupRoleAssignment.findMany({
+      where: { userId: session.userId, role: "TEAM_LEADER", group: { board: { deletedAt: null } } },
+      select: { group: { select: { boardId: true } } },
+    }),
+    prisma.boardRoleAssignment.findMany({
+      where: { userId: session.userId, role: "TEAM_LEADER", board: { deletedAt: null } },
+      select: { boardId: true },
+    }),
+  ]);
+  const ledBoardIds = new Set([...ledByGroup.map((r) => r.group.boardId), ...ledByBoard.map((r) => r.boardId)]);
+  const leaderOverviews = computeLeaderOverview(
+    boards.filter((b) => ledBoardIds.has(b.id)),
+    userById,
+    holidays,
+    completedAtByItem
+  );
   const personalItems = computePersonalItems(boards, [session.userId], userById, holidays);
   const myResourceIds = resourceIdsByManager.get(session.userId) ?? [];
   const myResourceItems = computePersonalItems(boards, myResourceIds, userById, holidays);
@@ -231,7 +251,9 @@ export default async function DashboardPage({
   const dashboardOrder = me?.dashboardOrder ?? [];
   const defaultSections = DASHBOARD_SECTIONS.filter(
     (section) =>
-      (section.id !== "teamItems" || hasTeam) && (section.id !== "myResourceItems" || myResourceIds.length > 0)
+      (section.id !== "teamItems" || hasTeam) &&
+      (section.id !== "myResourceItems" || myResourceIds.length > 0) &&
+      (section.id !== "projectLeader" || leaderOverviews.length > 0)
   ).map((section) => ({ id: section.id as string, label: section.label as string }));
   const orderedSectionRows = orderDashboardSections(defaultSections, dashboardOrder);
 
@@ -266,6 +288,8 @@ export default async function DashboardPage({
         relatedUserIds={hasTeam ? [session.userId, ...teamMembers.map((m) => m.id)] : [session.userId]}
         defaultAll={isAdmin}
       />
+
+      {leaderOverviews.length > 0 && <ProjectLeaderCard key="projectLeader" boards={leaderOverviews} />}
 
       <TeamWorkloadCard
         key="teamWorkload"
