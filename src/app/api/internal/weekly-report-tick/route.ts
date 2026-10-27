@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
-import { buildProgramWeeklyReportData } from "@/lib/weeklyReportServer";
+import { deliverProgramReports } from "@/lib/weeklyReportRun";
 import { sendWeeklyReportReminder, type ReminderOutcome } from "@/lib/weeklyReminderServer";
-import { deliverProgramReport } from "@/lib/weeklyReportDelivery";
 import {
-  weekRangeOf,
-  isoWeekLabel,
   isPastWeeklyTrigger,
-  lastCompletedReportRange,
+  minutesPastWeeklyTrigger,
+  shouldRetryWeeklyRun,
   summarizeWeeklyRun,
-  type ProgramRunResult,
+  weeklyRunPlan,
+  WEEKLY_RETRY_GAP_MINUTES,
 } from "@/lib/weeklyReport";
 
 /**
@@ -47,10 +46,9 @@ export async function POST(request: Request) {
   }
 
   const taipeiNow = new Date(Date.now() + TAIPEI_OFFSET_MS);
-  const pastTrigger = isPastWeeklyTrigger(
-    { dow: taipeiNow.getUTCDay(), hour: taipeiNow.getUTCHours(), minute: taipeiNow.getUTCMinutes() },
-    { dow: settings.weeklyReportDow, hour: settings.weeklyReportHour, minute: settings.weeklyReportMinute }
-  );
+  const nowParts = { dow: taipeiNow.getUTCDay(), hour: taipeiNow.getUTCHours(), minute: taipeiNow.getUTCMinutes() };
+  const trigger = { dow: settings.weeklyReportDow, hour: settings.weeklyReportHour, minute: settings.weeklyReportMinute };
+  const pastTrigger = isPastWeeklyTrigger(nowParts, trigger);
   if (!pastTrigger) {
     return respond({ ran: false, reason: "還沒到設定的時間" });
   }
@@ -58,16 +56,18 @@ export async function POST(request: Request) {
   // 排程報的是剛結束的那個範圍(從星期幾到星期幾,照系統設定,預設週三到週二),不是才剛開始的
   // ——跟 /api/reports/weekly 預設 week=last 是同一個道理。「這週跑過了沒」仍然照日曆上的週算,
   // 排程本來就是每個日曆週跑一次。
-  const todayIso = taipeiNow.toISOString().slice(0, 10);
-  const thisWeek = weekRangeOf(todayIso);
-  const target = lastCompletedReportRange(todayIso, {
+  const { weekKey: thisWeekKey, target } = weeklyRunPlan(taipeiNow.toISOString().slice(0, 10), {
     startDow: settings.weeklyReportRangeStartDow,
     endDow: settings.weeklyReportRangeEndDow,
-  }).weekStart;
-  const thisWeekKey = isoWeekLabel(thisWeek.weekStart);
+  });
 
   if (settings.weeklyReportLastRunWeek === thisWeekKey) {
     return respond({ ran: false, reason: "這週已經跑過了" });
+  }
+
+  // 上一輪全部寄失敗、被放回「還沒跑」之後,隔一段時間才重試——不要每 5 分鐘就去敲壞掉的 SMTP。
+  if (settings.weeklyReportLastRunAt && Date.now() - settings.weeklyReportLastRunAt.getTime() < WEEKLY_RETRY_GAP_MINUTES * 60_000) {
+    return respond({ ran: false, reason: "上一輪寄信失敗,稍後自動重試" });
   }
 
   // 條件式 updateMany 當原子鎖——搶輸的(count === 0)代表已經有另一次
@@ -88,54 +88,20 @@ export async function POST(request: Request) {
     return respond({ ran: false, reason: "被搶先跑過了" });
   }
 
-  const subscriptions = await prisma.programReportSubscription.findMany({
-    include: { program: { select: { name: true } }, recipients: { include: { user: { select: { email: true } } } } },
-  });
+  const results = await deliverProgramReports(target);
 
-  const results: ProgramRunResult[] = [];
-  for (const sub of subscriptions) {
-    const emails = [...new Set(sub.recipients.map((r) => r.user?.email ?? r.email).filter((e): e is string => !!e))];
-    if (emails.length === 0) {
-      results.push({ programName: sub.program.name, sent: 0, failed: 0, detail: "沒有收件人" });
-      continue;
-    }
-
-    // 一個專案失敗不該讓其他專案也收不到——記下來、繼續下一個。
-    try {
-      const report = await buildProgramWeeklyReportData(sub.programId, target, {
-        upcomingDays: sub.upcomingDays,
-        include: {
-          summary: sub.includeSummary,
-          programs: sub.includeProgramDiff,
-          departments: sub.includeDepartments,
-          activity: sub.includeActivity,
-        },
-      });
-      if (!report) {
-        results.push({ programName: sub.program.name, sent: 0, failed: 0, detail: "這個專案群組底下沒有看板" });
-        continue;
-      }
-      const delivery = await deliverProgramReport(report.programName, report.snapshot, report.markdown, emails);
-      results.push({
-        programName: sub.program.name,
-        sent: delivery.mail.filter((m) => m.ok).length,
-        failed: delivery.mail.filter((m) => !m.ok).length,
-        detail: delivery.mail.find((m) => !m.ok)?.reason,
-      });
-    } catch (err) {
-      results.push({
-        programName: sub.program.name,
-        sent: 0,
-        failed: emails.length,
-        detail: `產生週報時出錯:${err instanceof Error ? err.message : "未知錯誤"}`,
-      });
-    }
-  }
-
-  // 結果留在資料庫:設定頁看得到上次有沒有跑、寄成功了沒(這個回應 server.js 不會看)。
+  // 一封都沒寄出去(寄信失敗、產生報告出錯)而且還在重試的時間內:這一輪不算跑過,放回去下次再試
+  // (跟提醒信同一個做法);有寄出去幾封就不重來,免得有人收到兩封。結果留在資料庫,設定頁看得到
+  // (這個回應 server.js 不會看)。
+  const retry = shouldRetryWeeklyRun(results, minutesPastWeeklyTrigger(nowParts, trigger));
   await prisma.systemSettings.update({
     where: { id: "global" },
-    data: { weeklyReportLastRunAt: new Date(), weeklyReportLastRunNote: summarizeWeeklyRun(thisWeekKey, results) },
+    data: {
+      weeklyReportLastRunAt: new Date(),
+      weeklyReportLastRunNote:
+        summarizeWeeklyRun(thisWeekKey, results) + (retry ? `;全部寄失敗,${WEEKLY_RETRY_GAP_MINUTES} 分鐘後自動重試` : ""),
+      ...(retry ? { weeklyReportLastRunWeek: settings.weeklyReportLastRunWeek } : {}),
+    },
   });
 
   return respond({ ran: true, week: thisWeekKey, results });

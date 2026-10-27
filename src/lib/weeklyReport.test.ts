@@ -11,6 +11,10 @@ import {
   programSubset,
   weeklyReportSubject,
   summarizeWeeklyRun,
+  weeklyRunPlan,
+  minutesPastWeeklyTrigger,
+  shouldRetryWeeklyRun,
+  WEEKLY_RETRY_WINDOW_MINUTES,
   DEFAULT_REPORT_RANGE,
   lastCompletedReportRange,
   previousReportWeekStart,
@@ -1235,5 +1239,42 @@ describe("summarizeWeeklyRun", () => {
 
   it("一個專案群組都沒有訂閱時明講沒有寄信", () => {
     expect(summarizeWeeklyRun("2026 W44", [])).toBe("2026 W44:沒有任何專案群組設定週報收件人,沒有寄信");
+  });
+});
+
+describe("weeklyRunPlan", () => {
+  it("週一 16:00 的排程報剛結束的範圍(週二到週一的範圍,週一還沒過完,所以是上一輪)", () => {
+    expect(weeklyRunPlan("2026-10-26", { startDow: 2, endDow: 1 })).toEqual({ weekKey: "2026 W44", target: "2026-10-13" });
+  });
+
+  it("範圍已經結束的那天報剛結束的這一輪", () => {
+    expect(weeklyRunPlan("2026-10-27", { startDow: 2, endDow: 1 })).toEqual({ weekKey: "2026 W44", target: "2026-10-20" });
+  });
+});
+
+describe("minutesPastWeeklyTrigger", () => {
+  const MON_16 = { dow: 1, hour: 16, minute: 0 };
+  it("同一天:只算時分", () => {
+    expect(minutesPastWeeklyTrigger({ dow: 1, hour: 16, minute: 5 }, MON_16)).toBe(5);
+  });
+  it("隔天以後:每天加 24 小時", () => {
+    expect(minutesPastWeeklyTrigger({ dow: 2, hour: 10, minute: 0 }, MON_16)).toBe(18 * 60);
+  });
+});
+
+describe("shouldRetryWeeklyRun", () => {
+  const failedAll = [{ programName: "A", sent: 0, failed: 2, detail: "535" }];
+  it("一封都沒寄出去、還在重試時間內:重試", () => {
+    expect(shouldRetryWeeklyRun(failedAll, 5)).toBe(true);
+  });
+  it("超過重試時間就放棄這一輪(不然壞掉的 SMTP 會被敲一整週)", () => {
+    expect(shouldRetryWeeklyRun(failedAll, WEEKLY_RETRY_WINDOW_MINUTES)).toBe(false);
+  });
+  it("有寄出去一部分就不重試(免得有人收到兩封)", () => {
+    expect(shouldRetryWeeklyRun([{ programName: "A", sent: 1, failed: 1 }], 5)).toBe(false);
+  });
+  it("沒有要寄的(沒有收件人、沒有看板)不算失敗,不重試", () => {
+    expect(shouldRetryWeeklyRun([{ programName: "A", sent: 0, failed: 0, detail: "沒有收件人" }], 5)).toBe(false);
+    expect(shouldRetryWeeklyRun([], 5)).toBe(false);
   });
 });

@@ -1046,3 +1046,30 @@ export function summarizeWeeklyRun(week: string, results: ProgramRunResult[]): s
   });
   return `${week}:${parts.join(";")}`;
 }
+
+/** 排程這一輪(「立即執行一次」也是)叫什麼、報哪一個範圍:報的是剛結束的那個範圍,「這週跑過了沒」照日曆週算。 */
+export function weeklyRunPlan(todayIso: string, range: ReportRangeConfig): { weekKey: string; target: string } {
+  return {
+    weekKey: isoWeekLabel(weekRangeOf(todayIso).weekStart),
+    target: lastCompletedReportRange(todayIso, range).weekStart,
+  };
+}
+
+/** 觸發時刻已經過了幾分鐘(只在「已經過了」的前提下算,星期幾的順序同 isPastWeeklyTrigger)。 */
+export function minutesPastWeeklyTrigger(
+  now: { dow: number; hour: number; minute: number },
+  trigger: { dow: number; hour: number; minute: number }
+): number {
+  return (now.dow - trigger.dow) * 1440 + (now.hour * 60 + now.minute) - (trigger.hour * 60 + trigger.minute);
+}
+
+/** 這一輪全部寄失敗之後,隔多久才重試、以及觸發後多久內還肯重試——不要每 5 分鐘就去敲壞掉的 SMTP。 */
+export const WEEKLY_RETRY_GAP_MINUTES = 30;
+export const WEEKLY_RETRY_WINDOW_MINUTES = 180;
+
+/** 一封都沒寄出去(寄信失敗或產生報告出錯),而且還在重試的時間內:這一輪不算跑過,下次再試。 */
+export function shouldRetryWeeklyRun(results: ProgramRunResult[], minutesPast: number): boolean {
+  const sent = results.reduce((sum, r) => sum + r.sent, 0);
+  const failed = results.reduce((sum, r) => sum + r.failed, 0);
+  return sent === 0 && failed > 0 && minutesPast < WEEKLY_RETRY_WINDOW_MINUTES;
+}
