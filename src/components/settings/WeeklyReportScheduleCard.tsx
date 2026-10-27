@@ -7,8 +7,9 @@ import { MAX_REMINDER_HOURS, formatClock, reminderTime } from "@/lib/weeklyRemin
 
 const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
+/** 台北時間(固定 UTC+8)。不用 toLocaleString:伺服器與瀏覽器的格式不一樣,會造成 hydration 不一致。 */
 function formatTaipei(iso: string): string {
-  return new Date(iso).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
+  return new Date(Date.parse(iso) + 8 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
 }
 
 /** 專案週報分發要多久跑一次——一份全域的時間,寄給誰、寄什麼在下面的
