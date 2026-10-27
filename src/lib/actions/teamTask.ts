@@ -11,6 +11,7 @@ import { addBusinessDays } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { upsertAssignment } from "./assignment";
 import { loadTypeOptionIds, flipParentToSummary } from "@/lib/summaryType";
+import { rollUpSummaryDates } from "@/lib/scheduleCascade";
 
 type ParentWithBoard = Prisma.ItemGetPayload<{ include: { board: true; cellValues: true } }>;
 
@@ -78,6 +79,7 @@ async function createChildTask(
   if (board.typeColumnId && typeIds?.summaryId) {
     await flipParentToSummary(parent.id, board.typeColumnId, typeIds.summaryId);
   }
+  await rollUpSummaryDates(parent.boardId, [parent.id]);
 
   revalidatePath("/dashboard");
   revalidatePath(`/boards/${parent.boardId}`);

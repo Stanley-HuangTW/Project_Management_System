@@ -17,7 +17,7 @@ import {
   formatPredEntries,
   type PredEntry,
 } from "@/lib/predecessorLink";
-import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
+import { rollUpSummaryDates, syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { getItemDateRange } from "@/lib/gantt";
 import { loadTypeOptionIds, flipParentToSummary, restoreParentTypeIfChildless } from "@/lib/summaryType";
 import { collectSubtreeIds, type PredSnapshotEntry } from "@/lib/trash";
@@ -385,15 +385,18 @@ export async function moveItemWithinGroup(
 
   // Type=Summary 連動——跟 createItem/deleteItem 現有的呼叫方式一致,只有父層真的換了才做:
   // 新的父項變 Summary,舊的父項如果沒有子項了就還原它原本的類型。
+  const newParentIds = [...new Set(reparentedRoots.flatMap((w) => (w.parentId ? [w.parentId] : [])))];
+  const oldParentIds = [...new Set(reparentedRoots.flatMap((w) => oldParentOf.get(w.id) ?? []))];
   if (reparentedRoots.length > 0 && board?.typeColumnId) {
     const typeIds = await loadTypeOptionIds(board.typeColumnId);
-    const newParentIds = [...new Set(reparentedRoots.flatMap((w) => (w.parentId ? [w.parentId] : [])))];
-    const oldParentIds = [...new Set(reparentedRoots.flatMap((w) => oldParentOf.get(w.id) ?? []))];
     if (typeIds?.summaryId) {
       for (const id of newParentIds) await flipParentToSummary(id, board.typeColumnId, typeIds.summaryId);
     }
     for (const id of oldParentIds) await restoreParentTypeIfChildless(id, board.typeColumnId);
   }
+
+  // 新舊父項的起訖(Summary 取子項的範圍)跟著重新統計。
+  await rollUpSummaryDates(boardId, [...newParentIds, ...oldParentIds]);
 
   await notifyStructuralChange(prisma, draggedItemId, session.userId, "UPDATED", "拖曳搬移了這個項目的位置");
 
@@ -483,6 +486,8 @@ export async function deleteItem(
   if (item.parentId && board?.typeColumnId) {
     await restoreParentTypeIfChildless(item.parentId, board.typeColumnId);
   }
+  // 少了一個子項,父項(Summary)的起訖跟著重新統計。
+  await rollUpSummaryDates(item.boardId, [item.parentId]);
 
   // Their predecessor changed, so their dates are stale — recompute from
   // whatever rule each one now has (an inherited Pred, or its own start(set)).

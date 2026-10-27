@@ -14,6 +14,7 @@ import { dispatchWebhooks } from "@/lib/webhooks";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { loadTypeOptionIds, flipParentToSummary, restoreParentTypeIfChildless } from "@/lib/summaryType";
 import { buildWbsIndexFromItems, normalizePredReferences } from "@/lib/predecessorLink";
+import { rollUpSummaryDates } from "@/lib/scheduleCascade";
 import {
   collapseToRoots,
   lvlShiftFor,
@@ -224,6 +225,8 @@ export async function bulkCopyItems(
     const typeIds = await loadTypeOptionIds(typeColumnId);
     if (typeIds?.summaryId) await flipParentToSummary(targetParentId, typeColumnId, typeIds.summaryId);
   }
+  // 父項(Summary)的起訖跟著新複製進來的子項重新統計。
+  await rollUpSummaryDates(boardId, [targetParentId]);
 
   for (const [index, newId] of createdRootIds.entries()) {
     const source = byId.get(rootIds[index])!;
@@ -330,6 +333,11 @@ export async function bulkMoveItems(
       if (oldParentId !== targetParentId) await restoreParentTypeIfChildless(oldParentId, typeColumnId);
     }
   }
+  // 新舊父項(Summary)的起訖跟著搬進來 / 搬走的子項重新統計。
+  await rollUpSummaryDates(boardId, [
+    targetParentId,
+    ...rootIds.map((id) => byId.get(id)!.parentId),
+  ]);
 
   const targetName = targetParentId ? `「${byId.get(targetParentId)!.name}」底下` : "分組最上層";
   for (const rootId of rootIds) {

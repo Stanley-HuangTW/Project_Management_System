@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
-import { endFromStartAndDays, shiftDate } from "@/lib/workday";
+import { countDaysInRange, endFromStartAndDays, shiftDate } from "@/lib/workday";
 import { applyConstraint, constraintConflictDetail, pinnedRange, pinsFinish } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
@@ -567,6 +567,10 @@ async function buildScheduleContext(
   const { wbsByItemId } = wbsIndex;
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const parentIds = new Set(items.map((i) => i.parentId).filter((id): id is string => !!id));
+  const childrenByParent = new Map<string, string[]>();
+  for (const i of items) {
+    if (i.parentId) childrenByParent.set(i.parentId, [...(childrenByParent.get(i.parentId) ?? []), i.id]);
+  }
 
   /** The config of the board this item lives on. */
   const cfgOf = (item: { boardId: string }) => configByBoard.get(item.boardId)!;
@@ -574,6 +578,11 @@ async function buildScheduleContext(
   // Freshly-computed dates, so a dependent further down the chain reads its
   // predecessor's just-written dates without a mid-walk DB round trip.
   const overrides = new Map<string, DateRange>();
+  // 因為子項變動而被重新統計起訖的父項(Summary)——預覽「這樣拖會連動誰」時不列它們,
+  // 它們本來就跟著子項走,列出來只會讓每次拖子項都跳一個確認。
+  const rolledUpIds = new Set<string>();
+  const rollUpWrites = new Map<string, number>();
+  const MAX_ROLLUP_WRITES = 50;
 
   function readRange(id: string): DateRange | null {
     if (overrides.has(id)) return overrides.get(id)!;
@@ -735,6 +744,86 @@ async function buildScheduleContext(
     return found.sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
   }
 
+  /**
+   * 「一律自己計算」的看板上,沒有自己排程規則(沒有 Pred)的父項,起訖不是它自己的開始日 + 天數,
+   * 而是所有子項的範圍:最早的開始、最晚的結束(跟 computeRolledUpDateRange 同一套規則)。
+   * 這裡把它寫進儲存格,表格、儀表板與後面接著排的項目讀到的才是同一份。
+   */
+  function rollsUpChildren(item: (typeof items)[number]): boolean {
+    const cfg = cfgOf(item);
+    return (
+      cfg.alwaysComputed && childrenByParent.has(item.id) && !hasOwnScheduleRule(item, { predColumnId: cfg.predColumnId })
+    );
+  }
+
+  function childrenSpan(id: string): DateRange | null {
+    let start: Date | null = null;
+    let end: Date | null = null;
+    for (const childId of childrenByParent.get(id) ?? []) {
+      const range = readRange(childId);
+      if (!range) continue;
+      if (!start || range.start < start) start = range.start;
+      if (!end || range.end > end) end = range.end;
+    }
+    return start && end ? { start, end } : null;
+  }
+
+  async function writeRolledUp(item: (typeof items)[number], span: DateRange) {
+    rolledUpIds.add(item.id);
+    await writeRange(item.id, span, countDaysInRange(span.start, span.end, cfgOf(item).mode, holidays));
+  }
+
+  /** 這個父項的起訖換成子項的範圍;跟現在存的一樣就不寫。回傳它是不是這種父項(有沒有往上統計的意義)。 */
+  async function rollUpOne(parent: (typeof items)[number], visited: Set<string>): Promise<boolean> {
+    if (!rollsUpChildren(parent)) return false;
+    const span = childrenSpan(parent.id);
+    if (!span) return false;
+    const day = (date: Date) => date.toISOString().slice(0, 10);
+    const current = readRange(parent.id);
+    if (!current || day(current.start) !== day(span.start) || day(current.end) !== day(span.end)) {
+      // 資料有環(子項的前置是自己的父項)時起訖會一直長下去,到上限就停,不讓遞迴停不下來。
+      const writes = (rollUpWrites.get(parent.id) ?? 0) + 1;
+      rollUpWrites.set(parent.id, writes);
+      if (writes > MAX_ROLLUP_WRITES) return true;
+      await writeRolledUp(parent, span);
+      // 有人把這個父項當前置:它的起訖變了,後面接著排的要跟著動。同一輪裡先前已經算過的(拿到的是
+      // 父項舊的起訖),要從「算過」裡拿掉重算,不然 visited 會把它們擋下來。
+      const downstream = new Set<string>();
+      const queue = dependentsOf(parent.id);
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        if (downstream.has(id) || id === parent.id) continue;
+        downstream.add(id);
+        queue.push(...dependentsOf(id));
+      }
+      for (const id of downstream) visited.delete(id);
+      for (const depId of dependentsOf(parent.id)) await recompute(depId, visited);
+    }
+    return true;
+  }
+
+  /** 從一個項目往上,逐層重新統計沿路的父項。 */
+  async function rollUpAncestors(id: string, visited: Set<string>) {
+    const parentOf = (childId: string) => {
+      const parentId = itemsById.get(childId)?.parentId;
+      return parentId ? itemsById.get(parentId) : undefined;
+    };
+    for (let parent = parentOf(id); parent; parent = parentOf(parent.id)) {
+      if (!(await rollUpOne(parent, visited))) break;
+    }
+  }
+
+  /** 結構變了(新增、搬移、刪除、還原項目)之後:受影響的父項重新統計,連同它們的上層。 */
+  async function rollUpFrom(parentIdsToRoll: string[]) {
+    const visited = new Set<string>();
+    for (const parentId of parentIdsToRoll) {
+      const parent = itemsById.get(parentId);
+      if (!parent) continue;
+      // 最後一個子項沒了:它不再是 Summary,起訖回到它自己的開始日 + 天數(recompute 會順便往上統計)。
+      if (!childrenByParent.has(parentId) && cfgOf(parent).alwaysComputed) await recompute(parentId, visited);
+      else if (await rollUpOne(parent, visited)) await rollUpAncestors(parentId, visited);
+    }
+  }
+
   async function recompute(id: string, visited: Set<string>) {
     if (visited.has(id)) return;
     visited.add(id);
@@ -742,27 +831,35 @@ async function buildScheduleContext(
     const item = itemsById.get(id);
     if (item) {
       const cfg = cfgOf(item);
-      const { myDays, baseRange, scheduled } = chainOf(item);
-      const constraint = { type: item.constraintType, date: item.constraintDate };
-      // A finish date that is pinned needs no predecessor and no start(set):
-      // the length alone counts the start back from it. Not for a summary that
-      // follows its children — its dates are their span, not a length of its own.
-      const followsChildren = parentIds.has(id) && !hasOwnScheduleRule(item, { predColumnId: cfg.predColumnId });
-      const computed =
-        scheduled ??
-        (cfg.alwaysComputed ? baseRange : null) ??
-        (followsChildren ? null : pinnedRange(myDays, constraint, cfg.mode, holidays));
-      // A date the item has to respect whatever the chain wanted — a part that
-      // does not arrive until the 15th, a demo that cannot move.
-      const effective = computed
-        ? applyConstraint(computed, myDays, constraint, cfg.mode, holidays).range
-        : null;
-      if (effective) await writeRange(id, effective, myDays);
+      const rollUp = rollsUpChildren(item) ? childrenSpan(id) : null;
+      if (rollUp) {
+        await writeRolledUp(item, rollUp);
+      } else {
+        const { myDays, baseRange, scheduled } = chainOf(item);
+        const constraint = { type: item.constraintType, date: item.constraintDate };
+        // A finish date that is pinned needs no predecessor and no start(set):
+        // the length alone counts the start back from it. Not for a summary that
+        // follows its children — its dates are their span, not a length of its own.
+        const followsChildren = parentIds.has(id) && !hasOwnScheduleRule(item, { predColumnId: cfg.predColumnId });
+        const computed =
+          scheduled ??
+          (cfg.alwaysComputed ? baseRange : null) ??
+          (followsChildren ? null : pinnedRange(myDays, constraint, cfg.mode, holidays));
+        // A date the item has to respect whatever the chain wanted — a part that
+        // does not arrive until the 15th, a demo that cannot move.
+        const effective = computed
+          ? applyConstraint(computed, myDays, constraint, cfg.mode, holidays).range
+          : null;
+        if (effective) await writeRange(id, effective, myDays);
+      }
     }
 
     for (const depId of dependentsOf(id)) {
       await recompute(depId, visited);
     }
+
+    // 這個項目的日期變了,包住它的父項(Summary)跟著重新統計。
+    if (item && cfgOf(item).alwaysComputed) await rollUpAncestors(id, visited);
   }
 
   // Triggers are matched against a column the user edited, which is always on
@@ -779,6 +876,8 @@ async function buildScheduleContext(
     itemsById,
     wbsByItemId,
     overrides,
+    rolledUpIds,
+    rollUpFrom,
     /** Every board in this network — the caller has to refresh all of them. */
     boardIds,
     readRange,
@@ -836,7 +935,7 @@ export async function previewScheduleCascade(
 
   const moved: CascadedItem[] = [];
   for (const [id, next] of ctx.overrides) {
-    if (id === itemId) continue;
+    if (id === itemId || ctx.rolledUpIds.has(id)) continue;
     const previous = before.get(id);
     if (previous && isoDay(previous.start) === isoDay(next.start) && isoDay(previous.end) === isoDay(next.end)) {
       continue;
@@ -900,7 +999,7 @@ export async function previewPredChange(
   const own = ctx.overrides.get(itemId) ?? null;
   const cascaded: CascadedItem[] = [];
   for (const [id, next] of ctx.overrides) {
-    if (id === itemId) continue;
+    if (id === itemId || ctx.rolledUpIds.has(id)) continue;
     const previous = before.get(id);
     if (previous && isoDay(previous.start) === isoDay(next.start) && isoDay(previous.end) === isoDay(next.end)) continue;
     cascaded.push({
@@ -976,6 +1075,18 @@ export async function syncPredecessorSchedule(
     for (const depId of ctx.dependentsOf(itemId)) await ctx.recompute(depId, visited);
   }
 
+  return ctx.boardIds;
+}
+
+/**
+ * 結構變了(新增、搬移、刪除、還原項目)之後呼叫:這些父項(Summary)的起訖重新取子項的範圍,
+ * 連同它們的上層。只對「一律自己計算」的看板有作用。回傳要重新整理的看板。
+ */
+export async function rollUpSummaries(boardId: string, parentIds: string[]): Promise<string[]> {
+  if (parentIds.length === 0) return [boardId];
+  const ctx = await buildScheduleContext(boardId);
+  if (!ctx) return [boardId];
+  await ctx.rollUpFrom(parentIds);
   return ctx.boardIds;
 }
 

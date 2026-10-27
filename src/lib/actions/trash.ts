@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { canModifyItemSchedule, requireStructureAccess } from "@/lib/permissions";
-import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
+import { rollUpSummaryDates, syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
 import { getStatusOptions } from "@/types/column";
 import { collectSubtreeIds, parsePredSnapshot } from "@/lib/trash";
@@ -158,6 +158,9 @@ export async function restoreItem(itemId: string): Promise<{ error?: string }> {
       if (liveIds.has(entry.itemId)) await syncPredecessorSchedule(item.boardId, entry.itemId, board.predColumnId);
     }
   }
+
+  // 還原回來的子項讓父項(Summary)的起訖要重新統計;還原的項目自己有子項時也一樣。
+  await rollUpSummaryDates(item.boardId, [item.parentId, itemId]);
 
   await logActivity(itemId, session.userId, "從垃圾桶還原");
   revalidatePath(`/boards/${item.boardId}`);

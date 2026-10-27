@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import {
   syncPredecessorSchedule as runSync,
   recomputeAllSchedules as runRecomputeAll,
+  rollUpSummaries as runRollUp,
 } from "@/lib/predecessorLink";
 
 /**
@@ -23,6 +24,13 @@ export async function syncPredecessorSchedule(
   editedColumnId: string
 ): Promise<void> {
   const boardIds = await runSync(boardId, itemId, editedColumnId);
+  refreshSiblings(boardIds, boardId);
+}
+
+/** 結構變了(新增、搬移、刪除、還原項目)之後,受影響的父項(Summary)重新取子項的起訖。 */
+export async function rollUpSummaryDates(boardId: string, parentIds: (string | null | undefined)[]): Promise<void> {
+  const ids = [...new Set(parentIds.filter((id): id is string => !!id))];
+  const boardIds = await runRollUp(boardId, ids);
   refreshSiblings(boardIds, boardId);
 }
 
