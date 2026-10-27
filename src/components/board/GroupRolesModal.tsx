@@ -43,6 +43,8 @@ export const ROLE_LABELS: Record<GroupRole, string> = {
 };
 const ROLES: GroupRole[] = ["TEAM_LEADER", "SW_DM", "HW_DM", "ME_DM", "QA", "PM_DM", "PMM", "PMD"];
 const DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA", "PM"];
+/** Team Leader 可以在自己的分組指定的角色(各職能的 DM);跟 groupRoles 動作裡的限制同一份。 */
+const LEADER_ASSIGNABLE_ROLES: GroupRole[] = ["SW_DM", "HW_DM", "ME_DM", "QA", "PM_DM"];
 
 /** 畫面上的部門名稱。HW 這個列舉值對外一律叫 EE。 */
 export const DISCIPLINE_LABELS: Record<GroupDiscipline, string> = {
@@ -102,6 +104,7 @@ export function GroupRolesModal({
   open,
   onOpenChange,
   mode = "group",
+  leaderOnly = false,
 }: {
   boardId: string;
   group: GroupRolesData;
@@ -109,6 +112,8 @@ export function GroupRolesModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode?: "group" | "board";
+  /** 只是這個分組的 Team Leader(不是管理者):只能指定 DM 與各職能 member,其他角色與 Resource 唯讀。 */
+  leaderOnly?: boolean;
 }) {
   const router = useRouter();
   const { notify } = useDialogs();
@@ -158,7 +163,8 @@ export function GroupRolesModal({
         const result = await setBoardRoleAssignments(boardId, role, next);
         if (result.error) await notify(result.error);
       } else {
-        await setGroupRoleAssignments(boardId, group.id, role, next);
+        const result = await setGroupRoleAssignments(boardId, group.id, role, next);
+        if (result.error) await notify(result.error);
       }
       router.refresh();
     } finally {
@@ -183,7 +189,8 @@ export function GroupRolesModal({
     const next = current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId];
     setPending(`member:${discipline}`);
     try {
-      await setGroupMembers(boardId, group.id, discipline, next);
+      const result = await setGroupMembers(boardId, group.id, discipline, next);
+      if (result.error) await notify(result.error);
       router.refresh();
     } finally {
       setPending(null);
@@ -250,7 +257,10 @@ export function GroupRolesModal({
                 group.roleAssignments.filter((a) => a.role === role).map((a) => a.userId)
               );
               const { options, scoped, deptEmpty } = optionsFor(key, discipline, selectedIds);
-              const inherited = !boardMode && !group.roleOverrides.includes(role);
+              // Team Leader 只能改 DM:這幾列直接可編(第一次改就變成這個分組自己的名單),不需要「沿用看板」開關;其他角色唯讀。
+              const leaderCanEdit = leaderOnly && LEADER_ASSIGNABLE_ROLES.includes(role);
+              const inherited = !boardMode && !leaderOnly && !group.roleOverrides.includes(role);
+              const readOnly = leaderOnly && !leaderCanEdit;
               return (
                 <div key={role} className="flex items-center gap-2" data-role-row={role}>
                   <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
@@ -263,7 +273,7 @@ export function GroupRolesModal({
                       hint: scoped ? undefined : (u.discipline ?? undefined),
                     }))}
                     selectedIds={selectedIds}
-                    disabled={pending === key || inherited}
+                    disabled={pending === key || inherited || readOnly}
                     placeholder={
                       discipline && scoped ? `未指定(${DISCIPLINE_LABELS[discipline]} 部門)` : "未指定"
                     }
@@ -271,7 +281,7 @@ export function GroupRolesModal({
                     footer={scopeFooter(key, discipline, deptEmpty)}
                     onToggle={(userId) => toggleRole(role, userId)}
                   />
-                  {!boardMode && (
+                  {!boardMode && !leaderOnly && (
                     <label
                       className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400"
                       title="勾選:名單跟看板設定的一樣,看板改了這裡跟著改。取消勾選:這個分組自己挑人。"
@@ -331,7 +341,7 @@ export function GroupRolesModal({
 
         )}
 
-        {!boardMode && resources.length > 0 && (
+        {!boardMode && !leaderOnly && resources.length > 0 && (
           <section>
             <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">Resource 成員</h3>
             <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">花名冊用途,Resource 沒有登入帳號、不會取得任何操作權限。</p>

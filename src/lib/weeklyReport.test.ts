@@ -7,6 +7,8 @@ import {
   diffWeeks,
   renderWeeklyReportMarkdown,
   groupItemUpdates,
+  groupChannelMessages,
+  channelMessageLine,
   updatesByItem,
   programSubset,
   weeklyReportSubject,
@@ -22,6 +24,7 @@ import {
   reportRangeOf,
   reportWeekLabel,
   type BudgetLine,
+  type ChannelMessageLine,
   type ItemUpdateLine,
   type PersonSection,
   type ProgramSection,
@@ -1276,5 +1279,50 @@ describe("shouldRetryWeeklyRun", () => {
   it("沒有要寄的(沒有收件人、沒有看板)不算失敗,不重試", () => {
     expect(shouldRetryWeeklyRun([{ programName: "A", sent: 0, failed: 0, detail: "沒有收件人" }], 5)).toBe(false);
     expect(shouldRetryWeeklyRun([], 5)).toBe(false);
+  });
+});
+
+describe("看板頻道對話", () => {
+  const msg = (overrides: Partial<ChannelMessageLine> = {}): ChannelMessageLine => ({
+    boardName: "M3專案",
+    authorName: "Henry",
+    date: "2026-09-16",
+    time: "10:05",
+    text: "外殼打樣確認",
+    attachments: [],
+    ...overrides,
+  });
+
+  it("依看板分組、看板依名稱排,每個看板內依發言先後", () => {
+    const groups = groupChannelMessages([
+      msg({ boardName: "PS30", date: "2026-09-17", time: "09:00", text: "後" }),
+      msg({ boardName: "M3專案", date: "2026-09-16", time: "10:05", text: "中" }),
+      msg({ boardName: "PS30", date: "2026-09-16", time: "08:00", text: "前" }),
+    ]);
+    expect(groups.map((g) => g.boardName)).toEqual(["M3專案", "PS30"]);
+    expect(groups[1].messages.map((m) => m.text)).toEqual(["前", "後"]);
+  });
+
+  it("一行:誰、月日時間、內容;有附檔就接在後面", () => {
+    expect(channelMessageLine(msg())).toBe("Henry 09-16 10:05:外殼打樣確認");
+    expect(channelMessageLine(msg({ attachments: ["a.pdf", "b.png"] }))).toBe("Henry 09-16 10:05:外殼打樣確認 📎a.pdf、b.png");
+  });
+
+  it("Markdown 有「看板頻道對話」一段,依看板列出", () => {
+    const data = snapshot([]);
+    data.programs[0].channelMessages = [msg(), msg({ authorName: "Amy", time: "11:00", text: "收到" })];
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("### 看板頻道對話(2 則)");
+    expect(md).toContain("- M3專案(2 則)");
+    expect(md).toContain("  - 💬 Henry 09-16 10:05:外殼打樣確認");
+    expect(md).toContain("  - 💬 Amy 09-16 11:00:收到");
+  });
+
+  it("這週頻道沒有對話時說清楚;舊版快照(沒有這個欄位)不顯示這一段", () => {
+    const empty = snapshot([]);
+    empty.programs[0].channelMessages = [];
+    expect(renderWeeklyReportMarkdown(empty, diffWeeks(empty, null))).toContain("這週看板頻道沒有對話。");
+    const legacy = snapshot([]);
+    expect(renderWeeklyReportMarkdown(legacy, diffWeeks(legacy, null))).not.toContain("看板頻道對話");
   });
 });

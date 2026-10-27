@@ -10,9 +10,12 @@ type BoardWithGroups = { id: string; name: string; roleAssignments: GroupRolesDa
 export function GroupRolesPage({
   boards,
   users,
+  leaderOnly = false,
 }: {
   boards: BoardWithGroups[];
   users: UserOption[];
+  /** 不是管理者、只是分組的 Team Leader:沒有看板層級的角色可以設,分組裡也只能指定 DM 與 member。 */
+  leaderOnly?: boolean;
 }) {
   // Track only the ids, not a copy of the group — the group's own data must
   // keep flowing from the `boards` prop (refreshed after every role toggle)
@@ -32,6 +35,7 @@ export function GroupRolesPage({
         <section key={board.id}>
           <h2 className="mb-2 text-sm font-semibold text-neutral-800 dark:text-neutral-100">{board.name}</h2>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
+            {!leaderOnly && (
             <div className="flex items-center justify-between bg-neutral-50 px-4 py-2.5 dark:bg-neutral-800/50">
               <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">
                 整個看板
@@ -46,6 +50,7 @@ export function GroupRolesPage({
                 <Shield size={13} /> 看板角色
               </button>
             </div>
+            )}
             {board.groups.map((group) => (
               <div key={group.id} className="flex items-center justify-between px-4 py-2.5">
                 <span className="text-sm text-neutral-700 dark:text-neutral-100">{group.name}</span>
@@ -70,6 +75,7 @@ export function GroupRolesPage({
       {target && targetData && (
         <GroupRolesModal
           mode={target.groupId === null ? "board" : "group"}
+          leaderOnly={leaderOnly}
           boardId={target.boardId}
           group={targetData}
           users={users}

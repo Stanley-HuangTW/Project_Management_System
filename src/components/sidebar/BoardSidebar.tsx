@@ -79,6 +79,7 @@ export function BoardSidebar({
   programs,
   isApprover,
   projectDashboards = [],
+  canManageProjectTeam = false,
   userName,
   userRole,
   currentUserId,
@@ -92,6 +93,8 @@ export function BoardSidebar({
   isApprover: boolean;
   /** 這個人有專案角色的看板:儀表板底下每個一個「看板名稱-儀表板」子項。 */
   projectDashboards?: { id: string; name: string }[];
+  /** 這個人是某個分組的 Team Leader:看得到「分組角色設定」,在裡面指定自己分組的 DM 與 member。 */
+  canManageProjectTeam?: boolean;
   userName: string;
   userRole: UserRole;
   currentUserId: string;
@@ -541,7 +544,7 @@ export function BoardSidebar({
             看板垃圾桶
           </button>
         )}
-        {userRole === "ADMIN" && (
+        {(userRole === "ADMIN" || canManageProjectTeam) && (
           <Link
             href="/group-roles"
             className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${

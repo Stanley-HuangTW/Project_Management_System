@@ -2,9 +2,11 @@ import type { ReactNode } from "react";
 import {
   ITEM_UPDATE_LABELS,
   byPriority,
+  groupChannelMessages,
   groupItemUpdates,
   risksToList,
   updatesByItem,
+  type ChannelMessageLine,
   type ItemUpdateLine,
   type ProgramSection,
   type PersonSection,
@@ -145,6 +147,40 @@ function ItemUpdateList({ updates }: { updates: ItemUpdateLine[] }) {
             {g.name}
           </p>
           <UpdateRows updates={g.updates} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** 這一週看板頻道裡的對話,一個看板一組,依發言先後全部列出。 */
+function ChannelMessageList({ messages }: { messages: ChannelMessageLine[] }) {
+  const groups = groupChannelMessages(messages);
+  if (groups.length === 0) {
+    return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週看板頻道沒有對話。</p>;
+  }
+  return (
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {groups.map((g) => (
+        <li key={g.boardName} className="py-1.5">
+          <p className="text-sm text-neutral-700 dark:text-neutral-100">
+            {g.boardName}
+            <span className="ml-1 text-xs text-neutral-400 dark:text-neutral-500">({g.messages.length} 則)</span>
+          </p>
+          <ul className="mt-0.5 space-y-0.5 pl-3">
+            {g.messages.map((m, idx) => (
+              <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
+                <span title="看板頻道對話">💬</span>
+                <span className="text-neutral-400 dark:text-neutral-500">
+                  {m.authorName} {m.date.slice(5)} {m.time}
+                </span>
+                <span className="break-words">{m.text}</span>
+                {m.attachments.length > 0 && (
+                  <span className="text-neutral-400 dark:text-neutral-500">📎{m.attachments.join("、")}</span>
+                )}
+              </li>
+            ))}
+          </ul>
         </li>
       ))}
     </ul>
@@ -430,6 +466,12 @@ export function WeeklyProgramPanel({
       {program.itemUpdates && (
         <Block title="工作項資訊更新" count={groupItemUpdates(program.itemUpdates).length}>
           <ItemUpdateList updates={program.itemUpdates} />
+        </Block>
+      )}
+
+      {program.channelMessages && (
+        <Block title="看板頻道對話" count={program.channelMessages.length}>
+          <ChannelMessageList messages={program.channelMessages} />
         </Block>
       )}
 

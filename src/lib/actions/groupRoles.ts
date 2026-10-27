@@ -7,6 +7,29 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
+import { isGroupLeader } from "@/lib/groupLeaderServer";
+import type { SessionPayload } from "@/lib/jwt";
+
+/** Team Leader 可以在自己的分組指定的角色:各職能的 DM。Team Leader / PMM / PMD 管的是整個分組,只有管理者能設。 */
+const LEADER_ASSIGNABLE_ROLES: GroupRole[] = ["SW_DM", "HW_DM", "ME_DM", "QA", "PM_DM"];
+
+/**
+ * 能不能改這個分組的人員設定:管理者可以;分組的 Team Leader 在 leaderAllowed 時也可以。
+ * 回傳 null = 可以,否則是要顯示給使用者的原因。groupId 一定要驗證屬於這個看板——
+ * Team Leader 的資格是對那一個分組而言的,不能靠前端傳來的 boardId。
+ */
+async function denyGroupSetup(
+  session: SessionPayload,
+  boardId: string,
+  groupId: string,
+  leaderAllowed: boolean
+): Promise<string | null> {
+  const group = await prisma.group.findUnique({ where: { id: groupId }, select: { boardId: true } });
+  if (!group || group.boardId !== boardId) return "找不到這個分組";
+  if (session.role === "ADMIN") return null;
+  if (leaderAllowed && (await isGroupLeader(session.userId, groupId))) return null;
+  return leaderAllowed ? "權限不足:僅管理者或這個分組的 Team Leader 可以設定" : "權限不足:這個角色僅管理者可以設定";
+}
 
 /**
  * Replaces the full set of users holding `role` on a group — configuring
@@ -22,10 +45,11 @@ export async function setGroupRoleAssignments(
   groupId: string,
   role: GroupRole,
   userIds: string[]
-) {
+): Promise<{ error?: string }> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
-  requireBoardAdmin(session.role);
+  const denied = await denyGroupSetup(session, boardId, groupId, LEADER_ASSIGNABLE_ROLES.includes(role));
+  if (denied) return { error: denied };
 
   await prisma.$transaction(async (tx) => {
     const group = await tx.group.findUnique({ where: { id: groupId }, select: { roleOverrides: true } });
@@ -36,6 +60,8 @@ export async function setGroupRoleAssignments(
     }
   });
   revalidatePath(`/boards/${boardId}`);
+  revalidatePath("/group-roles");
+  return {};
 }
 
 /**
@@ -90,18 +116,21 @@ export async function setGroupMembers(
   groupId: string,
   discipline: GroupDiscipline,
   userIds: string[]
-) {
+): Promise<{ error?: string }> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
-  requireBoardAdmin(session.role);
+  const denied = await denyGroupSetup(session, boardId, groupId, true);
+  if (denied) return { error: denied };
 
   await prisma.$transaction([
     prisma.groupMember.deleteMany({ where: { groupId, discipline } }),
-    ...userIds.map((userId) =>
+    ...[...new Set(userIds)].map((userId) =>
       prisma.groupMember.create({ data: { groupId, discipline, userId } })
     ),
   ]);
   revalidatePath(`/boards/${boardId}`);
+  revalidatePath("/group-roles");
+  return {};
 }
 
 /** Replaces the full Resource roster for a group — informational only, Resources have no login/permissions. */

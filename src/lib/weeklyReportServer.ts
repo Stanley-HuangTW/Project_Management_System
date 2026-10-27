@@ -24,6 +24,7 @@ import {
   type ReportRangeConfig,
   type ItemBucket,
   type ItemUpdateLine,
+  type ChannelMessageLine,
   type RiskUpdateLine,
   type ProgramSection,
   type ReportItem,
@@ -131,6 +132,7 @@ export async function buildWeeklyReport(
       delays: await gatherDelays(mine, session),
       risks: await gatherRisks(mine, program.name, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, info),
+      channelMessages: info.updates ? await gatherChannelMessages(mine, weekStart, weekEnd) : undefined,
     });
   }
 
@@ -146,6 +148,7 @@ export async function buildWeeklyReport(
       delays: await gatherDelays(orphans, session),
       risks: await gatherRisks(orphans, null, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, info),
+      channelMessages: info.updates ? await gatherChannelMessages(orphans, weekStart, weekEnd) : undefined,
     });
   }
 
@@ -712,6 +715,52 @@ async function gatherItemUpdates(
   ];
 }
 
+/**
+ * 這一週看板頻道(對話)裡的發言,依看板分組列在「看板頻道對話」。只看看板頻道(私訊與自己建的聊天室不進週報),
+ * 收回的訊息不算;週的邊界照台灣時間,跟工作項資訊更新同一套。
+ */
+async function gatherChannelMessages(
+  boards: { id: string; name: string }[],
+  weekStart: string,
+  weekEnd: string
+): Promise<ChannelMessageLine[]> {
+  if (boards.length === 0) return [];
+  const nameOf = new Map(boards.map((b) => [b.id, b.name]));
+  const rows = await prisma.chatMessage.findMany({
+    where: {
+      deletedAt: null,
+      createdAt: {
+        gte: new Date(`${weekStart}T00:00:00+08:00`),
+        lt: new Date(new Date(`${weekEnd}T00:00:00+08:00`).getTime() + 86_400_000),
+      },
+      conversation: { kind: "BOARD", boardId: { in: [...nameOf.keys()] } },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      body: true,
+      createdAt: true,
+      author: { select: { name: true } },
+      attachments: { select: { fileName: true } },
+      conversation: { select: { boardId: true } },
+    },
+  });
+  return rows.flatMap((r) => {
+    const boardId = r.conversation.boardId;
+    if (!boardId) return [];
+    const taipei = new Date(r.createdAt.getTime() + TAIPEI_OFFSET_MS).toISOString();
+    return [
+      {
+        boardName: nameOf.get(boardId) ?? "",
+        authorName: r.author.name,
+        date: taipei.slice(0, 10),
+        time: taipei.slice(11, 16),
+        text: excerpt(r.body, 160),
+        attachments: r.attachments.map((a) => a.fileName),
+      },
+    ];
+  });
+}
+
 /** 這一週每塊看板有幾筆異動。週末那一天也要算進去,所以比到隔天零點。 */
 async function gatherActivity(
   boards: BoardWithData[],
@@ -866,6 +915,7 @@ export async function buildProgramWeeklyReportData(
       delays: await gatherDelays(boards, systemSession),
       risks: await gatherRisks(boards, program.name, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, DEFAULT_WEEKLY_INFO),
+      channelMessages: await gatherChannelMessages(boards, weekStart, weekEnd),
     },
   ];
   await stampCompletions(boards, sections);

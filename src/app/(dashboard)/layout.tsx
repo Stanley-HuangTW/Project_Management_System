@@ -42,8 +42,10 @@ export default async function DashboardLayout({
   // 看板層級的角色已經複製到分組裡(見 boardRolesServer),所以只要查分組的角色。
   const projectRoleRows = await prisma.groupRoleAssignment.findMany({
     where: { userId: session.userId, role: { in: PROJECT_DASHBOARD_ROLES }, group: { board: { deletedAt: null } } },
-    select: { group: { select: { boardId: true } } },
+    select: { role: true, group: { select: { boardId: true } } },
   });
+  // 擔任 Team Leader 的人在側邊欄也看得到「分組角色設定」(只能設自己負責的分組)。
+  const canManageProjectTeam = projectRoleRows.some((r) => r.role === "TEAM_LEADER");
   const projectBoardIds = new Set(projectRoleRows.map((r) => r.group.boardId));
   const projectDashboards = boards.filter((b) => projectBoardIds.has(b.id)).map((b) => ({ id: b.id, name: b.name }));
   // 代操作時不開對話(發言會變成被代操作的人說的)。
@@ -68,6 +70,7 @@ export default async function DashboardLayout({
           programs={programs}
           isApprover={isApprover}
           projectDashboards={projectDashboards}
+          canManageProjectTeam={canManageProjectTeam}
           userName={session.name}
           userRole={session.role}
           currentUserId={session.userId}

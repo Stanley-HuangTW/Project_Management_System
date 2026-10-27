@@ -154,6 +154,18 @@ export type ItemUpdateLine = {
   date: string;
 };
 
+/** 這一週看板頻道(對話)裡的一則發言。 */
+export type ChannelMessageLine = {
+  boardName: string;
+  authorName: string;
+  /** "YYYY-MM-DD"、"HH:mm"(台北時間) */
+  date: string;
+  time: string;
+  text: string;
+  /** 這則發言附的檔案與圖片的檔名。 */
+  attachments: string[];
+};
+
 export type ProgramSection = {
   programName: string | null;
   boards: BoardLine[];
@@ -163,6 +175,8 @@ export type ProgramSection = {
   risks: RiskLine[];
   /** 這一週工作項上新增的留言、連結、附件。舊版快照沒有這個欄位。 */
   itemUpdates?: ItemUpdateLine[];
+  /** 這一週這個專案的看板頻道裡的對話(收回的不算)。舊版快照、沒勾「更新」的週報沒有這個欄位。 */
+  channelMessages?: ChannelMessageLine[];
 };
 
 export type WeeklyReportData = {
@@ -598,6 +612,24 @@ export function countItemsWithUpdates(programs: { itemUpdates?: ItemUpdateLine[]
   return new Set(programs.flatMap((p) => (p.itemUpdates ?? []).map((u) => u.itemId))).size;
 }
 
+/** 看板頻道的對話依看板分組(看板依名稱排),每個看板內依發言的先後。 */
+export function groupChannelMessages(messages: ChannelMessageLine[]): { boardName: string; messages: ChannelMessageLine[] }[] {
+  const byBoard = new Map<string, ChannelMessageLine[]>();
+  for (const m of messages) byBoard.set(m.boardName, [...(byBoard.get(m.boardName) ?? []), m]);
+  return [...byBoard.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, "zh-TW"))
+    .map(([boardName, list]) => ({
+      boardName,
+      messages: [...list].sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),
+    }));
+}
+
+/** 一則頻道發言的一行:誰、幾月幾日幾點、說了什麼(有附檔案就把檔名接在後面)。 */
+export function channelMessageLine(m: ChannelMessageLine): string {
+  const files = m.attachments.length > 0 ? ` 📎${m.attachments.join("、")}` : "";
+  return `${m.authorName} ${m.date.slice(5)} ${m.time}:${m.text}${files}`;
+}
+
 const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄" };
 
 /** 網址用 <…> 包起來:Markdown 與純文字信件都會把它當成可以點的連結。 */
@@ -883,6 +915,18 @@ function renderProgram(
         ? "這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)。"
         : renderItemUpdates(groups).join("\n")
     );
+  }
+
+  if (program.channelMessages) {
+    out.push("", `### 看板頻道對話(${program.channelMessages.length} 則)`, "");
+    if (program.channelMessages.length === 0) {
+      out.push("這週看板頻道沒有對話。");
+    } else {
+      for (const g of groupChannelMessages(program.channelMessages)) {
+        out.push(`- ${g.boardName}(${g.messages.length} 則)`);
+        out.push(...g.messages.map((m) => `  - 💬 ${channelMessageLine(m)}`));
+      }
+    }
   }
 
   if (includeDepartments) out.push(...renderProgramDepartments(program, departments, upcomingDays, updates));
