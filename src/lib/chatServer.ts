@@ -713,13 +713,27 @@ export async function listBoardRefsForChat(actor: ChatSender, boardId: string): 
       orderBy: { createdAt: "desc" },
     }),
   ]);
-  // WBS 代號是每個分組各自從 1 開始算的。
+  // WBS 代號是每個分組各自從 1 開始算的;清單依階層排(父項在前、子項接在後),畫面上才能縮排成巢狀。
   const items = groups.flatMap((group) => {
     const inGroup = rows.filter((r) => r.groupId === group.id);
     const codes = computeWbsCodes(inGroup);
-    return inGroup
-      .filter((r) => visible.has(r.id))
-      .map((r) => ({ id: r.id, name: r.name, wbsCode: codes.get(r.id) ?? "", groupName: group.name }));
+    const ids = new Set(inGroup.map((r) => r.id));
+    const childrenOf = new Map<string | null, typeof inGroup>();
+    for (const r of inGroup) {
+      const key = r.parentId && ids.has(r.parentId) ? r.parentId : null;
+      childrenOf.set(key, [...(childrenOf.get(key) ?? []), r]);
+    }
+    const ordered: ChatBoardRefs["items"] = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const r of (childrenOf.get(parentId) ?? []).sort((a, b) => a.order - b.order)) {
+        if (visible.has(r.id)) {
+          ordered.push({ id: r.id, name: r.name, wbsCode: codes.get(r.id) ?? "", groupName: group.name, parentId: r.parentId, depth });
+        }
+        walk(r.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return ordered;
   });
   return { boardId: board.id, boardName: board.name, items, risks };
 }

@@ -63,7 +63,13 @@ export function normalizeChatLinks(inputs: ChatLinkInput[]): { links: ChatLink[]
   return { links };
 }
 
-/** 引用本系統的一個項目:工作項、風險、問題各自指到看板上對應的位置。 */
-export function internalRefUrl(ref: { kind: "item" | "risk" | "issue"; boardId: string; id: string }): string {
+/**
+ * 對話裡能引用 / 轉成待辦或留言的四類項目:工作項,以及風險登記冊的風險、問題、議題。
+ * 議題是從 MantisBT 同步來的問題單(內容以 Mantis 為準);風險、問題是在登記冊裡自己登記的。
+ */
+export type RefKind = "item" | "risk" | "issue" | "mantis";
+
+/** 引用本系統的一個項目:工作項指到那一列,風險、問題、議題指到風險登記冊。 */
+export function internalRefUrl(ref: { kind: RefKind; boardId: string; id: string }): string {
   return ref.kind === "item" ? `/boards/${ref.boardId}?highlight=${ref.id}` : `/boards/${ref.boardId}?view=risks`;
 }

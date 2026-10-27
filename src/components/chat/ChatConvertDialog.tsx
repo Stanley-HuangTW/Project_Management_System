@@ -17,9 +17,9 @@ const inputClass =
 /**
  * 把對話裡的一則訊息變成某個項目底下的待辦事項或留言——討論出結論的時候,
  * 不用複製貼上、也不用記得是哪個項目。文字可以先改;待辦事項還可以順便設期限。
- * 挑項目有兩種方式:輸入名稱搜尋,或從清單選——清單是這間對話所屬看板的工作項、風險、問題
- * (私訊、聊天室沒有看板,先挑看板)。待辦事項只能加在工作項上;留言可以加在工作項,
- * 也可以加在風險或問題(變成它的進度更新)。
+ * 挑項目有兩種方式:輸入名稱搜尋,或從清單選——清單是下拉選單加搜尋,列這間對話所屬看板的
+ * 工作項(依階層巢狀)、風險、問題、議題(私訊、聊天室沒有看板,先挑看板)。待辦事項只能加在工作項上;
+ * 留言可以加在工作項,也可以加在風險、問題或議題(變成它的進度更新)。
  * 寫入走原本的 addTodoItem / createComment / addRiskUpdate,權限、活動紀錄、通知都跟手動新增一樣。
  */
 export function ConvertMessageDialog({
@@ -58,7 +58,7 @@ export function ConvertMessageDialog({
   }, [query]);
 
   const label = mode === "todo" ? "待辦事項" : "留言";
-  const kinds: RefKind[] = mode === "todo" ? ["item"] : ["item", "risk", "issue"];
+  const kinds: RefKind[] = mode === "todo" ? ["item"] : ["item", "risk", "issue", "mantis"];
   /** 風險、問題的留言叫「進度更新」。 */
   const targetLabel = picked && picked.kind !== "item" ? "進度更新" : label;
 
@@ -102,7 +102,7 @@ export function ConvertMessageDialog({
 
         <div>
           <span className="mb-1 block text-neutral-600 dark:text-neutral-300">
-            {mode === "todo" ? "加到哪個工作項" : "加到哪個項目(工作項、風險或問題)"}
+            {mode === "todo" ? "加到哪個工作項" : "加到哪個項目(工作項、風險、問題或議題)"}
           </span>
           {picked ? (
             <div className="flex items-center justify-between rounded-md border border-blue-300 bg-blue-50 px-3 py-2 dark:border-blue-800 dark:bg-blue-950">

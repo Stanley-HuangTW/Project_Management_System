@@ -55,10 +55,11 @@ describe("normalizeChatLinks", () => {
 });
 
 describe("internalRefUrl", () => {
-  it("工作項指到那一列,風險與問題指到風險登記冊", () => {
+  it("工作項指到那一列,風險、問題、議題指到風險登記冊", () => {
     expect(internalRefUrl({ kind: "item", boardId: "b1", id: "i1" })).toBe("/boards/b1?highlight=i1");
     expect(internalRefUrl({ kind: "risk", boardId: "b1", id: "r1" })).toBe("/boards/b1?view=risks");
     expect(internalRefUrl({ kind: "issue", boardId: "b1", id: "r2" })).toBe("/boards/b1?view=risks");
+    expect(internalRefUrl({ kind: "mantis", boardId: "b1", id: "r3" })).toBe("/boards/b1?view=risks");
   });
 
   it("產生的位置一定通得過 normalizeChatLink", () => {

@@ -64,7 +64,8 @@ export type ChatItemHit = { itemId: string; boardId: string; name: string; board
 export type ChatBoardRefs = {
   boardId: string;
   boardName: string;
-  items: { id: string; name: string; wbsCode: string; groupName: string }[];
+  /** 依分組、再依階層(父項在前、子項接在後)排好;depth 是第幾層(最上層 0)。 */
+  items: { id: string; name: string; wbsCode: string; groupName: string; parentId: string | null; depth: number }[];
   risks: { id: string; title: string; kind: "RISK" | "ISSUE"; status: string; mantisId: number | null }[];
 };
 

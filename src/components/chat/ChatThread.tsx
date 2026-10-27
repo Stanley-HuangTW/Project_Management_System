@@ -627,7 +627,7 @@ export function ChatThread({
                 {(
                   [
                     ["url", "貼上網址"],
-                    ["ref", "引用工作項 / 風險 / 問題"],
+                    ["ref", "引用工作項 / 風險 / 問題 / 議題"],
                   ] as const
                 ).map(([key, name]) => (
                   <button
@@ -697,7 +697,7 @@ export function ChatThread({
             ) : (
               <BoardRefPicker
                 boardId={conversation.boardId}
-                kinds={["item", "risk", "issue"]}
+                kinds={["item", "risk", "issue", "mantis"]}
                 onPick={(ref) => {
                   addLink({ url: internalRefUrl(ref), label: `${REF_KIND_LABELS[ref.kind]}:${ref.name}` });
                   setAttachPanel(null);
@@ -730,7 +730,7 @@ export function ChatThread({
           <button
             type="button"
             onClick={() => setAttachPanel((prev) => (prev ? null : "url"))}
-            title="附連結:貼上網址,或引用這個看板的工作項、風險、問題"
+            title="附連結:貼上網址,或引用這個看板的工作項、風險、問題、議題"
             aria-label="加連結"
             data-chat-link-button
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
