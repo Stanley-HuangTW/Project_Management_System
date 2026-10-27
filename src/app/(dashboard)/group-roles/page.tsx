@@ -3,20 +3,25 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import type { UserOption } from "@/types/board";
 import { GroupRolesPage } from "@/components/board/GroupRolesPage";
-import { ledGroupIds } from "@/lib/groupLeaderServer";
+import { ledBoardIds, ledGroupIds } from "@/lib/groupLeaderServer";
 
 export default async function GroupRolesSettingsPage() {
   const session = await requireSession();
   const isAdmin = session.role === "ADMIN";
   // 不是管理者:只有擔任 Team Leader 的分組看得到,而且只看得到那些分組(在裡面指定 DM 與各職能的 member)。
+  // 看板層級的 Team Leader(管理者在「整個看板」設的)管那個看板的每個分組,也能在「整個看板」指定 DM。
+  const ledBoards = isAdmin ? null : await ledBoardIds(session.userId);
   const ledGroups = isAdmin ? null : await ledGroupIds(session.userId);
-  if (!isAdmin && (ledGroups?.length ?? 0) === 0) {
+  if (!isAdmin && (ledGroups?.length ?? 0) === 0 && (ledBoards?.length ?? 0) === 0) {
     redirect("/boards");
   }
 
   const [boards, users, resources] = await Promise.all([
     prisma.board.findMany({
-      where: { deletedAt: null, ...(ledGroups ? { groups: { some: { id: { in: ledGroups } } } } : {}) },
+      where: {
+        deletedAt: null,
+        ...(ledGroups ? { OR: [{ groups: { some: { id: { in: ledGroups } } } }, { id: { in: ledBoards ?? [] } }] } : {}),
+      },
       select: {
         id: true,
         name: true,
@@ -62,7 +67,7 @@ export default async function GroupRolesSettingsPage() {
           ? "設定 Team Leader(專案負責人)/ SW-HW-ME-QA DM / PMM / PMD,決定誰能調整時程或管理項目。每個看板先設「看板角色」,底下的分組預設沿用;分組可以逐一角色改成自己的。"
           : "你是下面這些分組的 Team Leader(專案負責人):可以從公司人員裡指定這個專案的 DM 與各職能的 member。Team Leader / PMM / PMD 由管理者設定。"}
       </p>
-      <GroupRolesPage boards={boards} users={assignees} leaderOnly={!isAdmin} />
+      <GroupRolesPage boards={boards} users={assignees} leaderOnly={!isAdmin} leaderBoardIds={ledBoards ?? []} />
     </div>
   );
 }

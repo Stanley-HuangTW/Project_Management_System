@@ -7,7 +7,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
-import { isGroupLeader } from "@/lib/groupLeaderServer";
+import { isBoardLeader, isGroupLeader } from "@/lib/groupLeaderServer";
 import type { SessionPayload } from "@/lib/jwt";
 
 /** Team Leader 可以在自己的分組指定的角色:各職能的 DM。Team Leader / PMM / PMD 管的是整個分組,只有管理者能設。 */
@@ -91,14 +91,18 @@ export async function setGroupRoleInherit(
 
 /**
  * 看板層級的角色名單(整批取代)。沒有自己設定這個角色的分組,名單立刻跟著換——
- * 所以這等於一次改所有分組的預設。管理者與看板擁有者可以設。
+ * 所以這等於一次改所有分組的預設。管理者與看板擁有者可以設;看板層級的 Team Leader
+ * (整個看板的 Team Leader)可以指定各職能的 DM(Team Leader / PMM / PMD 他自己看到的是鎖住的)。
  */
 export async function setBoardRoleAssignments(boardId: string, role: GroupRole, userIds: string[]): Promise<{ error?: string }> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
   if (session.role !== "ADMIN") {
     const board = await prisma.board.findUnique({ where: { id: boardId }, select: { ownerId: true } });
-    if (board?.ownerId !== session.userId) return { error: "權限不足:僅看板擁有者或管理者可以設定看板角色" };
+    const leaderMay = LEADER_ASSIGNABLE_ROLES.includes(role) && (await isBoardLeader(session.userId, boardId));
+    if (board?.ownerId !== session.userId && !leaderMay) {
+      return { error: "權限不足:僅看板擁有者或管理者可以設定看板角色(Team Leader 只能指定各職能的 DM)" };
+    }
   }
 
   await prisma.$transaction(async (tx) => {
