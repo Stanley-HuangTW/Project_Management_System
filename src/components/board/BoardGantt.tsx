@@ -35,7 +35,13 @@ import {
 import NextLink from "next/link";
 import type { BoardWithData, ItemData, UserOption, ExternalPredecessor } from "@/types/board";
 import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
-import { canManageGroupStructure, canManageStructure, canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
+import {
+  canManageGroupStructure,
+  canManageStructure,
+  canEditGanttItem,
+  canEditCellValue,
+  canModifyItemSchedule,
+} from "@/lib/permissions";
 import { resolveGroupRoleAccess, groupDisciplineTeamUserIds, type GroupRoleAccess } from "@/lib/groupRoles";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { toggleRowSelection } from "@/lib/rowSelection";
@@ -100,6 +106,7 @@ import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
 import { SavedViewBar } from "./SavedViewBar";
 import { ConstraintBadge } from "./ConstraintBadge";
+import { StatusCell } from "./cell-editors/StatusCell";
 import { createItem, insertItem } from "@/lib/actions/item";
 import { useRecordedItemMove } from "./useRecordedItemMove";
 import { useChangeLevel, levelDirectionOfKey, type LevelDirection } from "./useChangeLevel";
@@ -822,6 +829,19 @@ export function BoardGantt({
     );
   }
 
+  // 狀態標籤點了可以換狀態,規則跟表格的狀態欄一樣(canEditCellValue):管理者 / 主管任何項目,
+  // 其他人只有指派給自己、或同分組同職能組員的項目。
+  function canEditItemStatus(item: ItemData): boolean {
+    const groupTeamUserIds = groupTeamUserIdsByGroupId.get(item.groupId);
+    return canEditCellValue(
+      userRole,
+      "STATUS",
+      false,
+      isItemAssignedToUser(item, personColumnIds, currentUserId),
+      !!groupTeamUserIds && groupTeamUserIds.size > 0 && isItemAssignedToTeam(item, personColumnIds, groupTeamUserIds)
+    );
+  }
+
   // Deliberately stricter than canEditItem (which also allows the item's own
   // assignee, or a supervisor over that assignee, to open the assignment
   // modal): dragging/resizing the bar — and the Pred/Link/Lag fields inside
@@ -1407,14 +1427,26 @@ export function BoardGantt({
               )}
               {item.name}
             </button>
-            {showStatus && statusOption && (
-              <span
-                title={statusOption.label}
-                data-item-status={item.id}
-                className="shrink-0 whitespace-nowrap rounded px-1.5 text-[10px] font-medium leading-4 text-white"
-                style={{ backgroundColor: statusOption.color }}
-              >
-                {statusOption.label}
+            {showStatus && ganttStatusColumn && statusOption && (
+              <span data-item-status={item.id} className="flex shrink-0">
+                {canEditItemStatus(item) ? (
+                  <StatusCell
+                    compact
+                    boardId={board.id}
+                    itemId={item.id}
+                    columnId={ganttStatusColumn.id}
+                    value={statusOption.id}
+                    options={ganttStatusColumn.options}
+                  />
+                ) : (
+                  <span
+                    title={statusOption.label}
+                    className="whitespace-nowrap rounded px-1.5 text-[10px] font-medium leading-4 text-white"
+                    style={{ backgroundColor: statusOption.color }}
+                  >
+                    {statusOption.label}
+                  </span>
+                )}
               </span>
             )}
             <ConstraintBadge item={item} />

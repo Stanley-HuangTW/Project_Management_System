@@ -10,12 +10,15 @@ export function StatusCell({
   columnId,
   value,
   options,
+  compact = false,
 }: {
   boardId: string;
   itemId: string;
   columnId: string;
   value: string | null;
   options: unknown;
+  /** 小標籤的樣子(甘特圖項目名稱旁用),不是撐滿儲存格的長條。 */
+  compact?: boolean;
 }) {
   const statuses = getStatusOptions(options);
   const save = useRecordedCellSave();
@@ -27,7 +30,11 @@ export function StatusCell({
         <button
           type="button"
           title={current?.label}
-          className="flex h-7 w-full items-center truncate rounded px-2 text-xs font-medium text-white"
+          className={
+            compact
+              ? "shrink-0 whitespace-nowrap rounded px-1.5 text-[10px] font-medium leading-4 text-white"
+              : "flex h-7 w-full items-center truncate rounded px-2 text-xs font-medium text-white"
+          }
           style={{ backgroundColor: current?.color ?? "#c4c4c4" }}
         >
           {current?.label ?? "設定狀態"}
