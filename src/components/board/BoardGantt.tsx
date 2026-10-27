@@ -94,7 +94,7 @@ import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { resolveItemNameColor, resolveStatusColumn } from "@/lib/dashboard";
+import { resolveItemNameColor, resolveItemStatusOption, resolveStatusColumn } from "@/lib/dashboard";
 import { AssignmentModal } from "./AssignmentModal";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { FilterBar } from "./FilterBar";
@@ -125,6 +125,9 @@ const MIN_LABEL_WIDTH = 140;
 const MAX_LABEL_WIDTH = 720;
 /** 一列上名稱以外不隨項目變的寬度:左側勾選框的位置與邊距、收合箭頭、留言 / 指派 / 新增圖示、升降階按鈕與間距。 */
 const LABEL_CHROME_WIDTH = 210;
+/** 名稱旁狀態標籤的字級(比名稱小),以及標籤文字以外的寬度:左右內距 px-1.5 加上與前一格的間距 gap-1。 */
+const STATUS_LABEL_FONT_SIZE = 10;
+const STATUS_LABEL_CHROME_WIDTH = 16;
 
 type HeaderSegment = { key: string; label: string; sublabel?: string; days: number };
 
@@ -534,6 +537,7 @@ export function BoardGantt({
   // since a Pred chain never crosses one.
   const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [showArrows, setShowArrows] = useState(true);
+  const [showStatus, setShowStatus] = useState(true);
   // Board-wide, not per group: a Pred may cross groups now, and computing
   // each group on its own would cut those edges and hand the tasks either
   // side of one float they do not have.
@@ -870,7 +874,17 @@ export function BoardGantt({
           // 編號跟名稱同一個字級,中間隔 4px(mr-1)。
           measure: (text, kind) => measureText(text, 14) + (kind === "code" ? 4 : 0),
           indentPerLevel: 16,
-          chrome: LABEL_CHROME_WIDTH,
+          // 狀態標籤跟著開關,但寬度一律先留好(取最長的選項),不然打開時名稱會被擠掉。
+          chrome:
+            LABEL_CHROME_WIDTH +
+            (ganttStatusColumn
+              ? Math.max(
+                  0,
+                  ...getStatusOptions(ganttStatusColumn.options).map(
+                    (o) => measureText(o.label, STATUS_LABEL_FONT_SIZE) + STATUS_LABEL_CHROME_WIDTH
+                  )
+                )
+              : 0),
           min: DEFAULT_LABEL_WIDTH,
           max: autoFitCap(scroller.clientWidth || 1200, 320),
         })
@@ -879,7 +893,7 @@ export function BoardGantt({
     return () => {
       cancelled = true;
     };
-  }, [board.items, wbsCodes]);
+  }, [board.items, wbsCodes, ganttStatusColumn]);
 
   const linkOptions = useMemo(
     () => getStatusOptions(board.columns.find((c) => c.id === linkColumnId)?.options),
@@ -1334,6 +1348,7 @@ export function BoardGantt({
       const isCollapsed = collapsed.has(item.id) && !searching;
       const range = ranges.get(item.id);
       const nameColor = ganttStatusColor(item);
+      const statusOption = resolveItemStatusOption(item, ganttStatusColumn);
       // 拖曳途中,被拖的這一列顯示「放開後會變成的 WBS 編號」。
       const previewCode =
         dragOverTarget?.draggedId === item.id ? (dragOverTarget.preview?.newCode ?? null) : null;
@@ -1392,6 +1407,16 @@ export function BoardGantt({
               )}
               {item.name}
             </button>
+            {showStatus && statusOption && (
+              <span
+                title={statusOption.label}
+                data-item-status={item.id}
+                className="shrink-0 whitespace-nowrap rounded px-1.5 text-[10px] font-medium leading-4 text-white"
+                style={{ backgroundColor: statusOption.color }}
+              >
+                {statusOption.label}
+              </span>
+            )}
             <ConstraintBadge item={item} />
             <LevelButtons
               canIndent={!!indent}
@@ -1593,6 +1618,15 @@ export function BoardGantt({
         >
           <Share2 size={13} /> 相依箭頭
         </button>
+        {ganttStatusColumn && (
+          <label
+            title="在項目名稱旁顯示狀態(例如 Planned、In Progress、Completed)"
+            className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400"
+          >
+            <input type="checkbox" checked={showStatus} onChange={(e) => setShowStatus(e.target.checked)} />
+            顯示狀態
+          </label>
+        )}
         {canLink && (
           <button
             type="button"

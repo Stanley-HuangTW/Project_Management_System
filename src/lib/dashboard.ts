@@ -240,6 +240,13 @@ export function resolveStatusColumn(board: BoardWithData): ColumnData | null {
   );
 }
 
+/** 項目在 Status 欄上選的那個選項(標籤與顏色);沒選或選項已被刪掉就是 null。 */
+export function resolveItemStatusOption(item: ItemData, statusColumn: ColumnData | null): StatusOption | null {
+  if (!statusColumn) return null;
+  const value = item.cellValues.find((cv) => cv.columnId === statusColumn.id)?.value;
+  return getStatusOptions(statusColumn.options).find((o) => o.id === value) ?? null;
+}
+
 /** An item counts as done if its progress column reads 100% — stored as the
  *  0-1 fraction computeItemProgress uses, not a 0-100 percentage — or its
  *  report status column (configured in 報表設定) is set to one of the
