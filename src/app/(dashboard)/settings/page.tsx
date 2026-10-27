@@ -105,6 +105,11 @@ export default async function SettingsPage() {
           rangeEndDow: settings.weeklyReportRangeEndDow,
           reminderHours: settings.weeklyReportReminderHours,
         }}
+        weeklyReportLastRun={
+          settings.weeklyReportLastRunAt && settings.weeklyReportLastRunNote
+            ? { at: settings.weeklyReportLastRunAt.toISOString(), note: settings.weeklyReportLastRunNote }
+            : null
+        }
         backupSchedule={{
           enabled: settings.backupEnabled,
           frequency: settings.backupFrequency === "WEEKLY" ? "WEEKLY" : "DAILY",

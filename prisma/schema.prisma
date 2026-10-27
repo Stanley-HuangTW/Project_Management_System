@@ -1088,6 +1088,10 @@ model SystemSettings {
   /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
   /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
   weeklyReportLastRunWeek   String?
+  /// 排程最近一次真的動手(搶到這一輪、開始寄)的時間與結果。排程在背景跑、server.js 把回應丟掉,
+  /// 沒有這兩個欄位就沒人知道它有沒有跑、寄成功了沒;系統設定頁的排程卡片顯示它們。
+  weeklyReportLastRunAt     DateTime?
+  weeklyReportLastRunNote   String?
   /// 週報排程前幾小時,寄信提醒各單位同仁更新工作事項。0 = 不提醒。
   weeklyReportReminderHours    Int     @default(0)
   /// 提醒信寄過了沒——存「那一輪週報所在的 ISO 週」,判斷方式跟 weeklyReportLastRunWeek 一樣。

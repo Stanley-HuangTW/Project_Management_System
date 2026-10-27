@@ -7,10 +7,15 @@ import { MAX_REMINDER_HOURS, formatClock, reminderTime } from "@/lib/weeklyRemin
 
 const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
+function formatTaipei(iso: string): string {
+  return new Date(iso).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
+}
+
 /** 專案週報分發要多久跑一次——一份全域的時間,寄給誰、寄什麼在下面的
  *  ProgramReportSubscriptionCard 各自設定。 */
 export function WeeklyReportScheduleCard({
   initial,
+  lastRun,
 }: {
   initial: {
     enabled: boolean;
@@ -21,6 +26,8 @@ export function WeeklyReportScheduleCard({
     rangeEndDow: number;
     reminderHours: number;
   };
+  /** 排程最近一次真的動手的時間(ISO)與結果;還沒跑過就是 null。 */
+  lastRun: { at: string; note: string } | null;
 }) {
   const [schedule, setSchedule] = useState(initial);
   // 提醒小時用文字框:邊打邊存會一個字存一次,所以離開欄位才存。
@@ -108,6 +115,11 @@ export function WeeklyReportScheduleCard({
           ))}
         </select>
       </div>
+      <p data-last-run className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+        {lastRun
+          ? `上次執行:${formatTaipei(lastRun.at)}(台北時間)——${lastRun.note}`
+          : "還沒有執行過。啟用後,到了設定的時間,下一次心跳(每 5 分鐘一次)就會跑。"}
+      </p>
 
       <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
         <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">產生前提醒同仁更新工作事項</p>

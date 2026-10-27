@@ -1029,3 +1029,20 @@ function renderProgram(
 
   return out;
 }
+
+/** 排程對一個專案群組的處理結果。detail:失敗原因、或沒有寄的原因(沒有收件人、沒有看板)。 */
+export type ProgramRunResult = { programName: string; sent: number; failed: number; detail?: string };
+
+/**
+ * 排程這一輪的結果,一句話,給系統設定頁看。排程在背景跑,寄成功還是失敗只有這一句留得下來:
+ * 「2026 W44:【PS30】寄出 2 封;【M28E】略過(沒有收件人)」
+ */
+export function summarizeWeeklyRun(week: string, results: ProgramRunResult[]): string {
+  if (results.length === 0) return `${week}:沒有任何專案群組設定週報收件人,沒有寄信`;
+  const parts = results.map((r) => {
+    if (r.sent === 0 && r.failed === 0) return `【${r.programName}】略過(${r.detail ?? "沒有可寄的內容"})`;
+    const failed = r.failed > 0 ? `、失敗 ${r.failed} 封${r.detail ? `(${r.detail})` : ""}` : "";
+    return `【${r.programName}】寄出 ${r.sent} 封${failed}`;
+  });
+  return `${week}:${parts.join(";")}`;
+}

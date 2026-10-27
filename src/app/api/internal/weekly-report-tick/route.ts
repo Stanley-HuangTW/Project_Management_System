@@ -4,7 +4,14 @@ import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { buildProgramWeeklyReportData } from "@/lib/weeklyReportServer";
 import { sendWeeklyReportReminder, type ReminderOutcome } from "@/lib/weeklyReminderServer";
 import { deliverProgramReport } from "@/lib/weeklyReportDelivery";
-import { weekRangeOf, isoWeekLabel, isPastWeeklyTrigger, lastCompletedReportRange } from "@/lib/weeklyReport";
+import {
+  weekRangeOf,
+  isoWeekLabel,
+  isPastWeeklyTrigger,
+  lastCompletedReportRange,
+  summarizeWeeklyRun,
+  type ProgramRunResult,
+} from "@/lib/weeklyReport";
 
 /**
  * 專案週報分發的排程心跳。
@@ -69,25 +76,29 @@ export async function POST(request: Request) {
   // SQL 的 <> 不會比對到 NULL,只寫 { not: thisWeekKey } 在從來沒跑過
   // (欄位是 NULL)的時候會直接比對不到任何一列,誤判成「搶輸了」——
   // 明講「是 NULL,或者不是這一週」兩種都算。
+  // 一搶到就先記下「進行中」:跑到一半 process 被重啟的話,設定頁會停在這一行,看得出是中途斷掉、不是根本沒跑。
   const claimed = await prisma.systemSettings.updateMany({
     where: {
       id: "global",
       OR: [{ weeklyReportLastRunWeek: null }, { weeklyReportLastRunWeek: { not: thisWeekKey } }],
     },
-    data: { weeklyReportLastRunWeek: thisWeekKey },
+    data: { weeklyReportLastRunWeek: thisWeekKey, weeklyReportLastRunAt: new Date(), weeklyReportLastRunNote: `${thisWeekKey}:進行中(如果一直停在這一行,代表跑到一半就中斷了)` },
   });
   if (claimed.count === 0) {
     return respond({ ran: false, reason: "被搶先跑過了" });
   }
 
   const subscriptions = await prisma.programReportSubscription.findMany({
-    include: { recipients: { include: { user: { select: { email: true } } } } },
+    include: { program: { select: { name: true } }, recipients: { include: { user: { select: { email: true } } } } },
   });
 
-  const results: { programId: string; sent: number; failed: number; error?: string }[] = [];
+  const results: ProgramRunResult[] = [];
   for (const sub of subscriptions) {
     const emails = [...new Set(sub.recipients.map((r) => r.user?.email ?? r.email).filter((e): e is string => !!e))];
-    if (emails.length === 0) continue;
+    if (emails.length === 0) {
+      results.push({ programName: sub.program.name, sent: 0, failed: 0, detail: "沒有收件人" });
+      continue;
+    }
 
     // 一個專案失敗不該讓其他專案也收不到——記下來、繼續下一個。
     try {
@@ -100,22 +111,32 @@ export async function POST(request: Request) {
           activity: sub.includeActivity,
         },
       });
-      if (!report) continue;
+      if (!report) {
+        results.push({ programName: sub.program.name, sent: 0, failed: 0, detail: "這個專案群組底下沒有看板" });
+        continue;
+      }
       const delivery = await deliverProgramReport(report.programName, report.snapshot, report.markdown, emails);
       results.push({
-        programId: sub.programId,
+        programName: sub.program.name,
         sent: delivery.mail.filter((m) => m.ok).length,
         failed: delivery.mail.filter((m) => !m.ok).length,
+        detail: delivery.mail.find((m) => !m.ok)?.reason,
       });
     } catch (err) {
       results.push({
-        programId: sub.programId,
+        programName: sub.program.name,
         sent: 0,
         failed: emails.length,
-        error: err instanceof Error ? err.message : "未知錯誤",
+        detail: `產生週報時出錯:${err instanceof Error ? err.message : "未知錯誤"}`,
       });
     }
   }
+
+  // 結果留在資料庫:設定頁看得到上次有沒有跑、寄成功了沒(這個回應 server.js 不會看)。
+  await prisma.systemSettings.update({
+    where: { id: "global" },
+    data: { weeklyReportLastRunAt: new Date(), weeklyReportLastRunNote: summarizeWeeklyRun(thisWeekKey, results) },
+  });
 
   return respond({ ran: true, week: thisWeekKey, results });
 }

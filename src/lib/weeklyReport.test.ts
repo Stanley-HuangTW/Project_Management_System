@@ -10,6 +10,7 @@ import {
   updatesByItem,
   programSubset,
   weeklyReportSubject,
+  summarizeWeeklyRun,
   DEFAULT_REPORT_RANGE,
   lastCompletedReportRange,
   previousReportWeekStart,
@@ -1212,5 +1213,27 @@ describe("第一份週報:有實際完成時間的項目照樣列出這週完成
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
     expect(md).not.toContain("**完成(");
     expect(md).not.toContain("這週完成");
+  });
+});
+
+describe("summarizeWeeklyRun", () => {
+  it("每個專案群組一段:寄出幾封、失敗幾封與原因", () => {
+    expect(
+      summarizeWeeklyRun("2026 W44", [
+        { programName: "PS30", sent: 2, failed: 0 },
+        { programName: "B120", sent: 0, failed: 1, detail: "SMTP 未設定" },
+        { programName: "M3", sent: 1, failed: 1, detail: "mailbox full" },
+      ])
+    ).toBe("2026 W44:【PS30】寄出 2 封;【B120】寄出 0 封、失敗 1 封(SMTP 未設定);【M3】寄出 1 封、失敗 1 封(mailbox full)");
+  });
+
+  it("沒寄也沒失敗的(沒有收件人、沒有看板)標成略過並說明原因", () => {
+    expect(summarizeWeeklyRun("2026 W44", [{ programName: "M28E", sent: 0, failed: 0, detail: "沒有收件人" }])).toBe(
+      "2026 W44:【M28E】略過(沒有收件人)"
+    );
+  });
+
+  it("一個專案群組都沒有訂閱時明講沒有寄信", () => {
+    expect(summarizeWeeklyRun("2026 W44", [])).toBe("2026 W44:沒有任何專案群組設定週報收件人,沒有寄信");
   });
 });

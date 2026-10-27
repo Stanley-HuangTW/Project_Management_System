@@ -525,6 +525,7 @@ export function SystemSettingsForm({
   programBoards,
   programReportSubscriptions,
   weeklyReportSchedule,
+  weeklyReportLastRun,
   backupSchedule,
   reportSettingsBoards,
   statusColorBoards,
@@ -565,6 +566,7 @@ export function SystemSettingsForm({
     rangeEndDow: number;
     reminderHours: number;
   };
+  weeklyReportLastRun: { at: string; note: string } | null;
   backupSchedule: BackupScheduleInput;
   reportSettingsBoards: ReportSettingsBoardWithName[];
   statusColorBoards: StatusColorBoard[];
@@ -601,7 +603,7 @@ export function SystemSettingsForm({
           <WorkloadThresholdCard threshold={workloadThreshold} />
           <BaselineCard boards={baselineBoards} />
           <ProgramCard programs={programs} boards={programBoards} />
-          <WeeklyReportScheduleCard initial={weeklyReportSchedule} />
+          <WeeklyReportScheduleCard initial={weeklyReportSchedule} lastRun={weeklyReportLastRun} />
           <BackupSettingsCard initial={backupSchedule} />
           <ProgramReportSubscriptionCard subscriptions={programReportSubscriptions} users={users} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />

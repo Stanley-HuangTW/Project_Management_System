@@ -41,6 +41,8 @@ export async function getSystemSettings() {
     weeklyReportRangeStartDow: 3,
     weeklyReportRangeEndDow: 2,
     weeklyReportLastRunWeek: null as string | null,
+    weeklyReportLastRunAt: null as Date | null,
+    weeklyReportLastRunNote: null as string | null,
     weeklyReportReminderHours: 0,
     weeklyReportReminderLastWeek: null as string | null,
     backupEnabled: false,
