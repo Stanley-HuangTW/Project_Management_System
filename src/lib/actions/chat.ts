@@ -3,7 +3,16 @@
 import { requireSession } from "@/lib/session";
 import * as chat from "@/lib/chatServer";
 import type { ChatSender } from "@/lib/chatServer";
-import type { ChatConversationDto, ChatItemHit, ChatMessageDto, ChatMessagePage, ChatResult, ChatSearchHit } from "@/lib/chatTypes";
+import type {
+  ChatBoardRefs,
+  ChatConversationDto,
+  ChatItemHit,
+  ChatMessageDto,
+  ChatMessagePage,
+  ChatResult,
+  ChatSearchHit,
+} from "@/lib/chatTypes";
+import type { ChatLinkInput } from "@/lib/chatLinks";
 
 /**
  * 管理者「代操作」別人的帳號時不能用對話:發出去的訊息會變成那個人說的話,
@@ -33,7 +42,7 @@ export async function loadChatMessages(
   return "error" in me ? me : chat.loadMessages(me, conversationId, cursor);
 }
 
-/** formData:`body` 是文字,`file` 是零到多個檔案(同名欄位重複)。 */
+/** formData:`body` 是文字,`file` 是零到多個檔案(同名欄位重複),`links` 是連結的 JSON 陣列([{ url, label }])。 */
 export async function sendChatMessage(conversationId: string, formData: FormData): Promise<ChatResult<{ message: ChatMessageDto }>> {
   const me = await sender();
   if ("error" in me) return me;
@@ -42,12 +51,36 @@ export async function sendChatMessage(conversationId: string, formData: FormData
   for (const entry of formData.getAll("file")) {
     if (entry instanceof File && entry.name) files.push({ name: entry.name, bytes: Buffer.from(await entry.arrayBuffer()) });
   }
-  return chat.sendMessage(me, conversationId, typeof body === "string" ? body : "", files);
+  let links: ChatLinkInput[] = [];
+  const rawLinks = formData.get("links");
+  if (typeof rawLinks === "string" && rawLinks) {
+    try {
+      const parsed: unknown = JSON.parse(rawLinks);
+      if (Array.isArray(parsed)) {
+        links = parsed.map((l) => ({ url: String(l?.url ?? ""), label: typeof l?.label === "string" ? l.label : undefined }));
+      }
+    } catch {
+      return { error: "連結的格式不正確" };
+    }
+  }
+  return chat.sendMessage(me, conversationId, typeof body === "string" ? body : "", files, links);
 }
 
 export async function searchChatMessages(query: string): Promise<ChatSearchHit[]> {
   const me = await sender();
   return "error" in me ? [] : chat.searchMessages(me, query);
+}
+
+/** 這個看板的工作項、風險、問題(挑一個來引用 / 加待辦 / 加留言);看板進不去就是 null。 */
+export async function listChatBoardRefs(boardId: string): Promise<ChatBoardRefs | null> {
+  const me = await sender();
+  return "error" in me ? null : chat.listBoardRefsForChat(me, boardId);
+}
+
+/** 看得到的看板,給不是看板頻道的對話(私訊、聊天室)先挑看板用。 */
+export async function listChatBoards(): Promise<{ id: string; name: string }[]> {
+  const me = await sender();
+  return "error" in me ? [] : chat.listBoardsForChat(me);
 }
 
 export async function searchChatItems(query: string): Promise<ChatItemHit[]> {

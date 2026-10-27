@@ -103,7 +103,7 @@ describe("formatFileSize", () => {
 describe("messagePreview", () => {
   it("uses the text, or says a file was sent when there is none", () => {
     expect(messagePreview("hello", true)).toBe("hello");
-    expect(messagePreview("  ", true)).toBe("傳了檔案");
+    expect(messagePreview("  ", true)).toBe("傳了附件");
     expect(messagePreview("", false)).toBe("");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, FileText, ListTodo, MessageSquareQuote, Paperclip, Send, Trash2, X } from "lucide-react";
+import { ArrowDown, FileText, Link2, ListTodo, MessageSquareQuote, Paperclip, Send, Trash2, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { MentionText } from "@/components/board/item-detail/MentionText";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -11,6 +11,8 @@ import { activeMentionQuery } from "@/lib/mentions";
 import { isChatError, type ChatConversationDto, type ChatMessageDto, type ChatReadState } from "@/lib/chatTypes";
 import { useChat } from "./ChatProvider";
 import { ConvertMessageDialog } from "./ChatConvertDialog";
+import { BoardRefPicker, REF_KIND_LABELS } from "./BoardRefPicker";
+import { MAX_LINKS_PER_MESSAGE, internalRefUrl, normalizeChatLink, type ChatLink } from "@/lib/chatLinks";
 
 type ChatUser = { id: string; name: string; avatarUrl: string | null };
 
@@ -61,6 +63,13 @@ export function ChatThread({
   const [unseen, setUnseen] = useState(false);
   const [now] = useState(() => new Date());
   const [files, setFiles] = useState<File[]>([]);
+  /** 這則訊息要附的連結(外面的網址,或引用本系統的工作項、風險、問題)。 */
+  const [links, setLinks] = useState<ChatLink[]>([]);
+  /** 「連結 / 引用」面板:null = 收著。 */
+  const [attachPanel, setAttachPanel] = useState<null | "url" | "ref">(null);
+  const [urlDraft, setUrlDraft] = useState("");
+  const [urlLabelDraft, setUrlLabelDraft] = useState("");
+  const [urlError, setUrlError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [convert, setConvert] = useState<{ message: ChatMessageDto; mode: "todo" | "comment" } | null>(null);
@@ -224,13 +233,36 @@ export function ChatThread({
     setFiles(next);
   }
 
+  function addLink(link: ChatLink) {
+    if (links.length >= MAX_LINKS_PER_MESSAGE) {
+      void notify(`一則訊息最多 ${MAX_LINKS_PER_MESSAGE} 個連結`, { title: "無法加入連結" });
+      return;
+    }
+    if (links.some((l) => l.url === link.url)) return;
+    setLinks((prev) => [...prev, link]);
+  }
+
+  function submitUrl() {
+    const result = normalizeChatLink({ url: urlDraft, label: urlLabelDraft });
+    if ("error" in result) {
+      setUrlError(result.error);
+      return;
+    }
+    addLink(result.link);
+    setUrlDraft("");
+    setUrlLabelDraft("");
+    setUrlError(null);
+    setAttachPanel(null);
+  }
+
   async function send() {
     const text = draft.trim();
-    if ((!text && files.length === 0) || sending) return;
+    if ((!text && files.length === 0 && links.length === 0) || sending) return;
     setSending(true);
     const form = new FormData();
     form.append("body", text);
     for (const file of files) form.append("file", file);
+    if (links.length > 0) form.append("links", JSON.stringify(links));
     const result = await sendChatMessage(conversationId, form);
     setSending(false);
     if (isChatError(result)) {
@@ -239,6 +271,8 @@ export function ChatThread({
     }
     setDraft("");
     setFiles([]);
+    setLinks([]);
+    setAttachPanel(null);
     setCaret(0);
     forceBottom.current = true;
     setMessages((prev) => mergeMessages(prev, [result.message]));
@@ -416,7 +450,20 @@ export function ChatThread({
                         {m.attachments.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-2">
                             {m.attachments.map((a) =>
-                              a.isImage ? (
+                              a.link ? (
+                                <a
+                                  key={a.id}
+                                  href={a.link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  data-chat-link
+                                  title={a.link}
+                                  className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900"
+                                >
+                                  <Link2 size={14} className="shrink-0" />
+                                  <span className="max-w-64 truncate">{a.fileName}</span>
+                                </a>
+                              ) : a.isImage ? (
                                 <a key={a.id} href={`/api/chat/attachments/${a.id}`} target="_blank" rel="noreferrer" title={a.fileName}>
                                   {/* eslint-disable-next-line @next/next/no-img-element -- 對話附件走有權限檢查的 API,用不到 next/image */}
                                   <img
@@ -551,6 +598,114 @@ export function ChatThread({
             ))}
           </div>
         )}
+        {links.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5" data-chat-pending-links>
+            {links.map((link, i) => (
+              <span
+                key={`${link.url}-${i}`}
+                title={link.url}
+                className="flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300"
+              >
+                <Link2 size={12} className="shrink-0" />
+                <span className="max-w-56 truncate">{link.label}</span>
+                <button
+                  type="button"
+                  onClick={() => setLinks((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label={`移除連結 ${link.label}`}
+                  className="text-blue-400 hover:text-red-600"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {attachPanel && (
+          <div className="mb-2 space-y-2 rounded-md border border-neutral-200 p-3 text-sm dark:border-neutral-700" data-chat-attach-panel>
+            <div className="flex items-center justify-between">
+              <div className="flex gap-1" role="tablist">
+                {(
+                  [
+                    ["url", "貼上網址"],
+                    ["ref", "引用工作項 / 風險 / 問題"],
+                  ] as const
+                ).map(([key, name]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={attachPanel === key}
+                    data-attach-tab={key}
+                    onClick={() => setAttachPanel(key)}
+                    className={`rounded-md px-2.5 py-1 text-xs ${
+                      attachPanel === key
+                        ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                        : "border border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => setAttachPanel(null)} aria-label="收起" className="text-neutral-400 hover:text-neutral-700">
+                <X size={14} />
+              </button>
+            </div>
+            {attachPanel === "url" ? (
+              <div className="space-y-2">
+                <input
+                  value={urlDraft}
+                  onChange={(e) => {
+                    setUrlDraft(e.target.value);
+                    setUrlError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitUrl();
+                    }
+                  }}
+                  placeholder="貼上網址,例如 https://drive.google.com/…"
+                  data-attach-url
+                  className="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+                />
+                <input
+                  value={urlLabelDraft}
+                  onChange={(e) => setUrlLabelDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitUrl();
+                    }
+                  }}
+                  placeholder="顯示的名稱(選填,沒填就顯示網址)"
+                  data-attach-label
+                  className="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+                />
+                {urlError && <p className="text-xs text-red-600">{urlError}</p>}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={submitUrl}
+                    data-attach-url-add
+                    className="rounded-md bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                  >
+                    加入連結
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <BoardRefPicker
+                boardId={conversation.boardId}
+                kinds={["item", "risk", "issue"]}
+                onPick={(ref) => {
+                  addLink({ url: internalRefUrl(ref), label: `${REF_KIND_LABELS[ref.kind]}:${ref.name}` });
+                  setAttachPanel(null);
+                }}
+              />
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <input
             ref={fileInput}
@@ -571,6 +726,18 @@ export function ChatThread({
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
           >
             <Paperclip size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setAttachPanel((prev) => (prev ? null : "url"))}
+            title="附連結:貼上網址,或引用這個看板的工作項、風險、問題"
+            aria-label="加連結"
+            data-chat-link-button
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+              attachPanel ? "text-blue-600" : "text-neutral-500 dark:text-neutral-400"
+            }`}
+          >
+            <Link2 size={16} />
           </button>
           <textarea
             ref={textarea}
@@ -599,7 +766,7 @@ export function ChatThread({
           <button
             type="button"
             onClick={() => void send()}
-            disabled={(!draft.trim() && files.length === 0) || sending}
+            disabled={(!draft.trim() && files.length === 0 && links.length === 0) || sending}
             data-chat-send
             aria-label="送出"
             className="flex h-9 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-3 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
@@ -609,7 +776,7 @@ export function ChatThread({
           </button>
         </div>
       </div>
-      {convert && <ConvertMessageDialog message={convert.message} mode={convert.mode} onClose={() => setConvert(null)} />}
+      {convert && <ConvertMessageDialog message={convert.message} mode={convert.mode} boardId={conversation.boardId} onClose={() => setConvert(null)} />}
     </div>
   );
 }

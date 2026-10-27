@@ -2242,9 +2242,11 @@ model ChatAttachment {
   messageId String
   message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
   fileName  String
-  /// 磁碟上的位置(相對於 public/)。
+  /// 磁碟上的位置(相對於 public/)。連結(isLink)則是外面的網址或本系統看板的位置。
   url       String
   size      Int
+  /// 連結:不是檔案,沒有東西在磁碟上;fileName 是顯示的名字,size 是 0。
+  isLink    Boolean     @default(false)
   createdAt DateTime    @default(now())
 
   @@index([messageId])

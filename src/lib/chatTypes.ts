@@ -25,6 +25,8 @@ export type ChatAttachmentDto = {
   size: number;
   /** 圖片:直接顯示在訊息裡。其他檔案是下載連結。 */
   isImage: boolean;
+  /** 連結(不是檔案)才有:外面的網址或本系統看板的位置。 */
+  link: string | null;
 };
 
 export type ChatMessageDto = {
@@ -57,6 +59,14 @@ export type ChatSearchHit = {
 
 /** 把訊息轉成待辦事項 / 留言時,挑項目用的搜尋結果。 */
 export type ChatItemHit = { itemId: string; boardId: string; name: string; boardName: string };
+
+/** 挑項目用的清單:一個看板的工作項、風險、問題。 */
+export type ChatBoardRefs = {
+  boardId: string;
+  boardName: string;
+  items: { id: string; name: string; wbsCode: string; groupName: string }[];
+  risks: { id: string; title: string; kind: "RISK" | "ISSUE"; status: string; mantisId: number | null }[];
+};
 
 /** 私訊與群組的已讀位置(誰讀到什麼時候);看板頻道人多,不追蹤顯示。 */
 export type ChatReadState = { userId: string; lastReadAt: string };

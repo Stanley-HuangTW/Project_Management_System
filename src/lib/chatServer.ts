@@ -8,6 +8,8 @@ import { accessibleBoardWhere, canAccessBoard } from "@/lib/boardAccess";
 import { findMentionedUserIds } from "@/lib/mentions";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 import { visibleItemIdsForBoards } from "@/lib/serverVisibility";
+import { computeWbsCodes } from "@/lib/wbs";
+import { normalizeChatLinks, type ChatLinkInput } from "@/lib/chatLinks";
 import {
   conversationTitle,
   dmKeyOf,
@@ -23,6 +25,7 @@ import {
 } from "@/lib/chat";
 import { ChatHub, type ChatActor } from "@/lib/chatHub";
 import type {
+  ChatBoardRefs,
   ChatConversationDto,
   ChatItemHit,
   ChatMessageDto,
@@ -228,12 +231,12 @@ type MessageRow = {
   createdAt: Date;
   deletedAt: Date | null;
   author: { name: string; avatarUrl: string | null };
-  attachments: { id: string; fileName: string; size: number }[];
+  attachments: { id: string; fileName: string; size: number; isLink: boolean; url: string }[];
 };
 
 const messageInclude = {
   author: { select: { name: true, avatarUrl: true } },
-  attachments: { select: { id: true, fileName: true, size: true }, orderBy: { createdAt: "asc" } },
+  attachments: { select: { id: true, fileName: true, size: true, isLink: true, url: true }, orderBy: { createdAt: "asc" } },
 } as const;
 
 function toMessageDto(row: MessageRow): ChatMessageDto {
@@ -245,7 +248,15 @@ function toMessageDto(row: MessageRow): ChatMessageDto {
     authorAvatarUrl: row.author.avatarUrl,
     body: row.deletedAt ? "" : row.body,
     deleted: row.deletedAt !== null,
-    attachments: row.deletedAt ? [] : row.attachments.map((a) => ({ ...a, isImage: isInlineImageName(a.fileName) })),
+    attachments: row.deletedAt
+      ? []
+      : row.attachments.map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          size: a.size,
+          isImage: !a.isLink && isInlineImageName(a.fileName),
+          link: a.isLink ? a.url : null,
+        })),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -406,7 +417,7 @@ export async function leaveGroup(actor: ChatActor, conversationId: string): Prom
   await prisma.chatMember.delete({ where: { conversationId_userId: { conversationId, userId: actor.userId } } });
   const left = await prisma.chatMember.count({ where: { conversationId } });
   if (left === 0) {
-    const files = await prisma.chatAttachment.findMany({ where: { message: { conversationId } }, select: { url: true } });
+    const files = await prisma.chatAttachment.findMany({ where: { message: { conversationId }, isLink: false }, select: { url: true } });
     await prisma.chatConversation.delete({ where: { id: conversationId } });
     await unlinkQuietly(files.map((f) => f.url));
   }
@@ -434,9 +445,13 @@ export async function sendMessage(
   actor: ChatSender,
   conversationId: string,
   rawBody: string,
-  files: ChatUpload[] = []
+  files: ChatUpload[] = [],
+  rawLinks: ChatLinkInput[] = []
 ): Promise<ChatResult<{ message: ChatMessageDto }>> {
-  const norm = normalizeMessageBody(rawBody, files.length > 0);
+  const linkResult = normalizeChatLinks(rawLinks);
+  if ("error" in linkResult) return { error: linkResult.error };
+  const links = linkResult.links;
+  const norm = normalizeMessageBody(rawBody, files.length > 0 || links.length > 0);
   if ("error" in norm) return { error: norm.error };
   const fileError = validateAttachments(files.map((f) => ({ name: f.name, size: f.bytes.length })));
   if (fileError) return { error: fileError };
@@ -461,7 +476,13 @@ export async function sendMessage(
   let row;
   try {
     row = await prisma.chatMessage.create({
-      data: { conversationId, authorId: actor.userId, body: norm.body, attachments: { create: stored } },
+      data: {
+        conversationId,
+        authorId: actor.userId,
+        body: norm.body,
+        // 連結跟檔案放在同一張表:連結沒有東西在磁碟上,url 是網址或本系統的位置。
+        attachments: { create: [...stored, ...links.map((l) => ({ fileName: l.label, url: l.url, size: 0, isLink: true }))] },
+      },
       include: messageInclude,
     });
   } catch (err) {
@@ -476,7 +497,7 @@ export async function sendMessage(
     update: { lastReadAt: row.createdAt },
   });
   await publishChatEvent({ type: "message", c: conversationId, u: actor.userId, m: row.id });
-  await notifyNewMessage(actor, conv, norm.body, files.length > 0);
+  await notifyNewMessage(actor, conv, norm.body, files.length > 0 || links.length > 0);
   return { message: toMessageDto(row) };
 }
 
@@ -574,7 +595,7 @@ export async function deleteMessage(actor: ChatActor, messageId: string): Promis
   if (!message || !(await accessibleConversation(actor, message.conversationId))) return { error: "找不到這則訊息" };
   if (message.authorId !== actor.userId) return { error: "只能收回自己的訊息" };
   if (message.deletedAt) return { ok: true };
-  const files = await prisma.chatAttachment.findMany({ where: { messageId }, select: { url: true } });
+  const files = await prisma.chatAttachment.findMany({ where: { messageId, isLink: false }, select: { url: true } });
   await prisma.chatMessage.update({ where: { id: messageId }, data: { deletedAt: new Date() } });
   // 收回就是大家都看不到了:檔案也一起刪,不能只藏起訊息、檔案還躺在磁碟上。
   await prisma.chatAttachment.deleteMany({ where: { messageId } });
@@ -660,15 +681,59 @@ export async function searchItemsForChat(actor: ChatSender, rawQuery: string): P
     .map((i) => ({ itemId: i.id, boardId: i.boardId, name: i.name, boardName: boardName.get(i.boardId) ?? "" }));
 }
 
+/** 這個人看得到的看板(挑項目、引用時,不是看板頻道的對話要先選看板)。 */
+export async function listBoardsForChat(actor: ChatSender): Promise<{ id: string; name: string }[]> {
+  return prisma.board.findMany({
+    where: accessibleBoardWhere(asSession(actor)),
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+/**
+ * 一個看板的工作項、風險、問題清單,給「挑一個來引用 / 加待辦 / 加留言」用。
+ * 看板要進得去;私人工作項與私人分組照樣擋(跟搜尋同一套);風險與問題跟風險登記冊一樣,看得到看板就看得到。
+ */
+export async function listBoardRefsForChat(actor: ChatSender, boardId: string): Promise<ChatBoardRefs | null> {
+  const board = await prisma.board.findFirst({
+    where: { id: boardId, AND: [accessibleBoardWhere(asSession(actor))] },
+    select: { id: true, name: true },
+  });
+  if (!board) return null;
+  const [visible, rows, groups, risks] = await Promise.all([
+    visibleItemIdsForBoards([boardId], asSession(actor)),
+    prisma.item.findMany({
+      where: { boardId, deletedAt: null },
+      select: { id: true, name: true, parentId: true, order: true, groupId: true },
+    }),
+    prisma.group.findMany({ where: { boardId }, select: { id: true, name: true, order: true }, orderBy: { order: "asc" } }),
+    prisma.riskEntry.findMany({
+      where: { boardId },
+      select: { id: true, title: true, kind: true, status: true, mantisId: true },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+  // WBS 代號是每個分組各自從 1 開始算的。
+  const items = groups.flatMap((group) => {
+    const inGroup = rows.filter((r) => r.groupId === group.id);
+    const codes = computeWbsCodes(inGroup);
+    return inGroup
+      .filter((r) => visible.has(r.id))
+      .map((r) => ({ id: r.id, name: r.name, wbsCode: codes.get(r.id) ?? "", groupName: group.name }));
+  });
+  return { boardId: board.id, boardName: board.name, items, risks };
+}
+
 // ── 附件下載 ────────────────────────────────────────────────
 
 /** 這個人看不看得到這個附件(看得到它所在的那間對話,而且訊息沒被收回)。給 /api/chat/attachments 用。 */
 export async function findAccessibleAttachment(actor: ChatActor, attachmentId: string): Promise<{ fileName: string; url: string } | null> {
   const attachment = await prisma.chatAttachment.findUnique({
     where: { id: attachmentId },
-    select: { fileName: true, url: true, message: { select: { conversationId: true, deletedAt: true } } },
+    select: { fileName: true, url: true, isLink: true, message: { select: { conversationId: true, deletedAt: true } } },
   });
-  if (!attachment || attachment.message.deletedAt) return null;
+  // 連結不是檔案,沒有東西可以下載(也不能讓這支 API 把任意網址當成檔案路徑吐出去)。
+  if (!attachment || attachment.isLink || attachment.message.deletedAt) return null;
   if (!(await canAccessConversationId(actor, attachment.message.conversationId))) return null;
   return { fileName: attachment.fileName, url: attachment.url };
 }

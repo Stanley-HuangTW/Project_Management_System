@@ -62,7 +62,7 @@ export function formatFileSize(bytes: number): string {
 
 /** 清單與通知裡這則訊息的一行摘要:有文字用文字,只有檔案就寫傳了檔案。 */
 export function messagePreview(body: string, hasFiles: boolean, max = 60): string {
-  return body.trim() ? snippet(body, max) : hasFiles ? "傳了檔案" : "";
+  return body.trim() ? snippet(body, max) : hasFiles ? "傳了附件" : "";
 }
 
 /** 搜尋結果裡的一小段:命中的字前後各取一些,太長的用 … 收尾。 */
