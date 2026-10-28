@@ -43,7 +43,7 @@ export default async function BoardPage({
   // 已經被指到的那幾個外部前置,連日期一起 —— 甘特圖要為它們畫一列,
   // 藍色虛線才有地方接。
   const externalPreds = await externalPredecessors(boardId);
-  // 連了 MantisBT 的看板多一個「議題」分頁。
+  // 連了 MantisBT 的看板多一個「問題」分頁。
   const hasMantis = !!(await prisma.mantisConnection.findUnique({ where: { boardId }, select: { id: true } }));
 
   // Resources (tools, external vendors) can be set as an item's 負責人

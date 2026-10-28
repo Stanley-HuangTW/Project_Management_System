@@ -117,7 +117,7 @@ export type SyncSummary = {
  * 光看「0 筆」分不出是專案真的沒有、還是帳號沒權限。問一下 Mantis「我是誰、看得到哪些專案」,把答案寫進提示。
  */
 export async function explainEmptyResult(baseUrl: string, token: string, projectId: number): Promise<string> {
-  const head = "Mantis 回應成功,但這個專案一筆議題都沒取到。";
+  const head = "Mantis 回應成功,但這個專案一筆問題都沒取到。";
   try {
     const me = (await mantisGet(baseUrl, token, "users/me")) as {
       name?: string;
@@ -133,13 +133,13 @@ export async function explainEmptyResult(baseUrl: string, token: string, project
         `${head}目前是用「${who}」${level ? `(權限:${level})` : ""}的身分在讀` +
         (sees === false
           ? ",而且這個帳號看不到這個專案——請改用有檢視權限的帳號建 token。"
-          : "——請確認專案裡真的有議題,而且這個帳號有權限看(私人的議題要夠高的權限才看得到)。")
+          : "——請確認專案裡真的有問題,而且這個帳號有權限看(私人的問題要夠高的權限才看得到)。")
       );
     }
   } catch {
     // 問不到就用下面通用的說法
   }
-  return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有議題。`;
+  return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有問題。`;
 }
 export type SyncOutcome = { ok: true; summary: SyncSummary } | { ok: false; error: string };
 

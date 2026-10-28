@@ -7,13 +7,17 @@ import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestItemAssignee } from "@/lib/todoAssigneeServer";
-import { noteForLog, normalizeTodoNote } from "@/lib/todoNote";
+import { noteForLog, normalizeTodoNote, normalizeTodoText } from "@/lib/todoNote";
+import { mergeTodoOrder } from "@/lib/todoOrder";
+
+/** 畫面上的順序;order 相同(舊資料、刪除後新增)的依建立先後,讓拖曳排序與畫面看到的是同一個基準。 */
+const TODO_ORDER = [{ order: "asc" as const }, { createdAt: "asc" as const }];
 
 export async function listTodoItems(itemId: string) {
   const session = await requireSession();
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
   if (item) await requireBoardAccess(item.boardId, session);
-  return prisma.todoItem.findMany({ where: { itemId }, orderBy: { order: "asc" } });
+  return prisma.todoItem.findMany({ where: { itemId }, orderBy: TODO_ORDER });
 }
 
 export async function addTodoItem(
@@ -99,6 +103,44 @@ export async function setTodoAssignee(
 
   await prisma.todoItem.update({ where: { id: todoId }, data: { assigneeId } });
   await logActivity(itemId, session.userId, assigneeId ? `待辦事項「${existing.text}」的處理者改為 ${label}` : `清除待辦事項「${existing.text}」的處理者`);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/** 拖曳排序:orderedIds 是畫面上拖完的順序。這個項目底下的待辦事項順序一次重寫成 0、1、2…。 */
+export async function reorderTodoItems(
+  /** Not trusted for authorization — see requireItemBoardAccess below. */
+  _boardId: string,
+  itemId: string,
+  orderedIds: string[]
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const current = await prisma.todoItem.findMany({ where: { itemId }, orderBy: TODO_ORDER, select: { id: true } });
+  const finalIds = mergeTodoOrder(current.map((t) => t.id), orderedIds);
+  await prisma.$transaction(finalIds.map((id, index) => prisma.todoItem.update({ where: { id }, data: { order: index } })));
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/** 改一個待辦事項的名稱(文字)。名稱不能留空;要清掉請刪除這一筆。 */
+export async function renameTodoItem(
+  /** Not trusted for authorization — see requireItemBoardAccess below. */
+  _boardId: string,
+  itemId: string,
+  todoId: string,
+  rawText: string
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const normalized = normalizeTodoText(rawText);
+  if ("error" in normalized) return normalized;
+  const existing = await prisma.todoItem.findUnique({ where: { id: todoId } });
+  if (!existing || existing.itemId !== itemId) return { error: "待辦事項不存在" };
+  if (existing.text === normalized.text) return {};
+
+  await prisma.todoItem.update({ where: { id: todoId }, data: { text: normalized.text } });
+  await logActivity(itemId, session.userId, `待辦事項改名:「${existing.text}」→「${normalized.text}」`);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }

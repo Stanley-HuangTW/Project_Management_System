@@ -1,20 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarPlus, Plus, Trash2, X } from "lucide-react";
+import { CalendarPlus, GripVertical, Plus, Trash2, X } from "lucide-react";
 import {
   addTodoItem,
   deleteTodoItem,
   listTodoItems,
+reorderTodoItems,
   setTodoAssignee,
   setTodoDueDate,
   setTodoInWeeklyReport,
+  renameTodoItem,
   setTodoNote,
   toggleTodoItem,
 } from "@/lib/actions/todo";
 import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "../AssigneeSelect";
 import { TodoNote } from "../TodoNote";
+import { TodoTitle } from "../TodoTitle";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { SortableList } from "@/components/ui/SortableList";
 import { describeDeadline, formatDueShort, taipeiClock, type DeadlineTone } from "@/lib/todoDeadline";
 
 const TONE_CLASS: Record<DeadlineTone, string> = {
@@ -88,6 +92,19 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
     await refresh();
   }
 
+  async function handleReorder(ids: string[]) {
+    setTodos((prev) => ids.flatMap((id) => prev.find((t) => t.id === id) ?? []));
+    const result = await reorderTodoItems(boardId, itemId, ids);
+    if (result.error) await notify(result.error, { title: "無法調整順序" });
+    await refresh();
+  }
+
+  async function changeTitle(todoId: string, next: string) {
+    const result = await renameTodoItem(boardId, itemId, todoId, next);
+    if (result.error) await notify(result.error, { title: "無法修改名稱" });
+    await refresh();
+  }
+
   async function changeNote(todoId: string, note: string | null) {
     const result = await setTodoNote(boardId, itemId, todoId, note);
     if (result.error) await notify(result.error, { title: "無法儲存備註" });
@@ -126,12 +143,23 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
       {!loading && todos.length === 0 && (
         <p className="mb-3 text-sm text-neutral-400 dark:text-neutral-500">尚無待辦事項</p>
       )}
-      <ul className="mb-4 space-y-1.5">
-        {todos.map((t) => (
-          <li
-            key={t.id}
+      <div className="mb-4 space-y-1.5">
+        <SortableList items={todos} handle onReorder={(ids) => void handleReorder(ids)}>
+          {(t, handleProps) => (
+          <div
+            data-todo-row={t.id}
             className="group flex items-start gap-2 rounded px-1 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
+            <button
+              type="button"
+              {...handleProps}
+              data-todo-handle={t.id}
+              title="拖曳調整順序"
+              aria-label={`拖曳調整「${t.text}」的順序`}
+              className="shrink-0 cursor-grab touch-none rounded p-0.5 text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-300"
+            >
+              <GripVertical size={14} />
+            </button>
             <input
               type="checkbox"
               checked={t.done}
@@ -139,13 +167,7 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
               className="shrink-0"
             />
             <div className="min-w-0 flex-1">
-              <span
-                className={`block text-sm ${
-                  t.done ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-800 dark:text-neutral-100"
-                }`}
-              >
-                {t.text}
-              </span>
+              <TodoTitle todoId={t.id} value={t.text} done={t.done} onSave={(next) => changeTitle(t.id, next)} />
               <TodoNote todoId={t.id} value={t.note} onSave={(note) => changeNote(t.id, note)} />
             </div>
             <AssigneeSelect value={t.assigneeId ?? ""} users={users} onChange={(v) => void changeAssignee(t.id, v)} data-todo-assignee={t.id} />
@@ -216,9 +238,10 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
             >
               <Trash2 size={14} />
             </button>
-          </li>
-        ))}
-      </ul>
+          </div>
+          )}
+        </SortableList>
+      </div>
       <div className="flex items-center gap-2">
         <input
           value={text}

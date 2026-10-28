@@ -1,5 +1,5 @@
 /**
- * 看板「議題」分頁(同步自 MantisBT 的議題)的排序、篩選、依處理人分組。純邏輯。
+ * 看板「問題」分頁(同步自 MantisBT 的問題)的排序、篩選、依處理人分組。純邏輯。
  */
 import type { RiskStatus } from "@prisma/client";
 

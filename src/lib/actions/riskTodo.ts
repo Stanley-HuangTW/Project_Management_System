@@ -7,7 +7,8 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { attributeAudit } from "@/lib/impersonation";
 import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestRiskAssignee } from "@/lib/todoAssigneeServer";
-import { noteForLog, normalizeTodoNote } from "@/lib/todoNote";
+import { noteForLog, normalizeTodoNote, normalizeTodoText } from "@/lib/todoNote";
+import { mergeTodoOrder } from "@/lib/todoOrder";
 
 /**
  * 風險 / 議題的待辦事項。跟工作項的待辦事項同一個樣子(見 todo.ts):
@@ -125,6 +126,44 @@ export async function setRiskTodoAssignee(todoId: string, assigneeId: string | n
         riskId: risk.id,
         boardId: risk.boardId,
         ...attributeAudit(session, session.userId, assigneeId ? `「${risk.title}」待辦事項「${todo.text}」的處理者改為 ${label}` : `「${risk.title}」清除待辦事項「${todo.text}」的處理者`),
+        category: "RISK",
+      },
+    }),
+  ]);
+  revalidatePath(`/boards/${risk.boardId}`);
+  return {};
+}
+
+/** 拖曳排序:orderedIds 是畫面上拖完的順序。這一筆底下的待辦事項順序一次重寫成 0、1、2…。 */
+export async function reorderRiskTodos(riskId: string, orderedIds: string[]): Promise<{ error?: string }> {
+  const found = await accessibleRisk(riskId);
+  if (!found) return { error: "找不到這筆紀錄" };
+  const current = await prisma.riskTodo.findMany({ where: { riskId }, orderBy: [{ order: "asc" }, { createdAt: "asc" }], select: { id: true } });
+  const finalIds = mergeTodoOrder(current.map((t) => t.id), orderedIds);
+  await prisma.$transaction(finalIds.map((id, index) => prisma.riskTodo.update({ where: { id }, data: { order: index } })));
+  revalidatePath(`/boards/${found.risk.boardId}`);
+  return {};
+}
+
+/** 改待辦事項的名稱(文字)。名稱不能留空;要清掉請刪除這一筆。 */
+export async function renameRiskTodo(todoId: string, rawText: string): Promise<{ error?: string }> {
+  await requireSession();
+  const normalized = normalizeTodoText(rawText);
+  if ("error" in normalized) return normalized;
+  const todo = await prisma.riskTodo.findUnique({ where: { id: todoId } });
+  if (!todo) return { error: "待辦事項不存在" };
+  const found = await accessibleRisk(todo.riskId);
+  if (!found) return { error: "找不到這筆紀錄" };
+  if (todo.text === normalized.text) return {};
+
+  const { session, risk } = found;
+  await prisma.$transaction([
+    prisma.riskTodo.update({ where: { id: todoId }, data: { text: normalized.text } }),
+    prisma.activityLogEntry.create({
+      data: {
+        riskId: risk.id,
+        boardId: risk.boardId,
+        ...attributeAudit(session, session.userId, `「${risk.title}」待辦事項改名:「${todo.text}」→「${normalized.text}」`),
         category: "RISK",
       },
     }),
