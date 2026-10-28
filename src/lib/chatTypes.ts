@@ -57,10 +57,7 @@ export type ChatSearchHit = {
   excerpt: string;
 };
 
-/** 把訊息轉成待辦事項 / 留言時,挑項目用的搜尋結果。 */
-export type ChatItemHit = { itemId: string; boardId: string; name: string; boardName: string };
-
-/** 挑項目用的清單:一個看板的工作項、風險、問題。 */
+/** 挑項目用的清單:一個看板的工作項、風險、問題、議題。 */
 export type ChatBoardRefs = {
   boardId: string;
   boardName: string;

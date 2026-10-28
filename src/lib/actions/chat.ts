@@ -6,7 +6,6 @@ import type { ChatSender } from "@/lib/chatServer";
 import type {
   ChatBoardRefs,
   ChatConversationDto,
-  ChatItemHit,
   ChatMessageDto,
   ChatMessagePage,
   ChatResult,
@@ -81,11 +80,6 @@ export async function listChatBoardRefs(boardId: string): Promise<ChatBoardRefs 
 export async function listChatBoards(): Promise<{ id: string; name: string }[]> {
   const me = await sender();
   return "error" in me ? [] : chat.listBoardsForChat(me);
-}
-
-export async function searchChatItems(query: string): Promise<ChatItemHit[]> {
-  const me = await sender();
-  return "error" in me ? [] : chat.searchItemsForChat(me, query);
 }
 
 export async function markChatRead(conversationId: string): Promise<ChatResult<{ ok: true }>> {

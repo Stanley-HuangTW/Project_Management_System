@@ -122,4 +122,10 @@ describe("todoDeadlineEntries", () => {
     expect(todoDeadlineEntries([board], todos, ["u2"]).map((r) => r.todoId)).toEqual(["t2"]);
     expect(todoDeadlineEntries([board], todos, ["u1", "u2"]).map((r) => r.todoId).sort()).toEqual(["t1", "t2", "t3"]);
   });
+
+  it("a todo assigned to someone shows in their list even when the item is not theirs", () => {
+    const assigned = { ...todo("t1", "i3", "2026-10-30"), assigneeId: "u9" }; // i3 沒人負責,指定 u9 處理
+    expect(todoDeadlineEntries([board], [assigned], ["u9"]).map((r) => r.todoId)).toEqual(["t1"]);
+    expect(todoDeadlineEntries([board], [assigned], ["u1"])).toEqual([]);
+  });
 });

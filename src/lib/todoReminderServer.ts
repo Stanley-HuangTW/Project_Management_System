@@ -27,7 +27,7 @@ export async function sendTodoDeadlineReminders(now = new Date()): Promise<TodoR
   // 期限在明天(含)以前、還沒完成、還沒提醒到最後一階段(逾期那次)的。
   const todos = await prisma.todoItem.findMany({
     where: { done: false, remindedStage: { lt: 3 }, dueDate: { not: null, lte: tomorrow }, item: { deletedAt: null } },
-    select: { id: true, text: true, dueDate: true, remindedStage: true, createdById: true, itemId: true, item: { select: { name: true } } },
+    select: { id: true, text: true, dueDate: true, remindedStage: true, createdById: true, assigneeId: true, itemId: true, item: { select: { name: true } } },
   });
 
   let notified = 0;
@@ -43,7 +43,8 @@ export async function sendTodoDeadlineReminders(now = new Date()): Promise<TodoR
     if (claimed.count === 0) continue;
 
     const message = reminderMessage(stage, { itemName: todo.item.name, todoText: todo.text, dueDate: todo.dueDate! });
-    const recipients = await recipientsOf(todo.itemId, todo.createdById);
+    // 有指定處理者就提醒他(加上寫這一筆的人);沒指定才照原本的:工作項的負責人加寫的人。
+    const recipients = todo.assigneeId ? await realUserIds([todo.assigneeId, todo.createdById]) : await recipientsOf(todo.itemId, todo.createdById);
     const inApp = await filterInAppRecipients(prisma, "DEADLINE", recipients);
     if (inApp.length > 0) {
       await prisma.notification.createMany({
@@ -54,7 +55,43 @@ export async function sendTodoDeadlineReminders(now = new Date()): Promise<TodoR
     for (const userId of recipients) await notifyEmailIfNeeded(userId, "DEADLINE", message);
     notified += recipients.length;
   }
-  return { ran: true, todos: todos.length, notified };
+
+  // 風險 / 問題 / 議題的待辦事項:同一套階段與提醒;收件人是那一筆的負責人加上新增這個待辦事項的人。
+  const riskTodos = await prisma.riskTodo.findMany({
+    where: { done: false, remindedStage: { lt: 3 }, dueDate: { not: null, lte: tomorrow }, risk: { board: { deletedAt: null } } },
+    select: { id: true, text: true, dueDate: true, remindedStage: true, createdById: true, assigneeId: true, riskId: true, risk: { select: { title: true, ownerId: true } } },
+  });
+  for (const todo of riskTodos) {
+    const stage = deadlineStage(today, todo.dueDate!);
+    if (stage === 0 || stage <= todo.remindedStage) continue;
+
+    const claimed = await prisma.riskTodo.updateMany({
+      where: { id: todo.id, remindedStage: { lt: stage } },
+      data: { remindedStage: stage },
+    });
+    if (claimed.count === 0) continue;
+
+    const message = reminderMessage(stage, { itemName: todo.risk.title, todoText: todo.text, dueDate: todo.dueDate!, subject: "風險 / 問題" });
+    const recipients = await realUserIds([todo.assigneeId ?? todo.risk.ownerId, todo.createdById]);
+    const inApp = await filterInAppRecipients(prisma, "DEADLINE", recipients);
+    if (inApp.length > 0) {
+      await prisma.notification.createMany({
+        data: inApp.map((userId) => ({ userId, actorId: null, type: "DEADLINE" as const, riskId: todo.riskId, message })),
+      });
+    }
+    for (const userId of recipients) await notifyEmailIfNeeded(userId, "DEADLINE", message);
+    notified += recipients.length;
+  }
+
+  return { ran: true, todos: todos.length + riskTodos.length, notified };
+}
+
+/** 只留真的有帳號的人(去掉空值與重複)。 */
+async function realUserIds(ids: (string | null)[]): Promise<string[]> {
+  const wanted = [...new Set(ids.filter((id): id is string => !!id))];
+  if (wanted.length === 0) return [];
+  const users = await prisma.user.findMany({ where: { id: { in: wanted } }, select: { id: true } });
+  return users.map((u) => u.id);
 }
 
 /** 工作項目的負責人(人員欄位 + 人員分配)加上新增這個待辦事項的人,只留真的有帳號的。 */

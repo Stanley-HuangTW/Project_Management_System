@@ -32,6 +32,7 @@ import {
 } from "@/lib/actions/risk";
 import { WORKING_STATUSES } from "@/lib/riskWorkflow";
 import { ClosureBar, HistoryPanel, ReviewerEditor, STATUS_CHIP_CLASS, UpdatesPanel } from "./RiskWorkflow";
+import { RiskTodosPanel } from "./RiskTodosPanel";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const EMPTY: RiskInput = {
@@ -53,6 +54,7 @@ const EMPTY: RiskInput = {
 const TABS = [
   { key: "content", label: "內容與審核" },
   { key: "updates", label: "進度更新" },
+  { key: "todos", label: "待辦事項" },
   { key: "history", label: "紀錄" },
 ] as const;
 
@@ -453,6 +455,7 @@ export function BoardRisks({
                 onChanged={refreshAfterAction}
               />
             )}
+            {liveRow && tab === "todos" && <RiskTodosPanel riskId={liveRow.id} />}
             {liveRow && tab === "history" && <HistoryPanel history={detail.history} />}
 
             {(!liveRow || tab === "content") && (

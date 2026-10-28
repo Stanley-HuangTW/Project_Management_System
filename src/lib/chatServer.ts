@@ -27,7 +27,6 @@ import { ChatHub, type ChatActor } from "@/lib/chatHub";
 import type {
   ChatBoardRefs,
   ChatConversationDto,
-  ChatItemHit,
   ChatMessageDto,
   ChatMessagePage,
   ChatReadState,
@@ -656,29 +655,6 @@ export async function searchMessages(actor: ChatSender, rawQuery: string): Promi
       excerpt: matchSnippet(r.body, query),
     };
   });
-}
-
-/**
- * 把訊息轉成待辦事項或留言時挑項目:所有看得到的看板上、名稱含關鍵字的工作項。
- * 跟全站搜尋一樣,私人項目與私人分組也要擋(看板進得去,不代表裡面每一列都看得到)。
- */
-export async function searchItemsForChat(actor: ChatSender, rawQuery: string): Promise<ChatItemHit[]> {
-  const query = rawQuery.trim();
-  if (query.length < 1) return [];
-  const boards = await prisma.board.findMany({ where: accessibleBoardWhere(asSession(actor)), select: { id: true, name: true } });
-  if (boards.length === 0) return [];
-  const visible = await visibleItemIdsForBoards(boards.map((b) => b.id), asSession(actor));
-  const boardName = new Map(boards.map((b) => [b.id, b.name]));
-  const items = await prisma.item.findMany({
-    where: { boardId: { in: boards.map((b) => b.id) }, deletedAt: null, name: { contains: query, mode: "insensitive" } },
-    select: { id: true, name: true, boardId: true },
-    orderBy: { createdAt: "desc" },
-    take: 40,
-  });
-  return items
-    .filter((i) => visible.has(i.id))
-    .slice(0, 20)
-    .map((i) => ({ itemId: i.id, boardId: i.boardId, name: i.name, boardName: boardName.get(i.boardId) ?? "" }));
 }
 
 /** 這個人看得到的看板(挑項目、引用時,不是看板頻道的對話要先選看板)。 */

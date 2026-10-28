@@ -607,9 +607,13 @@ model TodoItem {
   remindedStage Int @default(0)
   /// 誰新增的待辦事項(提醒的收件人除了項目的負責人,也包含寫這一筆的人)。舊資料是 null。
   createdById String?
+  /// 處理者:這個待辦事項要由誰完成。預設是工作項的負責人;沒有負責人就取人員分配 / 工時比例最高的人;
+  /// 從對話轉過來、訊息裡有 @ 誰,就是那個人(見 todoAssignee)。有設的話,期限提醒給他(加上新增的人),null = 沒指定。
+  assigneeId String?
 
   @@index([itemId])
   @@index([dueDate])
+  @@index([assigneeId])
 }
 
 model Assignment {
@@ -1240,6 +1244,8 @@ model RiskEntry {
   notifications       Notification[]
   /// 負責人的進度更新(時間軸,寫了不能改)。
   updates             RiskUpdate[]
+  /// 待辦事項(跟工作項的待辦事項同一個樣子)。
+  todos               RiskTodo[]
   /// 建立、改欄位、申請結案、同意、退回的紀錄。
   logs                ActivityLogEntry[]
 
@@ -1295,6 +1301,30 @@ model RiskUpdate {
   createdAt DateTime  @default(now())
 
   @@index([riskId, createdAt])
+}
+
+/// 風險 / 問題 / 議題(含 Mantis 同步來的)的待辦事項——跟工作項的待辦事項(TodoItem)同一個樣子:
+/// 勾完成、可以設期限,到期前一天、當天、逾期後各提醒一次。對話裡的訊息可以直接轉成這裡的待辦事項。
+model RiskTodo {
+  id        String    @id @default(cuid())
+  riskId    String
+  risk      RiskEntry @relation(fields: [riskId], references: [id], onDelete: Cascade)
+  text      String
+  done      Boolean   @default(false)
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  /// 期限("YYYY-MM-DD",台北的日曆日)。null = 沒設期限。有設而且還沒完成的才提醒。
+  dueDate   String?
+  /// 提醒到哪一階段了:0 = 還沒提醒、1 = 明天到期、2 = 今天到期、3 = 已逾期。改期限時歸零。
+  remindedStage Int @default(0)
+  /// 誰新增的(提醒的收件人除了風險的負責人,也包含寫這一筆的人)。
+  createdById String?
+  /// 處理者:預設是風險 / 問題的負責人;對話轉過來、訊息裡有 @ 誰,就是那個人。有設的話,期限提醒給他。
+  assigneeId String?
+
+  @@index([riskId])
+  @@index([dueDate])
+  @@index([assigneeId])
 }
 
 /// A key for the read-only REST API. Only the hash is stored — a key that

@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { isValidDueDate } from "@/lib/todoDeadline";
+import { assigneeName, suggestItemAssignee } from "@/lib/todoAssigneeServer";
 
 export async function listTodoItems(itemId: string) {
   const session = await requireSession();
@@ -22,7 +23,9 @@ export async function addTodoItem(
   /** 這個待辦事項的新增與完成要不要彙整進週報(預設要)。 */
   inWeeklyReport = true,
   /** 期限("YYYY-MM-DD"),沒給就是沒有期限。 */
-  dueDate: string | null = null
+  dueDate: string | null = null,
+  /** 處理者:不給(undefined)就用預設——文字裡 @ 的人、負責人、人員分配 / 工時比例最高的人(見 todoAssignee);null = 不指定。 */
+  assigneeId?: string | null
 ): Promise<{ error?: string }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
@@ -30,11 +33,15 @@ export async function addTodoItem(
   if (!trimmed) return {};
   if (dueDate !== null && !isValidDueDate(dueDate)) return { error: "期限的日期格式不正確" };
 
+  const assignee = assigneeId === undefined ? ((await suggestItemAssignee(itemId, trimmed))?.userId ?? null) : assigneeId;
+  const assigneeLabel = assignee ? await assigneeName(assignee) : null;
+  if (assignee && !assigneeLabel) return { error: "找不到這位處理者" };
+
   const count = await prisma.todoItem.count({ where: { itemId } });
   const todo = await prisma.todoItem.create({
-    data: { itemId, text: trimmed, order: count, inWeeklyReport: inWeeklyReport !== false, dueDate, createdById: session.userId },
+    data: { itemId, text: trimmed, order: count, inWeeklyReport: inWeeklyReport !== false, dueDate, createdById: session.userId, assigneeId: assignee },
   });
-  await logActivity(itemId, session.userId, `新增待辦事項:「${trimmed}」${dueDate ? `(期限 ${dueDate})` : ""}`, {
+  await logActivity(itemId, session.userId, `新增待辦事項:「${trimmed}」${dueDate ? `(期限 ${dueDate})` : ""}${assigneeLabel ? `(處理者 ${assigneeLabel})` : ""}`, {
     kind: "TODO",
     todoItemId: todo.id,
     inWeeklyReport: todo.inWeeklyReport,
@@ -69,6 +76,28 @@ export async function setTodoDueDate(
       ? `設定待辦事項期限:「${existing.text}」→ ${dueDate}`
       : `清除待辦事項期限:「${existing.text}」(原本 ${existing.dueDate})`
   );
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/** 改(或清掉,null)一個待辦事項的處理者。 */
+export async function setTodoAssignee(
+  /** Not trusted for authorization — see requireItemBoardAccess below. */
+  _boardId: string,
+  itemId: string,
+  todoId: string,
+  assigneeId: string | null
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const existing = await prisma.todoItem.findUnique({ where: { id: todoId } });
+  if (!existing || existing.itemId !== itemId) return { error: "待辦事項不存在" };
+  if (existing.assigneeId === assigneeId) return {};
+  const label = assigneeId ? await assigneeName(assigneeId) : null;
+  if (assigneeId && !label) return { error: "找不到這位處理者" };
+
+  await prisma.todoItem.update({ where: { id: todoId }, data: { assigneeId } });
+  await logActivity(itemId, session.userId, assigneeId ? `待辦事項「${existing.text}」的處理者改為 ${label}` : `清除待辦事項「${existing.text}」的處理者`);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }

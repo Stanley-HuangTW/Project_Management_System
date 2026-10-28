@@ -6,10 +6,12 @@ import {
   addTodoItem,
   deleteTodoItem,
   listTodoItems,
+  setTodoAssignee,
   setTodoDueDate,
   setTodoInWeeklyReport,
   toggleTodoItem,
 } from "@/lib/actions/todo";
+import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "../AssigneeSelect";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { describeDeadline, formatDueShort, taipeiClock, type DeadlineTone } from "@/lib/todoDeadline";
 
@@ -32,6 +34,9 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
   const [editingDueId, setEditingDueId] = useState<string | null>(null);
   // 台北的今天——期限是台北的日曆日,「逾期」「明天到期」都跟它比。
   const today = taipeiClock(new Date()).date;
+  // 處理者:新增時預設照規則帶入(@ 的人、負責人、人員分配 / 工時比例最高的人),可以改。
+  const users = useAssignableUsers();
+  const assignee = useSuggestedAssignee({ kind: "item", id: itemId }, text);
 
   async function refresh() {
     setTodos(await listTodoItems(itemId));
@@ -55,7 +60,7 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
 
   async function handleAdd() {
     if (!text.trim()) return;
-    const result = await addTodoItem(boardId, itemId, text.trim(), inWeekly, dueText || null);
+    const result = await addTodoItem(boardId, itemId, text.trim(), inWeekly, dueText || null, assignee.assigneeId || null);
     if (result.error) {
       await notify(result.error, { title: "無法新增" });
       return;
@@ -63,6 +68,14 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
     setText("");
     setInWeekly(true);
     setDueText("");
+    assignee.reset();
+    await refresh();
+  }
+
+  async function changeAssignee(todoId: string, next: string) {
+    setTodos((prev) => prev.map((t) => (t.id === todoId ? { ...t, assigneeId: next || null } : t)));
+    const result = await setTodoAssignee(boardId, itemId, todoId, next || null);
+    if (result.error) await notify(result.error, { title: "無法更改處理者" });
     await refresh();
   }
 
@@ -124,6 +137,7 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
             >
               {t.text}
             </span>
+            <AssigneeSelect value={t.assigneeId ?? ""} users={users} onChange={(v) => void changeAssignee(t.id, v)} data-todo-assignee={t.id} />
             {editingDueId === t.id ? (
               <span className="flex shrink-0 items-center gap-1">
                 <input
@@ -214,6 +228,10 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
             data-new-todo-due
             className="rounded border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
           />
+        </label>
+        <label className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-300" title={reasonText(assignee.reason) ?? "處理者:這個待辦事項由誰完成"}>
+          處理者
+          <AssigneeSelect value={assignee.assigneeId} users={users} onChange={assignee.choose} data-new-todo-assignee="" />
         </label>
         <label
           className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"

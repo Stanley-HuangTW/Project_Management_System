@@ -11,8 +11,20 @@ type Todo = {
   dueDate: string;
   remindedStage: number;
   createdById: string | null;
+  assigneeId?: string | null;
   itemId: string;
   item: { name: string };
+};
+
+type RiskTodo = {
+  id: string;
+  text: string;
+  dueDate: string;
+  remindedStage: number;
+  createdById: string | null;
+  assigneeId?: string | null;
+  riskId: string;
+  risk: { title: string; ownerId: string | null };
 };
 
 const state = {
@@ -23,9 +35,11 @@ const state = {
   assignments: [] as { userId: string }[],
   realUsers: ["u1", "u2", "u3"],
   inAppAllowed: true,
-  notifications: [] as { userId: string; itemId: string; message: string; type: string; actorId: null }[],
+  notifications: [] as { userId: string; itemId?: string; riskId?: string; message: string; type: string; actorId: null }[],
   emails: [] as { userId: string; type: string; message: string }[],
   queries: [] as unknown[],
+  riskTodos: [] as RiskTodo[],
+  riskClaims: [] as { id: string; stage: number }[],
 };
 
 vi.mock("@/lib/prisma", () => ({
@@ -38,6 +52,14 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: async ({ where, data }: { where: { id: string }; data: { remindedStage: number } }) => {
         if (!state.claimable) return { count: 0 };
         state.claims.push({ id: where.id, stage: data.remindedStage });
+        return { count: 1 };
+      },
+    },
+    riskTodo: {
+      findMany: async () => state.riskTodos,
+      updateMany: async ({ where, data }: { where: { id: string }; data: { remindedStage: number } }) => {
+        if (!state.claimable) return { count: 0 };
+        state.riskClaims.push({ id: where.id, stage: data.remindedStage });
         return { count: 1 };
       },
     },
@@ -92,6 +114,8 @@ beforeEach(() => {
   state.notifications = [];
   state.emails = [];
   state.queries = [];
+  state.riskTodos = [];
+  state.riskClaims = [];
 });
 
 describe("sendTodoDeadlineReminders", () => {
@@ -182,5 +206,102 @@ describe("sendTodoDeadlineReminders", () => {
     await sendTodoDeadlineReminders(MORNING);
     expect(state.notifications).toEqual([]);
     expect(state.emails.map((e) => e.userId).sort()).toEqual(["u1", "u2"]);
+  });
+});
+
+describe("風險 / 問題 / 議題的待辦事項", () => {
+  const riskTodo = (id: string, dueDate: string, extra: Partial<RiskTodo> = {}): RiskTodo => ({
+    id,
+    text: `風險待辦 ${id}`,
+    dueDate,
+    remindedStage: 0,
+    createdById: null,
+    riskId: "r1",
+    risk: { title: "供應商交期延遲", ownerId: "u1" },
+    ...extra,
+  });
+
+  it("提醒風險的負責人與新增這個待辦事項的人,通知指到那一筆風險", async () => {
+    state.riskTodos = [riskTodo("rt1", "2026-10-22", { createdById: "u3" })];
+    const out = await sendTodoDeadlineReminders(MORNING);
+    expect(out).toMatchObject({ ran: true, todos: 1, notified: 2 });
+    expect(state.notifications.map((n) => n.userId).sort()).toEqual(["u1", "u3"]);
+    expect(state.notifications[0]).toMatchObject({ type: "DEADLINE", riskId: "r1", actorId: null });
+    expect(state.notifications[0].message).toContain("風險 / 問題「供應商交期延遲」的待辦事項「風險待辦 rt1」");
+    expect(state.notifications[0].message).toContain("明天(2026-10-22)到期");
+    expect(state.riskClaims).toEqual([{ id: "rt1", stage: 1 }]);
+  });
+
+  it("同一階段只提醒一次,但會往下一階段走", async () => {
+    state.riskTodos = [riskTodo("sent", "2026-10-22", { remindedStage: 1 }), riskTodo("next", "2026-10-21", { remindedStage: 1 })];
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.riskClaims).toEqual([{ id: "next", stage: 2 }]);
+  });
+
+  it("沒有負責人也沒有人寫這個待辦事項:沒人可通知,但照樣標記", async () => {
+    state.riskTodos = [riskTodo("rt1", "2026-10-21", { risk: { title: "x", ownerId: null } })];
+    const out = await sendTodoDeadlineReminders(MORNING);
+    expect(out.notified).toBe(0);
+    expect(state.riskClaims).toEqual([{ id: "rt1", stage: 2 }]);
+  });
+
+  it("別的 worker 先標了就不重複通知", async () => {
+    state.claimable = false;
+    state.riskTodos = [riskTodo("rt1", "2026-10-21")];
+    const out = await sendTodoDeadlineReminders(MORNING);
+    expect(out.notified).toBe(0);
+    expect(state.notifications).toEqual([]);
+  });
+
+  it("工作項的待辦事項提醒的說法不變", async () => {
+    state.todos = [todo("t1", "2026-10-22")];
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.notifications[0].message).toContain("工作項目「vision box」的待辦事項");
+  });
+});
+
+describe("處理者", () => {
+  it("工作項的待辦事項有指定處理者:提醒他(加上寫這一筆的人),不再提醒工作項的負責人", async () => {
+    state.todos = [todo("t1", "2026-10-22", { assigneeId: "u3", createdById: "u2" })];
+    const out = await sendTodoDeadlineReminders(MORNING);
+    expect(out.notified).toBe(2);
+    expect(state.notifications.map((n) => n.userId).sort()).toEqual(["u2", "u3"]);
+    // u1(人員欄位的負責人)沒有被打擾
+    expect(state.notifications.map((n) => n.userId)).not.toContain("u1");
+  });
+
+  it("只有處理者、沒有人寫這一筆(寫的人是自己就只算一次)", async () => {
+    state.todos = [todo("t1", "2026-10-22", { assigneeId: "u3", createdById: "u3" })];
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.notifications.map((n) => n.userId)).toEqual(["u3"]);
+  });
+
+  it("處理者的帳號已經不存在:只剩寫這一筆的人", async () => {
+    state.todos = [todo("t1", "2026-10-22", { assigneeId: "gone", createdById: "u2" })];
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.notifications.map((n) => n.userId)).toEqual(["u2"]);
+  });
+
+  it("沒指定處理者照舊:工作項的負責人加寫的人", async () => {
+    state.todos = [todo("t1", "2026-10-22", { createdById: "u3" })];
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.notifications.map((n) => n.userId).sort()).toEqual(["u1", "u2", "u3"]);
+  });
+
+  it("風險的待辦事項有指定處理者:提醒他,不是風險的負責人", async () => {
+    state.riskTodos = [
+      {
+        id: "rt1",
+        text: "風險待辦",
+        dueDate: "2026-10-22",
+        remindedStage: 0,
+        createdById: null,
+        assigneeId: "u3",
+        riskId: "r1",
+        risk: { title: "供應商交期延遲", ownerId: "u1" },
+      },
+    ];
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.notifications.map((n) => n.userId)).toEqual(["u3"]);
   });
 });

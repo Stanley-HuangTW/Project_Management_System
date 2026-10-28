@@ -25,3 +25,29 @@ export function filterItemsKeepingAncestors<T extends RefItem>(items: T[], query
   }
   return items.filter((i) => keep.has(i.id)).map((item) => ({ item, muted: !matched.has(item.id) }));
 }
+
+type TreeRow = { id: string; parentId: string | null };
+
+/** 有子項的工作項(清單上才要放收放的箭頭)。 */
+export function parentIdsOf(items: TreeRow[]): Set<string> {
+  const ids = new Set(items.map((i) => i.id));
+  return new Set(items.flatMap((i) => (i.parentId && ids.has(i.parentId) ? [i.parentId] : [])));
+}
+
+/**
+ * 樹狀清單要顯示哪些列:items 要是「父項在前、子項接在後」的順序(伺服器出的就是);
+ * 一列要顯示,得每一層上層都是展開的。上層不在清單裡的(例如看不到的私人項目)當最上層。
+ */
+export function visibleTreeRows<T extends TreeRow>(items: T[], expanded: ReadonlySet<string>): T[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const shown = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const parent = item.parentId && byId.has(item.parentId) ? item.parentId : null;
+    if (parent === null || (shown.has(parent) && expanded.has(parent))) {
+      shown.add(item.id);
+      out.push(item);
+    }
+  }
+  return out;
+}

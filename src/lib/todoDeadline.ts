@@ -61,9 +61,10 @@ export function formatDueShort(due: string): string {
 /** 提醒的內文:哪個工作項目的哪個待辦事項、期限是哪天、現在是哪一階段。 */
 export function reminderMessage(
   stage: Exclude<DeadlineStage, 0>,
-  args: { itemName: string; todoText: string; dueDate: string }
+  /** subject:這個待辦事項屬於哪一種東西,預設是工作項目;風險、問題、議題的待辦事項帶「風險 / 問題」。 */
+  args: { itemName: string; todoText: string; dueDate: string; subject?: string }
 ): string {
-  const what = `工作項目「${args.itemName}」的待辦事項「${args.todoText}」`;
+  const what = `${args.subject ?? "工作項目"}「${args.itemName}」的待辦事項「${args.todoText}」`;
   if (stage === 1) return `${what}明天(${args.dueDate})到期`;
   if (stage === 2) return `${what}今天(${args.dueDate})到期`;
   return `${what}已經逾期(期限 ${args.dueDate}),還沒完成`;
@@ -81,7 +82,7 @@ export type TodoDeadlineEntry = {
   groupName: string;
 };
 
-type TodoRow = { id: string; itemId: string; text: string; dueDate: string | null; done: boolean; createdById: string | null };
+type TodoRow = { id: string; itemId: string; text: string; dueDate: string | null; done: boolean; createdById: string | null; assigneeId?: string | null };
 
 /**
  * 儀表板要列哪些待辦事項:有期限、還沒完成、而且是這幾位的——工作項目指派給他們(負責人欄位或人員分配),
@@ -109,7 +110,9 @@ export function todoDeadlineEntries(
         item.assignments.some((a) => wanted.has(a.userId)) ||
         item.cellValues.some((cv) => personColumnIds.has(cv.columnId) && getPersonIds(cv.value).some((id) => wanted.has(id)));
       const wroteIt = !!todo.createdById && wanted.has(todo.createdById);
-      if (!assigned && !wroteIt) continue;
+      // 指定給他處理的,即使工作項不是他的也列出來。
+      const handlesIt = !!todo.assigneeId && wanted.has(todo.assigneeId);
+      if (!assigned && !wroteIt && !handlesIt) continue;
     }
     entries.push({
       todoId: todo.id,

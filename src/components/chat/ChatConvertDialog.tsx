@@ -1,26 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { searchChatItems } from "@/lib/actions/chat";
 import { addTodoItem } from "@/lib/actions/todo";
+import { addRiskTodo } from "@/lib/actions/riskTodo";
 import { createComment } from "@/lib/actions/comment";
 import { addRiskUpdate } from "@/lib/actions/risk";
 import { isValidDueDate } from "@/lib/todoDeadline";
-import type { ChatItemHit, ChatMessageDto } from "@/lib/chatTypes";
+import type { ChatMessageDto } from "@/lib/chatTypes";
+import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "@/components/board/AssigneeSelect";
 import { BoardRefPicker, REF_KIND_LABELS, type BoardRef, type RefKind } from "./BoardRefPicker";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
 
+/** 轉換的目標可以是這四類(議題 = Mantis 同步來的);待辦事項與留言兩種都能加在任何一類上。 */
+const KINDS: RefKind[] = ["item", "risk", "issue", "mantis"];
+
 /**
  * 把對話裡的一則訊息變成某個項目底下的待辦事項或留言——討論出結論的時候,
- * 不用複製貼上、也不用記得是哪個項目。文字可以先改;待辦事項還可以順便設期限。
- * 挑項目有兩種方式:輸入名稱搜尋,或從清單選——清單是下拉選單加搜尋,列這間對話所屬看板的
- * 工作項(依階層巢狀)、風險、問題、議題(私訊、聊天室沒有看板,先挑看板)。待辦事項只能加在工作項上;
- * 留言可以加在工作項,也可以加在風險、問題或議題(變成它的進度更新)。
- * 寫入走原本的 addTodoItem / createComment / addRiskUpdate,權限、活動紀錄、通知都跟手動新增一樣。
+ * 不用複製貼上、也不用記得是哪個項目。文字可以先改。
+ * 目標是這間對話所屬看板的工作項、風險、問題或議題(私訊、聊天室沒有看板,先挑看板),
+ * 直接從清單挑(工作項是可以收放的階層,上面有搜尋)。待辦事項與留言在四類上都能加,畫面一樣,
+ * 差別只在待辦事項多了**期限**與**處理者**:處理者預設是訊息裡 @ 的人(即使項目已經有負責人),
+ * 沒有 @ 就是項目的負責人;工作項沒有負責人就取人員分配 / 工時比例最高的人。可以改。
+ * 風險、問題、議題的留言叫「進度更新」。
+ * 寫入走原本的 addTodoItem / addRiskTodo / createComment / addRiskUpdate,權限、活動紀錄、通知都跟手動新增一樣。
  */
 export function ConvertMessageDialog({
   message,
@@ -36,31 +42,15 @@ export function ConvertMessageDialog({
 }) {
   const { notify } = useDialogs();
   const [text, setText] = useState(message.body);
-  const [how, setHow] = useState<"search" | "list">("search");
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<ChatItemHit[]>([]);
   const [picked, setPicked] = useState<BoardRef | null>(null);
   const [due, setDue] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const q = query.trim();
-    if (!q) return;
-    let stale = false;
-    const timer = setTimeout(async () => {
-      const found = await searchChatItems(q);
-      if (!stale) setHits(found);
-    }, 250);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [query]);
+  const users = useAssignableUsers();
+  const assignee = useSuggestedAssignee(picked && mode === "todo" ? { kind: picked.kind === "item" ? "item" : "risk", id: picked.id } : null, text);
 
   const label = mode === "todo" ? "待辦事項" : "留言";
-  const kinds: RefKind[] = mode === "todo" ? ["item"] : ["item", "risk", "issue", "mantis"];
-  /** 風險、問題的留言叫「進度更新」。 */
-  const targetLabel = picked && picked.kind !== "item" ? "進度更新" : label;
+  /** 風險、問題、議題的留言叫「進度更新」。 */
+  const targetLabel = mode === "comment" && picked && picked.kind !== "item" ? "進度更新" : label;
 
   async function submit() {
     if (!picked || !text.trim() || busy) return;
@@ -71,12 +61,16 @@ export function ConvertMessageDialog({
     setBusy(true);
     try {
       let error: string | undefined;
-      if (picked.kind !== "item") {
-        error = (await addRiskUpdate(picked.id, text)).error;
-      } else if (mode === "todo") {
-        error = (await addTodoItem(picked.boardId, picked.id, text, true, due || null)).error;
-      } else {
+      const handler = assignee.assigneeId || null;
+      if (mode === "todo") {
+        error =
+          picked.kind === "item"
+            ? (await addTodoItem(picked.boardId, picked.id, text, true, due || null, handler)).error
+            : (await addRiskTodo(picked.id, text, due || null, handler)).error;
+      } else if (picked.kind === "item") {
         await createComment(picked.boardId, picked.id, text);
+      } else {
+        error = (await addRiskUpdate(picked.id, text)).error;
       }
       if (error) {
         await notify(error);
@@ -101,9 +95,7 @@ export function ConvertMessageDialog({
         </label>
 
         <div>
-          <span className="mb-1 block text-neutral-600 dark:text-neutral-300">
-            {mode === "todo" ? "加到哪個工作項" : "加到哪個項目(工作項、風險、問題或議題)"}
-          </span>
+          <span className="mb-1 block text-neutral-600 dark:text-neutral-300">加到哪個項目(工作項、風險、問題或議題)</span>
           {picked ? (
             <div className="flex items-center justify-between rounded-md border border-blue-300 bg-blue-50 px-3 py-2 dark:border-blue-800 dark:bg-blue-950">
               <span className="min-w-0 truncate" data-convert-picked>
@@ -120,72 +112,30 @@ export function ConvertMessageDialog({
               </button>
             </div>
           ) : (
-            <>
-              <div className="mb-2 flex gap-1" role="tablist">
-                {(
-                  [
-                    ["search", "搜尋工作項"],
-                    ["list", "從清單選"],
-                  ] as const
-                ).map(([key, name]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    aria-selected={how === key}
-                    data-convert-how={key}
-                    onClick={() => setHow(key)}
-                    className={`rounded-md px-2.5 py-1 text-xs ${
-                      how === key
-                        ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                        : "border border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                    }`}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              {how === "search" ? (
-                <>
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="輸入工作項名稱搜尋…"
-                    autoFocus
-                    data-convert-search
-                    className={inputClass}
-                  />
-                  {query.trim() && (
-                    <ul className="mt-1 max-h-44 overflow-y-auto rounded-md border border-neutral-200 dark:border-neutral-700">
-                      {hits.length === 0 && <li className="px-3 py-2 text-neutral-400">找不到符合的工作項</li>}
-                      {hits.map((hit) => (
-                        <li key={hit.itemId}>
-                          <button
-                            type="button"
-                            onClick={() => setPicked({ kind: "item", id: hit.itemId, boardId: hit.boardId, boardName: hit.boardName, name: hit.name })}
-                            data-convert-hit
-                            className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                          >
-                            <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-100">{hit.name}</span>
-                            <span className="shrink-0 text-xs text-neutral-400">{hit.boardName}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              ) : (
-                <BoardRefPicker boardId={boardId} kinds={kinds} onPick={setPicked} />
-              )}
-            </>
+            <BoardRefPicker boardId={boardId} kinds={KINDS} onPick={setPicked} />
           )}
         </div>
 
         {mode === "todo" && (
-          <label className="block">
-            <span className="mb-1 block text-neutral-600 dark:text-neutral-300">期限(選填)</span>
-            <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={inputClass} />
-          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-neutral-600 dark:text-neutral-300">期限(選填)</span>
+              <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={inputClass} data-convert-due />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-neutral-600 dark:text-neutral-300">處理者</span>
+              <AssigneeSelect
+                value={assignee.assigneeId}
+                users={users}
+                onChange={assignee.choose}
+                className="w-full !px-3 !py-1.5 !text-sm"
+                data-convert-assignee=""
+              />
+              <span className="mt-1 block text-[11px] text-neutral-400 dark:text-neutral-500" data-convert-assignee-reason>
+                {picked ? (reasonText(assignee.reason) ?? (assignee.assigneeId ? "" : "這個項目沒有負責人,可以自己挑")) : "挑好項目後帶入預設"}
+              </span>
+            </label>
+          </div>
         )}
 
         <div className="flex justify-end gap-2">

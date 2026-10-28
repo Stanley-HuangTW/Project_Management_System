@@ -154,7 +154,7 @@ export default async function DashboardPage({
   const todoRows = visibleItemIds.length
     ? await prisma.todoItem.findMany({
         where: { done: false, dueDate: { not: null }, itemId: { in: visibleItemIds } },
-        select: { id: true, itemId: true, text: true, dueDate: true, done: true, createdById: true },
+        select: { id: true, itemId: true, text: true, dueDate: true, done: true, createdById: true, assigneeId: true },
       })
     : [];
   const todoDeadlines = todoDeadlineEntries(

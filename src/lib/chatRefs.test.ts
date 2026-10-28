@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterItemsKeepingAncestors, riskKindOf } from "./chatRefs";
+import { filterItemsKeepingAncestors, parentIdsOf, riskKindOf, visibleTreeRows } from "./chatRefs";
 
 describe("riskKindOf", () => {
   it("Mantis 同步來的是議題(不管登記冊裡標成風險還是問題)", () => {
@@ -56,5 +56,38 @@ describe("filterItemsKeepingAncestors", () => {
       { id: "y", name: "乙", wbsCode: "2", parentId: "x" },
     ];
     expect(filterItemsKeepingAncestors(cyclic, "甲").map((r) => r.item.id).sort()).toEqual(["x", "y"]);
+  });
+});
+
+describe("visibleTreeRows / parentIdsOf", () => {
+  // POC → (機構 → 外殼打樣, 電控);量產
+  const items = [
+    { id: "a", parentId: null },
+    { id: "b", parentId: "a" },
+    { id: "c", parentId: "b" },
+    { id: "d", parentId: "a" },
+    { id: "e", parentId: null },
+  ];
+
+  it("全部收合:只剩最上層", () => {
+    expect(visibleTreeRows(items, new Set()).map((i) => i.id)).toEqual(["a", "e"]);
+  });
+
+  it("展開一層就看到它的子項,孫項還收著", () => {
+    expect(visibleTreeRows(items, new Set(["a"])).map((i) => i.id)).toEqual(["a", "b", "d", "e"]);
+  });
+
+  it("要每一層都展開才看得到孫項(只展開孫項的父項、上層收著不算)", () => {
+    expect(visibleTreeRows(items, new Set(["b"])).map((i) => i.id)).toEqual(["a", "e"]);
+    expect(visibleTreeRows(items, new Set(["a", "b"])).map((i) => i.id)).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("上層不在清單裡(看不到的私人項目)就當最上層", () => {
+    expect(visibleTreeRows([{ id: "x", parentId: "hidden" }, { id: "y", parentId: "x" }], new Set()).map((i) => i.id)).toEqual(["x"]);
+  });
+
+  it("有子項的才算 parent", () => {
+    expect([...parentIdsOf(items)].sort()).toEqual(["a", "b"]);
+    expect(parentIdsOf([{ id: "x", parentId: "hidden" }]).size).toBe(0);
   });
 });
