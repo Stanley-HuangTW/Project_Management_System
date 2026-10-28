@@ -1,20 +1,60 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, horizontalListSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { ProtoRowDialog } from "./ProtoRowDialog";
 import { ProtoQtyCell } from "./ProtoQtyCell";
 import { ProtoMachineList } from "./ProtoMachineList";
 import { ProtoExcelButtons } from "./ProtoExcelButtons";
+import { SortableTh, SortableTr } from "./ProtoSortable";
+import { ProtoUnitName } from "./ProtoUnitName";
 import {
   getProtoPlanView,
   setProtoQty,
   addProtoRow,
   deleteProtoRow,
+  renameProtoUnit,
+  reorderProtoPhases,
+  reorderProtoRows,
   type ProtoPlanView,
 } from "@/lib/actions/protoPlan";
+
+/** 拖完階段欄之後,先在畫面上把每一處的階段順序排好(伺服器存好會再載回一次)。 */
+function withPhaseOrder(view: ProtoPlanView, ids: string[]): ProtoPlanView {
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  const byRank = <T extends { phaseId: string }>(list: T[]) => [...list].sort((a, b) => (rank.get(a.phaseId) ?? 0) - (rank.get(b.phaseId) ?? 0));
+  return {
+    ...view,
+    phases: [...view.phases].sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)),
+    summary: {
+      ...view.summary,
+      byPhase: byRank(view.summary.byPhase),
+      products: view.summary.products.map((p) => ({
+        ...p,
+        byPhase: byRank(p.byPhase),
+        rows: p.rows.map((r) => ({ ...r, cells: byRank(r.cells) })),
+      })),
+    },
+  };
+}
+
+/** 拖完某個產品的用途列之後,先在畫面上排好。 */
+function withRowOrder(view: ProtoPlanView, product: string, units: string[]): ProtoPlanView {
+  const rank = new Map(units.map((u, i) => [u, i]));
+  return {
+    ...view,
+    summary: {
+      ...view.summary,
+      products: view.summary.products.map((p) =>
+        p.product === product ? { ...p, rows: [...p.rows].sort((a, b) => (rank.get(a.unit) ?? 0) - (rank.get(b.unit) ?? 0)) } : p
+      ),
+    },
+  };
+}
 
 /**
  * 樣機使用計畫:產品 × 用途單位 × 階段 = 幾台。
@@ -31,6 +71,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
   const [rowDialog, setRowDialog] = useState<{ defaultProduct?: string } | null>(null);
 
   const reload = useCallback(async () => setView(await getProtoPlanView(boardId)), [boardId]);
+  // 移動超過 5px 才算拖曳,所以把手與格子照常可以點。
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +113,32 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function endPhaseDrag({ active, over }: DragEndEvent) {
+    if (!view || !over || active.id === over.id) return;
+    const ids = view.phases.map((p) => p.id);
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(ids, from, to);
+    setView(withPhaseOrder(view, next));
+    if (!(await run(() => reorderProtoPhases(boardId, next), "無法調整階段順序"))) await reload();
+  }
+
+  async function endRowDrag(product: string, { active, over }: DragEndEvent) {
+    if (!view || !over || active.id === over.id) return;
+    const units = view.summary.products.find((p) => p.product === product)?.rows.map((r) => r.unit) ?? [];
+    const from = units.indexOf(String(active.id));
+    const to = units.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(units, from, to);
+    setView(withRowOrder(view, product, next));
+    if (!(await run(() => reorderProtoRows(boardId, product, next), "無法調整順序"))) await reload();
+  }
+
+  async function renameUnit(product: string, unit: string, next: string) {
+    await run(() => renameProtoUnit(boardId, product, unit, next), "無法修改用途單位名稱");
   }
 
   function addRow(defaultProduct?: string) {
@@ -169,20 +237,40 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
       ) : (
         <div className="space-y-5 overflow-x-auto">
           {summary.products.map((product) => (
-            <table key={product.product} className="w-full min-w-[640px] text-sm">
+            <DndContext key={product.product} sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void endPhaseDrag(e)}>
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b-2 border-neutral-300 dark:border-neutral-600">
                   <th className="w-56 py-2 text-left font-semibold text-neutral-800 dark:text-neutral-100">
                     {product.product}
                   </th>
-                  {phases.map((phase) => (
-                    <th
-                      key={phase.id}
-                      className="py-2 text-right text-xs font-normal text-neutral-500 dark:text-neutral-400"
-                    >
-                      {phase.name}
-                    </th>
-                  ))}
+                  <SortableContext items={phases.map((p) => p.id)} strategy={horizontalListSortingStrategy}>
+                    {phases.map((phase) => (
+                      <SortableTh
+                        key={phase.id}
+                        id={phase.id}
+                        className="py-2 text-right text-xs font-normal text-neutral-500 dark:text-neutral-400"
+                      >
+                        {(handle) => (
+                          <span className="inline-flex items-center justify-end gap-0.5">
+                            {canEdit && (
+                              <button
+                                type="button"
+                                {...handle}
+                                data-proto-phase-handle={phase.id}
+                                title="拖曳調整階段順序(樣機計畫、階段預算、NRE、BOM 共用同一組階段)"
+                                aria-label={`拖曳調整「${phase.name}」的順序`}
+                                className="cursor-grab touch-none rounded p-0.5 text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-300"
+                              >
+                                <GripVertical size={12} />
+                              </button>
+                            )}
+                            <span data-proto-phase={phase.id}>{phase.name}</span>
+                          </span>
+                        )}
+                      </SortableTh>
+                    ))}
+                  </SortableContext>
                   <th className="py-2 text-right text-xs font-normal text-neutral-500 dark:text-neutral-400">
                     合計
                   </th>
@@ -190,12 +278,34 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
                 </tr>
               </thead>
               <tbody>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void endRowDrag(product.product, e)}>
+                <SortableContext items={product.rows.map((r) => r.unit)} strategy={verticalListSortingStrategy}>
                 {product.rows.map((row) => (
-                  <tr
+                  <SortableTr
                     key={row.unit}
+                    id={row.unit}
+                    dataKey={`${product.product}|${row.unit}`}
                     className="group border-b border-neutral-100 dark:border-neutral-800"
                   >
-                    <td className="py-1.5 pr-2 text-neutral-700 dark:text-neutral-200">{row.unit}</td>
+                    {(handle) => (
+                    <>
+                    <td className="py-1.5 pr-2 text-neutral-700 dark:text-neutral-200">
+                      <div className="flex items-center gap-0.5">
+                        {canEdit && (
+                          <button
+                                type="button"
+                                {...handle}
+                                data-proto-row-handle={`${product.product}|${row.unit}`}
+                                title="拖曳調整順序"
+                                aria-label={`拖曳調整「${row.unit}」的順序`}
+                                className="cursor-grab touch-none rounded p-0.5 text-neutral-300 hover:text-neutral-500 dark:text-neutral-600 dark:hover:text-neutral-300"
+                              >
+                                <GripVertical size={12} />
+                              </button>
+                        )}
+                        <ProtoUnitName value={row.unit} canEdit={canEdit} onSave={(next) => renameUnit(product.product, row.unit, next)} />
+                      </div>
+                    </td>
                     {row.cells.map((cell) => (
                       <td key={cell.phaseId} className="py-1 text-right tabular-nums">
                         <ProtoQtyCell
@@ -237,8 +347,12 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
                         </button>
                       </td>
                     )}
-                  </tr>
+                    </>
+                    )}
+                  </SortableTr>
                 ))}
+                </SortableContext>
+                </DndContext>
               </tbody>
               <tfoot>
                 <tr className="font-medium text-neutral-800 dark:text-neutral-100">
@@ -267,6 +381,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
                 </tr>
               </tfoot>
             </table>
+            </DndContext>
           ))}
 
           {summary.products.length > 1 && (

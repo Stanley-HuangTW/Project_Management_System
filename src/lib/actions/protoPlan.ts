@@ -10,6 +10,8 @@ import { logAudit } from "@/lib/activityLog";
 import { canEditBoardBudget } from "@/lib/boardBudgetRights";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
 import { summariseProtoPlan, type ProtoSummary } from "@/lib/protoPlan";
+import { mergeOrder } from "@/lib/mergeOrder";
+import { orderProtoCells } from "@/lib/protoRowOrder";
 import { syncProtoUnits } from "@/lib/protoUnitsServer";
 import { protoSyncNotice, protoUnitLabel } from "@/lib/protoUnits";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
@@ -50,7 +52,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
-  const [phases, cells, units, visible] = await Promise.all([
+  const [phases, cells, rowOrders, units, visible] = await Promise.all([
     prisma.budgetPhase.findMany({
       where: { boardId },
       orderBy: { order: "asc" },
@@ -61,6 +63,7 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
       orderBy: { createdAt: "asc" },
       select: { product: true, unit: true, phaseId: true, qty: true, note: true },
     }),
+    prisma.protoRowOrder.findMany({ where: { boardId }, select: { product: true, unit: true, order: true } }),
     prisma.protoUnit.findMany({
       where: { boardId },
       select: {
@@ -100,7 +103,8 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
     phases,
     summary: summariseProtoPlan(
       phases.map((p) => p.id),
-      cells
+      // 用途列的順序:拖曳排過的照排好的順序,沒排過的接在後面。
+      orderProtoCells(cells, rowOrders)
     ),
     machines,
     units: await loadOrgUnits(),
@@ -176,6 +180,79 @@ export async function addProtoRow(
   return {};
 }
 
+/**
+ * 改一列的用途單位名稱(例如 EE → HW-EE)。各階段的台數、排出來的每一台樣機(連同工作項的「使用樣機」)、
+ * 列的順序一起改名;同一個產品已經有同名的那一列就擋下來,不自動併。
+ */
+export async function renameProtoUnit(
+  boardId: string,
+  product: string,
+  unit: string,
+  rawName: string
+): Promise<{ error?: string }> {
+  const session = await requireProtoAdmin(boardId);
+  const name = rawName.trim();
+  if (!name) return { error: "用途單位不可為空" };
+  if (name.length > 100) return { error: "用途單位名稱太長了(上限 100 字)" };
+  if (name === unit) return {};
+
+  const [current, clash] = await Promise.all([
+    prisma.protoPlan.findFirst({ where: { boardId, product, unit }, select: { id: true } }),
+    prisma.protoPlan.findFirst({ where: { boardId, product, unit: name }, select: { id: true } }),
+  ]);
+  if (!current) return { error: "找不到這一列" };
+  if (clash) return { error: `「${product}」已經有「${name}」這一列了` };
+
+  await prisma.$transaction([
+    prisma.protoPlan.updateMany({ where: { boardId, product, unit }, data: { unit: name } }),
+    // 排出來的每一台樣機跟著改名,工作項的「使用樣機」參照的是它的 id,不受影響。
+    prisma.protoUnit.updateMany({ where: { boardId, product, unit }, data: { unit: name } }),
+    prisma.protoRowOrder.updateMany({ where: { boardId, product, unit }, data: { unit: name } }),
+  ]);
+  await logAudit("COST", session.userId, `樣機計畫「${product}」的用途單位「${unit}」改名為「${name}」`, boardId);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/** 拖曳排序某個產品底下的用途列:orderedUnits 是畫面上拖完的順序。 */
+export async function reorderProtoRows(boardId: string, product: string, orderedUnits: string[]): Promise<{ error?: string }> {
+  await requireProtoAdmin(boardId);
+  const rows = await prisma.protoPlan.findMany({
+    where: { boardId, product },
+    orderBy: { createdAt: "asc" },
+    select: { unit: true },
+    distinct: ["unit"],
+  });
+  if (rows.length === 0) return { error: "找不到這個產品" };
+  const finalUnits = mergeOrder(
+    rows.map((r) => r.unit),
+    orderedUnits
+  );
+  await prisma.$transaction([
+    prisma.protoRowOrder.deleteMany({ where: { boardId, product } }),
+    prisma.protoRowOrder.createMany({ data: finalUnits.map((unit, order) => ({ boardId, product, unit, order })) }),
+  ]);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/**
+ * 拖曳排序階段欄:orderedIds 是畫面上拖完的順序。階段是各預算表共用的一組(樣機計畫、階段預算、NRE、BOM),
+ * 所以這裡排,別張表的階段順序也跟著變。
+ */
+export async function reorderProtoPhases(boardId: string, orderedIds: string[]): Promise<{ error?: string }> {
+  const session = await requireProtoAdmin(boardId);
+  const phases = await prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" }, select: { id: true } });
+  const finalIds = mergeOrder(
+    phases.map((p) => p.id),
+    orderedIds
+  );
+  await prisma.$transaction(finalIds.map((id, order) => prisma.budgetPhase.update({ where: { id }, data: { order } })));
+  await logAudit("COST", session.userId, "調整階段順序(樣機計畫的階段欄)", boardId);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
 export async function deleteProtoRow(
   boardId: string,
   product: string,
@@ -187,6 +264,7 @@ export async function deleteProtoRow(
     select: { phaseId: true },
   });
   const removed = await prisma.protoPlan.deleteMany({ where: { boardId, product, unit } });
+  await prisma.protoRowOrder.deleteMany({ where: { boardId, product, unit } });
   await logAudit(
     "COST",
     session.userId,

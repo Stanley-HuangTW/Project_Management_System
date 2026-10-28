@@ -8,7 +8,7 @@ import { logActivity } from "@/lib/activityLog";
 import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestItemAssignee } from "@/lib/todoAssigneeServer";
 import { noteForLog, normalizeTodoNote, normalizeTodoText } from "@/lib/todoNote";
-import { mergeTodoOrder } from "@/lib/todoOrder";
+import { mergeOrder } from "@/lib/mergeOrder";
 
 /** 畫面上的順序;order 相同(舊資料、刪除後新增)的依建立先後,讓拖曳排序與畫面看到的是同一個基準。 */
 const TODO_ORDER = [{ order: "asc" as const }, { createdAt: "asc" as const }];
@@ -117,7 +117,7 @@ export async function reorderTodoItems(
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
   const current = await prisma.todoItem.findMany({ where: { itemId }, orderBy: TODO_ORDER, select: { id: true } });
-  const finalIds = mergeTodoOrder(current.map((t) => t.id), orderedIds);
+  const finalIds = mergeOrder(current.map((t) => t.id), orderedIds);
   await prisma.$transaction(finalIds.map((id, index) => prisma.todoItem.update({ where: { id }, data: { order: index } })));
   revalidatePath(`/boards/${boardId}`);
   return {};

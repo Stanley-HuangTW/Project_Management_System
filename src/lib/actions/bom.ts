@@ -153,6 +153,7 @@ export async function renameProduct(boardId: string, from: string, to: string): 
     prisma.protoPlan.updateMany({ where: { boardId, product: from }, data: { product: next } }),
     // 樣機計畫排出來的每一台樣機跟著改名,工作項的「使用樣機」參照不動。
     prisma.protoUnit.updateMany({ where: { boardId, product: from }, data: { product: next } }),
+    prisma.protoRowOrder.updateMany({ where: { boardId, product: from }, data: { product: next } }),
     prisma.bomLine.updateMany({ where: { boardId, product: from }, data: { product: next } }),
   ]);
   await logAudit("COST", guard.session.userId, `產品「${from}」改名為「${next}」`, boardId);
@@ -211,6 +212,7 @@ export async function deleteProduct(boardId: string, product: string): Promise<{
     prisma.bomLine.deleteMany({ where: { boardId, product } }),
     prisma.protoPlan.deleteMany({ where: { boardId, product } }),
     prisma.budgetProduct.deleteMany({ where: { boardId, name: product } }),
+    prisma.protoRowOrder.deleteMany({ where: { boardId, product } }),
   ]);
   await logAudit(
     "COST",

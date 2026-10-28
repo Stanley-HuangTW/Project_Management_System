@@ -19,6 +19,7 @@ import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { MAX_FTE, FTE_CAP_MESSAGE } from "@/lib/labourSheet";
 import { loadSlotRates } from "@/lib/labourRate";
 import { loadDmRestriction } from "@/lib/dmScopeServer";
+import { chronologicalInsertIndex } from "@/lib/phaseOrder";
 import { boardWithDataArgs } from "@/types/board";
 import {
   buildLabourSheet,
@@ -365,19 +366,24 @@ export async function upsertBudgetPhase(
       },
     });
   } else {
-    const count = await prisma.budgetPhase.count({ where: { boardId } });
-    await prisma.budgetPhase.create({
-      data: {
-        boardId,
-        name,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        itemId: input.itemId,
-        ...(input.color ? { color: input.color } : {}),
-        order: count,
-        createdById: session.userId,
-      },
-    });
+    // 照時間插進階段順序:在人力表補一個起訖落在 EVT1 與 DVT 之間的 EVT2,各表的欄位就是 EVT1、EVT2、DVT。
+    const existing = await prisma.budgetPhase.findMany({ where: { boardId }, orderBy: { order: "asc" }, select: { id: true, startDate: true } });
+    const at = chronologicalInsertIndex(existing, input.startDate);
+    await prisma.$transaction([
+      ...existing.slice(at).map((p, i) => prisma.budgetPhase.update({ where: { id: p.id }, data: { order: at + 1 + i } })),
+      prisma.budgetPhase.create({
+        data: {
+          boardId,
+          name,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          itemId: input.itemId,
+          ...(input.color ? { color: input.color } : {}),
+          order: at,
+          createdById: session.userId,
+        },
+      }),
+    ]);
   }
 
   await syncFromSheet(boardId);

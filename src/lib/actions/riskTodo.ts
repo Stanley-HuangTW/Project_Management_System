@@ -8,7 +8,7 @@ import { attributeAudit } from "@/lib/impersonation";
 import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestRiskAssignee } from "@/lib/todoAssigneeServer";
 import { noteForLog, normalizeTodoNote, normalizeTodoText } from "@/lib/todoNote";
-import { mergeTodoOrder } from "@/lib/todoOrder";
+import { mergeOrder } from "@/lib/mergeOrder";
 
 /**
  * 風險 / 議題的待辦事項。跟工作項的待辦事項同一個樣子(見 todo.ts):
@@ -139,7 +139,7 @@ export async function reorderRiskTodos(riskId: string, orderedIds: string[]): Pr
   const found = await accessibleRisk(riskId);
   if (!found) return { error: "找不到這筆紀錄" };
   const current = await prisma.riskTodo.findMany({ where: { riskId }, orderBy: [{ order: "asc" }, { createdAt: "asc" }], select: { id: true } });
-  const finalIds = mergeTodoOrder(current.map((t) => t.id), orderedIds);
+  const finalIds = mergeOrder(current.map((t) => t.id), orderedIds);
   await prisma.$transaction(finalIds.map((id, index) => prisma.riskTodo.update({ where: { id }, data: { order: index } })));
   revalidatePath(`/boards/${found.risk.boardId}`);
   return {};

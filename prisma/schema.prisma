@@ -276,6 +276,7 @@ model Board {
   labourSlots    LabourSlot[]
   protoPlans     ProtoPlan[]
   protoUnits     ProtoUnit[]
+  protoRowOrders ProtoRowOrder[]
   bomLines       BomLine[]
   budgetProducts BudgetProduct[]
   nreLines       NreLine[]
@@ -886,6 +887,19 @@ model ProtoPlan {
 
   @@unique([boardId, product, unit, phaseId])
   @@index([boardId, product])
+}
+
+/// 樣機計畫表上某個產品的某個用途單位那一列排第幾:使用者拖曳排過才有。
+/// 沒有紀錄的列(之後才新增、匯入的)排在有紀錄的後面,維持建立先後。用途單位改名、產品改名時一起改。
+model ProtoRowOrder {
+  id      String @id @default(cuid())
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  product String
+  unit    String
+  order   Int
+
+  @@unique([boardId, product, unit])
 }
 
 /// 樣機計畫排出來的「每一台樣機」:ProtoPlan 一格寫「M3 / SW / EVT1 要 3 台」,這裡就有 3 筆(第 1、2、3 台)。
