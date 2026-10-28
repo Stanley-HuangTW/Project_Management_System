@@ -667,8 +667,8 @@ export async function listBoardsForChat(actor: ChatSender): Promise<{ id: string
 }
 
 /**
- * 一個看板的工作項、風險、問題清單,給「挑一個來引用 / 加待辦 / 加留言」用。
- * 看板要進得去;私人工作項與私人分組照樣擋(跟搜尋同一套);風險與問題跟風險登記冊一樣,看得到看板就看得到。
+ * 一個看板的工作項、風險、議題清單,給「挑一個來引用 / 加待辦 / 加留言」用。
+ * 看板要進得去;私人工作項與私人分組照樣擋(跟搜尋同一套);風險與議題跟風險登記冊一樣,看得到看板就看得到。
  */
 export async function listBoardRefsForChat(actor: ChatSender, boardId: string): Promise<ChatBoardRefs | null> {
   const board = await prisma.board.findFirst({

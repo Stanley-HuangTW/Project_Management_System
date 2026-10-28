@@ -2,7 +2,7 @@ import type { RiskKind, RiskStatus, UserRole } from "@prisma/client";
 import { RISK_KIND_LABELS, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 
 /**
- * 風險/問題的分工與結案流程(純邏輯,畫面與 server action 共用同一份判斷)。
+ * 風險/議題的分工與結案流程(純邏輯,畫面與 server action 共用同一份判斷)。
  *
  *   指派的人(建立者)寫「對策與驗收標準」、指定負責人與審核人;
  *   負責人寫進度更新,做完按「申請結案」→ 待審核;
@@ -68,7 +68,7 @@ export function riskPermissions(args: {
 }
 
 /**
- * 從 MantisBT 同步來的問題:內容與狀態以 Mantis 為準(下一次同步會蓋回來),所以改內容、改狀態、
+ * 從 MantisBT 同步來的議題:內容與狀態以 Mantis 為準(下一次同步會蓋回來),所以改內容、改狀態、
  * 走結案流程都不行,也不能刪(刪了下次同步又長回來)。寫進度更新是這邊自己的時間軸,照常可以。
  */
 export function mantisReadOnly(base: RiskPermissions): RiskPermissions {

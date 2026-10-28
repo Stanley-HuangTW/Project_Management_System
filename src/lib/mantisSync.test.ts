@@ -106,7 +106,7 @@ describe("mantisGet", () => {
   });
 });
 
-describe("explainEmptyResult(一筆問題都沒取到時的提示)", () => {
+describe("explainEmptyResult(一筆議題都沒取到時的提示)", () => {
   beforeEach(() => vi.unstubAllGlobals());
   afterEach(() => vi.unstubAllGlobals());
 
@@ -118,18 +118,18 @@ describe("explainEmptyResult(一筆問題都沒取到時的提示)", () => {
     expect(note).toContain("看不到這個專案");
   });
 
-  it("帳號看得到這個專案時,不說看不到,改請確認專案有問題與權限", async () => {
+  it("帳號看得到這個專案時,不說看不到,改請確認專案有議題與權限", async () => {
     stubFetch([{ status: 200, body: { name: "chen", projects: [{ id: 7 }] } }]);
     const note = await explainEmptyResult(freshBase(), "tok", 7);
     expect(note).toContain("「chen」");
     expect(note).not.toContain("看不到這個專案");
-    expect(note).toContain("真的有問題");
+    expect(note).toContain("真的有議題");
   });
 
   it("問不到「我是誰」(例如舊版沒有這個 API)就用通用的說法,不會丟錯", async () => {
     stubFetch([{ status: 404 }]);
     const note = await explainEmptyResult(freshBase(), "tok", 7);
-    expect(note).toContain("一筆問題都沒取到");
+    expect(note).toContain("一筆議題都沒取到");
     expect(note).toContain("檢視權限");
   });
 });

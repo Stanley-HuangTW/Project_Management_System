@@ -61,7 +61,7 @@ export function formatDueShort(due: string): string {
 /** 提醒的內文:哪個工作項目的哪個待辦事項、期限是哪天、現在是哪一階段。 */
 export function reminderMessage(
   stage: Exclude<DeadlineStage, 0>,
-  /** subject:這個待辦事項屬於哪一種東西,預設是工作項目;風險、問題、議題的待辦事項帶「風險 / 問題」。 */
+  /** subject:這個待辦事項屬於哪一種東西,預設是工作項目;風險、議題的待辦事項帶「風險 / 議題」。 */
   args: { itemName: string; todoText: string; dueDate: string; subject?: string }
 ): string {
   const what = `${args.subject ?? "工作項目"}「${args.itemName}」的待辦事項「${args.todoText}」`;

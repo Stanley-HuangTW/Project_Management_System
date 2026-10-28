@@ -7,7 +7,7 @@ import { computeWbsCodes } from "@/lib/wbs";
 import { riskLinkTag } from "@/lib/riskRegister";
 import type { ItemEventKind } from "@/lib/itemEvents";
 
-/** 「更新記錄」頁的一筆:誰在哪個看板的哪個工作項(或風險 / 問題)做了什麼。 */
+/** 「更新記錄」頁的一筆:誰在哪個看板的哪個工作項(或風險 / 議題)做了什麼。 */
 export type UpdateFeedRow = {
   id: string;
   kind: ItemEventKind;
@@ -15,22 +15,22 @@ export type UpdateFeedRow = {
   at: string;
   actorName: string | null;
   summary: string;
-  /** 風險 / 問題的事件沒有工作項,itemId 是空字串、itemName 是風險的標題。 */
+  /** 風險 / 議題的事件沒有工作項,itemId 是空字串、itemName 是風險的標題。 */
   itemId: string;
   itemName: string;
   wbsCode: string;
   boardId: string;
   boardName: string;
-  /** 工作項是分組名稱;風險 / 問題是它是什麼(風險 / 問題 / Mantis #編號)。 */
+  /** 工作項是分組名稱;風險 / 議題是它是什麼(風險 / 議題 / Mantis #編號)。 */
   groupName: string;
-  /** 風險 / 問題的事件才有。 */
+  /** 風險 / 議題的事件才有。 */
   risk: { id: string; kind: "RISK" | "ISSUE"; mantisId: number | null } | null;
-  /** 跟目前這個帳號有關:是我做的,或發生在指派給我的工作項 / 我負責或審核的風險與問題上。 */
+  /** 跟目前這個帳號有關:是我做的,或發生在指派給我的工作項 / 我負責或審核的風險與議題上。 */
   mine: boolean;
 };
 
 /**
- * 這個人看得到的所有看板上,所有人對工作項(狀態切換、留言、連結、待辦事項、其他欄位修改)與風險 / 問題
+ * 這個人看得到的所有看板上,所有人對工作項(狀態切換、留言、連結、待辦事項、其他欄位修改)與風險 / 議題
  * (新增、指派、變更、申請結案、審核)的更新與變化,新的在前。跟通知不同:通知只有「跟我有關」的,
  * 這裡是整個看板上發生的事;每一筆標了 mine,畫面預設只看跟我有關的。
  *
@@ -43,7 +43,7 @@ export async function loadUpdateFeed(session: SessionPayload, limit = 200): Prom
   if (boardIds.length === 0) return [];
   const me = session.userId;
 
-  // 跟我有關的工作項(指派給我:甘特的人員分配或人員欄位)與風險 / 問題(我是負責人或審核人)。
+  // 跟我有關的工作項(指派給我:甘特的人員分配或人員欄位)與風險 / 議題(我是負責人或審核人)。
   const [assignments, personCells, myRisks] = await Promise.all([
     prisma.assignment.findMany({ where: { userId: me, item: { boardId: { in: boardIds }, deletedAt: null } }, select: { itemId: true } }),
     prisma.cellValue.findMany({
@@ -96,7 +96,7 @@ export async function loadUpdateFeed(session: SessionPayload, limit = 200): Prom
   const byId = new Map([...recent, ...related].map((r) => [r.id, r]));
   const isMine = (r: (typeof recent)[number]) =>
     r.actorId === me || (r.itemId !== null && myItemIds.has(r.itemId)) || (r.riskId !== null && myRiskIds.has(r.riskId));
-  // 工作項的事件要看得到那個工作項;風險 / 問題的事件沒有這個限制。
+  // 工作項的事件要看得到那個工作項;風險 / 議題的事件沒有這個限制。
   const shown = [...byId.values()]
     .filter((r) => (r.itemId ? visible.has(r.itemId) : r.riskId !== null))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())

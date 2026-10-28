@@ -70,7 +70,7 @@ export async function searchChatMessages(query: string): Promise<ChatSearchHit[]
   return "error" in me ? [] : chat.searchMessages(me, query);
 }
 
-/** 這個看板的工作項、風險、問題(挑一個來引用 / 加待辦 / 加留言);看板進不去就是 null。 */
+/** 這個看板的工作項、風險、議題(挑一個來引用 / 加待辦 / 加留言);看板進不去就是 null。 */
 export async function listChatBoardRefs(boardId: string): Promise<ChatBoardRefs | null> {
   const me = await sender();
   return "error" in me ? null : chat.listBoardRefsForChat(me, boardId);

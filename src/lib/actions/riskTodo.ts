@@ -7,14 +7,23 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { attributeAudit } from "@/lib/impersonation";
 import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestRiskAssignee } from "@/lib/todoAssigneeServer";
+import { noteForLog, normalizeTodoNote } from "@/lib/todoNote";
 
 /**
- * 風險 / 問題 / 議題的待辦事項。跟工作項的待辦事項同一個樣子(見 todo.ts):
+ * 風險 / 議題的待辦事項。跟工作項的待辦事項同一個樣子(見 todo.ts):
  * 看得到那個看板的人都能新增、勾完成、改期限、刪;到期前一天、當天、逾期後各提醒一次(todoReminderServer)。
  * 進度更新才限負責人、建立者與審核人;待辦事項是大家一起的清單,跟工作項一樣不設限。
  */
 
-export type RiskTodoRow = { id: string; text: string; done: boolean; dueDate: string | null; assigneeId: string | null; createdAt: string };
+export type RiskTodoRow = {
+  id: string;
+  text: string;
+  done: boolean;
+  dueDate: string | null;
+  assigneeId: string | null;
+  note: string | null;
+  createdAt: string;
+};
 
 /** 這筆風險所在的看板要進得去;回傳看板與標題(寫紀錄用),找不到回 null。 */
 async function accessibleRisk(riskId: string) {
@@ -29,7 +38,7 @@ export async function listRiskTodos(riskId: string): Promise<RiskTodoRow[]> {
   const found = await accessibleRisk(riskId);
   if (!found) return [];
   const rows = await prisma.riskTodo.findMany({ where: { riskId }, orderBy: [{ order: "asc" }, { createdAt: "asc" }] });
-  return rows.map((t) => ({ id: t.id, text: t.text, done: t.done, dueDate: t.dueDate, assigneeId: t.assigneeId, createdAt: t.createdAt.toISOString() }));
+  return rows.map((t) => ({ id: t.id, text: t.text, done: t.done, dueDate: t.dueDate, assigneeId: t.assigneeId, note: t.note, createdAt: t.createdAt.toISOString() }));
 }
 
 /** assigneeId:不給(undefined)就用預設——文字裡 @ 的人、那一筆的負責人;null = 不指定。 */
@@ -116,6 +125,33 @@ export async function setRiskTodoAssignee(todoId: string, assigneeId: string | n
         riskId: risk.id,
         boardId: risk.boardId,
         ...attributeAudit(session, session.userId, assigneeId ? `「${risk.title}」待辦事項「${todo.text}」的處理者改為 ${label}` : `「${risk.title}」清除待辦事項「${todo.text}」的處理者`),
+        category: "RISK",
+      },
+    }),
+  ]);
+  revalidatePath(`/boards/${risk.boardId}`);
+  return {};
+}
+
+/** 改(或清空)備註——記錄這個待辦事項的處理狀態、結果。 */
+export async function setRiskTodoNote(todoId: string, rawNote: string | null): Promise<{ error?: string }> {
+  await requireSession();
+  const normalized = normalizeTodoNote(rawNote);
+  if ("error" in normalized) return normalized;
+  const todo = await prisma.riskTodo.findUnique({ where: { id: todoId } });
+  if (!todo) return { error: "待辦事項不存在" };
+  const found = await accessibleRisk(todo.riskId);
+  if (!found) return { error: "找不到這筆紀錄" };
+  if (todo.note === normalized.note) return {};
+
+  const { session, risk } = found;
+  await prisma.$transaction([
+    prisma.riskTodo.update({ where: { id: todoId }, data: { note: normalized.note } }),
+    prisma.activityLogEntry.create({
+      data: {
+        riskId: risk.id,
+        boardId: risk.boardId,
+        ...attributeAudit(session, session.userId, `「${risk.title}」更新待辦事項「${todo.text}」的備註:${noteForLog(normalized.note)}`),
         category: "RISK",
       },
     }),

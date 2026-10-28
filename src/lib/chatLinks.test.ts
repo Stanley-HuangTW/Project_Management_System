@@ -25,7 +25,7 @@ describe("normalizeChatLink", () => {
     }
   });
 
-  it("本系統看板底下的路徑可以(給引用工作項 / 風險 / 問題用),其他路徑不行", () => {
+  it("本系統看板底下的路徑可以(給引用工作項 / 風險 / 議題用),其他路徑不行", () => {
     expect(normalizeChatLink({ url: "/boards/abc123?highlight=item1", label: "工作項:外殼" })).toEqual({
       link: { url: "/boards/abc123?highlight=item1", label: "工作項:外殼" },
     });
@@ -55,11 +55,10 @@ describe("normalizeChatLinks", () => {
 });
 
 describe("internalRefUrl", () => {
-  it("工作項指到那一列,風險、問題、議題指到風險登記冊", () => {
+  it("工作項指到那一列,風險、議題指到風險登記冊", () => {
     expect(internalRefUrl({ kind: "item", boardId: "b1", id: "i1" })).toBe("/boards/b1?highlight=i1");
     expect(internalRefUrl({ kind: "risk", boardId: "b1", id: "r1" })).toBe("/boards/b1?view=risks");
     expect(internalRefUrl({ kind: "issue", boardId: "b1", id: "r2" })).toBe("/boards/b1?view=risks");
-    expect(internalRefUrl({ kind: "mantis", boardId: "b1", id: "r3" })).toBe("/boards/b1?view=risks");
   });
 
   it("產生的位置一定通得過 normalizeChatLink", () => {

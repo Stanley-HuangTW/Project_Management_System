@@ -99,7 +99,7 @@ export function describeEvent(line: ItemEventLine): { label: string; tone: Event
 }
 
 /**
- * 風險 / 問題(含 Mantis 同步來的)的事件,在「更新記錄」顯示的類型與說法:建立 → 新增;指派、換負責人、換審核人 → 指派;
+ * 風險 / 議題(含 Mantis 同步來的)的事件,在「更新記錄」顯示的類型與說法:建立 → 新增;指派、換負責人、換審核人 → 指派;
  * 其他(改欄位、申請結案、審核、狀態)→ 修改。跟通知同一組標籤與顏色。
  */
 export function describeRiskEvent(summary: string): { label: string; tone: EventTone; message: string } {

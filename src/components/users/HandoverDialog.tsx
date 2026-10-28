@@ -70,7 +70,7 @@ function Section({
 
 /**
  * 工作交接:把一個人名下還沒做完的工作交給另一個人(只有管理者看得到這一頁)。
- * 選好轉出者與接手者就列出會動到哪些——工作項、風險與問題、人力名額、分組角色——預設全部勾起來,
+ * 選好轉出者與接手者就列出會動到哪些——工作項、風險與議題、人力名額、分組角色——預設全部勾起來,
  * 可以逐筆取消,按「確認轉移」才真的轉。上面的元件只在要用的時候才畫出來,所以每次打開都是乾淨的。
  */
 export function HandoverDialog({
@@ -129,7 +129,7 @@ export function HandoverDialog({
   async function submit() {
     if (!preview) return;
     const ok = await confirm(
-      `把「${preview.fromName}」的 ${total} 項(工作項 ${itemIds.size}、風險與問題 ${riskIds.size}、人力名額 ${slotIds.size}、分組角色 ${roleIds.size})交給「${preview.toName}」?`,
+      `把「${preview.fromName}」的 ${total} 項(工作項 ${itemIds.size}、風險與議題 ${riskIds.size}、人力名額 ${slotIds.size}、分組角色 ${roleIds.size})交給「${preview.toName}」?`,
       { title: "確認工作交接", confirmLabel: "確認轉移" }
     );
     if (!ok) return;
@@ -150,7 +150,7 @@ export function HandoverDialog({
     }
     const m = result.moved;
     await notify(
-      `已完成交接:工作項 ${m.items}、風險與問題 ${m.risks}、人力名額 ${m.slots}、分組角色 ${m.roles}。`,
+      `已完成交接:工作項 ${m.items}、風險與議題 ${m.risks}、人力名額 ${m.slots}、分組角色 ${m.roles}。`,
       { title: "工作交接" }
     );
     router.refresh();
@@ -160,7 +160,7 @@ export function HandoverDialog({
   return (
     <Modal open onOpenChange={(o) => !o && onClose()} title="工作交接" size="xl">
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        把轉出者名下<b>還沒完成</b>的工作交給接手的人:工作項的人員分配與人員欄位(負責人等)、進行中的風險與問題、人力名額、分組角色。
+        把轉出者名下<b>還沒完成</b>的工作交給接手的人:工作項的人員分配與人員欄位(負責人等)、進行中的風險與議題、人力名額、分組角色。
         已完成的工作項、已結案的風險、過去月份的人力名額,留在原來的人名下當紀錄。確認前可以逐筆取消勾選。
       </p>
       {error && <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>}
@@ -192,7 +192,7 @@ export function HandoverDialog({
       {loading && <p className="text-sm text-neutral-400 dark:text-neutral-500">讀取交接清單…</p>}
       {nothingToMove && (
         <p data-handover-empty className="text-sm text-neutral-500 dark:text-neutral-400">
-          「{preview.fromName}」目前沒有需要交接的東西(沒有還沒完成的工作項、進行中的風險與問題、人力名額與分組角色)。
+          「{preview.fromName}」目前沒有需要交接的東西(沒有還沒完成的工作項、進行中的風險與議題、人力名額與分組角色)。
         </p>
       )}
 
@@ -231,14 +231,14 @@ export function HandoverDialog({
             ))}
           </Section>
 
-          <Section label="risks" title="風險與問題" ids={preview.risks.map((r) => r.riskId)} selected={riskIds} onChange={setRiskIds}>
+          <Section label="risks" title="風險與議題" ids={preview.risks.map((r) => r.riskId)} selected={riskIds} onChange={setRiskIds}>
             {preview.risks.map((risk) => (
               <label key={risk.riskId} className={rowClass}>
                 <input type="checkbox" className="mt-0.5" checked={riskIds.has(risk.riskId)} onChange={() => setRiskIds(toggled(riskIds, risk.riskId))} />
                 <span className="min-w-0 flex-1">
                   <span className="text-neutral-800 dark:text-neutral-100">{risk.title}</span>
                   <span className="ml-1.5 text-neutral-400 dark:text-neutral-500">
-                    {risk.kind === "ISSUE" ? "問題" : "風險"}・{risk.boardName}
+                    {risk.kind === "ISSUE" ? "議題" : "風險"}・{risk.boardName}
                   </span>
                   <span className="block text-[11px] text-neutral-500 dark:text-neutral-400">
                     {[risk.asOwner ? "負責人" : null, risk.asReviewer ? "審核人(還沒同意的)" : null].filter(Boolean).join("、")}
@@ -280,7 +280,7 @@ export function HandoverDialog({
       <div className="mt-2 flex items-center justify-between gap-3">
         <span data-handover-summary className="text-xs text-neutral-500 dark:text-neutral-400">
           {preview && !nothingToMove
-            ? `將轉移:工作項 ${itemIds.size}、風險與問題 ${riskIds.size}、人力名額 ${slotIds.size}、分組角色 ${roleIds.size}`
+            ? `將轉移:工作項 ${itemIds.size}、風險與議題 ${riskIds.size}、人力名額 ${slotIds.size}、分組角色 ${roleIds.size}`
             : ""}
         </span>
         <span className="flex gap-2">

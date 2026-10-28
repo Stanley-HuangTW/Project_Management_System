@@ -28,7 +28,7 @@ export async function listNotifications() {
           group: { select: { name: true } },
         },
       },
-      // 風險/問題被指派的通知沒有工作項,改指到風險。
+      // 風險/議題被指派的通知沒有工作項,改指到風險。
       risk: { select: { id: true, title: true, kind: true, mantisId: true, boardId: true, board: { select: { name: true } } } },
       // 對話的通知(被 @ 到、私訊)指到那間對話。
       conversation: { select: { kind: true, title: true, board: { select: { name: true } } } },
@@ -66,7 +66,7 @@ export async function listNotifications() {
   return notifications.map((n) => ({
     ...n,
     boardName: n.item?.board.name ?? n.risk?.board.name ?? (n.conversation ? CHAT_KIND_LABEL[n.conversation.kind] : ""),
-    // 風險/問題的通知沒有分組,這個位置寫它是什麼(風險 / 問題 / Mantis #編號)。
+    // 風險/議題的通知沒有分組,這個位置寫它是什麼(風險 / 議題 / Mantis #編號)。
     groupName: n.item?.group.name ?? (n.risk ? riskLinkTag(n.risk) : (n.conversation?.board?.name ?? n.conversation?.title ?? "")),
     actorName: n.actorId ? (actorName.get(n.actorId) ?? null) : null,
     // 已經在垃圾桶裡的項目,點過去也高亮不到 —— 先講清楚。

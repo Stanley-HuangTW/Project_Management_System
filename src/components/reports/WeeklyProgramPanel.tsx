@@ -236,7 +236,7 @@ function Changes({
   );
 }
 
-/** 風險/問題逐筆列出(全部,不收合):名稱、狀態、負責人、到期日,底下是說明、對策、Mantis 連結與進度更新。 */
+/** 風險/議題逐筆列出(全部,不收合):名稱、狀態、負責人、到期日,底下是說明、對策、Mantis 連結與進度更新。 */
 function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; weekStart: string; weekEnd: string }) {
   const list = risksToList(risks, weekStart, weekEnd);
   if (list.length === 0) return null;
@@ -316,7 +316,7 @@ function RiskList({
     <div className="space-y-1.5">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         {risks.length === 0
-          ? "沒有登記風險或問題。"
+          ? "沒有登記風險或議題。"
           : `${RISK_KIND_LABELS.RISK} ${risks.filter((r) => r.kind === "RISK").length} 項、` +
             `${RISK_KIND_LABELS.ISSUE} ${risks.filter((r) => r.kind === "ISSUE").length} 項,` +
             `尚未結案 ${open.length} 項。`}
@@ -410,7 +410,7 @@ function DepartmentBlock({
 }
 
 /** 一個專案群組分頁籤的內容——依職能的工作項(依 Priority 排序)→ 里程碑/要徑/
- *  風險問題異動 → 預算 → 看板進度,是 renderWeeklyReportMarkdown 裡 renderProgram
+ *  風險議題異動 → 預算 → 看板進度,是 renderWeeklyReportMarkdown 裡 renderProgram
  *  的畫面版本,資料來源完全相同(同一份 ProgramSection + WeeklyReportDiff)。 */
 export function WeeklyProgramPanel({
   program,
@@ -513,7 +513,7 @@ export function WeeklyProgramPanel({
         )}
       </Block>
 
-      <Block title="風險與問題">
+      <Block title="風險與議題">
         <RiskList
           risks={risks}
           weekStart={weekStart}

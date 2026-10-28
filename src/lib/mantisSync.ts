@@ -12,9 +12,9 @@ import {
 } from "@/lib/mantis";
 
 /**
- * MantisBT → 風險與問題的單向同步(伺服器端)。
+ * MantisBT → 風險與議題的單向同步(伺服器端)。
  *
- * 只讀 Mantis(GET),從不寫回去。同步下來的問題在這邊是唯讀的:下一次同步會用 Mantis 上的內容蓋回來。
+ * 只讀 Mantis(GET),從不寫回去。同步下來的議題在這邊是唯讀的:下一次同步會用 Mantis 上的內容蓋回來。
  * 每一步失敗都回「看得懂的原因」而不是丟例外——排程跑完只回一句成功、其實什麼都沒同步,比沒有同步更糟。
  */
 
@@ -117,7 +117,7 @@ export type SyncSummary = {
  * 光看「0 筆」分不出是專案真的沒有、還是帳號沒權限。問一下 Mantis「我是誰、看得到哪些專案」,把答案寫進提示。
  */
 export async function explainEmptyResult(baseUrl: string, token: string, projectId: number): Promise<string> {
-  const head = "Mantis 回應成功,但這個專案一筆問題都沒取到。";
+  const head = "Mantis 回應成功,但這個專案一筆議題都沒取到。";
   try {
     const me = (await mantisGet(baseUrl, token, "users/me")) as {
       name?: string;
@@ -133,13 +133,13 @@ export async function explainEmptyResult(baseUrl: string, token: string, project
         `${head}目前是用「${who}」${level ? `(權限:${level})` : ""}的身分在讀` +
         (sees === false
           ? ",而且這個帳號看不到這個專案——請改用有檢視權限的帳號建 token。"
-          : "——請確認專案裡真的有問題,而且這個帳號有權限看(私人的問題要夠高的權限才看得到)。")
+          : "——請確認專案裡真的有議題,而且這個帳號有權限看(私人的議題要夠高的權限才看得到)。")
       );
     }
   } catch {
     // 問不到就用下面通用的說法
   }
-  return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有問題。`;
+  return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有議題。`;
 }
 export type SyncOutcome = { ok: true; summary: SyncSummary } | { ok: false; error: string };
 
@@ -228,13 +228,13 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
             riskId: created.id,
             boardId: conn.boardId,
             category: "RISK",
-            message: `從 Mantis 同步建立問題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})${
+            message: `從 Mantis 同步建立議題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})${
               ownerId ? `,指派給 ${userNameById.get(ownerId) ?? ""}` : ""
             }`,
           },
         });
         // Mantis 上這個問題指派給誰,就通知誰(系統同步,沒有操作者)。
-        if (ownerId) await notifyRiskAssigned(created.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 問題` }, { ownerId });
+        if (ownerId) await notifyRiskAssigned(created.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 議題` }, { ownerId });
         summary.created++;
         continue;
       }
@@ -266,7 +266,7 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
               : `Mantis #${m.mantisId}「${m.title}」取消指派(原負責人:${old.ownerId ? (userNameById.get(old.ownerId) ?? "") : "未指派"})`,
           },
         });
-        if (ownerId) await notifyRiskAssigned(old.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 問題` }, { ownerId });
+        if (ownerId) await notifyRiskAssigned(old.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 議題` }, { ownerId });
       }
       if (old.status !== m.status) {
         await prisma.activityLogEntry.create({

@@ -1,5 +1,5 @@
 /**
- * 看板「問題」分頁(同步自 MantisBT 的問題)的排序、篩選、依處理人分組。純邏輯。
+ * 看板「議題」分頁(同步自 MantisBT 的議題)的排序、篩選、依處理人分組。純邏輯。
  */
 import type { RiskStatus } from "@prisma/client";
 
@@ -8,7 +8,7 @@ export type MantisIssueRow = {
   mantisId: number;
   url: string | null;
   title: string;
-  /** 對應到風險與問題的狀態:未處理 / 處理中 / 已結案。 */
+  /** 對應到風險與議題的狀態:未處理 / 處理中 / 已結案。 */
   status: RiskStatus;
   /** Mantis 上的狀態文字。 */
   mantisStatus: string | null;

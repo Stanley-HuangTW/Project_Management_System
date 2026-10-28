@@ -15,17 +15,17 @@ import { BoardRefPicker, REF_KIND_LABELS, type BoardRef, type RefKind } from "./
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
 
-/** 轉換的目標可以是這四類(議題 = Mantis 同步來的);待辦事項與留言兩種都能加在任何一類上。 */
-const KINDS: RefKind[] = ["item", "risk", "issue", "mantis"];
+/** 轉換的目標可以是這三類(議題含 Mantis 同步來的);待辦事項與留言兩種都能加在任何一類上。 */
+const KINDS: RefKind[] = ["item", "risk", "issue"];
 
 /**
  * 把對話裡的一則訊息變成某個項目底下的待辦事項或留言——討論出結論的時候,
  * 不用複製貼上、也不用記得是哪個項目。文字可以先改。
- * 目標是這間對話所屬看板的工作項、風險、問題或議題(私訊、聊天室沒有看板,先挑看板),
+ * 目標是這間對話所屬看板的工作項、風險或議題(私訊、聊天室沒有看板,先挑看板),
  * 直接從清單挑(工作項是可以收放的階層,上面有搜尋)。待辦事項與留言在四類上都能加,畫面一樣,
  * 差別只在待辦事項多了**期限**與**處理者**:處理者預設是訊息裡 @ 的人(即使項目已經有負責人),
  * 沒有 @ 就是項目的負責人;工作項沒有負責人就取人員分配 / 工時比例最高的人。可以改。
- * 風險、問題、議題的留言叫「進度更新」。
+ * 風險、議題的留言叫「進度更新」。
  * 寫入走原本的 addTodoItem / addRiskTodo / createComment / addRiskUpdate,權限、活動紀錄、通知都跟手動新增一樣。
  */
 export function ConvertMessageDialog({
@@ -49,7 +49,7 @@ export function ConvertMessageDialog({
   const assignee = useSuggestedAssignee(picked && mode === "todo" ? { kind: picked.kind === "item" ? "item" : "risk", id: picked.id } : null, text);
 
   const label = mode === "todo" ? "待辦事項" : "留言";
-  /** 風險、問題、議題的留言叫「進度更新」。 */
+  /** 風險、議題的留言叫「進度更新」。 */
   const targetLabel = mode === "comment" && picked && picked.kind !== "item" ? "進度更新" : label;
 
   async function submit() {
@@ -95,7 +95,7 @@ export function ConvertMessageDialog({
         </label>
 
         <div>
-          <span className="mb-1 block text-neutral-600 dark:text-neutral-300">加到哪個項目(工作項、風險、問題或議題)</span>
+          <span className="mb-1 block text-neutral-600 dark:text-neutral-300">加到哪個項目(工作項、風險或議題)</span>
           {picked ? (
             <div className="flex items-center justify-between rounded-md border border-blue-300 bg-blue-50 px-3 py-2 dark:border-blue-800 dark:bg-blue-950">
               <span className="min-w-0 truncate" data-convert-picked>

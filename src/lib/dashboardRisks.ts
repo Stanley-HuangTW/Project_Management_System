@@ -2,7 +2,7 @@ import type { RiskKind, RiskStatus } from "@prisma/client";
 import { riskBand, riskScore, sortRisks } from "./riskRegister";
 
 /**
- * 儀表板「未結案的風險與問題」:風險登記冊(風險 / 問題分頁、Mantis 同步來的問題)裡還沒結案的那些,
+ * 儀表板「未結案的風險與議題」:風險登記冊(風險 / 議題分頁、Mantis 同步來的議題)裡還沒結案的那些,
  * 讓使用者一眼看到目前還有哪些事沒做完。純邏輯,不碰 Prisma。
  */
 

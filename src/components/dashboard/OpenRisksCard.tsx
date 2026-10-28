@@ -9,7 +9,7 @@ import { riskBand, riskLinkTag, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 const COLLAPSED_COUNT = 8;
 
 /**
- * 儀表板:未結案的風險與問題(風險登記冊裡還沒結案的,含 Mantis 同步來的)。
+ * 儀表板:未結案的風險與議題(風險登記冊裡還沒結案的,含 Mantis 同步來的)。
  * 「與我有關」= 我是負責人、或正在等我同意結案(主管連部屬的一起算);「全部」= 這幾個看板上所有未結案的。
  * 點一筆跳到那個看板的風險分頁。
  */
@@ -55,13 +55,13 @@ export function OpenRisksCard({
     <section>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-100">
-          <ShieldAlert size={14} /> 未結案的風險與問題({rows.length})
+          <ShieldAlert size={14} /> 未結案的風險與議題({rows.length})
         </h2>
         {tab("mine", "與我有關", mine.length)}
         {tab("all", "全部", rows.length)}
         {shownRows.length > 0 && (
           <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            風險 {summary.risks}・問題 {summary.issues}
+            風險 {summary.risks}・議題 {summary.issues}
             {summary.critical > 0 && <span className="ml-2 font-medium text-red-800 dark:text-red-300">極高 {summary.critical}</span>}
             {summary.high > 0 && <span className="ml-2 text-red-600 dark:text-red-400">高 {summary.high}</span>}
             {summary.overdue > 0 && <span className="ml-2 text-amber-700 dark:text-amber-400">逾期 {summary.overdue}</span>}
@@ -71,7 +71,7 @@ export function OpenRisksCard({
 
       {shownRows.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-200 py-6 text-center text-sm text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
-          {active === "mine" ? "目前沒有跟你有關、還沒結案的風險或問題。" : "目前沒有未結案的風險或問題。"}
+          {active === "mine" ? "目前沒有跟你有關、還沒結案的風險或議題。" : "目前沒有未結案的風險或議題。"}
         </p>
       ) : (
         <ul className="divide-y divide-neutral-100 rounded-lg border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-700 dark:bg-neutral-900">

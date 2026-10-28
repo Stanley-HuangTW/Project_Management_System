@@ -11,7 +11,7 @@ import { applyStoredOrder, sanitizeOrder } from "@/lib/sidebarOrder";
 /** 預設順序,也是設定視窗裡列出來的名稱。 */
 export const DASHBOARD_SECTIONS = [
   { id: "budgetAlerts", label: "預算警示" },
-  { id: "openRisks", label: "未結案的風險與問題" },
+  { id: "openRisks", label: "未結案的風險與議題" },
   { id: "teamWorkload", label: "工作量總覽" },
   { id: "overAllocation", label: "過度配置" },
   { id: "workloadDetail", label: "成員工作量明細" },

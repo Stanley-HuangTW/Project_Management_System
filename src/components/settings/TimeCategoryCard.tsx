@@ -18,7 +18,7 @@ const inputClass =
 
 /**
  * 非專案工時的類別。停用而不刪除:舊的工時紀錄還引用著它,刪掉就沒有名字可以
- * 顯示了。「可連結風險 / 問題」勾起來的類別,登記工時時會多一個選風險登記冊裡風險或問題(含 Mantis 同步來的)的欄位。
+ * 顯示了。「可連結風險 / 議題」勾起來的類別,登記工時時會多一個選風險登記冊裡風險或議題(含 Mantis 同步來的)的欄位。
  */
 export function TimeCategoryCard() {
   const { notify } = useDialogs();
@@ -73,7 +73,7 @@ export function TimeCategoryCard() {
       </p>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         「工時」頁面登記會議、請假、出差等工時(不是某個工作項的工時)時選的類別。停用的類別不能再用來登記,
-        舊紀錄照常顯示。勾「可連結風險 / 問題」的類別,登記時可以選一筆風險登記冊裡的風險或問題(含 Mantis 同步來的);勾「可對應專案」的類別,
+        舊紀錄照常顯示。勾「可連結風險 / 議題」的類別,登記時可以選一筆風險登記冊裡的風險或議題(含 Mantis 同步來的);勾「可對應專案」的類別,
         登記時可以選對應的專案(要主管核准才計入那個專案的成本)。
       </p>
 
@@ -98,7 +98,7 @@ export function TimeCategoryCard() {
         />
         <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
           <input type="checkbox" checked={newLinkIssue} onChange={(e) => setNewLinkIssue(e.target.checked)} />
-          可連結風險 / 問題
+          可連結風險 / 議題
         </label>
         <button
           type="button"
@@ -152,7 +152,7 @@ function CategoryRow({
           disabled={busy}
           onChange={(e) => run(() => setTimeCategoryLinkIssue(category.id, e.target.checked), "無法儲存")}
         />
-        可連結風險 / 問題
+        可連結風險 / 議題
       </label>
       <label
         className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"

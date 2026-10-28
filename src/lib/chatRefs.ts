@@ -1,8 +1,8 @@
 import type { RefKind } from "@/lib/chatLinks";
 
-/** 一筆風險登記冊的紀錄屬於哪一類:Mantis 同步來的是議題,其他依風險 / 問題。 */
-export function riskKindOf(r: { kind: "RISK" | "ISSUE"; mantisId: number | null }): RefKind {
-  return r.mantisId !== null ? "mantis" : r.kind === "RISK" ? "risk" : "issue";
+/** 一筆風險登記冊的紀錄屬於哪一類:風險,或議題(含從 Mantis 同步來的)。 */
+export function riskKindOf(r: { kind: "RISK" | "ISSUE" }): RefKind {
+  return r.kind === "RISK" ? "risk" : "issue";
 }
 
 type RefItem = { id: string; name: string; wbsCode: string; parentId: string | null };

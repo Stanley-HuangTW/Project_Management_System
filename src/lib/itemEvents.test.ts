@@ -119,7 +119,7 @@ describe("describeEvent(更新記錄那一格,跟通知列表同一套說法)", 
 });
 
 describe("describeRiskEvent", () => {
-  it("建立風險 / 問題、Mantis 同步建立:新增", () => {
+  it("建立風險 / 議題、Mantis 同步建立:新增", () => {
     expect(describeRiskEvent("建立風險「電池交期太長」(負責人:SY Chen)")).toMatchObject({ label: "新增", tone: "CREATED" });
     expect(describeRiskEvent("從 Mantis 同步建立問題 #591「車體重量」(處理中),指派給 Shuyi Lin")).toMatchObject({ label: "新增", tone: "CREATED" });
   });

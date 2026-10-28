@@ -56,8 +56,8 @@ describe("riskLinkTag", () => {
     expect(riskLinkTag({ kind: "RISK", mantisId: 7 })).toBe("Mantis #7");
   });
 
-  it("labels the hand-written ones as 風險 or 問題", () => {
+  it("labels the hand-written ones as 風險 or 議題", () => {
     expect(riskLinkTag({ kind: "RISK", mantisId: null })).toBe("風險");
-    expect(riskLinkTag({ kind: "ISSUE", mantisId: null })).toBe("問題");
+    expect(riskLinkTag({ kind: "ISSUE", mantisId: null })).toBe("議題");
   });
 });

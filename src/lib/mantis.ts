@@ -1,5 +1,5 @@
 /**
- * MantisBT 問題 → 風險與問題。純邏輯:不打 Mantis、不碰資料庫,同步程式、設定畫面與測試共用。
+ * MantisBT 議題 → 風險與議題。純邏輯:不打 Mantis、不碰資料庫,同步程式、設定畫面與測試共用。
  *
  * 欄位名稱照 MantisBT REST API(/api/rest/issues)回傳的 JSON;每個欄位都當成可能沒有——
  * 不同版本、不同設定回來的欄位不完全一樣,缺了就用保守的預設值,不要整批同步失敗。
@@ -124,7 +124,7 @@ export function buildDescription(issue: MantisIssue): string {
   return text.length > MAX_DESCRIPTION ? `${text.slice(0, MAX_DESCRIPTION)}…` : text;
 }
 
-/** 同步下來之後,風險與問題上的欄位。 */
+/** 同步下來之後,風險與議題上的欄位。 */
 export type MappedIssue = {
   mantisId: number;
   mantisUrl: string;

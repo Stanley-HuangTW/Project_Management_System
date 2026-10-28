@@ -1,7 +1,7 @@
 /**
- * 對話裡附的「連結」:外面的網址,或本系統裡的工作項 / 風險 / 問題。
+ * 對話裡附的「連結」:外面的網址,或本系統裡的工作項 / 風險 / 議題。
  *
- * 只收兩種:http(s) 的網址,以及本系統看板底下的路徑(/boards/…,給「引用工作項、風險、問題」用)。
+ * 只收兩種:http(s) 的網址,以及本系統看板底下的路徑(/boards/…,給「引用工作項、風險、議題」用)。
  * 其他一律擋掉——尤其是 javascript:、data: 這類會在點下去時執行東西的。
  */
 
@@ -64,12 +64,12 @@ export function normalizeChatLinks(inputs: ChatLinkInput[]): { links: ChatLink[]
 }
 
 /**
- * 對話裡能引用 / 轉成待辦或留言的四類項目:工作項,以及風險登記冊的風險、問題、議題。
- * 議題是從 MantisBT 同步來的問題單(內容以 Mantis 為準);風險、問題是在登記冊裡自己登記的。
+ * 對話裡能引用 / 轉成待辦或留言的三類項目:工作項,以及風險登記冊的風險、議題
+ * (議題包含從 MantisBT 同步來的)。
  */
-export type RefKind = "item" | "risk" | "issue" | "mantis";
+export type RefKind = "item" | "risk" | "issue";
 
-/** 引用本系統的一個項目:工作項指到那一列,風險、問題、議題指到風險登記冊。 */
+/** 引用本系統的一個項目:工作項指到那一列,風險、議題指到風險登記冊。 */
 export function internalRefUrl(ref: { kind: RefKind; boardId: string; id: string }): string {
   return ref.kind === "item" ? `/boards/${ref.boardId}?highlight=${ref.id}` : `/boards/${ref.boardId}?view=risks`;
 }

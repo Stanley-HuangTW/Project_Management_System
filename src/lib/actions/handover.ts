@@ -319,7 +319,7 @@ export async function executeHandover(args: {
   await logAudit(
     "ACCESS",
     actorId,
-    `工作交接:${from.name} → ${to.name}:工作項 ${counts.items}、風險與問題 ${counts.risks}、人力名額 ${counts.slots}、分組角色 ${counts.roles}`
+    `工作交接:${from.name} → ${to.name}:工作項 ${counts.items}、風險與議題 ${counts.risks}、人力名額 ${counts.slots}、分組角色 ${counts.roles}`
   );
   for (const boardId of slotBoardIds) await resyncBoardLabour(boardId).catch(() => {});
 

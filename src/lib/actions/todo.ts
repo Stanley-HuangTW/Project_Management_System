@@ -7,6 +7,7 @@ import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestItemAssignee } from "@/lib/todoAssigneeServer";
+import { noteForLog, normalizeTodoNote } from "@/lib/todoNote";
 
 export async function listTodoItems(itemId: string) {
   const session = await requireSession();
@@ -98,6 +99,28 @@ export async function setTodoAssignee(
 
   await prisma.todoItem.update({ where: { id: todoId }, data: { assigneeId } });
   await logActivity(itemId, session.userId, assigneeId ? `待辦事項「${existing.text}」的處理者改為 ${label}` : `清除待辦事項「${existing.text}」的處理者`);
+  revalidatePath(`/boards/${boardId}`);
+  return {};
+}
+
+/** 改(或清空)一個待辦事項的備註——記錄處理狀態、結果。 */
+export async function setTodoNote(
+  /** Not trusted for authorization — see requireItemBoardAccess below. */
+  _boardId: string,
+  itemId: string,
+  todoId: string,
+  rawNote: string | null
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  const normalized = normalizeTodoNote(rawNote);
+  if ("error" in normalized) return normalized;
+  const existing = await prisma.todoItem.findUnique({ where: { id: todoId } });
+  if (!existing || existing.itemId !== itemId) return { error: "待辦事項不存在" };
+  if (existing.note === normalized.note) return {};
+
+  await prisma.todoItem.update({ where: { id: todoId }, data: { note: normalized.note } });
+  await logActivity(itemId, session.userId, `更新待辦事項「${existing.text}」的備註:${noteForLog(normalized.note)}`);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }

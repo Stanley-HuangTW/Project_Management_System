@@ -34,7 +34,7 @@ function describeSummary(s: SyncSummary): string {
 }
 
 /**
- * 看板與 MantisBT 專案的連線。單向:Mantis 的問題同步成這個看板「風險與問題」裡的問題,
+ * 看板與 MantisBT 專案的連線。單向:Mantis 的議題同步成這個看板「風險與議題」裡的問題,
  * 掛在看板上一個叫「ISSUE」的工作項底下;一個看板對一個 Mantis 專案。
  */
 export function MantisIntegrationCard() {
@@ -147,7 +147,7 @@ export function MantisIntegrationCard() {
 
   async function remove(c: MantisConnectionRow) {
     const ok = await confirm(
-      `刪除看板「${c.boardName}」與 Mantis 的連線?已經同步下來的 ${c.issueCount} 筆問題會保留,但變成一般問題:不再同步,也可以自己修改。`,
+      `刪除看板「${c.boardName}」與 Mantis 的連線?已經同步下來的 ${c.issueCount} 筆議題會保留,但變成一般問題:不再同步,也可以自己修改。`,
       { title: "刪除連線", confirmLabel: "刪除", danger: true }
     );
     if (!ok) return;
@@ -162,8 +162,8 @@ export function MantisIntegrationCard() {
     <div className="max-w-3xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
       <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">MantisBT 同步</p>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        把 MantisBT 專案的問題<b>單向同步</b>進看板的「風險與問題」(只讀 Mantis,不會改 Mantis)。一個看板對一個 Mantis 專案;
-        同步下來的問題都掛在看板上一個叫「ISSUE」的工作項底下,在這裡是唯讀的,要修改請到 Mantis。每 15 分鐘自動同步一次,
+        把 MantisBT 專案的問題<b>單向同步</b>進看板的「風險與議題」(只讀 Mantis,不會改 Mantis)。一個看板對一個 Mantis 專案;
+        同步下來的議題都掛在看板上一個叫「ISSUE」的工作項底下,在這裡是唯讀的,要修改請到 Mantis。每 15 分鐘自動同步一次,
         也可以按「立即同步」。需要 Mantis 2.20 以上、在 Mantis 的「我的帳號 → API 權杖」建一個 token(那個帳號要能檢視該專案)。
       </p>
 
@@ -212,7 +212,7 @@ export function MantisIntegrationCard() {
               </div>
               <p className="mt-1 break-all text-xs text-neutral-400 dark:text-neutral-500">{c.baseUrl}</p>
               <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">
-                問題 {c.issueCount} 筆(未結案 {c.openCount} 筆)
+                議題 {c.issueCount} 筆(未結案 {c.openCount} 筆)
                 {c.lastSyncAt && <>・上次同步 {new Date(c.lastSyncAt).toLocaleString("zh-TW")}</>}
                 {!c.enabled && "・已停用"}
               </p>

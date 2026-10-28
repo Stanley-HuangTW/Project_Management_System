@@ -9,9 +9,11 @@ import {
   setTodoAssignee,
   setTodoDueDate,
   setTodoInWeeklyReport,
+  setTodoNote,
   toggleTodoItem,
 } from "@/lib/actions/todo";
 import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "../AssigneeSelect";
+import { TodoNote } from "../TodoNote";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { describeDeadline, formatDueShort, taipeiClock, type DeadlineTone } from "@/lib/todoDeadline";
 
@@ -86,6 +88,12 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
     await refresh();
   }
 
+  async function changeNote(todoId: string, note: string | null) {
+    const result = await setTodoNote(boardId, itemId, todoId, note);
+    if (result.error) await notify(result.error, { title: "無法儲存備註" });
+    await refresh();
+  }
+
   async function handleToggle(todoId: string, done: boolean) {
     await toggleTodoItem(boardId, itemId, todoId, done);
     await refresh();
@@ -122,7 +130,7 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
         {todos.map((t) => (
           <li
             key={t.id}
-            className="group flex items-center gap-2 rounded px-1 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+            className="group flex items-start gap-2 rounded px-1 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
             <input
               type="checkbox"
@@ -130,13 +138,16 @@ export function ChecklistTab({ boardId, itemId }: { boardId: string; itemId: str
               onChange={(e) => handleToggle(t.id, e.target.checked)}
               className="shrink-0"
             />
-            <span
-              className={`min-w-0 flex-1 text-sm ${
-                t.done ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-800 dark:text-neutral-100"
-              }`}
-            >
-              {t.text}
-            </span>
+            <div className="min-w-0 flex-1">
+              <span
+                className={`block text-sm ${
+                  t.done ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-800 dark:text-neutral-100"
+                }`}
+              >
+                {t.text}
+              </span>
+              <TodoNote todoId={t.id} value={t.note} onSave={(note) => changeNote(t.id, note)} />
+            </div>
             <AssigneeSelect value={t.assigneeId ?? ""} users={users} onChange={(v) => void changeAssignee(t.id, v)} data-todo-assignee={t.id} />
             {editingDueId === t.id ? (
               <span className="flex shrink-0 items-center gap-1">

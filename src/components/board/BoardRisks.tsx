@@ -61,7 +61,7 @@ const TABS = [
 const LEVELS = [1, 2, 3, 4, 5];
 
 /**
- * 風險與問題登錄簿 — the register the NUDD reviews already run on paper.
+ * 風險與議題登錄簿 — the register the NUDD reviews already run on paper.
  *
  * Sorted by 機率×衝擊 with the closed entries at the bottom, so the top of
  * the list is always the thing to talk about first.
@@ -218,7 +218,7 @@ export function BoardRisks({
           onClick={() => openEditor({ id: null, input: { ...EMPTY, ownerId: currentUserId } })}
           className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
         >
-          <Plus size={14} /> 新增風險 / 問題
+          <Plus size={14} /> 新增風險 / 議題
         </button>
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
           未結案 {openCount} 筆{highCount > 0 && `,其中 ${highCount} 筆極高`}
@@ -277,7 +277,7 @@ export function BoardRisks({
         <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>
       ) : sorted.length === 0 ? (
         <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-10 text-center text-sm text-neutral-400 dark:text-neutral-500">
-          還沒有紀錄。NUDD 會議上談到的風險與問題,記在這裡才追得下去。
+          還沒有紀錄。NUDD 會議上談到的風險與議題,記在這裡才追得下去。
         </p>
       ) : (
 <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700">
@@ -305,7 +305,18 @@ export function BoardRisks({
                 return (
                   <tr
                     key={risk.id}
-                    className={`${risk.status === "CLOSED" ? "opacity-50" : ""} hover:bg-neutral-50 dark:hover:bg-neutral-800`}
+                    // 點到這一列任何地方就打開(能改的人直接編輯,不能改的檢視);列裡面的連結、狀態選單、按鈕各做各的事,不連帶打開。
+                    onClick={() => openEditor({ id: risk.id, input: risk })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && e.target === e.currentTarget) {
+                        // 不擋的話,焦點移進視窗後這個 Enter 的 keypress 會按下視窗的第一顆按鈕(關閉),視窗一開就關。
+                        e.preventDefault();
+                        openEditor({ id: risk.id, input: risk });
+                      }
+                    }}
+                    tabIndex={0}
+                    data-risk-row={risk.id}
+                    className={`${risk.status === "CLOSED" ? "opacity-50" : ""} cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800`}
                   >
                     <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
                       {RISK_KIND_LABELS[risk.kind]}
@@ -317,6 +328,7 @@ export function BoardRisks({
                             href={risk.mantis.url ?? undefined}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="inline-flex shrink-0 items-center gap-0.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-300"
                             title={"在 Mantis 開啟 #" + risk.mantis.id + (risk.mantis.status ? "(Mantis 狀態:" + risk.mantis.status + ")" : "")}
                           >
@@ -361,7 +373,7 @@ export function BoardRisks({
                     </td>
                     <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.ownerName ?? "—"}</td>
                     <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.dueDate ?? "—"}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       {risk.permissions.canSetWorkingStatus ? (
                         <select
                           value={risk.status}
@@ -390,7 +402,7 @@ export function BoardRisks({
                         </span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-2 py-2 text-right">
+                    <td className="whitespace-nowrap px-2 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
                         onClick={() => openEditor({ id: risk.id, input: risk })}
@@ -422,7 +434,7 @@ export function BoardRisks({
       <Modal
         open={!!editing}
         onOpenChange={(open) => !open && setEditing(null)}
-        title={editing?.id ? "編輯風險 / 問題" : "新增風險 / 問題"}
+        title={editing?.id ? "編輯風險 / 議題" : "新增風險 / 議題"}
         size="lg"
       >
         {editing && (

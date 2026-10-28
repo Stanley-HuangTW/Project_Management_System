@@ -160,7 +160,7 @@ export function LinksTab({
                 className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
                 title={
                   mantis[l.id].synced
-                    ? "這是同步下來的 Mantis 問題,狀態約每 15 分鐘更新一次"
+                    ? "這是同步下來的 Mantis 議題,狀態約每 15 分鐘更新一次"
                     : "這個問題還沒同步下來(不在連線的 Mantis 專案裡,或還沒同步到)"
                 }
               >

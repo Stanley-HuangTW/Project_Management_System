@@ -421,7 +421,7 @@ async function gatherDelays(boards: BoardWithData[], session: SessionPayload): P
 }
 
 /**
- * 這個專案群組底下所有看板的風險/問題登記,連同逐筆列出要用的說明、對策、Mantis 網址與進度更新。
+ * 這個專案群組底下所有看板的風險/議題登記,連同逐筆列出要用的說明、對策、Mantis 網址與進度更新。
  * 進度更新分兩種:這一週新增的(週的邊界照台灣時間,跟工作項資訊更新一致),與最近一次(不限這一週)。
  */
 async function gatherRisks(

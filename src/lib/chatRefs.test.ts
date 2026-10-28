@@ -2,13 +2,9 @@ import { describe, expect, it } from "vitest";
 import { filterItemsKeepingAncestors, parentIdsOf, riskKindOf, visibleTreeRows } from "./chatRefs";
 
 describe("riskKindOf", () => {
-  it("Mantis 同步來的是議題(不管登記冊裡標成風險還是問題)", () => {
-    expect(riskKindOf({ kind: "ISSUE", mantisId: 123 })).toBe("mantis");
-    expect(riskKindOf({ kind: "RISK", mantisId: 7 })).toBe("mantis");
-  });
-  it("自己登記的依風險 / 問題分", () => {
-    expect(riskKindOf({ kind: "RISK", mantisId: null })).toBe("risk");
-    expect(riskKindOf({ kind: "ISSUE", mantisId: null })).toBe("issue");
+  it("風險是風險;議題(含 Mantis 同步來的)是議題", () => {
+    expect(riskKindOf({ kind: "RISK" })).toBe("risk");
+    expect(riskKindOf({ kind: "ISSUE" })).toBe("issue");
   });
 });
 

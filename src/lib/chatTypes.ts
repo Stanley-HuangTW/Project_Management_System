@@ -57,7 +57,7 @@ export type ChatSearchHit = {
   excerpt: string;
 };
 
-/** 挑項目用的清單:一個看板的工作項、風險、問題、議題。 */
+/** 挑項目用的清單:一個看板的工作項、風險、議題。 */
 export type ChatBoardRefs = {
   boardId: string;
   boardName: string;

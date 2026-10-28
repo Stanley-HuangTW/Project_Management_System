@@ -8,10 +8,12 @@ import {
   listRiskTodos,
   setRiskTodoAssignee,
   setRiskTodoDueDate,
+  setRiskTodoNote,
   toggleRiskTodo,
   type RiskTodoRow,
 } from "@/lib/actions/riskTodo";
 import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "./AssigneeSelect";
+import { TodoNote } from "./TodoNote";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { describeDeadline, formatDueShort, taipeiClock, type DeadlineTone } from "@/lib/todoDeadline";
 
@@ -23,7 +25,7 @@ const TONE_CLASS: Record<DeadlineTone, string> = {
 };
 
 /**
- * 風險 / 問題 / 議題的「待辦事項」:跟工作項的待辦事項(ChecklistTab)同一個樣子——勾完成、可以設期限,
+ * 風險 / 議題的「待辦事項」:跟工作項的待辦事項(ChecklistTab)同一個樣子——勾完成、可以設期限,
  * 到期前一天、當天、逾期後各提醒一次。對話裡的訊息也可以直接轉成這裡的待辦事項。
  */
 export function RiskTodosPanel({ riskId }: { riskId: string }) {
@@ -82,6 +84,12 @@ export function RiskTodosPanel({ riskId }: { riskId: string }) {
     await refresh();
   }
 
+  async function changeNote(todoId: string, note: string | null) {
+    const result = await setRiskTodoNote(todoId, note);
+    if (result.error) await notify(result.error, { title: "無法儲存備註" });
+    await refresh();
+  }
+
   async function handleToggle(todoId: string, done: boolean) {
     const result = await toggleRiskTodo(todoId, done);
     if (result.error) await notify(result.error, { title: "無法更改" });
@@ -107,15 +115,18 @@ export function RiskTodosPanel({ riskId }: { riskId: string }) {
       {!loading && todos.length === 0 && <p className="mb-3 text-sm text-neutral-400 dark:text-neutral-500">尚無待辦事項</p>}
       <ul className="mb-4 space-y-1.5">
         {todos.map((t) => (
-          <li key={t.id} data-risk-todo={t.id} className="group flex items-center gap-2 rounded px-1 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-800">
+          <li key={t.id} data-risk-todo={t.id} className="group flex items-start gap-2 rounded px-1 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-800">
             <input type="checkbox" checked={t.done} onChange={(e) => void handleToggle(t.id, e.target.checked)} className="shrink-0" />
-            <span
-              className={`min-w-0 flex-1 text-sm ${
-                t.done ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-800 dark:text-neutral-100"
-              }`}
-            >
-              {t.text}
-            </span>
+            <div className="min-w-0 flex-1">
+              <span
+                className={`block text-sm ${
+                  t.done ? "text-neutral-400 dark:text-neutral-500 line-through" : "text-neutral-800 dark:text-neutral-100"
+                }`}
+              >
+                {t.text}
+              </span>
+              <TodoNote todoId={t.id} value={t.note} onSave={(note) => changeNote(t.id, note)} />
+            </div>
             <AssigneeSelect value={t.assigneeId ?? ""} users={users} onChange={(v) => void changeAssignee(t.id, v)} data-todo-assignee={t.id} />
             {editingDueId === t.id ? (
               <span className="flex shrink-0 items-center gap-1">

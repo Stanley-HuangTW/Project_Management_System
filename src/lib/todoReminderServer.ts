@@ -56,7 +56,7 @@ export async function sendTodoDeadlineReminders(now = new Date()): Promise<TodoR
     notified += recipients.length;
   }
 
-  // 風險 / 問題 / 議題的待辦事項:同一套階段與提醒;收件人是那一筆的負責人加上新增這個待辦事項的人。
+  // 風險 / 議題的待辦事項:同一套階段與提醒;收件人是那一筆的負責人加上新增這個待辦事項的人。
   const riskTodos = await prisma.riskTodo.findMany({
     where: { done: false, remindedStage: { lt: 3 }, dueDate: { not: null, lte: tomorrow }, risk: { board: { deletedAt: null } } },
     select: { id: true, text: true, dueDate: true, remindedStage: true, createdById: true, assigneeId: true, riskId: true, risk: { select: { title: true, ownerId: true } } },
@@ -71,7 +71,7 @@ export async function sendTodoDeadlineReminders(now = new Date()): Promise<TodoR
     });
     if (claimed.count === 0) continue;
 
-    const message = reminderMessage(stage, { itemName: todo.risk.title, todoText: todo.text, dueDate: todo.dueDate!, subject: "風險 / 問題" });
+    const message = reminderMessage(stage, { itemName: todo.risk.title, todoText: todo.text, dueDate: todo.dueDate!, subject: "風險 / 議題" });
     const recipients = await realUserIds([todo.assigneeId ?? todo.risk.ownerId, todo.createdById]);
     const inApp = await filterInAppRecipients(prisma, "DEADLINE", recipients);
     if (inApp.length > 0) {

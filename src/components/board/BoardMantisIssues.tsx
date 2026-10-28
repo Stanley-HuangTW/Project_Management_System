@@ -27,8 +27,8 @@ const selectClass =
 const formatDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("zh-TW") : "—");
 
 /**
- * 看板的「問題」分頁:同步自 MantisBT 的問題。兩種看法——清單(每筆的 Mantis 資訊),
- * 與「依處理人」(每位同仁手上有哪些問題)。唯讀;要改請到 Mantis。
+ * 看板的「議題」分頁:同步自 MantisBT 的議題。兩種看法——清單(每筆的 Mantis 資訊),
+ * 與「依處理人」(每位同仁手上有哪些議題)。唯讀;要改請到 Mantis。
  */
 export function BoardMantisIssues({
   boardId,
@@ -214,11 +214,11 @@ export function BoardMantisIssues({
 
           {issues.length === 0 ? (
             <p className="rounded-md border border-dashed border-neutral-200 py-10 text-center text-sm text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
-              還沒有同步到任何問題。
+              還沒有同步到任何議題。
               {connection.lastSyncNote && <span className="mx-auto mt-2 block max-w-xl text-xs">{connection.lastSyncNote}</span>}
             </p>
           ) : shown.length === 0 ? (
-            <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">沒有符合條件的問題。</p>
+            <p className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">沒有符合條件的議題。</p>
           ) : mode === "list" ? (
             <HScrollPane className="rounded-md border border-neutral-200 dark:border-neutral-700">
               <table className="w-full min-w-[980px] text-sm">

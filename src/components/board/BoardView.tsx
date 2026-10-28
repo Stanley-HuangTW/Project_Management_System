@@ -63,7 +63,7 @@ export function BoardView({
   highlightNonce?: string | null;
   /** 打開 highlight 那個項目時停在哪一個分頁(updates / card / links / checklist……);沒給就是「更新」。 */
   highlightTab?: string | null;
-  /** ?view=risks 這種連結來的(儀表板的風險與問題清單):一打開就停在那個分頁,沒給或不認得就是表格。 */
+  /** ?view=risks 這種連結來的(儀表板的風險與議題清單):一打開就停在那個分頁,沒給或不認得就是表格。 */
   initialView?: string | null;
   /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
    *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
@@ -73,7 +73,7 @@ export function BoardView({
   ownerDefaultPct: number;
   /** 已經被指到的外部前置,甘特圖用來畫那一列。 */
   externalPreds: ExternalPredecessor[];
-  /** 這個看板有連到 MantisBT:多一個「問題」分頁。 */
+  /** 這個看板有連到 MantisBT:多一個「議題」分頁。 */
   hasMantis: boolean;
   /** 表格最右邊「進行中時間、完成時間、更新記錄」三欄的資料(只含看得到的項目)。 */
   eventSummaries?: Record<string, ItemEventSummary>;
@@ -250,7 +250,7 @@ export function BoardView({
                     : "bg-white dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 }`}
               >
-                <Bug size={14} /> <span className="hidden sm:inline">問題</span>
+                <Bug size={14} /> <span className="hidden sm:inline">議題</span>
               </button>
             )}
             <button

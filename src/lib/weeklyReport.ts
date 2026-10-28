@@ -88,7 +88,7 @@ export type PersonSection = {
   upcoming: ReportItem[];
 };
 
-/** 風險/問題上的一則進度更新(負責人寫的時間軸)。 */
+/** 風險/議題上的一則進度更新(負責人寫的時間軸)。 */
 export type RiskUpdateLine = {
   authorName: string;
   /** "YYYY-MM-DD"(台灣時間) */
@@ -97,7 +97,7 @@ export type RiskUpdateLine = {
   text: string;
 };
 
-/** 風險/問題登記簿(RiskEntry)在快照裡的樣子。 */
+/** 風險/議題登記簿(RiskEntry)在快照裡的樣子。 */
 export type RiskLine = {
   id: string;
   boardName: string;
@@ -354,7 +354,7 @@ function taipeiDate(iso: string): string {
 }
 
 /**
- * 週報裡逐筆列出的風險/問題:還沒結案的全部、已結案的只列這一週才動過的(剛結案的);
+ * 週報裡逐筆列出的風險/議題:還沒結案的全部、已結案的只列這一週才動過的(剛結案的);
  * 分數高的在前,已結案的排最後。
  */
 export function risksToList(risks: RiskLine[], weekStart: string, weekEnd: string): RiskLine[] {
@@ -372,7 +372,7 @@ export function risksToList(risks: RiskLine[], weekStart: string, weekEnd: strin
     );
 }
 
-/** 一筆風險/問題的標題列:類型標記(風險 / 問題 / Mantis #編號)、名稱、狀態、負責人、到期日。 */
+/** 一筆風險/議題的標題列:類型標記(風險 / 議題 / Mantis #編號)、名稱、狀態、負責人、到期日。 */
 export function riskHeadline(r: RiskLine): string {
   const owner = r.ownerName ? `・負責:${r.ownerName}` : "";
   const due = r.dueDate ? `・到期 ${r.dueDate}` : "";
@@ -398,7 +398,7 @@ export function riskDetailLines(r: RiskLine): string[] {
 function renderRiskList(risks: RiskLine[], weekStart: string, weekEnd: string): string[] {
   const list = risksToList(risks, weekStart, weekEnd);
   if (list.length === 0) return [];
-  const out: string[] = ["", "**風險與問題明細**"];
+  const out: string[] = ["", "**風險與議題明細**"];
   for (const r of list) {
     out.push(`- ${riskHeadline(r)}`);
     out.push(...riskDetailLines(r).map((line) => `  - ${line}`));
@@ -983,10 +983,10 @@ function renderProgram(
     if (flagged.length + changed.length + rescheduled.length === 0) out.push("", "這週要徑沒有變化。");
   }
 
-  out.push("", `### 風險與問題`, "");
+  out.push("", `### 風險與議題`, "");
   const risks = program.risks ?? [];
   if (risks.length === 0) {
-    out.push("沒有登記風險或問題。");
+    out.push("沒有登記風險或議題。");
   } else {
     const open = risks.filter((r) => r.status !== "CLOSED");
     out.push(
@@ -1016,7 +1016,7 @@ function renderProgram(
         updated.map((r) => `- [${RISK_KIND_LABELS[r.kind]}] ${r.title}`)
       )
     );
-    if (added.length + statusChanged.length + updated.length === 0) out.push("", "這週風險/問題登記沒有變化。");
+    if (added.length + statusChanged.length + updated.length === 0) out.push("", "這週風險/議題登記沒有變化。");
   }
 
   if (program.delays.length > 0) {

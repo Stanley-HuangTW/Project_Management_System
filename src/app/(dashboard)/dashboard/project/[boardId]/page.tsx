@@ -15,7 +15,7 @@ import { loadOpenRiskRows } from "@/lib/dashboardRisksServer";
 
 /**
  * 專案儀表板(側邊欄「看板名稱-儀表板」):這個人在這個專案上有角色的話,看專案的逾期、本週完成、未來 7 天工作項,
- * 以及每個人的時程,再加上這個專案還沒結案的風險與問題。Team Leader / PMD 看整個專案;各職能 DM 看自己組員(加自己)的項目。
+ * 以及每個人的時程,再加上這個專案還沒結案的風險與議題。Team Leader / PMD 看整個專案;各職能 DM 看自己組員(加自己)的項目。
  * 沒有角色的人進不來(管理者可以)。
  */
 export default async function ProjectDashboardPage({ params }: { params: Promise<{ boardId: string }> }) {
@@ -47,7 +47,7 @@ export default async function ProjectDashboardPage({ params }: { params: Promise
   const [overview] = computeLeaderOverview([board], nameOf, toHolidaySet(holidayRows), completedAtByItem, () => scope);
 
   const coversAll = board.groups.every((g) => scope.groups.get(g.id) === "all");
-  // 風險登記冊本來就是看板成員都看得到:有專案角色的人看這個專案所有未結案的風險與問題。
+  // 風險登記冊本來就是看板成員都看得到:有專案角色的人看這個專案所有未結案的風險與議題。
   // 「與我有關」= 我與我範圍裡的組員負責的(DM 的組員);Team Leader / PMD 就是自己。
   const riskRows = await loadOpenRiskRows([{ id: board.id, name: board.name }]);
   const relatedIds = new Set([session.userId]);
@@ -62,7 +62,7 @@ export default async function ProjectDashboardPage({ params }: { params: Promise
           {coversAll
             ? "這裡是整個專案、所有人的工作項。"
             : "這裡是你負責的分組、以及你的組員(依你在各分組的角色)的工作項。"}
-          逾期、本週完成、未來 7 天跟「我的儀表板」的「待辦事項到期清單」同一個算法;風險與問題是這個專案所有還沒結案的。
+          逾期、本週完成、未來 7 天跟「我的儀表板」的「待辦事項到期清單」同一個算法;風險與議題是這個專案所有還沒結案的。
         </p>
       </div>
       <OpenRisksCard rows={riskRows} relatedUserIds={[...relatedIds]} defaultAll />

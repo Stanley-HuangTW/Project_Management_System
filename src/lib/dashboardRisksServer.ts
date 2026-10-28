@@ -5,8 +5,8 @@ import { toOpenRiskRows, type OpenRiskRow } from "@/lib/dashboardRisks";
 const MAX_ROWS = 500;
 
 /**
- * 儀表板「未結案的風險與問題」要列的:這幾個看板(儀表板上目前看的那幾個,都是這個人看得到的)裡
- * 還沒結案的風險與問題(含 Mantis 同步來的)。風險登記冊本來就是看板成員都看得到,這裡沒有另外的可見範圍。
+ * 儀表板「未結案的風險與議題」要列的:這幾個看板(儀表板上目前看的那幾個,都是這個人看得到的)裡
+ * 還沒結案的風險與議題(含 Mantis 同步來的)。風險登記冊本來就是看板成員都看得到,這裡沒有另外的可見範圍。
  */
 export async function loadOpenRiskRows(boards: { id: string; name: string }[]): Promise<OpenRiskRow[]> {
   if (boards.length === 0) return [];

@@ -260,7 +260,7 @@ export default async function DashboardPage({
           committed is the one thing on this page nobody can undo later. */}
       <BudgetAlertCard key="budgetAlerts" alerts={await budgetAlerts(session)} />
 
-      {/* 風險、問題(含 Mantis 同步來的)還沒結案的,讓使用者一眼看到還有哪些事沒做完。 */}
+      {/* 風險、議題(含 Mantis 同步來的)還沒結案的,讓使用者一眼看到還有哪些事沒做完。 */}
       <OpenRisksCard
         key="openRisks"
         rows={await loadOpenRiskRows(boards)}

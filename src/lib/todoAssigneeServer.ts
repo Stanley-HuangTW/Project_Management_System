@@ -38,7 +38,7 @@ export async function suggestItemAssignee(itemId: string, text = ""): Promise<As
   });
 }
 
-/** 風險 / 問題 / 議題的待辦事項:文字裡 @ 的人 → 那一筆的負責人。 */
+/** 風險 / 議題的待辦事項:文字裡 @ 的人 → 那一筆的負責人。 */
 export async function suggestRiskAssignee(riskId: string, text = ""): Promise<AssigneeSuggestion> {
   const [mentioned, risk] = await Promise.all([mentionedIn(text), prisma.riskEntry.findUnique({ where: { id: riskId }, select: { ownerId: true } })]);
   return defaultTodoAssignee({ mentioned, ownerIds: risk?.ownerId ? [risk.ownerId] : [], assignments: [], hours: [] });

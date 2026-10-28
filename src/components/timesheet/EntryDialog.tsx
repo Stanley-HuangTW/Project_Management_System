@@ -299,7 +299,7 @@ function EntryForm({
 
       {kind === "activity" && category?.linkIssue && (
         <label className="block text-xs text-neutral-500 dark:text-neutral-400">
-          連結風險 / 問題
+          連結風險 / 議題
           <SearchableSelect
             options={(options?.risks ?? []).map((r) => ({
               value: r.id,
@@ -307,7 +307,7 @@ function EntryForm({
             }))}
             value={riskEntryId}
             onChange={setRiskEntryId}
-            emptyLabel="不連結風險 / 問題"
+            emptyLabel="不連結風險 / 議題"
             className={`${inputClass} mt-1 w-full`}
           />
         </label>

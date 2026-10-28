@@ -22,7 +22,7 @@ import {
 } from "@/lib/riskWorkflow";
 
 /**
- * 風險與問題。分工與結案流程見 lib/riskWorkflow.ts:建立者寫對策與驗收標準、指定負責人與審核人,
+ * 風險與議題。分工與結案流程見 lib/riskWorkflow.ts:建立者寫對策與驗收標準、指定負責人與審核人,
  * 負責人寫進度更新並申請結案,所有審核人同意才結案。
  *
  * 錯誤一律用回傳值帶回去,不用丟例外——production 的 Next.js 會把丟出來的訊息洗成一句通用的話,
@@ -50,7 +50,7 @@ export type RiskInput = {
 
 export type RiskReviewerRow = { userId: string; name: string; approvedAt: string | null };
 
-/** 從 MantisBT 同步來的問題帶的來源資訊;手動建立的是 null。 */
+/** 從 MantisBT 同步來的議題帶的來源資訊;手動建立的是 null。 */
 export type RiskMantisInfo = {
   id: number;
   url: string | null;
@@ -302,11 +302,11 @@ export async function createRisk(boardId: string, input: RiskInput): Promise<Res
   ].filter(Boolean);
   await prisma.activityLogEntry.createMany({
     data: logRows(risk.id, boardId, session, [
-      `建立${input.kind === "ISSUE" ? "問題" : "風險"}「${data.title}」${who.length > 0 ? `(${who.join(";")})` : ""}`,
+      `建立${input.kind === "ISSUE" ? "議題" : "風險"}「${data.title}」${who.length > 0 ? `(${who.join(";")})` : ""}`,
     ]).map((row) => ({ ...row, category: "RISK" as const })),
   });
   // 被指派為負責人、審核人的人收到通知。
-  await notifyRiskAssigned(risk.id, session.userId, { title: data.title, kindLabel: input.kind === "ISSUE" ? "問題" : "風險" }, {
+  await notifyRiskAssigned(risk.id, session.userId, { title: data.title, kindLabel: input.kind === "ISSUE" ? "議題" : "風險" }, {
     ownerId: data.ownerId,
     reviewerIds,
   });
@@ -388,7 +388,7 @@ export async function updateRisk(riskId: string, input: RiskInput): Promise<Resu
   // 新換上去的負責人、新加進來的審核人收到通知(沒換的不重複通知)。
   const newOwnerId = data.ownerId && data.ownerId !== existing.ownerId ? data.ownerId : null;
   const newReviewerIds = reviewerIds.filter((id) => !beforeReviewerIds.includes(id));
-  await notifyRiskAssigned(riskId, session.userId, { title: data.title, kindLabel: existing.kind === "ISSUE" ? "問題" : "風險" }, {
+  await notifyRiskAssigned(riskId, session.userId, { title: data.title, kindLabel: existing.kind === "ISSUE" ? "議題" : "風險" }, {
     ownerId: newOwnerId,
     reviewerIds: newReviewerIds,
   });
@@ -582,7 +582,7 @@ export async function deleteRisk(riskId: string): Promise<Result> {
   }
 
   // 風險刪掉時它自己的紀錄會一起清掉,所以「誰刪了它」另外記在板級稽核。
-  await logAudit("RISK", session.userId, `刪除${existing.kind === "ISSUE" ? "問題" : "風險"}「${existing.title}」`, existing.boardId);
+  await logAudit("RISK", session.userId, `刪除${existing.kind === "ISSUE" ? "議題" : "風險"}「${existing.title}」`, existing.boardId);
   await prisma.riskEntry.delete({ where: { id: riskId } });
   revalidatePath(`/boards/${existing.boardId}`);
   return {};

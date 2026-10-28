@@ -370,7 +370,7 @@ describe("里程碑/要徑標記的變化", () => {
   });
 });
 
-describe("風險/問題變化", () => {
+describe("風險/議題變化", () => {
   it("上週名單裡沒有這個 id = 新增", () => {
     const diff = diffWeeks(snapshot([], [], [risk({ id: "r1" })]), snapshot([], [], []));
     expect(diff.riskAdded.map((r) => r.id)).toEqual(["r1"]);
@@ -467,18 +467,18 @@ describe("Markdown", () => {
     expect(md).toContain("🟣HIGH");
   });
 
-  it("風險/問題:有登記的會報目前狀態,也列這週的異動", () => {
+  it("風險/議題:有登記的會報目前狀態,也列這週的異動", () => {
     const now = snapshot([], [], [risk({ id: "r1", kind: "ISSUE", status: "MITIGATING", title: "供應商延遲交貨" })]);
     const diff = diffWeeks(now, snapshot([], [], [risk({ id: "r1", kind: "ISSUE", status: "OPEN", title: "供應商延遲交貨" })]));
     const md = renderWeeklyReportMarkdown(now, diff);
-    expect(md).toContain("### 風險與問題");
+    expect(md).toContain("### 風險與議題");
     expect(md).toContain("供應商延遲交貨");
     expect(md).toContain("未處理 → 處理中");
   });
 
-  it("沒有登記風險/問題時說清楚,不是留白", () => {
+  it("沒有登記風險/議題時說清楚,不是留白", () => {
     const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
-    expect(md).toContain("沒有登記風險或問題");
+    expect(md).toContain("沒有登記風險或議題");
   });
 
   it("已完成的里程碑不再列 —— 那一段問的是還沒到的", () => {
@@ -863,20 +863,20 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
   });
 });
 
-describe("風險與問題明細", () => {
+describe("風險與議題明細", () => {
   const md = (risks: RiskLine[]) => {
     const data = snapshot([], [], risks);
     return renderWeeklyReportMarkdown(data, diffWeeks(data, null));
   };
 
-  it("逐筆列出名稱、狀態、負責人與到期日,類型標風險或問題", () => {
+  it("逐筆列出名稱、狀態、負責人與到期日,類型標風險或議題", () => {
     const out = md([
       risk({ id: "r1", title: "電源模組可能缺貨", status: "MITIGATING", ownerName: "王小明", dueDate: "2026-10-20" }),
       risk({ id: "r2", kind: "ISSUE", title: "現場通訊中斷", status: "OPEN" }),
     ]);
-    expect(out).toContain("**風險與問題明細**");
+    expect(out).toContain("**風險與議題明細**");
     expect(out).toContain("- [風險] 電源模組可能缺貨 — 處理中(分數 9)・負責:王小明・到期 2026-10-20");
-    expect(out).toContain("- [問題] 現場通訊中斷 — 未處理(分數 9)");
+    expect(out).toContain("- [議題] 現場通訊中斷 — 未處理(分數 9)");
   });
 
   it("帶出看板、說明、對策,Mantis 來的標編號並附網址", () => {
@@ -949,8 +949,8 @@ describe("風險與問題明細", () => {
     expect(out).not.toContain("最近一次更新");
   });
 
-  it("沒有任何風險問題時不出現明細段落", () => {
-    expect(md([])).not.toContain("風險與問題明細");
+  it("沒有任何風險議題時不出現明細段落", () => {
+    expect(md([])).not.toContain("風險與議題明細");
   });
 });
 

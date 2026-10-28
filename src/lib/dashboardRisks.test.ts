@@ -71,7 +71,7 @@ describe("relatedToUsers", () => {
 });
 
 describe("summariseOpenRisks", () => {
-  it("統計:共幾筆、極高、高、逾期,以及風險與問題各幾筆", () => {
+  it("統計:共幾筆、極高、高、逾期,以及風險與議題各幾筆", () => {
     const rows = toOpenRiskRows(
       [
         entry({ id: "1", probability: 5, impact: 5 }),

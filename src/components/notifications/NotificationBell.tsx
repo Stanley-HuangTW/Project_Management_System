@@ -79,7 +79,7 @@ export function NotificationBell() {
     // notification twice — the board page's "open the item card" logic keys
     // off it rather than just the item id, since the id alone is identical
     // both times and wouldn't look like a new click at all.
-    // 風險/問題被指派的通知沒有工作項:直接開那個看板的風險分頁。
+    // 風險/議題被指派的通知沒有工作項:直接開那個看板的風險分頁。
     router.push(
       n.item
         ? `/boards/${n.boardId}?highlight=${n.item.id}&highlightAt=${nonce()}`

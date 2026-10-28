@@ -610,6 +610,8 @@ model TodoItem {
   /// 處理者:這個待辦事項要由誰完成。預設是工作項的負責人;沒有負責人就取人員分配 / 工時比例最高的人;
   /// 從對話轉過來、訊息裡有 @ 誰,就是那個人(見 todoAssignee)。有設的話,期限提醒給他(加上新增的人),null = 沒指定。
   assigneeId String?
+  /// 備註:讓使用者記錄這個待辦事項的處理狀態、結果。null = 沒有備註。
+  note      String?
 
   @@index([itemId])
   @@index([dueDate])
@@ -1319,8 +1321,10 @@ model RiskTodo {
   remindedStage Int @default(0)
   /// 誰新增的(提醒的收件人除了風險的負責人,也包含寫這一筆的人)。
   createdById String?
-  /// 處理者:預設是風險 / 問題的負責人;對話轉過來、訊息裡有 @ 誰,就是那個人。有設的話,期限提醒給他。
+  /// 處理者:預設是風險 / 議題的負責人;對話轉過來、訊息裡有 @ 誰,就是那個人。有設的話,期限提醒給他。
   assigneeId String?
+  /// 備註:讓使用者記錄這個待辦事項的處理狀態、結果。null = 沒有備註。
+  note      String?
 
   @@index([riskId])
   @@index([dueDate])
