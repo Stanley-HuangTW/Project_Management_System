@@ -56,13 +56,17 @@ describe("normalizeChatLinks", () => {
 
 describe("internalRefUrl", () => {
   it("工作項指到那一列,風險、議題指到風險登記冊", () => {
+    // 兩筆不同的風險要是不同的網址,同一則訊息才能都引用
+    expect(internalRefUrl({ kind: "risk", boardId: "b1", id: "r1" })).not.toBe(internalRefUrl({ kind: "risk", boardId: "b1", id: "r2" }));
     expect(internalRefUrl({ kind: "item", boardId: "b1", id: "i1" })).toBe("/boards/b1?highlight=i1");
-    expect(internalRefUrl({ kind: "risk", boardId: "b1", id: "r1" })).toBe("/boards/b1?view=risks");
-    expect(internalRefUrl({ kind: "issue", boardId: "b1", id: "r2" })).toBe("/boards/b1?view=risks");
+    expect(internalRefUrl({ kind: "risk", boardId: "b1", id: "r1" })).toBe("/boards/b1?view=risks&risk=r1");
+    expect(internalRefUrl({ kind: "issue", boardId: "b1", id: "r2" })).toBe("/boards/b1?view=risks&risk=r2");
   });
 
   it("產生的位置一定通得過 normalizeChatLink", () => {
     const url = internalRefUrl({ kind: "item", boardId: "cmvq6ne6j0001ro2zrmgnhqxl", id: "cmuz354j5000dp224dp2kmdix" });
     expect(normalizeChatLink({ url })).toHaveProperty("link");
+    const riskUrl = internalRefUrl({ kind: "issue", boardId: "cmvq6ne6j0001ro2zrmgnhqxl", id: "cmuz354j5000dp224dp2kmdix" });
+    expect(normalizeChatLink({ url: riskUrl })).toHaveProperty("link");
   });
 });

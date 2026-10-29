@@ -69,7 +69,8 @@ export function normalizeChatLinks(inputs: ChatLinkInput[]): { links: ChatLink[]
  */
 export type RefKind = "item" | "risk" | "issue";
 
-/** 引用本系統的一個項目:工作項指到那一列,風險、議題指到風險登記冊。 */
+/** 引用本系統的一個項目:工作項指到那一列,風險、議題指到風險登記冊(風險 / 議題分頁)。 */
 export function internalRefUrl(ref: { kind: RefKind; boardId: string; id: string }): string {
-  return ref.kind === "item" ? `/boards/${ref.boardId}?highlight=${ref.id}` : `/boards/${ref.boardId}?view=risks`;
+  // 風險、議題帶上自己的 id(risk=…,頁面目前不用它):不然同一則訊息引用兩筆風險會是同一個網址,被當成重複的連結。
+  return ref.kind === "item" ? `/boards/${ref.boardId}?highlight=${ref.id}` : `/boards/${ref.boardId}?view=risks&risk=${ref.id}`;
 }

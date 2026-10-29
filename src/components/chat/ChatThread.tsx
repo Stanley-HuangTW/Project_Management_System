@@ -3,21 +3,33 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, FileText, Link2, ListTodo, MessageSquareQuote, Paperclip, Send, Trash2, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
-import { MentionText } from "@/components/board/item-detail/MentionText";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { deleteChatMessage, loadChatMessages, markChatRead, sendChatMessage } from "@/lib/actions/chat";
+import { deleteChatMessage, listChatBoardRefs, loadChatMessages, markChatRead, sendChatMessage } from "@/lib/actions/chat";
 import { clockLabel, dayKey, dayLabel, formatFileSize, startsNewRun, validateAttachments } from "@/lib/chat";
 import { activeMentionQuery } from "@/lib/mentions";
-import { isChatError, type ChatConversationDto, type ChatMessageDto, type ChatReadState } from "@/lib/chatTypes";
+import { activeRefQuery, inlineRefUrls, suggestRefs, type RefSuggestion } from "@/lib/chatRefMention";
+import { isChatError, type ChatBoardRefs, type ChatConversationDto, type ChatMessageDto, type ChatReadState } from "@/lib/chatTypes";
 import { useChat } from "./ChatProvider";
 import { ConvertMessageDialog } from "./ChatConvertDialog";
 import { BoardRefPicker, REF_KIND_LABELS } from "./BoardRefPicker";
+import { ChatMessageBody } from "./ChatMessageBody";
 import { MAX_LINKS_PER_MESSAGE, internalRefUrl, normalizeChatLink, type ChatLink } from "@/lib/chatLinks";
 
 type ChatUser = { id: string; name: string; avatarUrl: string | null };
 
 /** 離底部這麼近(px)就算「在最底下」,新訊息來了自動捲到底。 */
 const STICK_PX = 80;
+
+/** 這則訊息附的連結(網址與顯示名稱)。 */
+function linkParts(m: ChatMessageDto) {
+  return m.attachments.flatMap((a) => (a.link ? [{ url: a.link, label: a.fileName }] : []));
+}
+
+/** 要放在訊息下面的附件:內文裡已經畫成 #連結 的那幾張連結卡不重複放。 */
+function shownAttachments(m: ChatMessageDto) {
+  const inline = inlineRefUrls(m.body, linkParts(m));
+  return m.attachments.filter((a) => !(a.link && inline.has(a.link)));
+}
 
 function mergeMessages(current: ChatMessageDto[], incoming: ChatMessageDto[]): ChatMessageDto[] {
   const byId = new Map(current.map((m) => [m.id, m]));
@@ -84,6 +96,9 @@ export function ChatThread({
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  // # 引用的清單:輸入框第一次打 # 才去讀這個看板的工作項 / 風險 / 議題。
+  const [boardRefs, setBoardRefs] = useState<ChatBoardRefs | null>(null);
+  const refsRequested = useRef(false);
 
   // 能 @ 誰:群組只有成員、看板頻道是所有人(沒權限的人伺服器不會通知)、私訊不需要。
   const mentionable = useMemo(() => {
@@ -91,7 +106,13 @@ export function ChatThread({
     if (conversation.kind === "GROUP") return users.filter((u) => conversation.memberIds.includes(u.id));
     return users;
   }, [conversation.kind, conversation.memberIds, users]);
-  const query = activeMentionQuery(draft, caret);
+  // @ 與 # 看起來都在打的時候,取游標前面離得比較近的那一個。# 只有看板頻道有(私訊、群組沒有所屬看板)。
+  const mentionQuery = activeMentionQuery(draft, caret);
+  const refQueryNow = conversation.boardId ? activeRefQuery(draft, caret) : null;
+  const query = mentionQuery && !(refQueryNow && refQueryNow.at > mentionQuery.at) ? mentionQuery : null;
+  const refQuery = refQueryNow && !(mentionQuery && mentionQuery.at > refQueryNow.at) ? refQueryNow : null;
+  const refMatches = refQuery && refQuery.at !== dismissedAt && boardRefs ? suggestRefs(boardRefs, refQuery.query) : [];
+  const activeRef = refMatches[Math.min(highlight, refMatches.length - 1)];
   const matches =
     query && query.at !== dismissedAt
       ? mentionable.filter((u) => u.id !== currentUserId && u.name.toLowerCase().includes(query.query.toLowerCase())).slice(0, 6)
@@ -299,28 +320,48 @@ export function ChatThread({
     });
   }
 
+  /** 挑了一筆:輸入框裡的 #關鍵字 換成 #名稱,並附上對應的連結(訊息裡 #名稱 就是點得開的連結)。 */
+  function pickRef(suggestion: RefSuggestion) {
+    if (!refQuery || !conversation.boardId) return;
+    addLink({
+      url: internalRefUrl({ kind: suggestion.kind, boardId: conversation.boardId, id: suggestion.id }),
+      label: `${REF_KIND_LABELS[suggestion.kind]}:${suggestion.name}`,
+    });
+    const next = `${draft.slice(0, refQuery.at)}#${suggestion.name} ${draft.slice(caret)}`;
+    const position = refQuery.at + suggestion.name.length + 2;
+    setDraft(next);
+    setCaret(position);
+    setHighlight(0);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(position, position);
+    });
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // 中文輸入法選字時按 Enter 是確認選字,不是送出。
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (matches.length > 0) {
+    const popupCount = refMatches.length > 0 ? refMatches.length : matches.length;
+    if (popupCount > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlight((h) => (h + 1) % matches.length);
+        setHighlight((h) => (h + 1) % popupCount);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setHighlight((h) => (h - 1 + matches.length) % matches.length);
+        setHighlight((h) => (h - 1 + popupCount) % popupCount);
         return;
       }
-      if ((e.key === "Enter" || e.key === "Tab") && active) {
+      if ((e.key === "Enter" || e.key === "Tab") && (refMatches.length > 0 ? activeRef : active)) {
         e.preventDefault();
-        insertMention(active.name);
+        if (refMatches.length > 0) pickRef(activeRef);
+        else insertMention(active.name);
         return;
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setDismissedAt(query?.at ?? null);
+        setDismissedAt((refQuery ?? query)?.at ?? null);
         return;
       }
     }
@@ -444,12 +485,12 @@ export function ChatThread({
                       <>
                         {m.body && (
                           <div className="break-words">
-                            <MentionText body={m.body} users={users} />
+                            <ChatMessageBody body={m.body} links={linkParts(m)} users={users} />
                           </div>
                         )}
-                        {m.attachments.length > 0 && (
+                        {shownAttachments(m).length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-2">
-                            {m.attachments.map((a) =>
+                            {shownAttachments(m).map((a) =>
                               a.link ? (
                                 <a
                                   key={a.id}
@@ -571,6 +612,34 @@ export function ChatThread({
                 >
                   <Avatar name={u.name} avatarUrl={u.avatarUrl} size={20} />
                   {u.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {refMatches.length > 0 && (
+          <ul
+            data-ref-suggest
+            className="absolute bottom-full left-3 z-10 mb-1 max-h-60 w-96 max-w-[calc(100%-1.5rem)] overflow-auto rounded-md border border-neutral-200 bg-white py-1 text-sm shadow-md dark:border-neutral-700 dark:bg-neutral-900"
+          >
+            {refMatches.map((s, i) => (
+              <li key={`${s.kind}:${s.id}`}>
+                <button
+                  type="button"
+                  data-ref-suggest-item={s.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pickRef(s);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${
+                    i === Math.min(highlight, refMatches.length - 1) ? "bg-blue-50 dark:bg-blue-950" : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  <span className="w-11 shrink-0 rounded bg-neutral-100 py-0.5 text-center text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                    {REF_KIND_LABELS[s.kind]}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                  {s.hint && <span className="shrink-0 text-[11px] text-neutral-400">{s.hint}</span>}
                 </button>
               </li>
             ))}
@@ -744,12 +813,16 @@ export function ChatThread({
             value={draft}
             rows={Math.min(6, Math.max(1, draft.split("\n").length))}
             data-chat-input
-            placeholder={`傳訊息給「${conversation.title}」(Enter 送出,Shift+Enter 換行${mentionable.length > 0 ? ",@ 提到人" : ""})`}
+            placeholder={`傳訊息給「${conversation.title}」(Enter 送出,Shift+Enter 換行${mentionable.length > 0 ? ",@ 提到人" : ""}${conversation.boardId ? ",# 引用工作項 / 風險 / 議題" : ""})`}
             onChange={(e) => {
               setDraft(e.target.value);
               setCaret(e.target.selectionStart);
               setHighlight(0);
               setDismissedAt(null);
+              if (conversation.boardId && !refsRequested.current && activeRefQuery(e.target.value, e.target.selectionStart)) {
+                refsRequested.current = true;
+                void listChatBoardRefs(conversation.boardId).then((refs) => setBoardRefs(refs));
+              }
             }}
             onKeyDown={onKeyDown}
             onPaste={(e) => {
