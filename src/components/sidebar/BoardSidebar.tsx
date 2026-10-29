@@ -28,6 +28,7 @@ import {
   History,
   MessageCircle,
   Clock,
+  BookOpen,
   DatabaseBackup,
   Network,
   ChevronDown,
@@ -520,6 +521,17 @@ export function BoardSidebar({
         >
           <DatabaseBackup size={14} className="shrink-0" />
           資料備份
+        </Link>
+        <Link
+          href="/manual"
+          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+            pathname === "/manual"
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+              : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          }`}
+        >
+          <BookOpen size={14} className="shrink-0" />
+          使用手冊
         </Link>
         {userRole === "ADMIN" && (
           <Link

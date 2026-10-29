@@ -27,6 +27,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/server.js ./server.js
+# 使用手冊頁(/manual)執行期直接讀 docs/使用手冊.md 與 docs/manual-images;
+# 漏了這一行,容器裡沒有手冊,頁面只會顯示「找不到使用手冊的內容」。(PDF 不用,見 .dockerignore)
+COPY --from=builder /app/docs ./docs
 # server.js 用 next({dev: false}) 這個自訂 server 的方式啟動——這個路徑
 # 會在執行期重新讀 next.config.ts 決定 experimental 設定(例如 Server
 # Actions 的 bodySizeLimit),不是只看 build 時算好放進 .next 裡的那份。

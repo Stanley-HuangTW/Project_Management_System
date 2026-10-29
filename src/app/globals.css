@@ -130,3 +130,31 @@ body.cell-range-dragging * {
 .org-tree li:last-child::before {
   border-right: 1px solid var(--org-line);
 }
+
+/* 使用手冊頁(/manual):Markdown 轉出來的 HTML 沒有 class,這裡統一排版。 */
+.manual-prose { font-size: 0.875rem; line-height: 1.75; color: #262626; }
+.manual-prose h3 { margin: 1.75rem 0 0.5rem; scroll-margin-top: 1.5rem; font-size: 1rem; font-weight: 600; color: #1d4ed8; }
+.manual-prose h4 { margin: 1.25rem 0 0.4rem; font-size: 0.9rem; font-weight: 600; }
+.manual-prose p { margin: 0.5rem 0; }
+.manual-prose ul, .manual-prose ol { margin: 0.5rem 0; padding-left: 1.4rem; }
+.manual-prose ul { list-style: disc; }
+.manual-prose ol { list-style: decimal; }
+.manual-prose li { margin: 0.2rem 0; }
+.manual-prose a { color: #1d4ed8; text-decoration: underline; text-underline-offset: 2px; }
+.manual-prose img { display: block; max-width: 100%; height: auto; margin: 0.75rem 0; border: 1px solid #d4d4d4; border-radius: 6px; }
+.manual-prose blockquote { margin: 0.75rem 0; padding: 0.4rem 0.9rem; border-left: 4px solid #3b82f6; background: #eff6ff; color: #1e3a8a; }
+.manual-prose blockquote p { margin: 0.2rem 0; }
+.manual-prose table { display: block; max-width: 100%; margin: 0.75rem 0; overflow-x: auto; border-collapse: collapse; font-size: 0.8125rem; }
+.manual-prose th, .manual-prose td { min-width: 4rem; border: 1px solid #d4d4d4; padding: 0.3rem 0.6rem; text-align: left; vertical-align: top; }
+.manual-prose th { background: #f5f5f5; font-weight: 600; }
+.manual-prose code { padding: 0 0.25rem; border-radius: 4px; background: #f5f5f5; font-family: Consolas, monospace; font-size: 0.8125rem; }
+.manual-prose hr { margin: 1.25rem 0; border: 0; border-top: 1px solid #e5e5e5; }
+.dark .manual-prose { color: #e5e5e5; }
+.dark .manual-prose h3 { color: #93c5fd; }
+.dark .manual-prose a { color: #93c5fd; }
+.dark .manual-prose img { border-color: #404040; }
+.dark .manual-prose blockquote { border-left-color: #3b82f6; background: #172554; color: #bfdbfe; }
+.dark .manual-prose th, .dark .manual-prose td { border-color: #404040; }
+.dark .manual-prose th { background: #262626; }
+.dark .manual-prose code { background: #262626; }
+.dark .manual-prose hr { border-top-color: #404040; }
