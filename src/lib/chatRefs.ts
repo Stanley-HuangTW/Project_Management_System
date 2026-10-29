@@ -1,8 +1,9 @@
 import type { RefKind } from "@/lib/chatLinks";
 
-/** 一筆風險登記冊的紀錄屬於哪一類:風險,或議題(含從 Mantis 同步來的)。 */
-export function riskKindOf(r: { kind: "RISK" | "ISSUE" }): RefKind {
-  return r.kind === "RISK" ? "risk" : "issue";
+/** 一筆風險登記冊的紀錄屬於哪一類:風險、手寫登記的議題,或從 Mantis 同步來的問題(有 Mantis 編號)。 */
+export function riskKindOf(r: { kind: "RISK" | "ISSUE"; mantisId: number | null }): RefKind {
+  if (r.kind === "RISK") return "risk";
+  return r.mantisId !== null ? "mantis" : "issue";
 }
 
 type RefItem = { id: string; name: string; wbsCode: string; parentId: string | null };
@@ -10,9 +11,10 @@ type RefItem = { id: string; name: string; wbsCode: string; parentId: string | n
 /**
  * 搜尋工作項:名稱或 WBS 代號符合的留下,連同它們的所有上層一起留下(原本的階層順序不變),
  * 才看得出符合的那一項在階層裡的位置。上層本身不符合的標 muted。沒有搜尋字就全部留下、都不 muted。
+ * 搜尋字預設頭尾空白不算;trim: false 時照原樣比(對話輸入框的 # 選單要靠結尾的空格收起來)。
  */
-export function filterItemsKeepingAncestors<T extends RefItem>(items: T[], query: string): { item: T; muted: boolean }[] {
-  const q = query.trim().toLowerCase();
+export function filterItemsKeepingAncestors<T extends RefItem>(items: T[], query: string, options: { trim?: boolean } = {}): { item: T; muted: boolean }[] {
+  const q = (options.trim === false ? query : query.trim()).toLowerCase();
   if (!q) return items.map((item) => ({ item, muted: false }));
   const byId = new Map(items.map((i) => [i.id, i]));
   const matched = new Set<string>();

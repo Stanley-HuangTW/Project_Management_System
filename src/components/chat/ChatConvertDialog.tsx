@@ -15,8 +15,8 @@ import { BoardRefPicker, REF_KIND_LABELS, type BoardRef, type RefKind } from "./
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
 
-/** 轉換的目標可以是這三類(議題含 Mantis 同步來的);待辦事項與留言兩種都能加在任何一類上。 */
-const KINDS: RefKind[] = ["item", "risk", "issue"];
+/** 轉換的目標可以是這四類(問題是 Mantis 同步來的);待辦事項與留言兩種都能加在任何一類上。 */
+const KINDS: RefKind[] = ["item", "risk", "issue", "mantis"];
 
 /**
  * 把對話裡的一則訊息變成某個項目底下的待辦事項或留言——討論出結論的時候,

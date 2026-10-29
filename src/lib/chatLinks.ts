@@ -64,10 +64,10 @@ export function normalizeChatLinks(inputs: ChatLinkInput[]): { links: ChatLink[]
 }
 
 /**
- * 對話裡能引用 / 轉成待辦或留言的三類項目:工作項,以及風險登記冊的風險、議題
- * (議題包含從 MantisBT 同步來的)。
+ * 對話裡能引用 / 轉成待辦或留言的四類項目:工作項,以及風險登記冊的風險、議題,
+ * 和從 MantisBT 同步來的問題(帶 Mantis 編號;看板上同步來的那個分頁叫「問題」)。
  */
-export type RefKind = "item" | "risk" | "issue";
+export type RefKind = "item" | "risk" | "issue" | "mantis";
 
 /** 引用本系統的一個項目:工作項指到那一列,風險、議題指到風險登記冊(風險 / 議題分頁)。 */
 export function internalRefUrl(ref: { kind: RefKind; boardId: string; id: string }): string {

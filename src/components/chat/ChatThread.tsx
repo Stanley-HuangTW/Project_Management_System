@@ -7,13 +7,14 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { deleteChatMessage, listChatBoardRefs, loadChatMessages, markChatRead, sendChatMessage } from "@/lib/actions/chat";
 import { clockLabel, dayKey, dayLabel, formatFileSize, startsNewRun, validateAttachments } from "@/lib/chat";
 import { activeMentionQuery } from "@/lib/mentions";
-import { activeRefQuery, inlineRefUrls, suggestRefs, type RefSuggestion } from "@/lib/chatRefMention";
+import { activeRefQuery, buildRefMenu, defaultExpandedItems, inlineRefUrls, navigableRefs } from "@/lib/chatRefMention";
 import { isChatError, type ChatBoardRefs, type ChatConversationDto, type ChatMessageDto, type ChatReadState } from "@/lib/chatTypes";
 import { useChat } from "./ChatProvider";
 import { ConvertMessageDialog } from "./ChatConvertDialog";
 import { BoardRefPicker, REF_KIND_LABELS } from "./BoardRefPicker";
 import { ChatMessageBody } from "./ChatMessageBody";
-import { MAX_LINKS_PER_MESSAGE, internalRefUrl, normalizeChatLink, type ChatLink } from "@/lib/chatLinks";
+import { RefMenu } from "./RefMenu";
+import { MAX_LINKS_PER_MESSAGE, internalRefUrl, normalizeChatLink, type ChatLink, type RefKind } from "@/lib/chatLinks";
 
 type ChatUser = { id: string; name: string; avatarUrl: string | null };
 
@@ -99,6 +100,9 @@ export function ChatThread({
   // # 引用的清單:輸入框第一次打 # 才去讀這個看板的工作項 / 風險 / 議題。
   const [boardRefs, setBoardRefs] = useState<ChatBoardRefs | null>(null);
   const refsRequested = useRef(false);
+  // # 選單裡展開著的工作項、收起來的類別標題。
+  const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
+  const [collapsedKinds, setCollapsedKinds] = useState<Set<RefKind>>(new Set());
 
   // 能 @ 誰:群組只有成員、看板頻道是所有人(沒權限的人伺服器不會通知)、私訊不需要。
   const mentionable = useMemo(() => {
@@ -111,8 +115,9 @@ export function ChatThread({
   const refQueryNow = conversation.boardId ? activeRefQuery(draft, caret) : null;
   const query = mentionQuery && !(refQueryNow && refQueryNow.at > mentionQuery.at) ? mentionQuery : null;
   const refQuery = refQueryNow && !(mentionQuery && mentionQuery.at > refQueryNow.at) ? refQueryNow : null;
-  const refMatches = refQuery && refQuery.at !== dismissedAt && boardRefs ? suggestRefs(boardRefs, refQuery.query) : [];
-  const activeRef = refMatches[Math.min(highlight, refMatches.length - 1)];
+  const refRows = refQuery && refQuery.at !== dismissedAt && boardRefs ? buildRefMenu(boardRefs, refQuery.query, { expanded: expandedRefs, collapsedKinds }) : [];
+  const refChoices = navigableRefs(refRows);
+  const activeRef = refChoices[Math.min(highlight, refChoices.length - 1)];
   const matches =
     query && query.at !== dismissedAt
       ? mentionable.filter((u) => u.id !== currentUserId && u.name.toLowerCase().includes(query.query.toLowerCase())).slice(0, 6)
@@ -320,8 +325,26 @@ export function ChatThread({
     });
   }
 
+  function toggleRefItem(id: string) {
+    setExpandedRefs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleRefKind(kind: RefKind) {
+    setCollapsedKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }
+
   /** 挑了一筆:輸入框裡的 #關鍵字 換成 #名稱,並附上對應的連結(訊息裡 #名稱 就是點得開的連結)。 */
-  function pickRef(suggestion: RefSuggestion) {
+  function pickRef(suggestion: { kind: RefKind; id: string; name: string }) {
     if (!refQuery || !conversation.boardId) return;
     addLink({
       url: internalRefUrl({ kind: suggestion.kind, boardId: conversation.boardId, id: suggestion.id }),
@@ -341,7 +364,8 @@ export function ChatThread({
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // 中文輸入法選字時按 Enter 是確認選字,不是送出。
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    const popupCount = refMatches.length > 0 ? refMatches.length : matches.length;
+    const refOpen = refRows.length > 0;
+    const popupCount = refOpen ? refChoices.length : matches.length;
     if (popupCount > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -353,9 +377,15 @@ export function ChatThread({
         setHighlight((h) => (h - 1 + popupCount) % popupCount);
         return;
       }
-      if ((e.key === "Enter" || e.key === "Tab") && (refMatches.length > 0 ? activeRef : active)) {
+      // → 展開、← 收合(只在停著的那一列有子項時攔下;其餘照舊移動游標)。搜尋中全部展開,不用收放。
+      if (refOpen && activeRef?.hasChildren && refQuery?.query === "" && ((e.key === "ArrowRight" && !activeRef.expanded) || (e.key === "ArrowLeft" && activeRef.expanded))) {
         e.preventDefault();
-        if (refMatches.length > 0) pickRef(activeRef);
+        toggleRefItem(activeRef.id);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && (refOpen ? activeRef : active)) {
+        e.preventDefault();
+        if (refOpen) pickRef(activeRef);
         else insertMention(active.name);
         return;
       }
@@ -617,33 +647,15 @@ export function ChatThread({
             ))}
           </ul>
         )}
-        {refMatches.length > 0 && (
-          <ul
-            data-ref-suggest
-            className="absolute bottom-full left-3 z-10 mb-1 max-h-60 w-96 max-w-[calc(100%-1.5rem)] overflow-auto rounded-md border border-neutral-200 bg-white py-1 text-sm shadow-md dark:border-neutral-700 dark:bg-neutral-900"
-          >
-            {refMatches.map((s, i) => (
-              <li key={`${s.kind}:${s.id}`}>
-                <button
-                  type="button"
-                  data-ref-suggest-item={s.id}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    pickRef(s);
-                  }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${
-                    i === Math.min(highlight, refMatches.length - 1) ? "bg-blue-50 dark:bg-blue-950" : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                  }`}
-                >
-                  <span className="w-11 shrink-0 rounded bg-neutral-100 py-0.5 text-center text-[10px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                    {REF_KIND_LABELS[s.kind]}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                  {s.hint && <span className="shrink-0 text-[11px] text-neutral-400">{s.hint}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
+        {refRows.length > 0 && (
+          <RefMenu
+            rows={refRows}
+            activeKey={activeRef ? `${activeRef.kind}:${activeRef.id}` : null}
+            searching={(refQuery?.query ?? "") !== ""}
+            onPick={pickRef}
+            onToggleItem={toggleRefItem}
+            onToggleKind={toggleRefKind}
+          />
         )}
         {files.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5" data-chat-pending-files>
@@ -766,7 +778,7 @@ export function ChatThread({
             ) : (
               <BoardRefPicker
                 boardId={conversation.boardId}
-                kinds={["item", "risk", "issue"]}
+                kinds={["item", "risk", "issue", "mantis"]}
                 onPick={(ref) => {
                   addLink({ url: internalRefUrl(ref), label: `${REF_KIND_LABELS[ref.kind]}:${ref.name}` });
                   setAttachPanel(null);
@@ -821,7 +833,10 @@ export function ChatThread({
               setDismissedAt(null);
               if (conversation.boardId && !refsRequested.current && activeRefQuery(e.target.value, e.target.selectionStart)) {
                 refsRequested.current = true;
-                void listChatBoardRefs(conversation.boardId).then((refs) => setBoardRefs(refs));
+                void listChatBoardRefs(conversation.boardId).then((refs) => {
+                  setBoardRefs(refs);
+                  if (refs) setExpandedRefs(defaultExpandedItems(refs.items));
+                });
               }
             }}
             onKeyDown={onKeyDown}

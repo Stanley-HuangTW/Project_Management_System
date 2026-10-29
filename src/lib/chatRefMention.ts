@@ -1,9 +1,9 @@
 import type { RefKind } from "@/lib/chatLinks";
-import { riskKindOf } from "@/lib/chatRefs";
+import { filterItemsKeepingAncestors, parentIdsOf, riskKindOf, visibleTreeRows } from "@/lib/chatRefs";
 
 /**
- * 對話輸入框裡的「#」引用:打 # 加幾個字,跳出這個看板的工作項 / 風險 / 議題讓人挑(跟 @ 提到人同一個手感)。
- * 挑好的會在訊息裡變成可以點的 #名稱,並附上對應的連結。純邏輯。
+ * 對話輸入框裡的「#」引用:打 # 就跳出這個看板的工作項(巢狀、可以收放)、風險、議題、問題,
+ * 打幾個字就縮小範圍(跟 @ 提到人同一個手感)。挑好的會在訊息裡變成可以點的 #名稱,並附上對應的連結。純邏輯。
  */
 
 /**
@@ -22,52 +22,116 @@ export function activeRefQuery(body: string, caret: number): { query: string; at
   return { query, at };
 }
 
-export type RefSuggestion = {
-  kind: RefKind;
-  id: string;
-  name: string;
-  /** 清單上名稱旁的小字:工作項是 WBS 代號與分組,Mantis 來的議題是編號。 */
-  hint: string;
-};
-
-type RefSource = {
-  items: { id: string; name: string; wbsCode: string; groupName: string }[];
+type MenuSource = {
+  items: { id: string; name: string; wbsCode: string; groupName: string; parentId: string | null; depth: number }[];
   risks: { id: string; title: string; kind: "RISK" | "ISSUE"; mantisId: number | null }[];
 };
 
-const SUGGESTION_LIMIT = 8;
+/** 選單上的一列:類別標題,或一筆可以挑的項目。 */
+export type RefMenuRow =
+  | { type: "section"; kind: RefKind; count: number; collapsed: boolean }
+  | {
+      type: "ref";
+      kind: RefKind;
+      id: string;
+      name: string;
+      /** 名稱旁的小字:工作項是 WBS 代號(分組不只一個時加分組),Mantis 來的問題是編號。 */
+      hint: string;
+      depth: number;
+      /** 有子項(工作項才有),前面放收放的箭頭。 */
+      hasChildren: boolean;
+      expanded: boolean;
+      /** 只是為了顯示位置而帶出來的上層(搜尋時),自己不符合;游標鍵跳過它,滑鼠還是點得到。 */
+      muted: boolean;
+    }
+  | { type: "more"; count: number };
+
+/** 選單一次最多畫幾列;再多就請使用者多打幾個字縮小範圍,不畫幾千列。 */
+export const REF_MENU_LIMIT = 150;
+
+/** 類別在選單上的順序。 */
+const KIND_ORDER: RefKind[] = ["item", "risk", "issue", "mantis"];
+
+/** 預設展開的工作項:最上層而且有子項的,一打開就看得到第一、二層,更深的收著。 */
+export function defaultExpandedItems(items: { id: string; depth: number; parentId: string | null }[]): Set<string> {
+  const parents = parentIdsOf(items);
+  return new Set(items.filter((i) => i.depth === 0 && parents.has(i.id)).map((i) => i.id));
+}
 
 /**
- * 符合關鍵字的工作項、風險、議題(名稱、WBS 代號、Mantis 編號,不分大小寫);
- * 名稱或代號是這幾個字開頭的排前面,其餘維持清單原本的順序。沒打字就列最前面幾筆。
+ * 「#」選單要畫哪些列。
+ * - 沒打字:四個類別各一段(有東西的才有標題),工作項照階層巢狀、看 expanded 收放,類別標題也可以收起來(collapsedKinds)。
+ * - 打了字:名稱、WBS 代號、Mantis 編號符合的留下;工作項連同它的所有上層(淡色),不受收放影響,類別都展開。
+ *   不 trim:挑好之後輸入框裡是「#名稱 」(後面一個空格),帶著空格就不再符合,選單才會收起來;名稱本身有空格的照樣找得到。
+ *   只有空格的關鍵字當作沒有符合。
  */
-export function suggestRefs(refs: RefSource, query: string, limit = SUGGESTION_LIMIT): RefSuggestion[] {
-  // 不 trim:挑好之後輸入框裡是「#名稱 」(後面一個空格),帶著空格就不再符合,清單才會收起來;名稱本身有空格的照樣找得到。
+export function buildRefMenu(
+  refs: MenuSource,
+  query: string,
+  state: { expanded: ReadonlySet<string>; collapsedKinds: ReadonlySet<RefKind> }
+): RefMenuRow[] {
   const q = query.toLowerCase();
   if (q.length > 0 && q.trim() === "") return [];
-  const scored: { suggestion: RefSuggestion; rank: number }[] = [];
+  const searching = q.length > 0;
+  const parents = parentIdsOf(refs.items);
+  const multiGroup = new Set(refs.items.map((i) => i.groupName)).size > 1;
 
-  for (const item of refs.items) {
-    const name = item.name.toLowerCase();
-    if (q && !name.includes(q) && !item.wbsCode.toLowerCase().includes(q)) continue;
-    const rank = !q || name.startsWith(q) || item.wbsCode.toLowerCase().startsWith(q) ? 0 : 1;
-    scored.push({ suggestion: { kind: "item", id: item.id, name: item.name, hint: `${item.wbsCode} · ${item.groupName}` }, rank });
+  const rows: RefMenuRow[] = [];
+  for (const kind of KIND_ORDER) {
+    const body: RefMenuRow[] = [];
+    let count = 0;
+    if (kind === "item") {
+      const kept = searching
+        ? filterItemsKeepingAncestors(refs.items, q, { trim: false })
+        : visibleTreeRows(refs.items, state.expanded).map((item) => ({ item, muted: false }));
+      count = searching ? kept.filter((k) => !k.muted).length : refs.items.length;
+      for (const { item, muted } of kept) {
+        body.push({
+          type: "ref",
+          kind,
+          id: item.id,
+          name: item.name,
+          hint: multiGroup ? `${item.wbsCode} · ${item.groupName}` : item.wbsCode,
+          depth: item.depth,
+          hasChildren: parents.has(item.id),
+          expanded: searching ? true : state.expanded.has(item.id),
+          muted,
+        });
+      }
+    } else {
+      for (const risk of refs.risks) {
+        if (riskKindOf(risk) !== kind) continue;
+        const mantis = risk.mantisId === null ? "" : String(risk.mantisId);
+        if (searching && !risk.title.toLowerCase().includes(q) && !(mantis && mantis.includes(q))) continue;
+        body.push({
+          type: "ref",
+          kind,
+          id: risk.id,
+          name: risk.title,
+          hint: mantis ? `Mantis #${mantis}` : "",
+          depth: 0,
+          hasChildren: false,
+          expanded: false,
+          muted: false,
+        });
+      }
+      count = body.length;
+    }
+    if (body.length === 0) continue;
+    const collapsed = !searching && state.collapsedKinds.has(kind);
+    rows.push({ type: "section", kind, count, collapsed });
+    if (!collapsed) rows.push(...body);
   }
-  for (const risk of refs.risks) {
-    const title = risk.title.toLowerCase();
-    const mantis = risk.mantisId === null ? "" : String(risk.mantisId);
-    if (q && !title.includes(q) && !(mantis && mantis.includes(q))) continue;
-    const rank = !q || title.startsWith(q) ? 0 : 1;
-    scored.push({
-      suggestion: { kind: riskKindOf(risk), id: risk.id, name: risk.title, hint: mantis ? `Mantis #${mantis}` : "" },
-      rank,
-    });
-  }
-  // Array.prototype.sort 是穩定排序:同一等級維持原本的順序(工作項在前、風險、議題接在後)。
-  return scored
-    .sort((a, b) => a.rank - b.rank)
-    .slice(0, limit)
-    .map((s) => s.suggestion);
+
+  if (rows.length <= REF_MENU_LIMIT) return rows;
+  const shown = rows.slice(0, REF_MENU_LIMIT);
+  const hidden = rows.slice(REF_MENU_LIMIT).filter((r) => r.type === "ref").length;
+  return hidden > 0 ? [...shown, { type: "more", count: hidden }] : shown;
+}
+
+/** 游標鍵走得到的列(跳過標題、淡色的上層、「還有 N 筆」)。 */
+export function navigableRefs(rows: RefMenuRow[]): Extract<RefMenuRow, { type: "ref" }>[] {
+  return rows.filter((r): r is Extract<RefMenuRow, { type: "ref" }> => r.type === "ref" && !r.muted);
 }
 
 export type RefBodySegment = { kind: "text"; text: string } | { kind: "ref"; text: string; url: string };

@@ -17,8 +17,8 @@ export type BoardRef = {
   name: string;
 };
 
-/** 議題包含從 MantisBT 同步來的(那些會帶 Mantis 編號)。 */
-export const REF_KIND_LABELS: Record<RefKind, string> = { item: "工作項", risk: "風險", issue: "議題" };
+/** 問題 = 從 MantisBT 同步來的(帶 Mantis 編號);議題 = 風險登記冊裡自己登記的。 */
+export const REF_KIND_LABELS: Record<RefKind, string> = { item: "工作項", risk: "風險", issue: "議題", mantis: "問題" };
 
 /** 清單上一次畫出來的上限;再多就請使用者輸入文字縮小範圍,不畫幾千列。 */
 const RENDER_LIMIT = 200;
@@ -35,7 +35,7 @@ function statusLabel(status: string): string {
 
 /**
  * 從一個看板挑一個工作項、風險或議題:一個直接展開的區塊,上面是搜尋框與類別標籤,
- * 下面的清單分成「工作項 / 風險 / 議題」三個類別(議題含 Mantis 同步來的,帶 Mantis 編號)。
+ * 下面的清單分成「工作項 / 風險 / 議題 / 問題」四個類別(問題是 Mantis 同步來的,帶 Mantis 編號)。
  * 工作項是**可以收放的階層**:有子項的前面有箭頭,按了收起 / 展開整個項目(預設展開最上層,
  * 底下的收著),也有「全部展開 / 全部收合」;搜尋時符合的連同它的上層一起顯示(上層用淡色),不受收放影響。
  * boardId 給了(看板頻道)就固定是那個看板;沒給(私訊、聊天室)就先挑看板。
@@ -96,7 +96,7 @@ export function BoardRefPicker({
 
   /** 每個類別的全部筆數(不受搜尋影響),顯示在類別標籤上。 */
   const counts = useMemo(() => {
-    const c: Record<RefKind, number> = { item: 0, risk: 0, issue: 0 };
+    const c: Record<RefKind, number> = { item: 0, risk: 0, issue: 0, mantis: 0 };
     if (!refs) return c;
     c.item = refs.items.length;
     for (const r of refs.risks) c[riskKindOf(r)]++;
