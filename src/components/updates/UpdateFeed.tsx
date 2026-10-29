@@ -58,7 +58,7 @@ export function UpdateFeed({
   async function open(row: UpdateFeedRow) {
     // 風險 / 議題沒有工作項詳細資訊:直接開那個看板的風險分頁。
     if (row.risk) {
-      router.push(`/boards/${row.boardId}?view=risks`);
+      router.push(`/boards/${row.boardId}?view=risks&risk=${row.risk.id}`);
       return;
     }
     setOpeningId(row.id);

@@ -19,6 +19,15 @@ export function normalizeTodoText(raw: string): { text: string } | { error: stri
   return { text };
 }
 
+/** 把一段文字接在既有備註的後面(換一行);原本的備註保留。合起來超過上限就回 error。 */
+export function appendTodoNote(existing: string | null, addition: string): { note: string } | { error: string } {
+  const add = addition.trim();
+  if (!add) return { error: "沒有要加進備註的內容" };
+  const note = existing && existing.trim() ? `${existing.trimEnd()}\n${add}` : add;
+  if (note.length > TODO_NOTE_MAX) return { error: `加進去之後備註會超過 ${TODO_NOTE_MAX} 字。請先縮短內容,或到待辦事項那一頁整理原本的備註。` };
+  return { note };
+}
+
 /** 寫進稽核紀錄的備註摘要:太長的截斷。 */
 export function noteForLog(note: string | null): string {
   if (!note) return "(清空)";

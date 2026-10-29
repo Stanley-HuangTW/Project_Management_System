@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { DiscussInChatButton } from "@/components/chat/DiscussInChatButton";
 import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
@@ -112,6 +113,9 @@ export function ItemDetailModal({
             {t.label}
           </button>
         ))}
+        <div className="ml-auto self-center pb-1">
+          <DiscussInChatButton boardId={boardId} kind="item" id={item.id} />
+        </div>
       </div>
 
       {tab === "updates" && <UpdatesTab boardId={boardId} itemId={item.id} users={users} currentUserId={currentUserId} userRole={userRole} />}

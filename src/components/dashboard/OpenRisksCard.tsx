@@ -78,7 +78,7 @@ export function OpenRisksCard({
           {visible.map((r) => (
             <li key={r.id}>
               <Link
-                href={`/boards/${r.boardId}?view=risks`}
+                href={`/boards/${r.boardId}?view=risks&risk=${r.id}`}
                 className="flex items-start gap-3 px-3 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               >
                 <span

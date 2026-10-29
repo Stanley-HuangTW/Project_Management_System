@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RiskKind, RiskStatus } from "@prisma/client";
 import { ExternalLink, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
@@ -33,6 +33,8 @@ import {
 import { WORKING_STATUSES } from "@/lib/riskWorkflow";
 import { ClosureBar, HistoryPanel, ReviewerEditor, STATUS_CHIP_CLASS, UpdatesPanel } from "./RiskWorkflow";
 import { RiskTodosPanel } from "./RiskTodosPanel";
+import { DiscussInChatButton } from "@/components/chat/DiscussInChatButton";
+import { riskKindOf } from "@/lib/chatRefs";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 
 const EMPTY: RiskInput = {
@@ -70,10 +72,13 @@ export function BoardRisks({
   board,
   users,
   currentUserId,
+  openRiskId = null,
 }: {
   board: BoardWithData;
   users: UserOption[];
   currentUserId: string;
+  /** 連結帶來的:清單讀好之後直接開這一筆(找不到就只是停在清單)。 */
+  openRiskId?: string | null;
 }) {
   const { notify, confirm } = useDialogs();
   const [risks, setRisks] = useState<RiskRow[]>([]);
@@ -88,6 +93,7 @@ export function BoardRisks({
     history: [],
   });
   const editingId = editing?.id ?? null;
+  const pendingOpenId = useRef(openRiskId);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +102,13 @@ export function BoardRisks({
       if (!cancelled) {
         setRisks(rows);
         setLoading(false);
+        const target = pendingOpenId.current ? rows.find((r) => r.id === pendingOpenId.current) : undefined;
+        pendingOpenId.current = null;
+        if (target) {
+          setTab("content");
+          setDetail({ updates: [], history: [] });
+          setEditing({ id: target.id, input: target });
+        }
       }
     })();
     return () => {
@@ -456,6 +469,9 @@ export function BoardRisks({
                     {t.key === "updates" && detail.updates.length > 0 && `(${detail.updates.length})`}
                   </button>
                 ))}
+                <div className="ml-auto self-center pb-1">
+                  <DiscussInChatButton boardId={board.id} kind={riskKindOf({ kind: liveRow.kind, mantisId: liveRow.mantis?.id ?? null })} id={liveRow.id} />
+                </div>
               </div>
             )}
 

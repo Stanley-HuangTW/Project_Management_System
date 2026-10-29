@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TODO_NOTE_MAX, TODO_TEXT_MAX, noteForLog, normalizeTodoNote, normalizeTodoText } from "./todoNote";
+import { TODO_NOTE_MAX, TODO_TEXT_MAX, appendTodoNote, noteForLog, normalizeTodoNote, normalizeTodoText } from "./todoNote";
 
 describe("normalizeTodoNote", () => {
   it("trims the note", () => {
@@ -39,6 +39,27 @@ describe("normalizeTodoText", () => {
   it("accepts exactly the limit and rejects one over", () => {
     expect(normalizeTodoText("a".repeat(TODO_TEXT_MAX))).toEqual({ text: "a".repeat(TODO_TEXT_MAX) });
     expect(normalizeTodoText("a".repeat(TODO_TEXT_MAX + 1))).toHaveProperty("error");
+  });
+});
+
+describe("appendTodoNote", () => {
+  it("starts the note when there is none", () => {
+    expect(appendTodoNote(null, "  已寄出報價單  ")).toEqual({ note: "已寄出報價單" });
+    expect(appendTodoNote("   ", "已寄出報價單")).toEqual({ note: "已寄出報價單" });
+  });
+
+  it("adds to the end of an existing note on a new line and keeps the old text", () => {
+    expect(appendTodoNote("已寄出報價單", "客戶回覆要改規格")).toEqual({ note: "已寄出報價單\n客戶回覆要改規格" });
+    expect(appendTodoNote("已寄出報價單\n\n", "客戶回覆")).toEqual({ note: "已寄出報價單\n客戶回覆" });
+  });
+
+  it("refuses an empty addition", () => {
+    expect(appendTodoNote("舊的", "  \n ")).toHaveProperty("error");
+  });
+
+  it("refuses when the combined note would go over the limit, and says so", () => {
+    expect(appendTodoNote("a".repeat(TODO_NOTE_MAX - 5), "bbbbbbbbbb")).toHaveProperty("error");
+    expect(appendTodoNote("a".repeat(TODO_NOTE_MAX - 3), "b")).toEqual({ note: "a".repeat(TODO_NOTE_MAX - 3) + "\nb" });
   });
 });
 

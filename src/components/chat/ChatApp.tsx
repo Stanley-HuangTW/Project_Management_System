@@ -17,6 +17,7 @@ import {
 import { clockLabel, dayKey, dayLabel } from "@/lib/chat";
 import { isChatError, type ChatConversationDto, type ChatSearchHit } from "@/lib/chatTypes";
 import { AddMembersDialog, NewDirectChatDialog, NewGroupChatDialog } from "./ChatDialogs";
+import type { RefKind } from "@/lib/chatLinks";
 import { ChatThread } from "./ChatThread";
 import { useChat } from "./ChatProvider";
 
@@ -44,12 +45,17 @@ export function ChatApp({
   users,
   currentUserId,
   initialKey,
+  initialRef = null,
 }: {
   initialConversations: ChatConversationDto[];
   users: ChatUser[];
   currentUserId: string;
   initialKey: string | null;
+  /** 「在對話中討論」帶來的項目:打開那間對話時,輸入框先帶好它的引用(只帶一次)。 */
+  initialRef?: { kind: RefKind; id: string } | null;
 }) {
+  const [refPending, setRefPending] = useState(initialRef !== null);
+  const clearRefPending = useCallback(() => setRefPending(false), []);
   const { subscribe, connected, refreshUnread } = useChat();
   const { notify, confirm, prompt } = useDialogs();
   const [conversations, setConversations] = useState(initialConversations);
@@ -312,6 +318,8 @@ export function ChatApp({
             key={`${activeWithId.id}:${jump?.conversationKey === activeWithId.key ? jump.nonce : 0}`}
             jumpToMessageId={jump?.conversationKey === activeWithId.key ? jump.messageId : null}
             conversation={activeWithId}
+            initialRef={refPending && activeWithId.key === initialKey ? initialRef : null}
+            onInitialRefUsed={clearRefPending}
             users={users}
             currentUserId={currentUserId}
             onMarkedRead={onMarkedRead}

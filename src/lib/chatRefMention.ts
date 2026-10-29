@@ -134,6 +134,23 @@ export function navigableRefs(rows: RefMenuRow[]): Extract<RefMenuRow, { type: "
   return rows.filter((r): r is Extract<RefMenuRow, { type: "ref" }> => r.type === "ref" && !r.muted);
 }
 
+/** 「在對話中討論」帶去對話頁的 ref 參數:kind:id。 */
+export function chatRefParam(kind: RefKind, id: string): string {
+  return `${kind}:${id}`;
+}
+
+/** 對話頁網址上的 ref 參數 → 哪一項;格式不對就是 null(網址的內容不信任)。 */
+export function parseChatRefParam(raw: string | null | undefined): { kind: RefKind; id: string } | null {
+  const m = /^(item|risk|issue|mantis):([A-Za-z0-9_-]{1,64})$/.exec(raw ?? "");
+  return m ? { kind: m[1] as RefKind, id: m[2] } : null;
+}
+
+/** 在這個看板的清單裡找那一項的名稱;找不到(已刪除、這個人看不到)回 null。 */
+export function findRefName(refs: MenuSource, ref: { kind: RefKind; id: string }): string | null {
+  if (ref.kind === "item") return refs.items.find((i) => i.id === ref.id)?.name ?? null;
+  return refs.risks.find((r) => r.id === ref.id)?.title ?? null;
+}
+
 export type RefBodySegment = { kind: "text"; text: string } | { kind: "ref"; text: string; url: string };
 
 /** 這則訊息的附件裡,指到本系統某個項目的連結(label 是「工作項:名稱」那種,網址是 /boards/…)。 */

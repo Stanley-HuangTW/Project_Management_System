@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RefKind } from "./chatLinks";
-import { REF_MENU_LIMIT, activeRefQuery, buildRefMenu, defaultExpandedItems, inlineRefUrls, navigableRefs, splitRefs, type RefMenuRow } from "./chatRefMention";
+import { REF_MENU_LIMIT, activeRefQuery, buildRefMenu, chatRefParam, defaultExpandedItems, findRefName, inlineRefUrls, navigableRefs, parseChatRefParam, splitRefs, type RefMenuRow } from "./chatRefMention";
 
 describe("activeRefQuery", () => {
   it("finds what is typed after a # at the start", () => {
@@ -151,6 +151,37 @@ describe("buildRefMenu — a big board", () => {
     const rows = buildRefMenu({ items, risks: [] }, "", state());
     expect(rows).toHaveLength(REF_MENU_LIMIT + 1);
     expect(rows[rows.length - 1]).toEqual({ type: "more", count: 400 - (REF_MENU_LIMIT - 1) });
+  });
+});
+
+describe("chatRefParam / parseChatRefParam", () => {
+  it("round-trips kind and id", () => {
+    expect(parseChatRefParam(chatRefParam("issue", "cmx123_AB-c"))).toEqual({ kind: "issue", id: "cmx123_AB-c" });
+    expect(parseChatRefParam(chatRefParam("item", "it1"))).toEqual({ kind: "item", id: "it1" });
+  });
+
+  it("rejects anything that is not a known kind and a plain id (the url is not trusted)", () => {
+    expect(parseChatRefParam("nope:abc")).toBeNull();
+    expect(parseChatRefParam("item:")).toBeNull();
+    expect(parseChatRefParam("item:a b")).toBeNull();
+    expect(parseChatRefParam("item:<script>")).toBeNull();
+    expect(parseChatRefParam("item:" + "a".repeat(65))).toBeNull();
+    expect(parseChatRefParam(null)).toBeNull();
+    expect(parseChatRefParam(undefined)).toBeNull();
+  });
+});
+
+describe("findRefName", () => {
+  it("finds a work item, a risk, an issue and a Mantis problem by id", () => {
+    expect(findRefName(refs, { kind: "item", id: "b1" })).toBe("電機選型");
+    expect(findRefName(refs, { kind: "risk", id: "r1" })).toBe("供應商交期延遲");
+    expect(findRefName(refs, { kind: "issue", id: "r2" })).toBe("試產良率偏低");
+    expect(findRefName(refs, { kind: "mantis", id: "r3" })).toBe("電池蓋鎖不緊");
+  });
+
+  it("is null for something that no longer exists (or cannot be seen)", () => {
+    expect(findRefName(refs, { kind: "item", id: "gone" })).toBeNull();
+    expect(findRefName(refs, { kind: "risk", id: "gone" })).toBeNull();
   });
 });
 

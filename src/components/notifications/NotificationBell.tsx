@@ -83,7 +83,7 @@ export function NotificationBell() {
     router.push(
       n.item
         ? `/boards/${n.boardId}?highlight=${n.item.id}&highlightAt=${nonce()}`
-        : `/boards/${n.boardId}?view=risks&highlightAt=${nonce()}`
+        : `/boards/${n.boardId}?view=risks${n.riskId ? `&risk=${n.riskId}` : ""}&highlightAt=${nonce()}`
     );
     // A search-param-only navigation to a route you're already on can be
     // served from the client Router Cache without re-running the page's

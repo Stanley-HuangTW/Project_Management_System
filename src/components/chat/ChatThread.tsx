@@ -7,7 +7,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { deleteChatMessage, listChatBoardRefs, loadChatMessages, markChatRead, sendChatMessage } from "@/lib/actions/chat";
 import { clockLabel, dayKey, dayLabel, formatFileSize, startsNewRun, validateAttachments } from "@/lib/chat";
 import { activeMentionQuery } from "@/lib/mentions";
-import { activeRefQuery, buildRefMenu, defaultExpandedItems, inlineRefUrls, navigableRefs } from "@/lib/chatRefMention";
+import { activeRefQuery, buildRefMenu, defaultExpandedItems, findRefName, inlineRefUrls, navigableRefs } from "@/lib/chatRefMention";
 import { isChatError, type ChatBoardRefs, type ChatConversationDto, type ChatMessageDto, type ChatReadState } from "@/lib/chatTypes";
 import { useChat } from "./ChatProvider";
 import { ConvertMessageDialog } from "./ChatConvertDialog";
@@ -50,6 +50,8 @@ export function ChatThread({
   onBack,
   actions,
   jumpToMessageId = null,
+  initialRef = null,
+  onInitialRefUsed,
 }: {
   conversation: ChatConversationDto & { id: string };
   users: ChatUser[];
@@ -62,6 +64,9 @@ export function ChatThread({
   actions?: React.ReactNode;
   /** 從搜尋結果點進來:載到那一則、捲過去、標一下。 */
   jumpToMessageId?: string | null;
+  /** 「在對話中討論」帶來的項目:輸入框先帶好 #名稱 與連結,打開就能直接留言(只帶一次)。 */
+  initialRef?: { kind: RefKind; id: string } | null;
+  onInitialRefUsed?: () => void;
 }) {
   const { subscribe } = useChat();
   const { notify, confirm } = useDialogs();
@@ -103,6 +108,34 @@ export function ChatThread({
   // # 選單裡展開著的工作項、收起來的類別標題。
   const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
   const [collapsedKinds, setCollapsedKinds] = useState<Set<RefKind>>(new Set());
+
+  // 從項目視窗的「在對話中討論」進來:讀這個看板的清單,找到那一項就把 #名稱 與連結先放進輸入框。
+  useEffect(() => {
+    if (!initialRef || !conversation.boardId) return;
+    const boardId = conversation.boardId;
+    let cancelled = false;
+    void listChatBoardRefs(boardId).then((refs) => {
+      if (cancelled) return;
+      onInitialRefUsed?.();
+      if (!refs) return;
+      refsRequested.current = true;
+      setBoardRefs(refs);
+      setExpandedRefs(defaultExpandedItems(refs.items));
+      const name = findRefName(refs, initialRef);
+      if (!name) return;
+      setLinks([{ url: internalRefUrl({ kind: initialRef.kind, boardId, id: initialRef.id }), label: `${REF_KIND_LABELS[initialRef.kind]}:${name}` }]);
+      const text = `#${name} `;
+      setDraft(text);
+      setCaret(text.length);
+      requestAnimationFrame(() => {
+        textarea.current?.focus();
+        textarea.current?.setSelectionRange(text.length, text.length);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialRef, conversation.boardId, onInitialRefUsed]);
 
   // 能 @ 誰:群組只有成員、看板頻道是所有人(沒權限的人伺服器不會通知)、私訊不需要。
   const mentionable = useMemo(() => {
@@ -825,7 +858,7 @@ export function ChatThread({
             value={draft}
             rows={Math.min(6, Math.max(1, draft.split("\n").length))}
             data-chat-input
-            placeholder={`傳訊息給「${conversation.title}」(Enter 送出,Shift+Enter 換行${mentionable.length > 0 ? ",@ 提到人" : ""}${conversation.boardId ? ",# 引用工作項 / 風險 / 議題" : ""})`}
+            placeholder={`傳訊息給「${conversation.title}」(Enter 送出,Shift+Enter 換行${mentionable.length > 0 ? ",@ 提到人" : ""}${conversation.boardId ? ",# 引用工作項 / 風險 / 議題 / 問題" : ""})`}
             onChange={(e) => {
               setDraft(e.target.value);
               setCaret(e.target.selectionStart);

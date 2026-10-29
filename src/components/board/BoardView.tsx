@@ -42,6 +42,7 @@ export function BoardView({
   highlightNonce,
   highlightTab,
   initialView,
+  openRiskId,
   openAction,
   holidays,
   ownerDefaultPct,
@@ -65,6 +66,8 @@ export function BoardView({
   highlightTab?: string | null;
   /** ?view=risks 這種連結來的(儀表板的風險與議題清單):一打開就停在那個分頁,沒給或不認得就是表格。 */
   initialView?: string | null;
+  /** ?risk=… 這種連結來的(儀表板、對話、通知):風險分頁一打開就直接開那一筆。 */
+  openRiskId?: string | null;
   /** ?openAction=import 這種連結來的——側邊欄點了「更多操作」時這塊看板
    *  還沒打開,沒辦法直接呼叫 openAdminAction,先導航過來、掛載後自己開。 */
   openAction?: string | null;
@@ -335,7 +338,7 @@ export function BoardView({
           />
         )}
         {view === "risks" && (
-          <BoardRisks board={board} users={users} currentUserId={currentUserId} />
+          <BoardRisks key={openRiskId ?? "none"} board={board} users={users} currentUserId={currentUserId} openRiskId={openRiskId ?? null} />
         )}
         {view === "issues" && hasMantis && (
           <BoardMantisIssues boardId={board.id} users={users} isAdmin={userRole === "ADMIN"} />

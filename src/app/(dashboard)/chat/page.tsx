@@ -2,8 +2,9 @@ import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { listConversations } from "@/lib/chatServer";
 import { ChatApp } from "@/components/chat/ChatApp";
+import { parseChatRefParam } from "@/lib/chatRefMention";
 
-export default async function ChatPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
+export default async function ChatPage({ searchParams }: { searchParams: Promise<{ c?: string; ref?: string }> }) {
   const session = await requireSession();
   if (session.impersonatorId) {
     return (
@@ -13,12 +14,22 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
     );
   }
 
-  const { c } = await searchParams;
+  const { c, ref } = await searchParams;
+  const initialRef = parseChatRefParam(ref);
   const [conversations, users] = await Promise.all([
     listConversations({ userId: session.userId, role: session.role, name: session.name }),
     prisma.user.findMany({ select: { id: true, name: true, avatarUrl: true }, orderBy: { name: "asc" } }),
   ]);
 
   // key=c:通知點進來換了一間對話(網址的 c 變了)就重新開一個,選到那一間。
-  return <ChatApp key={c ?? "none"} initialConversations={conversations} users={users} currentUserId={session.userId} initialKey={c ?? null} />;
+  return (
+    <ChatApp
+      key={`${c ?? "none"}:${ref ?? ""}`}
+      initialConversations={conversations}
+      users={users}
+      currentUserId={session.userId}
+      initialKey={c ?? null}
+      initialRef={initialRef}
+    />
+  );
 }
