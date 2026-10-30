@@ -6,6 +6,7 @@ import {
   describeDeadline,
   formatDueShort,
   isValidDueDate,
+  reminderLink,
   reminderMessage,
   taipeiClock,
   todoDeadlineEntries,
@@ -127,5 +128,15 @@ describe("todoDeadlineEntries", () => {
     const assigned = { ...todo("t1", "i3", "2026-10-30"), assigneeId: "u9" }; // i3 沒人負責,指定 u9 處理
     expect(todoDeadlineEntries([board], [assigned], ["u9"]).map((r) => r.todoId)).toEqual(["t1"]);
     expect(todoDeadlineEntries([board], [assigned], ["u1"])).toEqual([]);
+  });
+});
+
+describe("reminderLink", () => {
+  it("opens the item's 待辦事項 tab for a work item's todo", () => {
+    expect(reminderLink({ kind: "item", boardId: "b1", itemId: "i9" })).toBe("/boards/b1?highlight=i9&highlightTab=checklist");
+  });
+
+  it("opens that one entry in the register for a risk / issue todo", () => {
+    expect(reminderLink({ kind: "risk", boardId: "b1", riskId: "r7" })).toBe("/boards/b1?view=risks&risk=r7");
   });
 });

@@ -70,6 +70,18 @@ export function reminderMessage(
   return `${what}已經逾期(期限 ${args.dueDate}),還沒完成`;
 }
 
+/**
+ * 提醒信裡的連結(站內的相對路徑,寄信時換成完整網址):工作項目的待辦事項直接開那個工作項目的「待辦事項」分頁,
+ * 風險 / 議題的待辦事項直接開那一筆。跟站內通知點下去跳到的是同一個地方。
+ */
+export function reminderLink(
+  target: { kind: "item"; boardId: string; itemId: string } | { kind: "risk"; boardId: string; riskId: string }
+): string {
+  return target.kind === "item"
+    ? `/boards/${target.boardId}?highlight=${target.itemId}&highlightTab=checklist`
+    : `/boards/${target.boardId}?view=risks&risk=${target.riskId}`;
+}
+
 /** 儀表板「待辦事項期限」清單的一列:工作項目 - 待辦事項,加上期限。 */
 export type TodoDeadlineEntry = {
   todoId: string;

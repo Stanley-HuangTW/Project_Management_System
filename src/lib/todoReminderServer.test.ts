@@ -13,7 +13,7 @@ type Todo = {
   createdById: string | null;
   assigneeId?: string | null;
   itemId: string;
-  item: { name: string };
+  item: { name: string; boardId: string };
 };
 
 type RiskTodo = {
@@ -24,7 +24,7 @@ type RiskTodo = {
   createdById: string | null;
   assigneeId?: string | null;
   riskId: string;
-  risk: { title: string; ownerId: string | null };
+  risk: { title: string; ownerId: string | null; boardId: string };
 };
 
 const state = {
@@ -36,7 +36,7 @@ const state = {
   realUsers: ["u1", "u2", "u3"],
   inAppAllowed: true,
   notifications: [] as { userId: string; itemId?: string; riskId?: string; message: string; type: string; actorId: null }[],
-  emails: [] as { userId: string; type: string; message: string }[],
+  emails: [] as { userId: string; type: string; message: string; link?: string }[],
   queries: [] as unknown[],
   riskTodos: [] as RiskTodo[],
   riskClaims: [] as { id: string; stage: number }[],
@@ -80,8 +80,8 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/notify", () => ({
   filterInAppRecipients: async (_tx: unknown, _type: string, ids: string[]) => (state.inAppAllowed ? ids : []),
-  notifyEmailIfNeeded: async (userId: string, type: string, message: string) => {
-    state.emails.push({ userId, type, message });
+  notifyEmailIfNeeded: async (userId: string, type: string, message: string, link?: string) => {
+    state.emails.push({ userId, type, message, link });
   },
 }));
 
@@ -99,7 +99,7 @@ const todo = (id: string, dueDate: string, extra: Partial<Todo> = {}): Todo => (
   remindedStage: 0,
   createdById: null,
   itemId: "i1",
-  item: { name: "vision box" },
+  item: { name: "vision box", boardId: "b1" },
   ...extra,
 });
 
@@ -207,6 +207,13 @@ describe("sendTodoDeadlineReminders", () => {
     expect(state.notifications).toEqual([]);
     expect(state.emails.map((e) => e.userId).sort()).toEqual(["u1", "u2"]);
   });
+
+  it("the email carries a link that opens the item's 待辦事項 tab", async () => {
+    state.todos = [todo("t1", "2026-10-20")]; // 已逾期
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.emails.length).toBeGreaterThan(0);
+    for (const e of state.emails) expect(e.link).toBe("/boards/b1?highlight=i1&highlightTab=checklist");
+  });
 });
 
 describe("風險 / 議題的待辦事項", () => {
@@ -217,7 +224,7 @@ describe("風險 / 議題的待辦事項", () => {
     remindedStage: 0,
     createdById: null,
     riskId: "r1",
-    risk: { title: "供應商交期延遲", ownerId: "u1" },
+    risk: { title: "供應商交期延遲", ownerId: "u1", boardId: "b1" },
     ...extra,
   });
 
@@ -232,6 +239,13 @@ describe("風險 / 議題的待辦事項", () => {
     expect(state.riskClaims).toEqual([{ id: "rt1", stage: 1 }]);
   });
 
+  it("提醒信附連結,直接開那一筆風險 / 議題", async () => {
+    state.riskTodos = [riskTodo("rt1", "2026-10-20")]; // 已逾期
+    await sendTodoDeadlineReminders(MORNING);
+    expect(state.emails.length).toBeGreaterThan(0);
+    for (const e of state.emails) expect(e.link).toBe("/boards/b1?view=risks&risk=r1");
+  });
+
   it("同一階段只提醒一次,但會往下一階段走", async () => {
     state.riskTodos = [riskTodo("sent", "2026-10-22", { remindedStage: 1 }), riskTodo("next", "2026-10-21", { remindedStage: 1 })];
     await sendTodoDeadlineReminders(MORNING);
@@ -239,7 +253,7 @@ describe("風險 / 議題的待辦事項", () => {
   });
 
   it("沒有負責人也沒有人寫這個待辦事項:沒人可通知,但照樣標記", async () => {
-    state.riskTodos = [riskTodo("rt1", "2026-10-21", { risk: { title: "x", ownerId: null } })];
+    state.riskTodos = [riskTodo("rt1", "2026-10-21", { risk: { title: "x", ownerId: null, boardId: "b1" } })];
     const out = await sendTodoDeadlineReminders(MORNING);
     expect(out.notified).toBe(0);
     expect(state.riskClaims).toEqual([{ id: "rt1", stage: 2 }]);
@@ -298,7 +312,7 @@ describe("處理者", () => {
         createdById: null,
         assigneeId: "u3",
         riskId: "r1",
-        risk: { title: "供應商交期延遲", ownerId: "u1" },
+        risk: { title: "供應商交期延遲", ownerId: "u1", boardId: "b1" },
       },
     ];
     await sendTodoDeadlineReminders(MORNING);

@@ -2,6 +2,7 @@ import type { Prisma, NotificationType } from "@prisma/client";
 import { getPersonIds } from "@/types/column";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mail";
+import { mailBody } from "@/lib/appUrl";
 import { DEFAULT_NOTIFICATION_PREFERENCE } from "@/lib/notificationTypes";
 
 const DEFAULT_IN_APP: Record<NotificationType, boolean> = Object.fromEntries(
@@ -24,7 +25,9 @@ const DEFAULT_EMAIL: Record<NotificationType, boolean> = Object.fromEntries(
 export async function notifyEmailIfNeeded(
   userId: string,
   type: NotificationType,
-  message: string
+  message: string,
+  /** 站內的相對路徑(例如 /boards/xxx?highlight=yyy):有的話信裡會附上完整網址,收信的人可以直接點開。 */
+  link?: string
 ) {
   const settings = await prisma.systemSettings.findUnique({ where: { id: "global" } });
   if (!settings?.emailNotificationsEnabled) return;
@@ -35,7 +38,7 @@ export async function notifyEmailIfNeeded(
   const wantsEmail = pref ? pref.email : DEFAULT_EMAIL[type];
   if (!wantsEmail) return;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-  if (user) await sendMail(user.email, "工作管理平台通知", message);
+  if (user) await sendMail(user.email, "工作管理平台通知", mailBody(message, link));
 }
 
 /**
