@@ -15,6 +15,7 @@ import {
   type MantisUser,
 } from "@/lib/mantis";
 import { parseMapping } from "@/lib/mantisMapping";
+import { matchLocalPerson } from "@/lib/mantisPeople";
 
 /**
  * MantisBT → 風險與議題的單向同步(伺服器端)。
@@ -306,13 +307,17 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
     prisma.user.findMany({ select: { id: true, email: true, name: true } }),
   ]);
   const existing = new Map(existingRows.map((r) => [r.mantisId!, r]));
-  const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.id]));
   const userNameById = new Map(users.map((u) => [u.id, u.name]));
 
   const summary: SyncSummary = { total: mapped.length, created: 0, updated: 0, unchanged: 0, truncated: fetched.truncated };
   if (mapped.length === 0) summary.note = await explainEmptyResult(conn.baseUrl, token, conn.projectId);
   for (const m of mapped) {
-    const ownerId = m.handlerEmail ? (userByEmail.get(m.handlerEmail) ?? null) : null;
+    const ownerId =
+      matchLocalPerson(
+        { id: m.mantisHandlerId, name: m.handlerName, realName: m.handlerRealName, email: m.handlerEmail },
+        users,
+        mapping.handlerOverrides
+      )?.userId ?? null;
     const old = existing.get(m.mantisId);
     // 「待審核」是本系統自己的流程,Mantis 沒有對應的狀態:只要 Mantis 還沒結案,就不能被同步蓋回處理中。
     const status = resolveLocalStatus(old?.status, m.status, m.mantisStatusId, mapping.statusOut.PENDING_REVIEW?.id);
@@ -372,7 +377,9 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
               : `Mantis #${m.mantisId}「${m.title}」取消指派(原負責人:${old.ownerId ? (userNameById.get(old.ownerId) ?? "") : "未指派"})`,
           },
         });
-        if (ownerId) await notifyRiskAssigned(old.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 議題` }, { ownerId });
+        // Mantis 上這一筆沒動過、只是本系統對得上人了(例如管理者剛補了處理人對應):記紀錄,但不通知——不然一次補對應就轟炸一輪。
+        const mantisChanged = old.mantisUpdatedAt?.getTime() !== m.mantisUpdatedAt?.getTime();
+        if (ownerId && mantisChanged) await notifyRiskAssigned(old.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 議題` }, { ownerId });
       }
       if (old.status !== status) {
         await prisma.activityLogEntry.create({

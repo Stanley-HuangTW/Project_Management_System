@@ -16,6 +16,7 @@ import {
   type MantisMapping,
   type WriteField,
 } from "@/lib/mantisMapping";
+import { MATCH_HOW_LABELS, matchLocalPerson } from "@/lib/mantisPeople";
 import { RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { actionErrorMessage } from "@/lib/userError";
 import type { RiskStatus } from "@prisma/client";
@@ -28,7 +29,12 @@ const enumText = (e: MantisEnumEntry) => (e.label && e.label !== e.name ? `${e.l
 const READ_STATUSES: RiskStatus[] = ["OPEN", "MITIGATING", "CLOSED"];
 const WRITE_STATUSES: RiskStatus[] = ["OPEN", "MITIGATING", "PENDING_REVIEW", "CLOSED"];
 
-type Loaded = { mapping: MantisMapping; mantisUsers: MantisUser[]; localUsers: { id: string; name: string; email: string }[] };
+type Loaded = {
+  mapping: MantisMapping;
+  mantisUsers: MantisUser[];
+  localUsers: { id: string; name: string; email: string }[];
+  handlerCounts: Record<number, number>;
+};
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -358,68 +364,61 @@ export function MantisMappingEditor({
 
           <Section
             title="處理人對應"
-            hint={`寫回「處理人」時,先用 Email 比對本系統使用者與 Mantis 使用者(同步時從問題的處理人、回報人收集到 ${loaded.mantisUsers.length} 位);Email 對不上的人,在這裡手動指定。`}
+            hint="Mantis 的處理人要對到本系統的哪位負責人(寫回處理人時也用這張對應)。依序比對:這裡手動指定的 → Email 相同(Mantis 常常不回 Email)→ 名稱相同(Mantis 的使用者名稱或姓名,跟本系統同仁的姓名或 Email 帳號,忽略大小寫與空白、底線、點;只有一位符合才算)。對不上的人,在右邊直接指定,存檔後馬上套用。"
           >
-            <div className="space-y-1">
-              {Object.entries(mapping.handlerOverrides).map(([userId, mantisId]) => (
-                <div key={userId} className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={userId}
-                    onChange={(e) => {
-                      const next = { ...mapping.handlerOverrides };
-                      delete next[userId];
-                      next[e.target.value] = mantisId;
-                      set({ handlerOverrides: next });
-                    }}
-                    className={selectClass}
-                  >
-                    {loaded.localUsers
-                      .filter((u) => u.id === userId || !(u.id in mapping.handlerOverrides))
-                      .map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}({u.email})
-                        </option>
-                      ))}
-                  </select>
-                  <span className="text-xs text-neutral-500">↔ Mantis</span>
-                  <select
-                    value={mantisId}
-                    onChange={(e) => set({ handlerOverrides: { ...mapping.handlerOverrides, [userId]: Number(e.target.value) } })}
-                    className={selectClass}
-                  >
-                    {loaded.mantisUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.realName || u.name || `#${u.id}`}
-                        {u.name && u.realName ? `(${u.name})` : ""} #{u.id}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = { ...mapping.handlerOverrides };
-                      delete next[userId];
-                      set({ handlerOverrides: next });
-                    }}
-                    className="text-xs text-neutral-400 hover:text-red-600"
-                  >
-                    移除
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                disabled={loaded.mantisUsers.length === 0 || loaded.localUsers.every((u) => u.id in mapping.handlerOverrides)}
-                onClick={() => {
-                  const user = loaded.localUsers.find((u) => !(u.id in mapping.handlerOverrides));
-                  if (user) set({ handlerOverrides: { ...mapping.handlerOverrides, [user.id]: loaded.mantisUsers[0].id } });
-                }}
-                className="rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
-                title={loaded.mantisUsers.length === 0 ? "還沒同步到任何 Mantis 使用者" : undefined}
-              >
-                新增手動對應
-              </button>
-            </div>
+            {loaded.mantisUsers.length === 0 ? (
+              <p className="text-sm text-neutral-400 dark:text-neutral-500">還沒有同步到任何 Mantis 使用者,先按「立即同步」一次。</p>
+            ) : (
+              <table className="w-full" data-handler-table>
+                <thead>
+                  <tr>
+                    <th className={th}>Mantis 使用者</th>
+                    <th className={th}>處理中的問題</th>
+                    <th className={th}>對應到本系統同仁</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...loaded.mantisUsers]
+                    .sort((x, y) => (loaded.handlerCounts[y.id] ?? 0) - (loaded.handlerCounts[x.id] ?? 0) || x.id - y.id)
+                    .map((u) => {
+                      const manual = Object.entries(mapping.handlerOverrides).find(([, mantisId]) => mantisId === u.id)?.[0] ?? "";
+                      const auto = matchLocalPerson({ id: u.id, name: u.name, realName: u.realName, email: u.email }, loaded.localUsers, {});
+                      const autoName = auto ? loaded.localUsers.find((l) => l.id === auto.userId)?.name : null;
+                      const count = loaded.handlerCounts[u.id] ?? 0;
+                      const unmatched = !manual && !auto;
+                      return (
+                        <tr key={u.id} data-mantis-user={u.id}>
+                          <td className="px-2 py-0.5 text-sm text-neutral-700 dark:text-neutral-200">
+                            {u.realName || u.name || `#${u.id}`}
+                            {u.name && u.realName ? `(${u.name})` : ""} <span className="text-xs text-neutral-400">#{u.id}</span>
+                          </td>
+                          <td className="px-2 py-0.5 text-sm text-neutral-500 dark:text-neutral-400">{count > 0 ? `${count} 筆` : "—"}</td>
+                          <td className="px-2 py-0.5">
+                            <select
+                              value={manual}
+                              onChange={(e) => {
+                                const next = { ...mapping.handlerOverrides };
+                                for (const [userId, mantisId] of Object.entries(next)) if (mantisId === u.id) delete next[userId];
+                                if (e.target.value) next[e.target.value] = u.id;
+                                set({ handlerOverrides: next });
+                              }}
+                              className={selectClass}
+                            >
+                              <option value="">{auto && autoName ? `自動:${autoName}(${MATCH_HOW_LABELS[auto.how]})` : "自動:對不到"}</option>
+                              {loaded.localUsers.map((l) => (
+                                <option key={l.id} value={l.id}>
+                                  {l.name}({l.email})
+                                </option>
+                              ))}
+                            </select>
+                            {unmatched && count > 0 && <span className="ml-2 text-xs text-red-600 dark:text-red-400">對不上,這 {count} 筆沒有負責人</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            )}
           </Section>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-700">

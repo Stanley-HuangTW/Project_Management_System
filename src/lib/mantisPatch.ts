@@ -5,6 +5,7 @@
  */
 import type { RiskStatus } from "@prisma/client";
 import { formatDueDate, type MantisIssue, type MantisUser } from "./mantis";
+import { matchMantisPerson } from "./mantisPeople";
 import {
   WRITE_FIELD_LABELS,
   impactFromMantis,
@@ -42,13 +43,10 @@ export function resolveMantisHandler(
   mapping: MantisMapping,
   users: MantisUser[]
 ): { id: number } | { error: string } {
-  const manual = mapping.handlerOverrides[owner.id];
-  if (manual) return { id: manual };
-  const email = owner.email.trim().toLowerCase();
-  const found = email ? users.find((u) => u.email === email) : undefined;
-  if (found) return { id: found.id };
+  const found = matchMantisPerson(owner, users, mapping.handlerOverrides);
+  if (found) return { id: found.user.id };
   return {
-    error: `找不到「${owner.name}」對應的 Mantis 帳號(用 Email ${owner.email} 比對不到)。請管理者到系統設定的「欄位對應與寫回」→「處理人對應」手動指定。`,
+    error: `找不到「${owner.name}」對應的 Mantis 帳號(Email、姓名、帳號名稱都比對不到)。請管理者到系統設定的「欄位對應與寫回」→「處理人對應」手動指定。`,
   };
 }
 

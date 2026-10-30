@@ -18,7 +18,7 @@ export type MantisIssueRow = {
   reporter: string | null;
   /** Mantis 上的處理人(顯示名稱)。 */
   handlerName: string | null;
-  /** 處理人用 Email 對應到的本系統使用者;對不到就是 null。 */
+  /** 處理人對應到的本系統使用者(手動指定、Email、名稱依序比對);對不到就是 null。 */
   ownerId: string | null;
   ownerName: string | null;
   dueDate: string | null;

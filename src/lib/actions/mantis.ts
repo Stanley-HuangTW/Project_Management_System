@@ -186,17 +186,27 @@ export async function setMantisEnabled(boardId: string, enabled: boolean): Promi
 
 /** 設定畫面「欄位對應與寫回」要用的資料:這個連線的對應設定、同步時收集到的 Mantis 使用者、本系統的使用者。 */
 export async function getMantisMapping(boardId: string): Promise<
-  | { mapping: MantisMapping; mantisUsers: MantisUser[]; localUsers: { id: string; name: string; email: string }[] }
+  | {
+      mapping: MantisMapping;
+      mantisUsers: MantisUser[];
+      localUsers: { id: string; name: string; email: string }[];
+      /** 每位 Mantis 使用者(編號)是這個看板上幾筆問題的處理人。 */
+      handlerCounts: Record<number, number>;
+    }
   | { error: string }
 > {
   await requireAdmin();
   const conn = await prisma.mantisConnection.findUnique({ where: { boardId }, select: { mapping: true, users: true } });
   if (!conn) return { error: "找不到這個連線" };
-  const localUsers = await prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } });
+  const [localUsers, counts] = await Promise.all([
+    prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
+    prisma.riskEntry.groupBy({ by: ["mantisHandlerId"], where: { boardId, mantisId: { not: null }, mantisHandlerId: { not: null } }, _count: { _all: true } }),
+  ]);
   return {
     mapping: parseMapping(conn.mapping),
     mantisUsers: Array.isArray(conn.users) ? (conn.users as MantisUser[]) : [],
     localUsers,
+    handlerCounts: Object.fromEntries(counts.map((c) => [c.mantisHandlerId!, c._count._all])),
   };
 }
 

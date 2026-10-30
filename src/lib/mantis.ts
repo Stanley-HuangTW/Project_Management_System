@@ -191,6 +191,9 @@ export type MappedIssue = {
   impact: number;
   /** 處理人的 Email,拿去對應本系統的使用者(對不到就沒有負責人)。 */
   handlerEmail: string | null;
+  /** 處理人的 Mantis 使用者名稱與姓名:Mantis 沒回 Email 時,拿來跟本系統同仁的姓名比對。 */
+  handlerName: string | null;
+  handlerRealName: string | null;
   dueDate: string | null;
   createdAt: Date | null;
 };
@@ -232,6 +235,8 @@ export function mapMantisIssue(
     probability: 5,
     impact: impactWithMapping(mapping?.severityIn, issue.severity?.id),
     handlerEmail: issue.handler?.email?.trim().toLowerCase() || null,
+    handlerName: issue.handler?.name?.trim() || null,
+    handlerRealName: issue.handler?.real_name?.trim() || null,
     dueDate: formatDueDate(issue.due_date),
     createdAt: toDate(issue.created_at),
   };

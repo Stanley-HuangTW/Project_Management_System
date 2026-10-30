@@ -4,6 +4,7 @@ import { decryptSecret } from "@/lib/secretBox";
 import { toTaipei } from "@/lib/googleCalendar";
 import { mapMantisIssue, resolveLocalStatus, type MantisUser } from "@/lib/mantis";
 import { parseMapping } from "@/lib/mantisMapping";
+import { matchLocalPerson } from "@/lib/mantisPeople";
 import { buildMantisPatch, type MantisChange } from "@/lib/mantisPatch";
 import { MantisError, fetchMantisIssue, patchMantisIssue, riskFieldsFromMapped } from "@/lib/mantisSync";
 
@@ -76,14 +77,17 @@ export async function pushMantisChanges(riskId: string, change: MantisChange): P
     };
   }
   const mapped = mapMantisIssue(refreshed, conn.baseUrl, mapping);
-  const owner = mapped.handlerEmail
-    ? await prisma.user.findFirst({ where: { email: { equals: mapped.handlerEmail, mode: "insensitive" } }, select: { id: true } })
-    : null;
+  const locals = await prisma.user.findMany({ select: { id: true, name: true, email: true } });
+  const owner = matchLocalPerson(
+    { id: mapped.mantisHandlerId, name: mapped.handlerName, realName: mapped.handlerRealName, email: mapped.handlerEmail },
+    locals,
+    mapping.handlerOverrides
+  );
   const intended: RiskStatus = change.status ?? risk.status;
   const status = resolveLocalStatus(intended, mapped.status, mapped.mantisStatusId, mapping.statusOut.PENDING_REVIEW?.id);
   await prisma.riskEntry.update({
     where: { id: risk.id },
-    data: riskFieldsFromMapped(mapped, owner?.id ?? null, conn.issueItemId, status),
+    data: riskFieldsFromMapped(mapped, owner?.userId ?? null, conn.issueItemId, status),
   });
   return { ok: true, wrote: true, summary: patch.summary };
 }

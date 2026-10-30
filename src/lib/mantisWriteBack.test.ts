@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   risk: null as null | Record<string, unknown>,
   conn: null as null | Record<string, unknown>,
-  owner: null as null | { id: string },
+  locals: [] as { id: string; name: string; email: string }[],
   updates: [] as unknown[],
 }));
 
@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({
       }),
     },
     mantisConnection: { findUnique: vi.fn(async () => db.conn) },
-    user: { findFirst: vi.fn(async () => db.owner) },
+    user: { findMany: vi.fn(async () => db.locals) },
   },
 }));
 vi.mock("@/lib/secretBox", () => ({ decryptSecret: () => "good-token" }));
@@ -62,7 +62,7 @@ const T2 = "2026-10-21T09:30:00+08:00";
 beforeEach(() => {
   calls.length = 0;
   db.updates.length = 0;
-  db.owner = null;
+  db.locals = [];
   db.risk = { id: "r1", boardId: "b1", mantisId: 12, mantisUpdatedAt: new Date(T1), status: "MITIGATING" };
   db.conn = {
     boardId: "b1",
@@ -164,8 +164,34 @@ describe("pushMantisChanges", () => {
     expect(await pushMantisChanges("r1", { status: "CLOSED" })).toEqual({ error: expect.stringContaining("找不到這一筆問題") });
   });
 
+  it("reads the handler back onto the right person even when Mantis sends no email — matched by name", async () => {
+    db.locals = [{ id: "u-jason", name: "Jason Huang", email: "jason.huang@example.com" }];
+    stubMantis([
+      { status: 200, body: issueAt(T1) },
+      { status: 200, body: {} },
+      { status: 200, body: issueAt(T2, { handler: { id: 12, name: "Jason_Huang" } }) },
+    ]);
+    await pushMantisChanges("r1", { title: "新標題" });
+    expect(db.updates[0]).toMatchObject({ data: { ownerId: "u-jason", mantisHandlerId: 12 } });
+  });
+
+  it("a hand-made mapping decides who the Mantis handler is, over any guess", async () => {
+    db.locals = [
+      { id: "u-jason", name: "Jason Huang", email: "jason.huang@example.com" },
+      { id: "u-other", name: "別人", email: "other@example.com" },
+    ];
+    db.conn = { ...db.conn, mapping: { ...defaultMapping(), writeBack: { enabled: true, fields: ["content"] }, handlerOverrides: { "u-other": 12 } } };
+    stubMantis([
+      { status: 200, body: issueAt(T1) },
+      { status: 200, body: {} },
+      { status: 200, body: issueAt(T2, { handler: { id: 12, name: "Jason_Huang" } }) },
+    ]);
+    await pushMantisChanges("r1", { title: "新標題" });
+    expect(db.updates[0]).toMatchObject({ data: { ownerId: "u-other" } });
+  });
+
   it("assigns by email: a Mantis user matching the person is sent as the handler", async () => {
-    db.owner = { id: "u-li" };
+    db.locals = [{ id: "u-li", name: "李小明", email: "li.sw@example.com" }];
     stubMantis([
       { status: 200, body: issueAt(T1) },
       { status: 200, body: {} },
