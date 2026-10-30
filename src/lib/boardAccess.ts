@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
+import { UserError } from "@/lib/userError";
 
 /**
  * Why this is one function returning a reason rather than a boolean: a board
@@ -64,9 +65,9 @@ export async function requireBoardAccess(boardId: string, session: SessionPayloa
   const state = await boardAccessState(session, boardId);
   if (state === "ok") return;
   if (state === "trashed") {
-    throw new Error("這個看板在垃圾桶裡,要先還原才能使用");
+    throw new UserError("這個看板在垃圾桶裡,要先還原才能使用");
   }
-  throw new Error("權限不足:你沒有這個看板的存取權限");
+  throw new UserError("權限不足:你沒有這個看板的存取權限");
 }
 
 /**
@@ -85,7 +86,7 @@ export async function requireItemBoardAccess(
 ): Promise<string> {
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
   if (!item) {
-    throw new Error("項目不存在");
+    throw new UserError("項目不存在");
   }
   await requireBoardAccess(item.boardId, session);
   return item.boardId;
@@ -99,7 +100,7 @@ export async function requireGroupBoardAccess(
 ): Promise<string> {
   const group = await prisma.group.findUnique({ where: { id: groupId }, select: { boardId: true } });
   if (!group) {
-    throw new Error("分組不存在");
+    throw new UserError("分組不存在");
   }
   await requireBoardAccess(group.boardId, session);
   return group.boardId;

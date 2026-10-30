@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { updateWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import type { WorkloadThresholdSettings } from "@/lib/workload";
+import { actionErrorMessage } from "@/lib/userError";
 
 export function WorkloadThresholdModal({
   threshold,
@@ -29,7 +30,7 @@ export function WorkloadThresholdModal({
       await updateWorkloadThreshold({ greenMax, yellowMax, greenColor, yellowColor, redColor });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "儲存失敗");
+      setError(actionErrorMessage(err, "儲存失敗"));
     } finally {
       setSubmitting(false);
     }

@@ -7,6 +7,7 @@ import { requireBoardAdmin } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { normalizeAllocationPct } from "@/lib/allocationPct";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
+import { UserError } from "@/lib/userError";
 
 export async function getDistinctTextValues(boardId: string, columnId: string) {
   const session = await requireSession();
@@ -41,7 +42,7 @@ export async function applyResourceMapping(
   requireBoardAdmin(session.role);
 
   if (assignAllocation && (!Number.isFinite(allocationPct) || allocationPct < 1 || allocationPct > 100)) {
-    throw new Error("人員分配百分比需介於 1 到 100 之間");
+    throw new UserError("人員分配百分比需介於 1 到 100 之間");
   }
   const clampedAllocationPct = normalizeAllocationPct(allocationPct);
 

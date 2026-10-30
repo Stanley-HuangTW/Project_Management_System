@@ -18,6 +18,7 @@ import {
   type BoardGroupMemberOption,
 } from "@/lib/actions/board";
 import { ROLE_LABELS, DISCIPLINE_LABELS } from "./GroupRolesModal";
+import { actionErrorMessage } from "@/lib/userError";
 
 type BoardMemberRow = Awaited<ReturnType<typeof listBoardMembers>>[number];
 
@@ -75,7 +76,7 @@ export function BoardSharingModal({
     try {
       await setBoardVisibility(boardId, next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "設定失敗");
+      setError(actionErrorMessage(err, "設定失敗"));
     }
   }
 
@@ -87,7 +88,7 @@ export function BoardSharingModal({
       setMembers(await listBoardMembers(boardId));
       setAddUserId("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     }
   }
 
@@ -97,7 +98,7 @@ export function BoardSharingModal({
       await removeBoardMember(boardId, userId);
       setMembers(await listBoardMembers(boardId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "移除失敗");
+      setError(actionErrorMessage(err, "移除失敗"));
     }
   }
 
@@ -115,7 +116,7 @@ export function BoardSharingModal({
       setMembers(await listBoardMembers(boardId));
       setGroupRoleKey("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     } finally {
       setAddingByRole(false);
     }
@@ -139,7 +140,7 @@ export function BoardSharingModal({
       setMembers(await listBoardMembers(boardId));
       setGroupMemberKey("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     } finally {
       setAddingByMember(false);
     }

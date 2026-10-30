@@ -8,6 +8,7 @@ import {
   resetDefaultBoardColumns,
 } from "@/lib/actions/systemSettings";
 import type { DefaultColumn } from "@/lib/defaultColumns";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type DefaultColumnsBoard = { id: string; name: string; columnCount: number };
 
@@ -50,7 +51,7 @@ export function DefaultColumnsCard({
           { title: "已設定預設欄位" }
         );
       } catch (error) {
-        await notify(error instanceof Error ? error.message : "無法設定", { title: "設定失敗" });
+        await notify(actionErrorMessage(error, "無法設定"), { title: "設定失敗" });
       }
     });
   }

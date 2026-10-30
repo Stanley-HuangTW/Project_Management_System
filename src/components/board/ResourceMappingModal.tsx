@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PercentInput } from "@/components/ui/PercentInput";
 import type { ColumnData, UserOption } from "@/types/board";
 import { getDistinctTextValues, applyResourceMapping } from "@/lib/actions/resourceMapping";
+import { actionErrorMessage } from "@/lib/userError";
 
 export function ResourceMappingModal({
   boardId,
@@ -74,7 +75,7 @@ export function ResourceMappingModal({
       );
       setResult(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "套用失敗");
+      setError(actionErrorMessage(err, "套用失敗"));
     } finally {
       setSubmitting(false);
     }

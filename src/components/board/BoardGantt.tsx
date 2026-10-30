@@ -118,9 +118,10 @@ import { DropIndicator } from "./DropIndicator";
 import { UndoRedoButtons } from "./UndoRedoButtons";
 import { useEditHistory } from "./EditHistoryProvider";
 import type { UndoResult } from "@/lib/editHistory";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { useDeleteItem } from "./useDeleteItem";
 import { subordinateIds } from "@/lib/orgChart";
+import { actionErrorMessage } from "@/lib/userError";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 34, week: 10, month: 3 };
@@ -462,7 +463,7 @@ export function BoardGantt({
       });
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",
+        actionErrorMessage(err, "搬移失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法搬移項目" }
       );
     }
@@ -2411,7 +2412,7 @@ function GanttBar({
         else await resizeItemBar(boardId, item.id, edge, target);
         return { ok: true };
       } catch (err) {
-        return { ok: false, reason: err instanceof Error ? err.message : "調整失敗" };
+        return { ok: false, reason: actionErrorMessage(err, "調整失敗") };
       }
     };
     history.record({ label, undo: () => apply(after, before), redo: () => apply(before, after) });
@@ -2489,7 +2490,7 @@ function GanttBar({
         await moveItemBar(boardId, item.id, toIsoDate(newStartDate));
         recordScheduleEdit("move", toIsoDate(range.start), toIsoDate(newStartDate));
       } catch (err) {
-        await notify(err instanceof Error ? err.message : "調整失敗", { title: "無法調整時程" });
+        await notify(actionErrorMessage(err, "調整失敗"), { title: "無法調整時程" });
       }
       return;
     }
@@ -2516,7 +2517,7 @@ function GanttBar({
         toIsoDate(newDate)
       );
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "調整失敗", { title: "無法調整時程" });
+      await notify(actionErrorMessage(err, "調整失敗"), { title: "無法調整時程" });
     }
   }
 

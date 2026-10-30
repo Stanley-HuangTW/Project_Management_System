@@ -8,13 +8,14 @@ import { PersonPicker } from "@/components/ui/PersonPicker";
 import { PercentInput } from "@/components/ui/PercentInput";
 import { subordinateIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import {
   listAssignments,
   upsertAssignment,
   removeAssignment,
 } from "@/lib/actions/assignment";
 import type { UserOption } from "@/types/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 人員分配 —— 誰花多少比例在這個工作項上。
@@ -85,7 +86,7 @@ export function AssignmentEditor({
       onChanged?.();
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+        actionErrorMessage(err, "操作失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法變更人員分配" }
       );
     } finally {

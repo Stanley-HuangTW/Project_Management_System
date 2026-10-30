@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Plus, Trash2, Pencil } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import { unitLabel } from "@/lib/orgUnits";
 import {
@@ -36,6 +36,7 @@ import {
 } from "@/lib/actions/labourSheet";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { LabourExcelButtons } from "./LabourExcelButtons";
+import { actionErrorMessage } from "@/lib/userError";
 
 const MONTH_WIDTH = 46;
 const LABEL_WIDTH = 150;
@@ -99,7 +100,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
       await reload();
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+        actionErrorMessage(err, "操作失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : failTitle }
       );
     } finally {

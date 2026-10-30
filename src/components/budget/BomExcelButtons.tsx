@@ -7,6 +7,7 @@ import {
   importBomWorkbook,
   type BomImportResult,
 } from "@/lib/actions/bomExcel";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 樣機 BOM 的 Excel 進出口。
@@ -49,7 +50,7 @@ export function BomExcelButtons({
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯出失敗");
+      setError(actionErrorMessage(e, "匯出失敗"));
     } finally {
       setBusy(null);
     }
@@ -73,7 +74,7 @@ export function BomExcelButtons({
         await onImported();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯入失敗");
+      setError(actionErrorMessage(e, "匯入失敗"));
     } finally {
       setBusy(null);
     }

@@ -25,6 +25,7 @@ import type { UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { findTreeNode, firstTreeItemId, type ParentTreeNode } from "@/lib/parentTaskTree";
 import { ParentTaskPicker } from "./ParentTaskPicker";
+import { actionErrorMessage } from "@/lib/userError";
 
 const DEFAULT_LABEL_WIDTH = 140;
 const MIN_LABEL_WIDTH = 90;
@@ -100,7 +101,7 @@ export function WorkloadDetailSection({
       }
       setScheduleContext(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningItemId(null);
     }
@@ -130,7 +131,7 @@ export function WorkloadDetailSection({
       }
       setItemDetail(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningDetailItemId(null);
     }
@@ -302,7 +303,7 @@ export function WorkloadDetailSection({
       });
       resetCreating();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "建立失敗");
+      setFormError(actionErrorMessage(err, "建立失敗"));
     } finally {
       setSubmitting(false);
     }

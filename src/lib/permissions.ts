@@ -1,4 +1,5 @@
 import type { ColumnType, UserRole } from "@prisma/client";
+import { UserError } from "@/lib/userError";
 
 export function canManageBoard(role: UserRole): boolean {
   return role === "ADMIN";
@@ -10,13 +11,13 @@ export function canManageStructure(role: UserRole): boolean {
 
 export function requireBoardAdmin(role: UserRole) {
   if (!canManageBoard(role)) {
-    throw new Error("權限不足:僅管理者可以執行此操作");
+    throw new UserError("權限不足:僅管理者可以執行此操作");
   }
 }
 
 export function requireStructureAccess(role: UserRole) {
   if (!canManageStructure(role)) {
-    throw new Error("權限不足:僅管理者與主管可以執行此操作");
+    throw new UserError("權限不足:僅管理者與主管可以執行此操作");
   }
 }
 

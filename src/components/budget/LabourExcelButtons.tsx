@@ -7,6 +7,7 @@ import {
   importLabourWorkbook,
   type LabourImportResult,
 } from "@/lib/actions/labourExcel";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 人力表的 Excel 進出口。
@@ -70,7 +71,7 @@ export function LabourExcelButtons({
       downloadBlob(out.gsFilename, new Blob([out.gsContent], { type: "text/plain" }));
       setExported(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯出失敗");
+      setError(actionErrorMessage(e, "匯出失敗"));
     } finally {
       setBusy(null);
     }
@@ -98,7 +99,7 @@ export function LabourExcelButtons({
         await onImported();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯入失敗");
+      setError(actionErrorMessage(e, "匯入失敗"));
     } finally {
       setBusy(null);
     }

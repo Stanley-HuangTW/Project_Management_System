@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react";
 import type { Holiday } from "@prisma/client";
 import { Modal } from "@/components/ui/Modal";
 import { addHoliday, removeHoliday } from "@/lib/actions/holiday";
+import { actionErrorMessage } from "@/lib/userError";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -46,7 +47,7 @@ export function HolidaySettingsModal({
       setName("");
       setEndTouched(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     } finally {
       setSubmitting(false);
     }

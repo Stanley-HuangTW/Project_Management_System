@@ -5,8 +5,9 @@ import * as Popover from "@radix-ui/react-popover";
 import { Search } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { setItemProtoUnits } from "@/lib/actions/itemProtoUnits";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { useItemProtoUnits, type ProtoUnitOption } from "./ItemProtoUnitsContext";
+import { actionErrorMessage } from "@/lib/userError";
 
 const cellBase = "flex h-full min-w-0 items-center border-r border-neutral-100 px-2 dark:border-neutral-700";
 
@@ -59,7 +60,7 @@ export function ItemProtoUnitCell({ itemId, canEdit }: { itemId: string; canEdit
       if (result.error) await notify(result.error, { title: "無法儲存「使用樣機」" });
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "儲存失敗",
+        actionErrorMessage(err, "儲存失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法儲存「使用樣機」" }
       );
     }

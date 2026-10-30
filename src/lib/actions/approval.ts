@@ -17,6 +17,7 @@ import {
   loadSupervisorGraph,
   recordSupervisorApproval,
 } from "@/lib/approvalLevelsServer";
+import { UserError } from "@/lib/userError";
 
 export type PendingTimeEntry = {
   id: string;
@@ -257,10 +258,10 @@ export async function listApprovalQueue(): Promise<ApprovalQueue> {
  * 回傳身分的文字;不能核准就丟錯。
  */
 async function assertMayDecideEntry(session: SessionPayload, subject: ApprovalSubject): Promise<ApproverInfo> {
-  if (subject.userId === session.userId) throw new Error("不能審核自己送出的紀錄");
+  if (subject.userId === session.userId) throw new UserError("不能審核自己送出的紀錄");
   const approvers = (await resolveApprovers([subject])).get(subject.key) ?? [];
   const me = approvers.find((a) => a.userId === session.userId);
-  if (!me) throw new Error("權限不足:只有該專案分組的 Team Leader / PMD、同部門的 DM、直屬主管或管理者可以核准這筆工時");
+  if (!me) throw new UserError("權限不足:只有該專案分組的 Team Leader / PMD、同部門的 DM、直屬主管或管理者可以核准這筆工時");
   return me;
 }
 

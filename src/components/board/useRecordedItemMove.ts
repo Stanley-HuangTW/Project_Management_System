@@ -4,6 +4,7 @@ import { moveItemWithinGroup } from "@/lib/actions/item";
 import { buildMoveInverse, countAdoptedBy, resolveItemMove, type DropZone, type MoveItemLike } from "@/lib/dragReorder";
 import { sameJson, type UndoResult } from "@/lib/editHistory";
 import { useEditHistory } from "./EditHistoryProvider";
+import { actionErrorMessage } from "@/lib/userError";
 
 type MovableItem = MoveItemLike & { name: string };
 
@@ -91,7 +92,7 @@ export function useRecordedItemMove() {
         await moveItemWithinGroup(boardId, groupId, draggedId, target, targetZone, releaseCount);
         return { ok: true };
       } catch (err) {
-        return { ok: false, reason: err instanceof Error ? err.message : "搬移失敗" };
+        return { ok: false, reason: actionErrorMessage(err, "搬移失敗") };
       }
     };
 

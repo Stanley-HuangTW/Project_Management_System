@@ -2,9 +2,10 @@
 
 import type { KeyboardEvent } from "react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { indentTarget, outdentTarget, type MoveItemLike } from "@/lib/dragReorder";
 import { useRecordedItemMove } from "./useRecordedItemMove";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type LevelDirection = "indent" | "outdent";
 
@@ -59,7 +60,7 @@ export function useChangeLevel(boardId: string) {
       return true;
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",
+        actionErrorMessage(err, "搬移失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : direction === "indent" ? "無法降階" : "無法升階" }
       );
       return false;

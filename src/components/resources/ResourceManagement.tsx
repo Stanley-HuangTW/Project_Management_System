@@ -28,6 +28,7 @@ import {
   listResources,
 } from "@/lib/actions/resource";
 import { HScrollPane } from "@/components/ui/HScrollPane";
+import { actionErrorMessage } from "@/lib/userError";
 
 type ResourceRow = Awaited<ReturnType<typeof listResources>>[number];
 type UserOption = { id: string; name: string };
@@ -156,7 +157,7 @@ export function ResourceManagement({
       setOpen(false);
       reset();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     } finally {
       setSubmitting(false);
     }
@@ -187,7 +188,7 @@ export function ResourceManagement({
       );
       setEditTarget(null);
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : "修改失敗");
+      setEditError(actionErrorMessage(err, "修改失敗"));
     } finally {
       setEditSubmitting(false);
     }
@@ -204,7 +205,7 @@ export function ResourceManagement({
     try {
       await deleteResource(resource.id);
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "刪除失敗");
+      setDeleteError(actionErrorMessage(err, "刪除失敗"));
     }
   }
 

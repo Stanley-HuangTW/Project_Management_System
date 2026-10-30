@@ -5,7 +5,7 @@ import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, horizontalListSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { ProtoRowDialog } from "./ProtoRowDialog";
 import { ProtoQtyCell } from "./ProtoQtyCell";
 import { ProtoMachineList } from "./ProtoMachineList";
@@ -22,6 +22,7 @@ import {
   reorderProtoRows,
   type ProtoPlanView,
 } from "@/lib/actions/protoPlan";
+import { actionErrorMessage } from "@/lib/userError";
 
 /** 拖完階段欄之後,先在畫面上把每一處的階段順序排好(伺服器存好會再載回一次)。 */
 function withPhaseOrder(view: ProtoPlanView, ids: string[]): ProtoPlanView {
@@ -106,7 +107,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
       return true;
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+        actionErrorMessage(err, "操作失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : failTitle }
       );
       return false;
@@ -164,7 +165,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
         return true;
       } catch (err) {
         await notify(
-          isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+          actionErrorMessage(err, "操作失敗"),
           { title: isStaleBuildError(err) ? "需要重新整理" : "無法儲存" }
         );
         return false;

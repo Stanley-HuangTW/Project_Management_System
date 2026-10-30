@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/mantis";
 import type { MantisProject } from "@/lib/mantis";
 import type { SyncSummary } from "@/lib/mantisSync";
+import { actionErrorMessage } from "@/lib/userError";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -63,7 +64,7 @@ export function MantisIntegrationCard() {
     try {
       return await work();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: failTitle });
       return null;
     } finally {
       setBusy(false);

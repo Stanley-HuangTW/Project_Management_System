@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { exportGanttWorkbook } from "@/lib/actions/export";
 import { getExtraExportColumns } from "@/lib/export/exportFields";
 import type { BoardWithData } from "@/types/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
@@ -71,7 +72,7 @@ export function ExportGanttModal({
       downloadBlob(gsFilename, new Blob([gsContent], { type: "text/plain" }));
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "匯出失敗");
+      setError(actionErrorMessage(err, "匯出失敗"));
     } finally {
       setSubmitting(false);
     }

@@ -28,6 +28,7 @@ import { WeekCalendar } from "./WeekCalendar";
 import { getMyEstimates } from "@/lib/actions/timesheetEstimate";
 import type { EstimateWeek } from "@/lib/timesheetEstimate";
 import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
+import { actionErrorMessage } from "@/lib/userError";
 
 function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
@@ -174,7 +175,7 @@ export function MyWeekLog({ today }: { today: string }) {
       const result = await saveChange(event, change);
       if (result.error) await notify(result.error, { title: "無法修改" });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "修改失敗", { title: "無法修改" });
+      await notify(actionErrorMessage(err, "修改失敗"), { title: "無法修改" });
     } finally {
       setBusy(false);
       reload();
@@ -291,7 +292,7 @@ export function MyWeekLog({ today }: { today: string }) {
       await notify(lines.join("\n"), { title: "複製上週" });
       if (result.created > 0) reload();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "複製失敗", { title: "無法複製" });
+      await notify(actionErrorMessage(err, "複製失敗"), { title: "無法複製" });
     } finally {
       setBusy(false);
     }
@@ -313,7 +314,7 @@ export function MyWeekLog({ today }: { today: string }) {
       reload();
       await notify("已刪除 " + result.deleted + " 筆。", { title: "刪除重複的工時" });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "刪除失敗", { title: "無法刪除" });
+      await notify(actionErrorMessage(err, "刪除失敗"), { title: "無法刪除" });
     }
   }
 
@@ -333,7 +334,7 @@ export function MyWeekLog({ today }: { today: string }) {
       setDialog(null);
       reload();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "刪除失敗", { title: "無法刪除" });
+      await notify(actionErrorMessage(err, "刪除失敗"), { title: "無法刪除" });
     }
   }
 

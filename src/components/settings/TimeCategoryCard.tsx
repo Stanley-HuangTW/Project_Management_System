@@ -12,6 +12,7 @@ import {
   setTimeCategoryAllowProject,
   type TimeCategoryRow,
 } from "@/lib/actions/timeCategory";
+import { actionErrorMessage } from "@/lib/userError";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500";
@@ -50,7 +51,7 @@ export function TimeCategoryCard() {
       setRefreshKey((k) => k + 1);
       return true;
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: failTitle });
       return false;
     } finally {
       setBusy(false);

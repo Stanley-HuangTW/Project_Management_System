@@ -3,11 +3,12 @@
 import { useEffect, useState, useTransition } from "react";
 import type { Discipline } from "@/lib/labourPlan";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { formatMoney } from "@/lib/cost";
 import { listDisciplineRates, setDisciplineRate } from "@/lib/actions/labourPlan";
 import { setWorkingDaysPerMonth } from "@/lib/actions/systemSettings";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 單位標準月薪與人月換算。
@@ -73,7 +74,7 @@ export function DisciplineRateCard({
       if (result.error) await notify(result.error, { title: "無法儲存" });
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+        actionErrorMessage(err, "操作失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法儲存" }
       );
     } finally {

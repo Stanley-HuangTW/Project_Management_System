@@ -19,6 +19,7 @@ import { logActivity } from "@/lib/activityLog";
 import { pinnedScheduleReason } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { notifyItemAssignees } from "@/lib/notify";
+import { UserError } from "@/lib/userError";
 
 /**
  * Shared setup for both drag interactions: loads the board's Gantt column
@@ -50,11 +51,11 @@ async function loadGanttEditContext(itemId: string, session: SessionPayload) {
     prisma.item.findUnique({ where: { id: itemId }, include: { cellValues: true, assignments: true } }),
   ]);
   if (!board?.ganttStartColumnId || !board.ganttDurationColumnId || !item) {
-    throw new Error("此看板尚未設定甘特圖「開始日期」與「天數」欄位");
+    throw new UserError("此看板尚未設定甘特圖「開始日期」與「天數」欄位");
   }
   const groupRole = await loadGroupRoleContext(item.groupId, session.userId);
   if (!canModifyItemSchedule(session.role, item.createdById, session.userId, groupRole.access.hasScheduleRole)) {
-    throw new Error("權限不足:僅建立者、分組的Team Leader/PMD或管理者可以調整此項目的時程");
+    throw new UserError("權限不足:僅建立者、分組的Team Leader/PMD或管理者可以調整此項目的時程");
   }
 
   const [linkColumn, typeColumn, boardItems] = await Promise.all([
@@ -120,7 +121,7 @@ export async function resizeItemBar(
     await loadGanttEditContext(itemId, session);
   const isLocked = lock?.daysLocked || (edge === "start" ? lock?.startLocked : lock?.endLocked);
   if (isLocked) {
-    throw new Error(
+    throw new UserError(
       pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate }) ??
         "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定"
     );
@@ -133,16 +134,16 @@ export async function resizeItemBar(
     board.ganttDurationMode,
     holidays
   );
-  if (!currentRange) throw new Error("此項目尚未填寫開始日期與天數");
+  if (!currentRange) throw new UserError("此項目尚未填寫開始日期與天數");
 
   const newDate = new Date(newDateIso);
-  if (Number.isNaN(newDate.getTime())) throw new Error("日期格式錯誤");
+  if (Number.isNaN(newDate.getTime())) throw new UserError("日期格式錯誤");
 
   const newStart = edge === "start" ? newDate : currentRange.start;
   const newEnd = edge === "end" ? newDate : currentRange.end;
   const days = countDaysInRange(newStart, newEnd, board.ganttDurationMode, holidays);
   if (days === null || days < 1) {
-    throw new Error("拖曳後的時間範圍不合理,結束日期不能早於開始日期");
+    throw new UserError("拖曳後的時間範圍不合理,結束日期不能早於開始日期");
   }
 
   const oldStartIso = currentRange.start.toISOString().slice(0, 10);
@@ -208,7 +209,7 @@ export async function moveItemBar(
   const { boardId, board, item, lock, holidays, alwaysComputed, writeStartColumnId } =
     await loadGanttEditContext(itemId, session);
   if (lock?.startLocked || lock?.endLocked) {
-    throw new Error(
+    throw new UserError(
       pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate }) ??
         "此時程由前置依賴或子項目統計自動計算,無法整體搬移"
     );
@@ -217,10 +218,10 @@ export async function moveItemBar(
   const startColumnId = board.ganttStartColumnId!;
   const durationColumnId = board.ganttDurationColumnId!;
   const currentRange = getItemDateRange(item, startColumnId, durationColumnId, board.ganttDurationMode, holidays);
-  if (!currentRange) throw new Error("此項目尚未填寫開始日期與天數");
+  if (!currentRange) throw new UserError("此項目尚未填寫開始日期與天數");
 
   const newStart = new Date(newStartIso);
-  if (Number.isNaN(newStart.getTime())) throw new Error("日期格式錯誤");
+  if (Number.isNaN(newStart.getTime())) throw new UserError("日期格式錯誤");
   if (newStart.getTime() === currentRange.start.getTime()) return;
 
   const shiftedCellValues = item.cellValues.map((cv) =>
@@ -233,7 +234,7 @@ export async function moveItemBar(
     board.ganttDurationMode,
     holidays
   );
-  if (!newRange) throw new Error("此項目尚未填寫開始日期與天數");
+  if (!newRange) throw new UserError("此項目尚未填寫開始日期與天數");
 
   const oldStartIso = currentRange.start.toISOString().slice(0, 10);
   const oldEndIso = currentRange.end.toISOString().slice(0, 10);

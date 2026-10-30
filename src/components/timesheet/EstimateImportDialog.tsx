@@ -10,6 +10,7 @@ import {
   type EstimateImportListRow,
 } from "@/lib/actions/estimateImport";
 import { MAX_CALENDAR_RANGE_DAYS, calendarScopeRange, validateCalendarRange, type CalendarScope } from "@/lib/googleCalendar";
+import { actionErrorMessage } from "@/lib/userError";
 
 const WEEKDAY_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const inputClass =
@@ -87,7 +88,7 @@ export function EstimateImportDialog({
           setHoursText({});
         }
       } catch (err) {
-        if (!cancelled) setResult({ status: "error", message: err instanceof Error ? err.message : "讀取失敗" });
+        if (!cancelled) setResult({ status: "error", message: actionErrorMessage(err, "讀取失敗") });
       }
     })();
     return () => {
@@ -140,7 +141,7 @@ export function EstimateImportDialog({
       if (response.failed.length === 0) onClose();
       else setReloadKey((k) => k + 1);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "匯入失敗", { title: "無法匯入" });
+      await notify(actionErrorMessage(err, "匯入失敗"), { title: "無法匯入" });
     } finally {
       setBusy(false);
     }

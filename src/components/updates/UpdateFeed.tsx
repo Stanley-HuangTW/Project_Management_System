@@ -10,6 +10,7 @@ import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { UserOption } from "@/types/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 const selectClass =
   "rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
@@ -70,7 +71,7 @@ export function UpdateFeed({
       }
       setDetail({ context, tab: eventTargetTab(row.kind), field: eventTargetField(row.kind, row.summary) });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningId(null);
     }

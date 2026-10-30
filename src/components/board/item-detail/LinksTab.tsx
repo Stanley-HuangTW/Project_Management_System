@@ -13,6 +13,7 @@ import {
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { canManageStructure } from "@/lib/permissions";
 import type { UserRole } from "@prisma/client";
+import { actionErrorMessage } from "@/lib/userError";
 
 export function LinksTab({
   boardId,
@@ -74,7 +75,7 @@ export function LinksTab({
       setInWeekly(true);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     } finally {
       setSaving(false);
     }

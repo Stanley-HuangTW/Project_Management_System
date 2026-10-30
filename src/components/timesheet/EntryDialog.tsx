@@ -15,6 +15,7 @@ import { WEEKDAY_NAMES } from "@/lib/timeTemplates";
 import { EntryStatusBadge } from "./EntryStatusBadge";
 import { useNoteSuggestions } from "./useNoteSuggestions";
 import type { CalendarEvent } from "./timesheetEvents";
+import { actionErrorMessage } from "@/lib/userError";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -203,7 +204,7 @@ function EntryForm({
       );
       if (error) await notify(error, { title: "無法儲存" });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "儲存失敗", { title: "無法儲存" });
+      await notify(actionErrorMessage(err, "儲存失敗"), { title: "無法儲存" });
     } finally {
       setBusy(false);
     }

@@ -12,6 +12,7 @@ import { getBudgetView } from "@/lib/actions/budget";
 import { getDelayAnalysis } from "@/lib/actions/delayAnalysis";
 import { CATEGORY_LABELS } from "@/lib/budget";
 import type { BudgetScopeExport, DelayExport } from "@/lib/export/exportData";
+import { UserError } from "@/lib/userError";
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_");
@@ -110,7 +111,7 @@ export async function exportGanttWorkbook(
   const session = await requireSession();
   requireBoardAdmin(session.role);
   // 這份 Excel 帶預算與全部工作項,不分範圍。被系統設定限制了可見範圍的 DM(即使同時是主管)不能匯出。
-  if (await loadDmRestriction(boardId, session)) throw new Error("你的角色受「DM 的可見範圍」限制,不能匯出甘特圖 Excel");
+  if (await loadDmRestriction(boardId, session)) throw new UserError("你的角色受「DM 的可見範圍」限制,不能匯出甘特圖 Excel");
 
   const [board, users, resources, holidays, budgets, delay] = await Promise.all([
     prisma.board.findUnique({ where: { id: boardId }, ...boardWithDataArgs }),
@@ -123,10 +124,10 @@ export async function exportGanttWorkbook(
     gatherBudgets(boardId),
     gatherDelay(boardId),
   ]);
-  if (!board) throw new Error("找不到看板");
+  if (!board) throw new UserError("找不到看板");
 
   const group = board.groups.find((g) => g.id === groupId);
-  if (!group) throw new Error("找不到分組");
+  if (!group) throw new UserError("找不到分組");
 
   // Resources (tools, external vendors) can be set as an item's 負責人
   // alongside real Users, so PERSON-column values may reference either —

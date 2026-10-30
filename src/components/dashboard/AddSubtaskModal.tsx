@@ -6,6 +6,7 @@ import { PersonPicker } from "@/components/ui/PersonPicker";
 import { PercentInput } from "@/components/ui/PercentInput";
 import { createSubtaskFromDashboard } from "@/lib/actions/teamTask";
 import type { UserOption } from "@/types/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 const DAY_MS = 86_400_000;
 
@@ -93,7 +94,7 @@ export function AddSubtaskModal({
       });
       handleClose(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "建立失敗");
+      setError(actionErrorMessage(err, "建立失敗"));
     } finally {
       setSubmitting(false);
     }

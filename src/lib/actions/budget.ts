@@ -29,6 +29,7 @@ import { toMoney, fxExposure, isBaseCurrency } from "@/lib/currency";
 import { effectiveRateMap } from "@/lib/labourRate";
 import { refreshBomMaterial } from "@/lib/bomMaterial";
 import { nreByCostCategory, planNreApply, type NreApplyPlan } from "@/lib/nre";
+import { UserError } from "@/lib/userError";
 
 /**
  * 預算核准的三個層級:預算階段、看板上的一列工作項,或整個專案群組。
@@ -54,7 +55,7 @@ const BOARD_SCOPE_READ_ONLY = "整個專案是各階段的合計,沒有自己的
 
 /** 這個範圍的預算/準備金掛在哪個外鍵上。 */
 function scopeKey(scope: BudgetScope) {
-  if (scope.kind === "board") throw new Error(BOARD_SCOPE_READ_ONLY);
+  if (scope.kind === "board") throw new UserError(BOARD_SCOPE_READ_ONLY);
   if (scope.kind === "phase") return { phaseId: scope.id };
   if (scope.kind === "item") return { itemId: scope.id };
   return { programId: scope.id };
@@ -66,14 +67,14 @@ function scopeReadWhere(scope: BudgetScope) {
 }
 
 function budgetWhereUnique(scope: BudgetScope, category: CostCategory) {
-  if (scope.kind === "board") throw new Error(BOARD_SCOPE_READ_ONLY);
+  if (scope.kind === "board") throw new UserError(BOARD_SCOPE_READ_ONLY);
   if (scope.kind === "phase") return { phaseId_category: { phaseId: scope.id, category } };
   if (scope.kind === "item") return { itemId_category: { itemId: scope.id, category } };
   return { programId_category: { programId: scope.id, category } };
 }
 
 function reserveWhereUnique(scope: BudgetScope, kind: ReserveKind) {
-  if (scope.kind === "board") throw new Error(BOARD_SCOPE_READ_ONLY);
+  if (scope.kind === "board") throw new UserError(BOARD_SCOPE_READ_ONLY);
   if (scope.kind === "phase") return { phaseId_kind: { phaseId: scope.id, kind } };
   if (scope.kind === "item") return { itemId_kind: { itemId: scope.id, kind } };
   return { programId_kind: { programId: scope.id, kind } };
@@ -682,9 +683,9 @@ async function hasTeamLeaderRole(groupIds: string[], userId: string): Promise<bo
 export async function requireBudgetAdmin(scope: BudgetScope) {
   const session = await requireSession();
   const resolved = await resolveScope(scope, session);
-  if (!resolved) throw new Error("找不到這個預算範圍");
+  if (!resolved) throw new UserError("找不到這個預算範圍");
   if (!(await canEditBudget(scope, session))) {
-    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯預算");
+    throw new UserError("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯預算");
   }
   return { session, resolved };
 }

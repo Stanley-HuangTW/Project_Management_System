@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import {
   listTrashedBoards,
   restoreBoard,
   purgeBoard,
   type TrashedBoard,
 } from "@/lib/actions/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 /** 已刪除的看板:還原(連同工作項、預算、基準線與所屬專案群組)或永久刪除。 */
 export function BoardTrashModal({
@@ -67,7 +68,7 @@ export function BoardTrashModal({
       router.refresh();
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+        actionErrorMessage(err, "操作失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : failTitle }
       );
     } finally {

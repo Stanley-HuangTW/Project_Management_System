@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
 import { PRODUCT_SOURCE_LABELS } from "@/lib/bom";
 import {
@@ -27,6 +27,7 @@ import { BomRow, type BomColumns } from "./BomRow";
 import { BomPasteDialog } from "./BomPasteDialog";
 import { NewBomDialog } from "./NewBomDialog";
 import { BomExcelButtons } from "./BomExcelButtons";
+import { actionErrorMessage } from "@/lib/userError";
 
 /** 這一列自己與它底下所有子孫的 id —— flattenBom 是先序走訪,子孫剛好是
  *  它後面那一段「深度比它深」的連續區間,不用重新爬一次樹。 */
@@ -251,7 +252,7 @@ export function BomTable({ boardId }: { boardId: string }) {
       return true;
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗",
+        actionErrorMessage(err, "操作失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : failTitle }
       );
       return false;
@@ -361,7 +362,7 @@ export function BomTable({ boardId }: { boardId: string }) {
       setCtx(await getBomContext(boardId));
       return null;
     } catch (err) {
-      return isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗";
+      return actionErrorMessage(err, "操作失敗");
     } finally {
       setBusy(false);
     }
@@ -382,7 +383,7 @@ export function BomTable({ boardId }: { boardId: string }) {
       }
       return null;
     } catch (err) {
-      return isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗";
+      return actionErrorMessage(err, "操作失敗");
     } finally {
       setBusy(false);
     }

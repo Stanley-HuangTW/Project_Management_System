@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { setApprovalLevels } from "@/lib/actions/systemSettings";
 import { MAX_APPROVAL_LEVELS, levelLabel } from "@/lib/approvalLevels";
+import { actionErrorMessage } from "@/lib/userError";
 
 const selectClass =
   "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -32,7 +33,7 @@ export function ApprovalLevelsCard({ initial }: { initial: { leave: number; time
       } catch (err) {
         setLeave(initial.leave);
         setTimesheet(initial.timesheet);
-        await notify(err instanceof Error ? err.message : "無法儲存簽核層級", { title: "簽核層級" });
+        await notify(actionErrorMessage(err, "無法儲存簽核層級"), { title: "簽核層級" });
       }
     });
   }

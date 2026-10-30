@@ -9,6 +9,7 @@ import { findOverAllocations, movableTasks } from "@/lib/overAllocation";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { actionErrorMessage } from "@/lib/userError";
 
 const DAY_MS = 86_400_000;
 /** 工作 loading 門檻的預設值 — 超過這個百分比才算過度配置。 */
@@ -95,7 +96,7 @@ export function OverAllocationCard({
       }
       setItemDetail(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningItemId(null);
     }

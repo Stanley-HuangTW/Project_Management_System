@@ -11,6 +11,7 @@ import {
   removeProgramReportRecipient,
   type ProgramReportSubscriptionRow,
 } from "@/lib/actions/programReportSubscription";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type ReportSubscriptionUser = { id: string; name: string };
 
@@ -44,7 +45,7 @@ export function ProgramReportSubscriptionCard({
       router.refresh();
       return true;
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: failTitle });
       return false;
     } finally {
       setBusy(false);

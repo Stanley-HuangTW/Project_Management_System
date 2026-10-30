@@ -24,6 +24,7 @@ import {
   type StatusOption,
 } from "@/types/column";
 import type { ImportRowsInput, ImportResult } from "@/types/import";
+import { UserError } from "@/lib/userError";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
@@ -74,11 +75,11 @@ async function fetchViaSheetsApi(spreadsheetId: string, token: string): Promise<
   const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      throw new Error(
+      throw new UserError(
         "無法存取此 Google Sheet(此 Google 帳號沒有這份試算表的檢視權限)。請確認登入的帳號有權檢視此表單,或改用「上傳檔案」方式匯入。"
       );
     }
-    throw new Error(`無法讀取此 Google Sheet(HTTP ${res.status})`);
+    throw new UserError(`無法讀取此 Google Sheet(HTTP ${res.status})`);
   }
 
   const data = (await res.json()) as SheetsApiResponse;

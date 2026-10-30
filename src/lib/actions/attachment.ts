@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
+import { UserError } from "@/lib/userError";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
@@ -34,10 +35,10 @@ export async function uploadAttachment(
 
   const file = formData.get("file");
   if (!(file instanceof File) || !file.name) {
-    throw new Error("請選擇檔案");
+    throw new UserError("請選擇檔案");
   }
   if (file.size > MAX_FILE_SIZE) {
-    throw new Error("檔案過大,請使用小於 100MB 的檔案");
+    throw new UserError("檔案過大,請使用小於 100MB 的檔案");
   }
 
   const safeName = file.name.replace(/[/\\]/g, "_");

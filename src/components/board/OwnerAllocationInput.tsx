@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { PercentInput } from "@/components/ui/PercentInput";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { upsertAssignment } from "@/lib/actions/assignment";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import type { ItemData, UserOption } from "@/types/board";
 import { useOwnerDefaultPct } from "./OwnerDefaultPctContext";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 負責人旁邊選填的「工作量 %」。不填,這位負責人就照系統設定的預設比例算;填了,等於把他加進
@@ -41,7 +42,7 @@ export function OwnerAllocationInput({
       router.refresh();
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "無法儲存工作量",
+        actionErrorMessage(err, "無法儲存工作量"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法設定工作量" }
       );
     }

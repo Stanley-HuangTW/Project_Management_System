@@ -9,7 +9,7 @@ import { formatMoney } from "@/lib/cost";
 import { CATEGORY_LABELS, COST_CATEGORIES } from "@/lib/budget";
 import { planNreApply } from "@/lib/nre";
 import { BASE_CURRENCY, describeForeign, isBaseCurrency } from "@/lib/currency";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { SpendCurveChart } from "./SpendCurveChart";
 import {
   getBudgetView,
@@ -29,6 +29,7 @@ import {
   type AttachmentRow,
 } from "@/lib/actions/budget";
 import { HScrollPane } from "@/components/ui/HScrollPane";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 預算管控 — 核准多少、花掉多少、承諾出去多少、還剩多少。
@@ -78,7 +79,7 @@ export function BudgetPanel({ scope }: { scope: BudgetScope }) {
     } catch (err) {
       // A page left open across a deploy calls a Server Action id the server
       // no longer has. That is not a budget error and should not read like one.
-      await notify(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "操作失敗", {
+      await notify(actionErrorMessage(err, "操作失敗"), {
         title: isStaleBuildError(err) ? "需要重新整理" : failTitle,
       });
       return false;

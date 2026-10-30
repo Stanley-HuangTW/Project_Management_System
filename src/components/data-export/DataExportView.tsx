@@ -9,6 +9,7 @@ import {
   type CsvBoardOption,
   type CsvImportResult,
 } from "@/lib/actions/boardCsv";
+import { actionErrorMessage } from "@/lib/userError";
 
 function downloadCsv(filename: string, content: string) {
   // 開頭補 UTF-8 BOM——Excel 開純文字 CSV 沒看到 BOM 常常會把中文猜成別的
@@ -62,7 +63,7 @@ export function DataExportView({ canImport }: { canImport: boolean }) {
       if ("error" in out) setError(`${board.name}:${out.error}`);
       else downloadCsv(out.filename, out.content);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯出失敗");
+      setError(actionErrorMessage(e, "匯出失敗"));
     } finally {
       setBusy(null);
     }
@@ -80,7 +81,7 @@ export function DataExportView({ canImport }: { canImport: boolean }) {
         else downloadCsv(out.filename, out.content);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯出失敗");
+      setError(actionErrorMessage(e, "匯出失敗"));
     } finally {
       setBusy(null);
     }
@@ -99,7 +100,7 @@ export function DataExportView({ canImport }: { canImport: boolean }) {
       }
       setResults(next);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯入失敗");
+      setError(actionErrorMessage(e, "匯入失敗"));
     } finally {
       setBusy(null);
     }

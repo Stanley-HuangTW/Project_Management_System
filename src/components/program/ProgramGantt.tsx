@@ -19,6 +19,7 @@ import type { RelationshipType } from "@/lib/predecessorLink";
 import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/itemSchedule";
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { actionErrorMessage } from "@/lib/userError";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 9, month: 3 };
@@ -99,7 +100,7 @@ export function ProgramGantt({
       }
       setItemDetail(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningItemId(null);
     }

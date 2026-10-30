@@ -16,6 +16,7 @@ import {
 import { snapHours } from "@/lib/calendarLayout";
 import { formatMinute, parseMinute } from "@/lib/timeOfDay";
 import { WEEKDAY_NAMES, describeApplyResult, formatWeekdays, type TemplateKind } from "@/lib/timeTemplates";
+import { actionErrorMessage } from "@/lib/userError";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -102,7 +103,7 @@ export function TemplateDialog({
       setStatus({ text: `「${t.name}」套用到${weekLabel}:${describeApplyResult(result)}`, failed: result.failed });
       if (result.created > 0) onApplied();
     } catch (err) {
-      setStatus({ text: err instanceof Error ? err.message : "套用失敗", failed: [] });
+      setStatus({ text: actionErrorMessage(err, "套用失敗"), failed: [] });
     } finally {
       setBusyId(null);
     }
@@ -284,7 +285,7 @@ function TemplateForm({
       setNote("");
       onCreated();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "儲存失敗", { title: "無法儲存範本" });
+      await notify(actionErrorMessage(err, "儲存失敗"), { title: "無法儲存範本" });
     } finally {
       setBusy(false);
     }

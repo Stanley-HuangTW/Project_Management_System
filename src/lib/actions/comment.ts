@@ -9,6 +9,7 @@ import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { canManageStructure } from "@/lib/permissions";
 import { publishChatEvent } from "@/lib/chatServer";
+import { UserError } from "@/lib/userError";
 
 export async function createComment(
   /** Not trusted for authorization — see requireItemBoardAccess below. */
@@ -21,7 +22,7 @@ export async function createComment(
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
   const trimmed = body.trim();
-  if (!trimmed) throw new Error("留言不可為空");
+  if (!trimmed) throw new UserError("留言不可為空");
 
   const [comment, item] = await Promise.all([
     prisma.comment.create({

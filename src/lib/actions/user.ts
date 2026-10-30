@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/activityLog";
 import { requireSession } from "@/lib/session";
 import { resyncBoardLabour } from "@/lib/actions/labourSheet";
 import { Prisma, type UserRole } from "@prisma/client";
+import { UserError } from "@/lib/userError";
 
 export async function listUsers() {
   await requireSession();
@@ -48,7 +49,7 @@ export async function listUsers() {
 export async function updateUserDiscipline(userId: string, discipline: Discipline | null) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定所屬單位");
+    throw new UserError("只有管理員可以設定所屬單位");
   }
   const target = await prisma.user.findUnique({
     where: { id: userId },
@@ -70,10 +71,10 @@ export async function updateUserDiscipline(userId: string, discipline: Disciplin
 export async function updateUserTimesheetAccess(userId: string, canViewAll: boolean) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定工時檢視權限");
+    throw new UserError("只有管理員可以設定工時檢視權限");
   }
   const target = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-  if (!target) throw new Error("找不到使用者");
+  if (!target) throw new UserError("找不到使用者");
 
   await prisma.user.update({ where: { id: userId }, data: { canViewAllTimesheets: canViewAll } });
   await logAudit(
@@ -91,10 +92,10 @@ export async function updateUserTimesheetAccess(userId: string, canViewAll: bool
 export async function updateUserTimesheetNoApproval(userId: string, noApproval: boolean) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定工時免審核");
+    throw new UserError("只有管理員可以設定工時免審核");
   }
   const target = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-  if (!target) throw new Error("找不到使用者");
+  if (!target) throw new UserError("找不到使用者");
 
   await prisma.user.update({ where: { id: userId }, data: { timesheetNoApproval: noApproval } });
   let approved = 0;
@@ -138,10 +139,10 @@ async function boardsWithSlotsOf(userId: string): Promise<string[]> {
 export async function updateUserMonthlySalary(userId: string, salary: number | null) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定月薪");
+    throw new UserError("只有管理員可以設定月薪");
   }
   if (salary !== null && (!Number.isFinite(salary) || salary < 0)) {
-    throw new Error("月薪必須是 0 或正數");
+    throw new UserError("月薪必須是 0 或正數");
   }
   const target = await prisma.user.findUnique({
     where: { id: userId },
@@ -167,10 +168,10 @@ export async function updateUserMonthlySalary(userId: string, salary: number | n
 export async function updateUserHourlyRate(userId: string, rate: number | null) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定費率");
+    throw new UserError("只有管理員可以設定費率");
   }
   if (rate !== null && (!Number.isFinite(rate) || rate < 0)) {
-    throw new Error("費率必須是 0 或正數");
+    throw new UserError("費率必須是 0 或正數");
   }
   const target = await prisma.user.findUnique({
     where: { id: userId },
@@ -202,7 +203,7 @@ async function cycleError(userId: string, supervisorId: string | null): Promise<
 
 async function requireNoCycle(userId: string, supervisorId: string | null) {
   const error = await cycleError(userId, supervisorId);
-  if (error) throw new Error(error);
+  if (error) throw new UserError(error);
 }
 
 /** Email 已經有人註冊了。新增、修改使用者都用這句。 */
@@ -378,7 +379,7 @@ export async function deleteUser(userId: string): Promise<{ error?: string }> {
 export async function reorderUsers(orderedUserIds: string[]) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以調整使用者順序");
+    throw new UserError("只有管理員可以調整使用者順序");
   }
 
   await prisma.$transaction(
@@ -396,11 +397,11 @@ export async function updateUserSupervisor(
 ) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定所屬主管");
+    throw new UserError("只有管理員可以設定所屬主管");
   }
   const target = await prisma.user.findUnique({ where: { id: userId }, select: { orgNodeId: true } });
   if (target?.orgNodeId) {
-    throw new Error("這個人掛在組織架構圖上,所屬主管由架構圖決定,請到「組織架構圖」修改");
+    throw new UserError("這個人掛在組織架構圖上,所屬主管由架構圖決定,請到「組織架構圖」修改");
   }
   await requireNoCycle(userId, supervisorId);
 
@@ -415,10 +416,10 @@ export async function updateUserSupervisor(
 export async function updateUserAvatar(userId: string, avatarUrl: string | null) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以設定使用者頭像");
+    throw new UserError("只有管理員可以設定使用者頭像");
   }
   if (avatarUrl && avatarUrl.length > 2_000_000) {
-    throw new Error("圖片檔案過大,請使用較小的圖片");
+    throw new UserError("圖片檔案過大,請使用較小的圖片");
   }
 
   await prisma.user.update({
@@ -460,9 +461,9 @@ export async function adminResetUserPassword(userId: string, newPassword: string
  *  their own photo, no ADMIN check. */
 export async function updateOwnAvatar(avatarUrl: string | null) {
   const session = await requireSession();
-  if (session.impersonatorId) throw new Error("以別人的身分檢視時,不能更換對方的照片");
+  if (session.impersonatorId) throw new UserError("以別人的身分檢視時,不能更換對方的照片");
   if (avatarUrl && avatarUrl.length > 2_000_000) {
-    throw new Error("圖片檔案過大,請使用較小的圖片");
+    throw new UserError("圖片檔案過大,請使用較小的圖片");
   }
 
   await prisma.user.update({
@@ -480,18 +481,18 @@ export async function updateOwnAvatar(avatarUrl: string | null) {
  *  silently lock the real owner out. */
 export async function updateOwnPassword(currentPassword: string, newPassword: string) {
   const session = await requireSession();
-  if (session.impersonatorId) throw new Error("以別人的身分檢視時,不能變更對方的密碼");
+  if (session.impersonatorId) throw new UserError("以別人的身分檢視時,不能變更對方的密碼");
   if (newPassword.length < 8) {
-    throw new Error("新密碼至少需要 8 個字元");
+    throw new UserError("新密碼至少需要 8 個字元");
   }
 
   const user = await prisma.user.findUnique({ where: { id: session.userId } });
   if (!user) {
-    throw new Error("找不到使用者");
+    throw new UserError("找不到使用者");
   }
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) {
-    throw new Error("目前密碼不正確");
+    throw new UserError("目前密碼不正確");
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -508,7 +509,7 @@ export async function updateOwnPassword(currentPassword: string, newPassword: st
 export async function unlockUser(userId: string) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以解除帳號鎖定");
+    throw new UserError("只有管理員可以解除帳號鎖定");
   }
 
   await prisma.user.update({

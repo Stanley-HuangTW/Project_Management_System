@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { TeamWorkloadEntry, WorkloadPeriod, MemberItemWorkloadEntry } from "@/lib/dashboard";
 import { getCustomWorkload } from "@/lib/actions/workload";
+import { actionErrorMessage } from "@/lib/userError";
 
 const PERIOD_LABELS: Record<WorkloadPeriod, string> = {
   day: "本日",
@@ -116,7 +117,7 @@ export function TeamWorkloadCard({
         const result = await getCustomWorkload(customFrom, customTo, boardId);
         if (!cancelled) setCustomResult(result);
       } catch (err) {
-        if (!cancelled) setCustomError(err instanceof Error ? err.message : "查詢失敗");
+        if (!cancelled) setCustomError(actionErrorMessage(err, "查詢失敗"));
       } finally {
         if (!cancelled) setCustomLoading(false);
       }
@@ -153,7 +154,7 @@ export function TeamWorkloadCard({
     try {
       setCustomResult(await getCustomWorkload(customFrom, customTo, boardId));
     } catch (err) {
-      setCustomError(err instanceof Error ? err.message : "查詢失敗");
+      setCustomError(actionErrorMessage(err, "查詢失敗"));
     } finally {
       setCustomLoading(false);
     }

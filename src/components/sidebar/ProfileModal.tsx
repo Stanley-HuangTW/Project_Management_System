@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/impersonate";
 import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useTheme } from "@/lib/useTheme";
+import { actionErrorMessage } from "@/lib/userError";
 
 export function ProfileModal({
   userName,
@@ -121,7 +122,7 @@ export function ProfileModal({
       setPreviewAvatarUrl(dataUrl);
       router.refresh();
     } catch (err) {
-      setAvatarError(err instanceof Error ? err.message : "上傳頭像失敗");
+      setAvatarError(actionErrorMessage(err, "上傳頭像失敗"));
     } finally {
       setUploading(false);
     }
@@ -137,7 +138,7 @@ export function ProfileModal({
       setNewPassword("");
       setPasswordSuccess(true);
     } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : "更新密碼失敗");
+      setPasswordError(actionErrorMessage(err, "更新密碼失敗"));
     } finally {
       setChangingPassword(false);
     }

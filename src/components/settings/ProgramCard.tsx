@@ -14,6 +14,7 @@ import {
 import { saveSidebarOrder } from "@/lib/actions/sidebarOrder";
 import { applyStoredOrder } from "@/lib/sidebarOrder";
 import { SortableList } from "@/components/ui/SortableList";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type ProgramBoard = { id: string; name: string; programId: string | null };
 
@@ -59,7 +60,7 @@ export function ProgramCard({
       router.refresh();
       return true;
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: failTitle });
       return false;
     } finally {
       setBusy(false);
@@ -108,7 +109,7 @@ export function ProgramCard({
       router.refresh();
       await notify(`已加入,重算了 ${result.recomputed} 個項目。`, { title: "已加入群組" });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: "無法加入群組" });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: "無法加入群組" });
     } finally {
       setBusy(false);
     }
@@ -125,7 +126,7 @@ export function ProgramCard({
       await setBoardProgram(board.id, null);
       router.refresh();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: "無法移出群組" });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: "無法移出群組" });
     } finally {
       setBusy(false);
     }

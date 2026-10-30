@@ -27,6 +27,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { useEditHistory } from "../EditHistoryProvider";
 import type { UndoResult } from "@/lib/editHistory";
 import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 export function ItemCardTab({
   boardId,
@@ -168,7 +169,7 @@ export function ItemCardTab({
         await renameItem(boardId, item.id, target);
         return { ok: true };
       } catch (err) {
-        return { ok: false, reason: err instanceof Error ? err.message : "改名失敗" };
+        return { ok: false, reason: actionErrorMessage(err, "改名失敗") };
       }
     };
     history.record({

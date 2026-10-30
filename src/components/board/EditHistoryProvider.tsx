@@ -12,6 +12,7 @@ import {
   type HistoryEntry,
   type HistoryState,
 } from "@/lib/editHistory";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type EditHistoryApi = {
   /** 一次修改成功之後登記:怎麼還原、怎麼重做。 */
@@ -90,7 +91,7 @@ export function EditHistoryProvider({ board, children }: { board: BoardWithData;
         if (kind === "redo" && latest.future[latest.future.length - 1] === entry) commit(redoneState(latest));
         router.refresh();
       } catch (err) {
-        await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+        await notify(actionErrorMessage(err, "操作失敗"), { title: failTitle });
       } finally {
         busyRef.current = false;
         setBusy(false);

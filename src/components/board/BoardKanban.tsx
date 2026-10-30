@@ -30,6 +30,7 @@ import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/ite
 import { useRecordedCellSave } from "./cell-editors/useCellSave";
 import { teamViewIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { actionErrorMessage } from "@/lib/userError";
 
 // 逾期 first, then 未處理, then 實作中, then 已完成 last — same status
 // precedence as the Gantt/table/dashboard name-color rule, repurposed as a
@@ -310,7 +311,7 @@ export function BoardKanban({
       }
       setItemDetail(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningDetailItemId(null);
     }

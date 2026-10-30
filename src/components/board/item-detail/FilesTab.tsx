@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { File as FileIcon, Paperclip, Trash2 } from "lucide-react";
 import { deleteAttachment, listAttachments, uploadAttachment } from "@/lib/actions/attachment";
+import { actionErrorMessage } from "@/lib/userError";
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -49,7 +50,7 @@ export function FilesTab({ boardId, itemId }: { boardId: string; itemId: string 
       await uploadAttachment(boardId, itemId, formData);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "上傳失敗");
+      setError(actionErrorMessage(err, "上傳失敗"));
     } finally {
       setUploading(false);
     }

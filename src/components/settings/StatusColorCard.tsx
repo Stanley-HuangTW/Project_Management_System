@@ -6,6 +6,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { getStatusOptions, type StatusOption } from "@/types/column";
 import { updateStatusOptions } from "@/lib/actions/column";
 import { defaultColorFor, DEFAULT_STATUS_COLORS } from "@/lib/statusDefaults";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type StatusColorBoard = {
   id: string;
@@ -55,7 +56,7 @@ export function StatusColorCard({ boards }: { boards: StatusColorBoard[] }) {
         return rest;
       });
     } catch (e) {
-      await notify(e instanceof Error ? e.message : "儲存失敗", { title: "無法儲存顏色" });
+      await notify(actionErrorMessage(e, "儲存失敗"), { title: "無法儲存顏色" });
     } finally {
       setBusy(false);
     }

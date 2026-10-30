@@ -8,6 +8,7 @@ import type { ColumnData, UserOption } from "@/types/board";
 import { bulkSetCellValue, bulkShiftDates } from "@/lib/actions/bulk";
 import { getStatusOptions } from "@/types/column";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * The bar that appears once rows are ticked. Everything here is something you
@@ -49,7 +50,7 @@ export function BulkEditBar({
       await notify(lines.join("\n"), { title: "批次編輯完成" });
       if (result.applied > 0) onClear();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "批次編輯失敗", { title: "批次編輯失敗" });
+      await notify(actionErrorMessage(err, "批次編輯失敗"), { title: "批次編輯失敗" });
     } finally {
       setBusy(false);
     }

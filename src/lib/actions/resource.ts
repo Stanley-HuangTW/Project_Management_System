@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { UserError } from "@/lib/userError";
 
 export async function listResources() {
   await requireSession();
@@ -21,12 +22,12 @@ export async function createResource(
 ) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以新增資源");
+    throw new UserError("只有管理員可以新增資源");
   }
 
   const trimmedName = name.trim();
   if (!trimmedName) {
-    throw new Error("名稱為必填");
+    throw new UserError("名稱為必填");
   }
 
   const maxOrder = await prisma.resource.aggregate({ _max: { order: true } });
@@ -54,12 +55,12 @@ export async function updateResource(
 ) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以修改資源");
+    throw new UserError("只有管理員可以修改資源");
   }
 
   const trimmedName = name.trim();
   if (!trimmedName) {
-    throw new Error("名稱為必填");
+    throw new UserError("名稱為必填");
   }
 
   await prisma.resource.update({
@@ -79,7 +80,7 @@ export async function updateResource(
 export async function deleteResource(resourceId: string) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以刪除資源");
+    throw new UserError("只有管理員可以刪除資源");
   }
 
   await prisma.resource.delete({ where: { id: resourceId } });
@@ -90,7 +91,7 @@ export async function deleteResource(resourceId: string) {
 export async function reorderResources(orderedResourceIds: string[]) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
-    throw new Error("只有管理員可以調整資源順序");
+    throw new UserError("只有管理員可以調整資源順序");
   }
 
   await prisma.$transaction(

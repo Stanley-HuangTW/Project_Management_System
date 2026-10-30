@@ -6,10 +6,11 @@ import { requireSession } from "@/lib/session";
 import { logAudit } from "@/lib/activityLog";
 import { checkUnitCode } from "@/lib/orgUnits";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
+import { UserError } from "@/lib/userError";
 
 async function requireAdmin() {
   const session = await requireSession();
-  if (session.role !== "ADMIN") throw new Error("只有管理者能設定組織單位");
+  if (session.role !== "ADMIN") throw new UserError("只有管理者能設定組織單位");
   return session;
 }
 

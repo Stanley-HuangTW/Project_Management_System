@@ -21,6 +21,7 @@ import {
   type BomNode,
   type ProductSource,
 } from "@/lib/bom";
+import { UserError } from "@/lib/userError";
 
 /**
  * 樣機 BOM:某個產品、某個階段一份表,列廠商/型號/名稱/子集,算出一台裝置
@@ -36,7 +37,7 @@ async function requireBomAdmin(boardId: string) {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
   if (!(await canEditBoardBudget(boardId, session))) {
-    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機 BOM");
+    throw new UserError("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機 BOM");
   }
   return session;
 }

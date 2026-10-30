@@ -7,6 +7,7 @@ import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { logActivity } from "@/lib/activityLog";
 import { mantisIdFromUrl } from "@/lib/mantis";
 import { canManageStructure } from "@/lib/permissions";
+import { UserError } from "@/lib/userError";
 
 function normalizeUrl(input: string): string {
   const trimmed = input.trim();
@@ -14,10 +15,10 @@ function normalizeUrl(input: string): string {
   try {
     parsed = new URL(trimmed);
   } catch {
-    throw new Error("請輸入完整的網址(例如 https://...)");
+    throw new UserError("請輸入完整的網址(例如 https://...)");
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("只接受 http(s) 開頭的網址");
+    throw new UserError("只接受 http(s) 開頭的網址");
   }
   return parsed.toString();
 }

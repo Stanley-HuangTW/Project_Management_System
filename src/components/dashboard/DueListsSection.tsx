@@ -9,6 +9,7 @@ import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
+import { actionErrorMessage } from "@/lib/userError";
 
 const STORAGE_KEY = "dashboard-due-lists-view";
 
@@ -83,7 +84,7 @@ export function DueListsSection({
       }
       setItemDetail(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningItemId(null);
     }

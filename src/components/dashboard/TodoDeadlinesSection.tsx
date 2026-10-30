@@ -7,6 +7,7 @@ import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { describeDeadline, formatDueShort, type DeadlineTone, type TodoDeadlineEntry } from "@/lib/todoDeadline";
 import type { UserOption } from "@/types/board";
+import { actionErrorMessage } from "@/lib/userError";
 
 const TONE_CLASS: Record<DeadlineTone, string> = {
   overdue: "text-red-600",
@@ -50,7 +51,7 @@ export function TodoDeadlinesSection({
       }
       setItemDetail(context);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "載入失敗");
+      await notify(actionErrorMessage(err, "載入失敗"));
     } finally {
       setOpeningId(null);
     }

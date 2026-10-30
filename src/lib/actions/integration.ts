@@ -7,6 +7,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { generateApiKey, hashApiKey, apiKeyPrefix } from "@/lib/apiKey";
 import { generateWebhookSecret, WEBHOOK_EVENTS, type WebhookEvent } from "@/lib/webhooks";
 import { logAudit } from "@/lib/activityLog";
+import { UserError } from "@/lib/userError";
 
 export type ApiKeyRow = {
   id: string;
@@ -19,7 +20,7 @@ export type ApiKeyRow = {
 
 async function requireAdmin() {
   const session = await requireSession();
-  if (session.role !== "ADMIN") throw new Error("權限不足:僅管理者可以管理 API 金鑰");
+  if (session.role !== "ADMIN") throw new UserError("權限不足:僅管理者可以管理 API 金鑰");
   return session;
 }
 

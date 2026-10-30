@@ -15,6 +15,7 @@ import { orderProtoCells } from "@/lib/protoRowOrder";
 import { syncProtoUnits } from "@/lib/protoUnitsServer";
 import { protoSyncNotice, protoUnitLabel } from "@/lib/protoUnits";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
+import { UserError } from "@/lib/userError";
 
 /** 樣機計畫排出來的一台樣機,以及用到它的工作項(只列這個人看得到的)。 */
 export type ProtoMachineView = {
@@ -43,7 +44,7 @@ async function requireProtoAdmin(boardId: string) {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
   if (!(await canEditBoardBudget(boardId, session))) {
-    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機計畫");
+    throw new UserError("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機計畫");
   }
   return session;
 }

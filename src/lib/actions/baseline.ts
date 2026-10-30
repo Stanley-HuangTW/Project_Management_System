@@ -8,6 +8,7 @@ import { requireStructureAccess } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
 import { getItemDateRange } from "@/lib/gantt";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
+import { UserError } from "@/lib/userError";
 
 /**
  * Saves every item's current Start/Finish/Days as the plan this board is
@@ -34,7 +35,7 @@ export async function captureBaseline(boardId: string, name?: string): Promise<n
     select: { ganttStartColumnId: true, ganttDurationColumnId: true, ganttDurationMode: true },
   });
   if (!board?.ganttStartColumnId || !board.ganttDurationColumnId) {
-    throw new Error("此看板尚未設定甘特圖「開始日期」與「天數」欄位,無法建立基準線");
+    throw new UserError("此看板尚未設定甘特圖「開始日期」與「天數」欄位,無法建立基準線");
   }
 
   const [items, holidayRows] = await Promise.all([

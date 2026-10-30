@@ -14,6 +14,7 @@ import {
   parseDefaultColumns,
   type DefaultColumn,
 } from "@/lib/defaultColumns";
+import { UserError } from "@/lib/userError";
 
 export async function getSystemSettings() {
   const settings = await prisma.systemSettings.findUnique({ where: { id: "global" } });
@@ -94,8 +95,8 @@ export async function setDefaultBoardColumnsFromBoard(boardId: string) {
       columns: { orderBy: { order: "asc" }, select: { name: true, type: true, options: true } },
     },
   });
-  if (!board) throw new Error("找不到看板");
-  if (board.columns.length === 0) throw new Error("這個看板沒有欄位可以複製");
+  if (!board) throw new UserError("找不到看板");
+  if (board.columns.length === 0) throw new UserError("這個看板沒有欄位可以複製");
 
   const columns = parseDefaultColumns(board.columns);
   await prisma.systemSettings.upsert({
@@ -135,7 +136,7 @@ export async function setHoursPerDay(hours: number) {
   const session = await requireSession();
   requireBoardAdmin(session.role);
   if (!Number.isFinite(hours) || hours < 1 || hours > 24) {
-    throw new Error("每日工時必須在 1 到 24 之間");
+    throw new UserError("每日工時必須在 1 到 24 之間");
   }
   const value = Math.round(hours);
   const before = await getSystemSettings();
@@ -175,7 +176,7 @@ export async function setWorkingDaysPerMonth(days: number) {
   const session = await requireSession();
   requireBoardAdmin(session.role);
   if (!Number.isFinite(days) || days < 1 || days > 31) {
-    throw new Error("每月工作天數必須在 1 到 31 之間");
+    throw new UserError("每月工作天數必須在 1 到 31 之間");
   }
   const value = Math.round(days);
   const before = await getSystemSettings();
@@ -197,7 +198,7 @@ export async function setOwnerDefaultAllocationPct(pct: number) {
   const session = await requireSession();
   requireBoardAdmin(session.role);
   if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
-    throw new Error("預設工作量必須在 0 到 100 之間");
+    throw new UserError("預設工作量必須在 0 到 100 之間");
   }
   const value = Math.round(pct);
   const before = await getSystemSettings();

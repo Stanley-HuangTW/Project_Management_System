@@ -3,6 +3,7 @@
 import type { AuditCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { UserError } from "@/lib/userError";
 
 export type AuditRow = {
   id: string;
@@ -37,7 +38,7 @@ export async function listAuditLog(options: {
   offset?: number;
 }): Promise<AuditPage> {
   const session = await requireSession();
-  if (session.role !== "ADMIN") throw new Error("權限不足:僅管理者可以檢視稽核軌跡");
+  if (session.role !== "ADMIN") throw new UserError("權限不足:僅管理者可以檢視稽核軌跡");
 
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
   const offset = Math.max(options.offset ?? 0, 0);
@@ -85,7 +86,7 @@ export async function auditFilterOptions(): Promise<{
   actors: { id: string; name: string }[];
 }> {
   const session = await requireSession();
-  if (session.role !== "ADMIN") throw new Error("權限不足");
+  if (session.role !== "ADMIN") throw new UserError("權限不足");
 
   const [boards, actors] = await Promise.all([
     prisma.board.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),

@@ -12,6 +12,7 @@ import {
   deleteRule,
   toggleRule,
 } from "@/lib/actions/automation";
+import { actionErrorMessage } from "@/lib/userError";
 
 type RuleData = Awaited<ReturnType<typeof listRules>>[number];
 
@@ -101,7 +102,7 @@ export function AutomationRulesModal({
       setMoveToGroupId("");
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "建立失敗");
+      setError(actionErrorMessage(err, "建立失敗"));
     } finally {
       setSubmitting(false);
     }

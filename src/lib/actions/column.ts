@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/activityLog";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import type { ColumnType, StatusColumnOptions } from "@/types/column";
 import { DEFAULT_STATUSES, getStatusOptions } from "@/types/column";
+import { UserError } from "@/lib/userError";
 
 // The scheduling engine (predecessorLink.ts) only ever recognizes these 4
 // labels as a valid Pred relationship — a Link column whose options were
@@ -32,7 +33,7 @@ export async function createColumn(
   await requireBoardAccess(boardId, session);
   requireStructureAccess(session.role);
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("欄位名稱不可為空");
+  if (!trimmed) throw new UserError("欄位名稱不可為空");
 
   const count = await prisma.column.count({ where: { boardId } });
   const options: StatusColumnOptions | Record<string, never> =
@@ -54,7 +55,7 @@ export async function renameColumn(
   await requireBoardAccess(boardId, session);
   requireStructureAccess(session.role);
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("欄位名稱不可為空");
+  if (!trimmed) throw new UserError("欄位名稱不可為空");
 
   await prisma.column.update({
     where: { id: columnId },

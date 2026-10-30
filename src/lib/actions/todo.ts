@@ -9,6 +9,7 @@ import { isValidDueDate } from "@/lib/todoDeadline";
 import { assigneeName, suggestItemAssignee } from "@/lib/todoAssigneeServer";
 import { noteForLog, normalizeTodoNote, normalizeTodoText } from "@/lib/todoNote";
 import { mergeOrder } from "@/lib/mergeOrder";
+import { UserError } from "@/lib/userError";
 
 /** 畫面上的順序;order 相同(舊資料、刪除後新增)的依建立先後,讓拖曳排序與畫面看到的是同一個基準。 */
 const TODO_ORDER = [{ order: "asc" as const }, { createdAt: "asc" as const }];
@@ -178,7 +179,7 @@ export async function toggleTodoItem(
   const boardId = await requireItemBoardAccess(itemId, session);
   const existingTodo = await prisma.todoItem.findUnique({ where: { id: todoId } });
   if (!existingTodo || existingTodo.itemId !== itemId) {
-    throw new Error("待辦事項不存在");
+    throw new UserError("待辦事項不存在");
   }
   const todo = await prisma.todoItem.update({ where: { id: todoId }, data: { done } });
   await logActivity(
@@ -223,7 +224,7 @@ export async function deleteTodoItem(
   const boardId = await requireItemBoardAccess(itemId, session);
   const existingTodo = await prisma.todoItem.findUnique({ where: { id: todoId } });
   if (!existingTodo || existingTodo.itemId !== itemId) {
-    throw new Error("待辦事項不存在");
+    throw new UserError("待辦事項不存在");
   }
   await prisma.todoItem.delete({ where: { id: todoId } });
   revalidatePath(`/boards/${boardId}`);

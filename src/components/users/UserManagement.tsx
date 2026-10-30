@@ -46,6 +46,7 @@ import { setUserOrgNode } from "@/lib/actions/orgChart";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { HandoverDialog } from "./HandoverDialog";
+import { actionErrorMessage } from "@/lib/userError";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
@@ -445,7 +446,7 @@ export function UserManagement({
       const dataUrl = await fileToAvatarDataUrl(file);
       await updateUserAvatar(avatarTargetId, dataUrl);
     } catch (err) {
-      setAvatarError(err instanceof Error ? err.message : "上傳頭像失敗");
+      setAvatarError(actionErrorMessage(err, "上傳頭像失敗"));
     } finally {
       setUploadingId(null);
       setAvatarTargetId(null);
@@ -473,7 +474,7 @@ export function UserManagement({
       setOpen(false);
       reset();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "新增失敗");
+      setError(actionErrorMessage(err, "新增失敗"));
     } finally {
       setSubmitting(false);
     }
@@ -510,7 +511,7 @@ export function UserManagement({
       }
       setEditTarget(null);
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : "修改失敗");
+      setEditError(actionErrorMessage(err, "修改失敗"));
     } finally {
       setEditSubmitting(false);
     }
@@ -528,7 +529,7 @@ export function UserManagement({
       const result = await deleteUser(user.id);
       if (result.error) setDeleteError(result.error);
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "刪除失敗");
+      setDeleteError(actionErrorMessage(err, "刪除失敗"));
     }
   }
 
@@ -550,7 +551,7 @@ export function UserManagement({
       }
       setResetTarget(null);
     } catch (err) {
-      setResetError(err instanceof Error ? err.message : "重設密碼失敗");
+      setResetError(actionErrorMessage(err, "重設密碼失敗"));
     } finally {
       setResetSubmitting(false);
     }
@@ -561,7 +562,7 @@ export function UserManagement({
     try {
       await unlockUser(user.id);
     } catch (err) {
-      setUnlockError(err instanceof Error ? err.message : "解除鎖定失敗");
+      setUnlockError(actionErrorMessage(err, "解除鎖定失敗"));
     }
   }
 

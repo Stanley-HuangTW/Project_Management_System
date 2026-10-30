@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import { requireStructureAccess } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import type { CellValueJson } from "@/types/column";
+import { UserError } from "@/lib/userError";
 
 export async function listRules(boardId: string) {
   const session = await requireSession();
@@ -34,7 +35,7 @@ export async function createRule(
   await requireBoardAccess(boardId, session);
   requireStructureAccess(session.role);
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("規則名稱不可為空");
+  if (!trimmed) throw new UserError("規則名稱不可為空");
 
   await prisma.automationRule.create({
     data: {

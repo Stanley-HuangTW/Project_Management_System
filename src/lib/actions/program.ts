@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/session";
 import { recomputeAllSchedules } from "@/lib/scheduleCascade";
 import { logAudit } from "@/lib/activityLog";
 import { applyStoredOrder } from "@/lib/sidebarOrder";
+import { UserError } from "@/lib/userError";
 
 export type ProgramRow = {
   id: string;
@@ -20,7 +21,7 @@ export type ProgramRow = {
  */
 async function requireAdmin() {
   const session = await requireSession();
-  if (session.role !== "ADMIN") throw new Error("權限不足:僅管理者可以管理專案群組");
+  if (session.role !== "ADMIN") throw new UserError("權限不足:僅管理者可以管理專案群組");
   return session;
 }
 

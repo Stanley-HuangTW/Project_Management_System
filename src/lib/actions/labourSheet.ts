@@ -29,6 +29,7 @@ import {
   type PhaseVariance,
   type SlotRow,
 } from "@/lib/labourSheet";
+import { UserError } from "@/lib/userError";
 
 export type LabourSheetView = {
   boardName: string;
@@ -104,7 +105,7 @@ export async function requireScheduleAdmin(boardId: string) {
   await requireBoardAccess(boardId, session);
   const access = await loadBoardRoleAccess(boardId, session);
   if (!access.hasScheduleRole) {
-    throw new Error("權限不足:只有管理者、專案建立者與該分組的 Team Leader/PMD 可以異動時程規劃(階段/里程碑)");
+    throw new UserError("權限不足:只有管理者、專案建立者與該分組的 Team Leader/PMD 可以異動時程規劃(階段/里程碑)");
   }
   return session;
 }
@@ -115,7 +116,7 @@ async function requireSlotAdmin(boardId: string, discipline: string) {
   await requireBoardAccess(boardId, session);
   const access = await loadBoardRoleAccess(boardId, session);
   if (!canEditLabourSlot(access, discipline)) {
-    throw new Error("權限不足:只有管理者與該單位的 DM(或該分組的 Team Leader/PMD)可以編輯這個名額");
+    throw new UserError("權限不足:只有管理者與該單位的 DM(或該分組的 Team Leader/PMD)可以編輯這個名額");
   }
   return session;
 }

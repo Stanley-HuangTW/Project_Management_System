@@ -13,6 +13,7 @@ import {
   type BaselineVersion,
 } from "@/lib/actions/baseline";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { actionErrorMessage } from "@/lib/userError";
 
 export type BaselineBoard = {
   id: string;
@@ -76,7 +77,7 @@ function BaselineRow({ board }: { board: BaselineBoard }) {
       router.refresh();
       await notify(`已為「${board.name}」的 ${captured} 個項目建立基準線。`, { title: "基準線已建立" });
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "建立失敗", { title: "無法建立基準線" });
+      await notify(actionErrorMessage(err, "建立失敗"), { title: "無法建立基準線" });
     } finally {
       setBusy(false);
     }

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { logAudit } from "@/lib/activityLog";
+import { UserError } from "@/lib/userError";
 
 /**
  * 週報分發設定跟專案群組本身同一個權限規則(program.ts 的 requireAdmin)：
@@ -11,7 +12,7 @@ import { logAudit } from "@/lib/activityLog";
  */
 async function requireAdmin() {
   const session = await requireSession();
-  if (session.role !== "ADMIN") throw new Error("權限不足:僅管理者可以設定專案週報分發");
+  if (session.role !== "ADMIN") throw new UserError("權限不足:僅管理者可以設定專案週報分發");
   return session;
 }
 

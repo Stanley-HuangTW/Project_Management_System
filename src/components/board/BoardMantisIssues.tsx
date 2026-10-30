@@ -20,6 +20,7 @@ import {
 } from "@/lib/mantisIssues";
 import { RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { STATUS_CHIP_CLASS } from "./RiskWorkflow";
+import { actionErrorMessage } from "@/lib/userError";
 
 const selectClass =
   "rounded border border-neutral-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900";
@@ -78,7 +79,7 @@ export function BoardMantisIssues({
       if (result.error) await notify(result.error, { title: "同步失敗" });
       setRefreshKey((k) => k + 1);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "同步失敗", { title: "同步失敗" });
+      await notify(actionErrorMessage(err, "同步失敗"), { title: "同步失敗" });
     } finally {
       setSyncing(false);
     }

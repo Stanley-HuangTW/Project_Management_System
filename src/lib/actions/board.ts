@@ -12,6 +12,7 @@ import type { BoardVisibility, GroupDiscipline, GroupRole, Prisma } from "@prism
 import { STATUS_OPTIONS } from "@/lib/statusDefaults";
 import { parseDefaultColumns } from "@/lib/defaultColumns";
 import { getStatusOptions } from "@/types/column";
+import { UserError } from "@/lib/userError";
 
 /**
  * ADMIN 一律可以;其他人只有在自己是這塊看板的擁有者(建立者,見
@@ -22,7 +23,7 @@ async function requireBoardOwnerOrAdmin(boardId: string, session: SessionPayload
   if (session.role === "ADMIN") return;
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { ownerId: true } });
   if (board?.ownerId !== session.userId) {
-    throw new Error("權限不足:僅看板擁有者或管理者可以執行此操作");
+    throw new UserError("權限不足:僅看板擁有者或管理者可以執行此操作");
   }
 }
 
@@ -30,7 +31,7 @@ export async function createBoard(name: string) {
   const session = await requireSession();
   requireStructureAccess(session.role);
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("看板名稱不可為空");
+  if (!trimmed) throw new UserError("看板名稱不可為空");
 
   // 階層顏色/計算方式/甘特圖顏色 are app-wide settings kept as a copy on every
   // board (see setLevelColors). The broadcast that maintains those copies only
@@ -112,7 +113,7 @@ export async function renameBoard(boardId: string, name: string) {
   const session = await requireSession();
   await requireBoardOwnerOrAdmin(boardId, session);
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("看板名稱不可為空");
+  if (!trimmed) throw new UserError("看板名稱不可為空");
 
   const before = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
   await prisma.board.update({
@@ -139,8 +140,8 @@ export async function deleteBoard(boardId: string) {
     where: { id: boardId },
     select: { name: true, deletedAt: true, _count: { select: { items: true } } },
   });
-  if (!doomed) throw new Error("看板不存在");
-  if (doomed.deletedAt) throw new Error("這個看板已經在垃圾桶裡");
+  if (!doomed) throw new UserError("看板不存在");
+  if (doomed.deletedAt) throw new UserError("這個看板已經在垃圾桶裡");
 
   await prisma.board.update({
     where: { id: boardId },

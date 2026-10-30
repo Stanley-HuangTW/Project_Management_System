@@ -10,6 +10,7 @@ import {
 } from "@/lib/dashboard";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
+import { UserError } from "@/lib/userError";
 
 /** Same numbers as the workload card's day/week/month tabs, for an
  *  arbitrary date range instead — used by its "自訂" option. boardId
@@ -21,7 +22,7 @@ export async function getCustomWorkload(
 ): Promise<{ team: TeamWorkloadEntry[]; memberItemWorkload: Record<string, MemberItemWorkloadEntry[]> }> {
   const session = await requireSession();
   if (!fromIso || !toIso || fromIso > toIso) {
-    throw new Error("請選擇有效的日期區間");
+    throw new UserError("請選擇有效的日期區間");
   }
 
   const { boards: allBoards, workloadScope } = await resolveWorkloadScope(session);

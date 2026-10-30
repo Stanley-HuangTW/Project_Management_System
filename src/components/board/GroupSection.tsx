@@ -34,6 +34,7 @@ import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
 import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
+import { actionErrorMessage } from "@/lib/userError";
 
 /** 貼上新增項目時,每一批送多少列給伺服器。 */
 const PASTE_BATCH = 20;
@@ -249,7 +250,7 @@ export function GroupSection({
       setNewItemName("");
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "新增失敗",
+        actionErrorMessage(err, "新增失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法新增項目" }
       );
     } finally {
@@ -337,7 +338,7 @@ export function GroupSection({
       });
     } catch (err) {
       await notify(
-        isStaleBuildError(err) ? STALE_BUILD_MESSAGE : err instanceof Error ? err.message : "搬移失敗",
+        actionErrorMessage(err, "搬移失敗"),
         { title: isStaleBuildError(err) ? "需要重新整理" : "無法搬移項目" }
       );
     }

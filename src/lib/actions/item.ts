@@ -25,6 +25,7 @@ import { resolveItemMove, computeLvlDelta, type DropZone } from "@/lib/dragReord
 import { dispatchWebhooks } from "@/lib/webhooks";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { SessionPayload } from "@/lib/jwt";
+import { UserError } from "@/lib/userError";
 
 /** Item creation/structure edits are normally ADMIN/SUPERVISOR-only, but a
  *  group's TEAM_LEADER/SW_DM/HW_DM/ME_DM/QA also gets structure rights
@@ -39,7 +40,7 @@ export async function requireGroupStructureAccess(session: SessionPayload, group
   const boardId = await requireGroupBoardAccess(groupId, session);
   const { access } = await loadGroupRoleContext(groupId, session.userId);
   if (!canManageGroupStructure(session.role, access.disciplines.size > 0)) {
-    throw new Error("權限不足:僅管理者、主管或此分組的負責角色可以執行此操作");
+    throw new UserError("權限不足:僅管理者、主管或此分組的負責角色可以執行此操作");
   }
   return boardId;
 }
@@ -173,7 +174,7 @@ export async function createItem(
   if (parentId) {
     const parent = await prisma.item.findUnique({ where: { id: parentId }, select: { groupId: true } });
     if (!parent || parent.groupId !== groupId) {
-      throw new Error("父項目不屬於此分組");
+      throw new UserError("父項目不屬於此分組");
     }
   }
   const trimmed = name.trim() || "未命名項目";
@@ -237,7 +238,7 @@ export async function insertItem(
       },
     }),
   ]);
-  if (!reference || reference.groupId !== groupId) throw new Error("找不到參考項目");
+  if (!reference || reference.groupId !== groupId) throw new UserError("找不到參考項目");
   const typeIds = await loadTypeOptionIds(board?.typeColumnId ?? null);
 
   const targetOrder = position === "before" ? reference.order : reference.order + 1;
@@ -323,8 +324,8 @@ export async function moveItemWithinGroup(
     }),
   ]);
   // 就算前端不會這樣呼叫,後端也不能只信前端——兩邊都一定要屬於傳入的這個 Group。
-  if (!dragged || dragged.groupId !== groupId) throw new Error("找不到要搬移的項目");
-  if (!target || target.groupId !== groupId) throw new Error("找不到目標項目");
+  if (!dragged || dragged.groupId !== groupId) throw new UserError("找不到要搬移的項目");
+  if (!target || target.groupId !== groupId) throw new UserError("找不到目標項目");
 
   const result = resolveItemMove(groupItems, draggedItemId, targetItemId, zone, { releaseCount });
   if (!result.ok) {
@@ -335,7 +336,7 @@ export async function moveItemWithinGroup(
       "no-parent-to-outdent-to": "目標項目已經是最上層,無法再外移一層",
       "invalid-zone": "不支援的搬移方式",
     };
-    throw new Error(messages[result.reason]);
+    throw new UserError(messages[result.reason]);
   }
 
   await prisma.$transaction(
@@ -414,7 +415,7 @@ export async function renameItem(
   const trimmed = name.trim() || "未命名項目";
 
   const existing = await prisma.item.findUnique({ where: { id: itemId }, select: { name: true, groupId: true } });
-  if (!existing) throw new Error("找不到項目");
+  if (!existing) throw new UserError("找不到項目");
   const boardId = await requireGroupStructureAccess(session, existing.groupId);
   await prisma.item.update({ where: { id: itemId }, data: { name: trimmed } });
   if (existing.name !== trimmed) {
@@ -438,11 +439,11 @@ export async function deleteItem(
     where: { id: itemId },
     select: { boardId: true, createdById: true, parentId: true, name: true },
   });
-  if (!item) throw new Error("找不到項目");
+  if (!item) throw new UserError("找不到項目");
   await requireBoardAccess(item.boardId, session);
   requireStructureAccess(session.role);
   if (!canModifyItemSchedule(session.role, item.createdById, session.userId)) {
-    throw new Error("權限不足:僅建立者或管理者可以刪除此項目");
+    throw new UserError("權限不足:僅建立者或管理者可以刪除此項目");
   }
 
   const { dependentIds, snapshot } = await rewriteDependentPreds(item.boardId, itemId, repointDependents);
@@ -656,7 +657,7 @@ export async function moveItemToGroup(
 
   const targetGroup = await prisma.group.findUnique({ where: { id: groupId }, select: { boardId: true } });
   if (!targetGroup || targetGroup.boardId !== boardId) {
-    throw new Error("目標分組不屬於此項目所在的看板");
+    throw new UserError("目標分組不屬於此項目所在的看板");
   }
 
   const count = await prisma.item.count({ where: { groupId } });
@@ -687,7 +688,7 @@ export async function reorderItems(
     existingGroups.length === groupIds.length &&
     existingGroups.every((g) => g.boardId === boardId);
   if (!allOnThisBoard) {
-    throw new Error("項目或分組不屬於此看板");
+    throw new UserError("項目或分組不屬於此看板");
   }
 
   await prisma.$transaction(

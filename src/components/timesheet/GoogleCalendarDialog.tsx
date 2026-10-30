@@ -21,6 +21,7 @@ import {
   type CalendarScope,
 } from "@/lib/googleCalendar";
 import { formatMinute } from "@/lib/timeOfDay";
+import { actionErrorMessage } from "@/lib/userError";
 
 const WEEKDAY_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const selectClass =
@@ -120,7 +121,7 @@ export function GoogleCalendarDialog({
           setBoardOf({});
         }
       } catch (err) {
-        if (!cancelled) setResult({ status: "error", message: err instanceof Error ? err.message : "讀取失敗" });
+        if (!cancelled) setResult({ status: "error", message: actionErrorMessage(err, "讀取失敗") });
       }
     })();
     return () => {
@@ -172,7 +173,7 @@ export function GoogleCalendarDialog({
       if (response.failed.length === 0) onClose();
       else setReloadKey((k) => k + 1);
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "匯入失敗", { title: "無法匯入" });
+      await notify(actionErrorMessage(err, "匯入失敗"), { title: "無法匯入" });
     } finally {
       setBusy(false);
     }

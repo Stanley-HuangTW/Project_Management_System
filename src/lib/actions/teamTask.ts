@@ -12,6 +12,7 @@ import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { upsertAssignment } from "./assignment";
 import { loadTypeOptionIds, flipParentToSummary } from "@/lib/summaryType";
 import { rollUpSummaryDates } from "@/lib/scheduleCascade";
+import { UserError } from "@/lib/userError";
 
 type ParentWithBoard = Prisma.ItemGetPayload<{ include: { board: true; cellValues: true } }>;
 
@@ -40,7 +41,7 @@ async function createChildTask(
 ) {
   const { board } = parent;
   if (!board.ganttStartColumnId || !board.ganttDurationColumnId) {
-    throw new Error("此看板尚未設定甘特圖「開始日期」與「天數」欄位,無法用時間軸建立任務");
+    throw new UserError("此看板尚未設定甘特圖「開始日期」與「天數」欄位,無法用時間軸建立任務");
   }
 
   const siblingCount = await prisma.item.count({ where: { parentId: parent.id } });
@@ -140,26 +141,26 @@ export async function createTeamSubtask(input: {
 }) {
   const session = await requireSession();
   if (!canManageStructure(session.role)) {
-    throw new Error("權限不足:僅管理者與主管可以新增任務");
+    throw new UserError("權限不足:僅管理者與主管可以新增任務");
   }
 
   const trimmedName = input.name.trim() || "新任務";
-  if (!Number.isFinite(input.days) || input.days < 1) throw new Error("天數需大於 0");
+  if (!Number.isFinite(input.days) || input.days < 1) throw new UserError("天數需大於 0");
   if (!Number.isFinite(input.allocationPct) || input.allocationPct < 1 || input.allocationPct > 100) {
-    throw new Error("百分比需介於 1 到 100 之間");
+    throw new UserError("百分比需介於 1 到 100 之間");
   }
 
   const parent = await prisma.item.findUnique({
     where: { id: input.parentItemId },
     include: { board: true, cellValues: true },
   });
-  if (!parent) throw new Error("找不到父任務");
+  if (!parent) throw new UserError("找不到父任務");
   await requireBoardAccess(parent.boardId, session);
 
   if (session.role === "SUPERVISOR") {
     const isRelated = await isRelatedToAssignedItem(parent.id, session.userId);
     if (!isRelated) {
-      throw new Error("只能在自己被指派的任務(或其上層/下層任務)下新增子任務");
+      throw new UserError("只能在自己被指派的任務(或其上層/下層任務)下新增子任務");
     }
   }
 
@@ -177,7 +178,7 @@ export async function createTeamSubtask(input: {
       const start = new Date(input.startDate);
       const end = computeSpanEnd(input.startDate, input.days, board.ganttDurationMode, holidays);
       if (start < parentRange.start || end > parentRange.end) {
-        throw new Error("子任務時程需在父任務的時間範圍內");
+        throw new UserError("子任務時程需在父任務的時間範圍內");
       }
     }
   }
@@ -203,19 +204,19 @@ export async function createSubtaskFromDashboard(input: {
 }) {
   const session = await requireSession();
   if (!canManageStructure(session.role)) {
-    throw new Error("權限不足:僅管理者與主管可以新增任務");
+    throw new UserError("權限不足:僅管理者與主管可以新增任務");
   }
 
-  if (!Number.isFinite(input.days) || input.days < 1) throw new Error("天數需大於 0");
+  if (!Number.isFinite(input.days) || input.days < 1) throw new UserError("天數需大於 0");
   if (!Number.isFinite(input.allocationPct) || input.allocationPct < 1 || input.allocationPct > 100) {
-    throw new Error("百分比需介於 1 到 100 之間");
+    throw new UserError("百分比需介於 1 到 100 之間");
   }
 
   const parent = await prisma.item.findUnique({
     where: { id: input.parentItemId },
     include: { board: true, cellValues: true },
   });
-  if (!parent) throw new Error("找不到父任務");
+  if (!parent) throw new UserError("找不到父任務");
   await requireBoardAccess(parent.boardId, session);
 
   const { board } = parent;
@@ -232,7 +233,7 @@ export async function createSubtaskFromDashboard(input: {
       const start = new Date(input.startDate);
       const end = computeSpanEnd(input.startDate, input.days, board.ganttDurationMode, holidays);
       if (start < parentRange.start || end > parentRange.end) {
-        throw new Error("子任務時程需在父任務的時間範圍內");
+        throw new UserError("子任務時程需在父任務的時間範圍內");
       }
     }
   }

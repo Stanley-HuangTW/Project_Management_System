@@ -9,6 +9,7 @@ import { requireStructureAccess } from "@/lib/permissions";
 import { assessGate, findGateBreaches, type GateBreach, type GatePhaseItem } from "@/lib/gateReview";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
+import { UserError } from "@/lib/userError";
 
 export type GateCriterionRow = {
   id: string;
@@ -166,7 +167,7 @@ async function gateBoardId(gateId: string): Promise<string | null> {
 async function requireGateOwner(gateId: string) {
   const session = await requireSession();
   const boardId = await gateBoardId(gateId);
-  if (!boardId) throw new Error("找不到這個閘門");
+  if (!boardId) throw new UserError("找不到這個閘門");
   await requireBoardAccess(boardId, session);
   requireStructureAccess(session.role);
   return { session, boardId };

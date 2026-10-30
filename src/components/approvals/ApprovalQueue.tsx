@@ -22,6 +22,7 @@ import {
   type PersonGroup,
   type SelectableRow,
 } from "@/lib/approvalSelection";
+import { actionErrorMessage } from "@/lib/userError";
 
 /** 下拉選單裡一個人的字樣:全選的前面 ✓、選了一部分的前面 ◐,後面是筆數。 */
 function personOptionLabel(person: PersonGroup, picked: ReadonlySet<string>): string {
@@ -98,7 +99,7 @@ export function ApprovalQueue() {
       }
       await reload();
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: failTitle });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: failTitle });
     } finally {
       setBusy(false);
     }
@@ -173,7 +174,7 @@ export function ApprovalQueue() {
         });
       }
     } catch (err) {
-      await notify(err instanceof Error ? err.message : "操作失敗", { title: "批次處理失敗" });
+      await notify(actionErrorMessage(err, "操作失敗"), { title: "批次處理失敗" });
     } finally {
       setBusy(false);
     }

@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/session";
 import { requireStructureAccess } from "@/lib/permissions";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
+import { UserError } from "@/lib/userError";
 
 export async function createGroup(boardId: string, name: string) {
   const session = await requireSession();
@@ -29,7 +30,7 @@ export async function renameGroup(boardId: string, groupId: string, name: string
   await requireBoardAccess(boardId, session);
   requireStructureAccess(session.role);
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("分組名稱不可為空");
+  if (!trimmed) throw new UserError("分組名稱不可為空");
 
   await prisma.group.update({ where: { id: groupId }, data: { name: trimmed } });
   revalidatePath(`/boards/${boardId}`);

@@ -7,6 +7,7 @@ import {
   importProtoWorkbook,
   type ProtoImportResult,
 } from "@/lib/actions/protoExcel";
+import { actionErrorMessage } from "@/lib/userError";
 
 /**
  * 樣機計畫的 Excel 進出口,格式比照那張「M3專案費用預估」的 Proto 分頁。
@@ -49,7 +50,7 @@ export function ProtoExcelButtons({
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯出失敗");
+      setError(actionErrorMessage(e, "匯出失敗"));
     } finally {
       setBusy(null);
     }
@@ -73,7 +74,7 @@ export function ProtoExcelButtons({
         await onImported();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "匯入失敗");
+      setError(actionErrorMessage(e, "匯入失敗"));
     } finally {
       setBusy(null);
     }

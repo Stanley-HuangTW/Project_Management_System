@@ -12,6 +12,7 @@ import type { ParsedWorkbook } from "@/lib/import/parseFile";
 import type { ColumnMapping } from "@/types/import";
 import type { ColumnData, GroupData } from "@/types/board";
 import type { ColumnType } from "@/types/column";
+import { actionErrorMessage } from "@/lib/userError";
 
 type Step = "source" | "sheet" | "header" | "mapping" | "target" | "confirm";
 
@@ -141,7 +142,7 @@ export function ImportWizard({
       setHeaderRowIndex(0);
       setStep(parsedResult.sheets.length > 1 ? "sheet" : "header");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "解析失敗");
+      setError(actionErrorMessage(err, "解析失敗"));
     } finally {
       setLoading(false);
       e.target.value = "";
@@ -164,7 +165,7 @@ export function ImportWizard({
       setHeaderRowIndex(0);
       setStep(parsedResult.sheets.length > 1 ? "sheet" : "header");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "讀取失敗");
+      setError(actionErrorMessage(err, "讀取失敗"));
     } finally {
       setLoading(false);
     }
@@ -264,7 +265,7 @@ export function ImportWizard({
       setResult(res);
       setStep("confirm");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "匯入失敗");
+      setError(actionErrorMessage(err, "匯入失敗"));
     } finally {
       setLoading(false);
     }

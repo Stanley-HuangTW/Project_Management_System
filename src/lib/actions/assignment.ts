@@ -12,6 +12,7 @@ import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { subordinateIdsOf } from "@/lib/orgChartServer";
 import type { SessionPayload } from "@/lib/jwt";
+import { UserError } from "@/lib/userError";
 
 /**
  * Managing an item's Gantt Assignments is limited to the item's own
@@ -45,7 +46,7 @@ async function assertCanEditAssignment(boardId: string, itemId: string, session:
       groupRole?.access.hasScheduleRole ?? false
     )
   ) {
-    throw new Error("權限不足:僅該項目的負責人或管理者可以調整人員分配");
+    throw new UserError("權限不足:僅該項目的負責人或管理者可以調整人員分配");
   }
 }
 
@@ -73,7 +74,7 @@ export async function upsertAssignment(
 
   if (session.role === "SUPERVISOR" && userId !== session.userId) {
     if (!(await subordinateIdsOf(session.userId)).has(userId)) {
-      throw new Error("主管只能將任務指派給自己或自己團隊的成員");
+      throw new UserError("主管只能將任務指派給自己或自己團隊的成員");
     }
   }
 
