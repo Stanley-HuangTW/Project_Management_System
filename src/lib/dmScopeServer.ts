@@ -58,8 +58,3 @@ export async function loadDmRestrictions(
 export async function loadDmRestriction(boardId: string, session: SessionPayload): Promise<DmRestriction | null> {
   return (await loadDmRestrictions([boardId], session)).get(boardId) ?? null;
 }
-
-/** 這個人在這塊看板上看不到預算金額(階段預算、NRE 報價單、樣機 BOM)嗎? */
-export async function hideBudgetOn(boardId: string, session: SessionPayload): Promise<boolean> {
-  return (await loadDmRestriction(boardId, session))?.hideBudget === true;
-}

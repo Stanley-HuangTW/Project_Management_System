@@ -126,6 +126,7 @@ model User {
   assignments             Assignment[]
   automationNotifyFor     AutomationRule[]         @relation("RuleNotifyUser")
   boardMemberships        BoardMember[]
+  budgetViewerOf          BoardBudgetViewer[]
   attachments             Attachment[]
   itemLinks               ItemLink[]
   activityLogEntries      ActivityLogEntry[]
@@ -258,6 +259,7 @@ model Board {
   items           Item[]
   automationRules AutomationRule[]
   members         BoardMember[]
+  budgetViewers   BoardBudgetViewer[]
   /// 專案群組:同一個群組裡的看板共用一張排程網路,前置可以跨看板,
   /// 要徑與完工日也是整個群組一起算。null = 這個看板自成一個專案。
   programId       String?
@@ -287,6 +289,19 @@ model Board {
   mantisConnection    MantisConnection?
   chatConversation    ChatConversation?
   roleAssignments     BoardRoleAssignment[]
+}
+
+/// 這塊看板指名「可以看預算金額」的人(看板分享設定);管理者、擁有者、Team Leader / PMD / PM DM 本來就看得到,不用列在這裡。
+model BoardBudgetViewer {
+  id        String   @id @default(cuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([boardId, userId])
+  @@index([userId])
 }
 
 model BoardMember {
@@ -1132,6 +1147,8 @@ model SystemSettings {
   /// 請假、工時的「主管這一條路」要幾階主管都同意才算核准(1 = 只要直屬主管,2 = 直屬 + 二階 …)。
   /// 各階同時送審,全部都同意才成立;沒有那麼多階主管就算到最高那一階。
   leaveApprovalLevels       Int                @default(1)
+  /// 這些組織(組織架構圖的部門)的主管,對所有看板都看得到預算金額。空 = 沒有人靠這條路看。
+  budgetViewOrgNodeIds      String[]           @default([])
   timesheetApprovalLevels   Int                @default(1)
   updatedAt                 DateTime           @updatedAt
 }

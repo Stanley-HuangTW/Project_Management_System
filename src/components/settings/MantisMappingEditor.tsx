@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { getMantisMapping, loadMantisEnums, saveMantisMapping } from "@/lib/actions/mantis";
@@ -61,6 +61,13 @@ export function MantisMappingEditor({
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [mapping, setMapping] = useState<MantisMapping | null>(null);
   const [busy, setBusy] = useState(false);
+  // notify 與 onOpenChange 每次重新渲染都是新的函式:放進讀取設定的 effect 依賴裡,跳出一個通知就會重讀、把還沒儲存的修改蓋掉。
+  const notifyRef = useRef(notify);
+  const closeRef = useRef(onOpenChange);
+  useEffect(() => {
+    notifyRef.current = notify;
+    closeRef.current = onOpenChange;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -70,23 +77,23 @@ export function MantisMappingEditor({
         const result = await getMantisMapping(boardId);
         if (cancelled) return;
         if ("error" in result) {
-          await notify(result.error, { title: "無法讀取設定" });
-          onOpenChange(false);
+          await notifyRef.current(result.error, { title: "無法讀取設定" });
+          closeRef.current(false);
           return;
         }
         setLoaded(result);
         setMapping(result.mapping);
       } catch (err) {
         if (!cancelled) {
-          await notify(actionErrorMessage(err, "讀取失敗"), { title: "無法讀取設定" });
-          onOpenChange(false);
+          await notifyRef.current(actionErrorMessage(err, "讀取失敗"), { title: "無法讀取設定" });
+          closeRef.current(false);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, boardId, notify, onOpenChange]);
+  }, [open, boardId]);
 
   if (!open) return null;
   const set = (patch: Partial<MantisMapping>) => setMapping((m) => (m ? { ...m, ...patch } : m));

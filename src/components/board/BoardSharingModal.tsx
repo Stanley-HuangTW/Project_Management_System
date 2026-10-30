@@ -18,6 +18,7 @@ import {
   type BoardGroupMemberOption,
 } from "@/lib/actions/board";
 import { ROLE_LABELS, DISCIPLINE_LABELS } from "./GroupRolesModal";
+import { BudgetViewersSection } from "./BudgetViewersSection";
 import { actionErrorMessage } from "@/lib/userError";
 
 type BoardMemberRow = Awaited<ReturnType<typeof listBoardMembers>>[number];
@@ -268,6 +269,7 @@ export function BoardSharingModal({
           )}
         </div>
       )}
+      <BudgetViewersSection boardId={boardId} users={users} />
     </Modal>
   );
 }

@@ -18,6 +18,7 @@ import { HolidaySettingsModal } from "@/components/dashboard/HolidaySettingsModa
 import { DisciplineRateCard } from "./DisciplineRateCard";
 import { OrgUnitCard } from "./OrgUnitCard";
 import { ApprovalLevelsCard } from "./ApprovalLevelsCard";
+import { BudgetViewOrgCard } from "./BudgetViewOrgCard";
 import { DmScopeCard } from "./DmScopeCard";
 import type { DmScopeSettings } from "@/lib/dmScope";
 import type { OrgUnit } from "@/lib/orgUnits";
@@ -514,6 +515,7 @@ export function SystemSettingsForm({
   workingDaysPerMonth,
   ownerDefaultAllocationPct,
   approvalLevels,
+  budgetViewOrgNodeIds,
   levelColors,
   ganttStatusColors,
   predLampColors,
@@ -547,6 +549,7 @@ export function SystemSettingsForm({
   workingDaysPerMonth: number;
   ownerDefaultAllocationPct: number;
   approvalLevels: { leave: number; timesheet: number };
+  budgetViewOrgNodeIds: string[];
   levelColors: string[];
   ganttStatusColors: { overdue: string; completed: string; inProgress: string };
   predLampColors: { ready: string; waiting: string; blocked: string };
@@ -589,6 +592,7 @@ export function SystemSettingsForm({
           <OrgUnitCard units={orgUnits} nodes={orgNodes} />
           <ApprovalLevelsCard initial={approvalLevels} />
           <DmScopeCard initial={dmScopes} />
+          <BudgetViewOrgCard nodes={orgNodes} initial={budgetViewOrgNodeIds} users={users} />
           <DisciplineRateCard
             units={orgUnits}
             workingDaysPerMonth={workingDaysPerMonth}

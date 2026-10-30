@@ -55,6 +55,7 @@ export async function getSystemSettings() {
     backupLastRunDate: null as string | null,
     leaveApprovalLevels: 1,
     timesheetApprovalLevels: 1,
+    budgetViewOrgNodeIds: [] as string[],
     updatedAt: new Date(),
   };
 }

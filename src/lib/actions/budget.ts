@@ -7,7 +7,7 @@ import type { CostCategory, ReserveKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, canAccessBoard } from "@/lib/boardAccess";
-import { hideBudgetOn } from "@/lib/dmScopeServer";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import {
   summarizeBudget,
   summarizeReserves,

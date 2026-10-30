@@ -7,6 +7,7 @@ import { canAccessBoard } from "@/lib/boardAccess";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { computeBoardCost, type BoardCostSummary } from "@/lib/boardCost";
 import { gatherCostInputs } from "@/lib/costInputs";
+import { budgetViewableBoardIds } from "@/lib/budgetAccessServer";
 
 export type BoardCostReport = BoardCostSummary & {
   hoursPerDay: number;
@@ -21,6 +22,8 @@ export type BoardCostReport = BoardCostSummary & {
    *  of BAC. Reported rather than dropped in silence: somebody typed that
    *  number and is entitled to know it is not being counted. */
   ignoredParentBudgets: string[];
+  /** 這個人看不到這裡的預算與成本(不是被指名、也不是專案負責角色…),報表不放數字。 */
+  hidden?: boolean;
 };
 
 /** Today at midnight — PV is read against whole days, not the current time. */
@@ -46,6 +49,9 @@ export async function getBoardCostReport(boardId: string): Promise<BoardCostRepo
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
   const settings = await getSystemSettings();
+  if (!(await budgetViewableBoardIds([boardId], session)).has(boardId)) {
+    return { ...toReport(await gatherCostInputs([], session, settings.hoursPerDay)), hidden: true };
+  }
   return toReport(await gatherCostInputs([boardId], session, settings.hoursPerDay));
 }
 
@@ -64,5 +70,9 @@ export async function getProgramCostReport(programId: string): Promise<BoardCost
     if (await canAccessBoard(session, board.id)) allowed.push(board.id);
   }
   const settings = await getSystemSettings();
-  return toReport(await gatherCostInputs(allowed, session, settings.hoursPerDay));
+  // 預算與成本只算這個人看得到預算的看板;一塊都沒有就是沒有權限。
+  const viewable = await budgetViewableBoardIds(allowed, session);
+  const shown = allowed.filter((id) => viewable.has(id));
+  const report = toReport(await gatherCostInputs(shown, session, settings.hoursPerDay));
+  return allowed.length > 0 && shown.length === 0 ? { ...report, hidden: true } : report;
 }

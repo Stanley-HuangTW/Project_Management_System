@@ -33,9 +33,9 @@ export function BoardBudget({ board }: { board: BoardWithData }) {
   const [phaseId, setPhaseId] = useState("");
   // 人力規劃橫跨所有階段,所以它不在階段面板裡面,而是跟它並排的另一個視圖。
   const [rawView, setView] = useState<"phase" | "nre" | "sheet" | "proto" | "bom" | "labour">("phase");
-  // 系統設定的「DM 的可見範圍」:看不到預算金額的人,這幾個分頁(都是金額)整個不放;伺服器那邊也會擋。
+  // 看不到預算金額的人(不是管理者、看板擁有者、專案負責角色、看板指名的人或組織主管),這幾個分頁(都是金額)整個不放;伺服器那邊也會擋。
   const [hideBudget, setHideBudget] = useState(false);
-  const moneyViews = ["phase", "nre", "bom"];
+  const moneyViews = ["phase", "nre", "bom", "labour"];
   const view = hideBudget && moneyViews.includes(rawView) ? "sheet" : rawView;
 
   useEffect(() => {

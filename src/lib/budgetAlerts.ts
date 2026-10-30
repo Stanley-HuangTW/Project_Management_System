@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/lib/jwt";
 import { canAccessBoard } from "@/lib/boardAccess";
+import { budgetViewableBoardIds } from "@/lib/budgetAccessServer";
 import { effectiveRateMap } from "@/lib/labourRate";
 import {
   summarizeBudget,
@@ -69,6 +70,15 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     byScope.set(key, [...(byScope.get(key) ?? []), budget]);
   }
 
+  // 看得到看板不等於看得到預算:只有管理者、看板擁有者、專案負責角色、被指名的人與指定組織的主管看得到預算警示。
+  const mentioned = new Set<string>();
+  for (const b of budgets) {
+    if (b.phase) mentioned.add(b.phase.boardId);
+    if (b.item) mentioned.add(b.item.boardId);
+    for (const board of b.program?.boards ?? []) mentioned.add(board.id);
+  }
+  const viewable = await budgetViewableBoardIds([...mentioned], session);
+
   const alerts: BudgetAlert[] = [];
   for (const [key, rows] of byScope) {
     // f = 預算階段、i = 看板上的一列、p = 專案群組。
@@ -83,7 +93,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     if (kind === "f") {
       const phase = rows[0].phase;
       if (!phase) continue;
-      if (!(await canAccessBoard(session, phase.boardId))) continue;
+      if (!viewable.has(phase.boardId) || !(await canAccessBoard(session, phase.boardId))) continue;
       // 花費記在看板的工作項上,所以只有對應過去的階段算得出實際數字。沒
       // 對應的階段實際是 0,一定算不到警示線,自然不會出現在這張清單上。
       itemIds = phase.itemId ? await subtreeIds(phase.boardId, phase.itemId) : [];
@@ -93,7 +103,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
     } else if (kind === "i") {
       const phase = rows[0].item;
       if (!phase) continue;
-      if (!(await canAccessBoard(session, phase.boardId))) continue;
+      if (!viewable.has(phase.boardId) || !(await canAccessBoard(session, phase.boardId))) continue;
       // The phase row plus everything under it — the budget covers the subtree.
       itemIds = await subtreeIds(phase.boardId, id);
       scopeName = phase.name;
@@ -104,7 +114,7 @@ export async function budgetAlerts(session: SessionPayload): Promise<BudgetAlert
       if (!program) continue;
       const boardIds: string[] = [];
       for (const board of program.boards) {
-        if (await canAccessBoard(session, board.id)) boardIds.push(board.id);
+        if (viewable.has(board.id) && (await canAccessBoard(session, board.id))) boardIds.push(board.id);
       }
       // Not a single board of it is visible — from here the programme, and
       // therefore its budget, does not exist.

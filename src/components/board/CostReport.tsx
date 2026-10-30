@@ -68,6 +68,15 @@ export function CostReport({ boardId, programId }: { boardId?: string; programId
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!report) return null;
 
+  if (report.hidden) {
+    return (
+      <p className="text-sm text-neutral-400 dark:text-neutral-500">
+        你沒有查看這裡預算與成本的權限。預算金額只給管理者、看板擁有者、專案負責角色(Team Leader、PMD、PM DM)、看板指名的人,
+        以及系統設定裡指定的組織主管;需要的話請看板擁有者或管理者在「看板分享設定」把你加進「可以看預算的人」。
+      </p>
+    );
+  }
+
   if (report.empty) {
     return (
       <p className="text-sm text-neutral-400 dark:text-neutral-500">

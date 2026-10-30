@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { canEditBudget } from "@/lib/actions/budget";
 import { resyncBoardLabour } from "@/lib/actions/labourSheet";
@@ -64,6 +65,8 @@ async function disciplineRateMap(): Promise<Record<Discipline, number>> {
 export async function getLabourPlanView(boardId: string): Promise<LabourPlanView | null> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
+  // 人力規劃彙總是人月乘上月薪的預算金額:看不到預算的人就當作沒有這一頁。
+  if (await hideBudgetOn(boardId, session)) return null;
 
   const board = await prisma.board.findUnique({ where: { id: boardId }, select: { name: true } });
   if (!board) return null;

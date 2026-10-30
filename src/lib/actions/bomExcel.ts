@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
-import { hideBudgetOn } from "@/lib/dmScopeServer";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import { logAudit } from "@/lib/activityLog";
 import { canEditBoardBudget } from "@/lib/boardBudgetRights";
 import { resyncBomMaterial } from "@/lib/bomMaterial";

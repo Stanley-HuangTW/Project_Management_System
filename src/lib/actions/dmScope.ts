@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
 import { logAudit } from "@/lib/activityLog";
-import { hideBudgetOn } from "@/lib/dmScopeServer";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import type { DmScopeFlags } from "@/lib/dmScope";
 
 const DM_DISCIPLINES: GroupDiscipline[] = ["SW", "HW", "ME", "QA", "PM"];
