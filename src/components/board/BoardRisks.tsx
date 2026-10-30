@@ -13,6 +13,7 @@ import {
   riskScore,
   riskBand,
   sortRisks,
+  riskKindLabel,
   RISK_KIND_LABELS,
   RISK_STATUS_LABELS,
 } from "@/lib/riskRegister";
@@ -332,7 +333,7 @@ export function BoardRisks({
                     className={`${risk.status === "CLOSED" ? "opacity-50" : ""} cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800`}
                   >
                     <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
-                      {RISK_KIND_LABELS[risk.kind]}
+                      {riskKindLabel({ kind: risk.kind, mantisId: risk.mantis?.id ?? null })}
                     </td>
                     <td className="max-w-[280px] px-3 py-2">
                       <p className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-100">

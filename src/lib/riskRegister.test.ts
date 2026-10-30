@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { riskScore, riskBand, clampLevel, sortRisks, riskLinkTag } from "./riskRegister";
+import { riskScore, riskBand, clampLevel, sortRisks, riskLinkTag, riskKindLabel } from "./riskRegister";
 
 describe("riskScore", () => {
   it("is 機率 × 衝擊", () => {
@@ -59,5 +59,17 @@ describe("riskLinkTag", () => {
   it("labels the hand-written ones as 風險 or 議題", () => {
     expect(riskLinkTag({ kind: "RISK", mantisId: null })).toBe("風險");
     expect(riskLinkTag({ kind: "ISSUE", mantisId: null })).toBe("議題");
+  });
+});
+
+describe("riskKindLabel", () => {
+  it("calls a Mantis-synced entry 問題, whatever its stored kind", () => {
+    expect(riskKindLabel({ kind: "ISSUE", mantisId: 123 })).toBe("問題");
+    expect(riskKindLabel({ kind: "RISK", mantisId: 7 })).toBe("問題");
+  });
+
+  it("keeps 風險 and 議題 for the hand-written ones", () => {
+    expect(riskKindLabel({ kind: "RISK", mantisId: null })).toBe("風險");
+    expect(riskKindLabel({ kind: "ISSUE", mantisId: null })).toBe("議題");
   });
 });

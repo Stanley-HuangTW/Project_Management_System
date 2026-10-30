@@ -42,6 +42,11 @@ export function riskLinkTag(r: { kind: RiskKind; mantisId: number | null }): str
   return r.mantisId !== null ? `Mantis #${r.mantisId}` : RISK_KIND_LABELS[r.kind];
 }
 
+/** 風險登記冊「類型」欄的字:從 Mantis 同步來的叫「問題」(跟「問題」分頁、對話 # 選單一致),其他是風險或議題。 */
+export function riskKindLabel(r: { kind: RiskKind; mantisId: number | null }): string {
+  return r.mantisId !== null ? "問題" : RISK_KIND_LABELS[r.kind];
+}
+
 export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
   OPEN: "未處理",
   MITIGATING: "處理中",
