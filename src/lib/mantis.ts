@@ -131,10 +131,40 @@ export function buildDescription(issue: MantisIssue): string {
       const text = flat.length > MAX_NOTE_LENGTH ? `${flat.slice(0, MAX_NOTE_LENGTH)}…` : flat;
       return `[${date}${personName(n.reporter) || "—"}] ${text}`;
     });
-    parts.push(`── Mantis 備註(最近 ${recent.length} 則,共 ${notes.length} 則)──\n${lines.join("\n")}`);
+    parts.push(`${NOTES_MARKER}${recent.length} 則,共 ${notes.length} 則)──\n${lines.join("\n")}`);
   }
   const text = parts.join("\n\n");
   return text.length > MAX_DESCRIPTION ? `${text.slice(0, MAX_DESCRIPTION)}…` : text;
+}
+
+/** 本系統存的「說明」尾巴接著的 Mantis 備註區塊,用這串字開頭。 */
+export const NOTES_MARKER = "── Mantis 備註(最近 ";
+
+/** 把存著的說明拆成 Mantis 上的「說明」本文與接在後面的「Mantis 備註」區塊;寫回說明時只送本文。 */
+export function splitMantisDescription(full: string): { description: string; notes: string } {
+  const at = full.startsWith(NOTES_MARKER) ? 0 : full.lastIndexOf(`\n\n${NOTES_MARKER}`);
+  if (at < 0) return { description: full.trim(), notes: "" };
+  return { description: full.slice(0, at).trim(), notes: full.slice(at).trim() };
+}
+
+/** 存著的說明是被截斷的(超過上限只留前面一段):這時寫回會把 Mantis 上完整的說明蓋成殘缺的。 */
+export function descriptionWasTruncated(full: string): boolean {
+  return full.length === MAX_DESCRIPTION + 1 && full.endsWith("…");
+}
+
+/**
+ * 同步 / 寫回之後,這一筆在本系統的狀態。「待審核」是本系統自己的流程、Mantis 上沒有對應:
+ * 只要 Mantis 還沒結案(或 Mantis 現在的狀態就是設定裡「待審核」寫回的那一個),就不能被同步蓋成處理中。
+ */
+export function resolveLocalStatus(
+  current: RiskStatus | undefined,
+  mapped: RiskStatus,
+  mantisStatusId: number | null,
+  pendingReviewWrittenAs: number | undefined
+): RiskStatus {
+  if (current !== "PENDING_REVIEW") return mapped;
+  if (mapped !== "CLOSED") return current;
+  return mantisStatusId !== null && mantisStatusId === pendingReviewWrittenAs ? current : mapped;
 }
 
 /** 同步下來之後,風險與議題上的欄位。 */

@@ -18,6 +18,7 @@ import {
   RISK_STATUS_LABELS,
 } from "@/lib/riskRegister";
 import { riskEmv, summarizeEmv, resolveProbability, PROBABILITY_BY_LEVEL } from "@/lib/riskEmv";
+import { WRITE_FIELD_LABELS, type WriteField } from "@/lib/mantisMapping";
 import { formatMoney } from "@/lib/cost";
 import {
   listRisks,
@@ -220,6 +221,9 @@ export function BoardRisks({
   const liveRow = editing?.id ? (risks.find((r) => r.id === editing.id) ?? null) : null;
   // 新增時自己就是建立者;既有的看 server 算出來的權限。
   const canEditContent = !editing?.id || !!liveRow?.permissions.canEditContent;
+  // Mantis 同步來的列:這一類欄位有沒有開寫回(沒開的唯讀,要到 Mantis 改);一般的風險 / 議題每個欄位都可以改。
+  const mantisRow = liveRow?.mantis ?? null;
+  const fieldOpen = (group: WriteField) => !mantisRow || mantisRow.writable.includes(group);
 
   const fieldClass =
     "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500";
@@ -507,7 +511,9 @@ export function BoardRisks({
                   {liveRow.mantis.updatedAt ? "・更新於 " + new Date(liveRow.mantis.updatedAt).toLocaleString("zh-TW") : ""}
                 </p>
                 <p className="mt-0.5 text-indigo-700 dark:text-indigo-300">
-                  內容與狀態以 Mantis 為準,這裡唯讀(下一次同步會蓋回來),要修改請到 Mantis。進度更新可以在這裡寫。
+                  {liveRow.mantis.writable.length > 0
+                    ? `這個連線已開啟寫回 Mantis(${liveRow.mantis.writable.map((f) => WRITE_FIELD_LABELS[f]).join("、")}):在這裡修改、按儲存會馬上寫進 Mantis,Mantis 拒絕就整筆不存;沒開放的欄位請到 Mantis 修改。進度更新可以在這裡寫。`
+                    : "內容與狀態以 Mantis 為準,這裡唯讀(下一次同步會蓋回來),要修改請到 Mantis。進度更新可以在這裡寫。"}
                 </p>
               </div>
             )}
@@ -518,6 +524,7 @@ export function BoardRisks({
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">類型</span>
                 <select
                   value={editing.input.kind}
+                  disabled={!!mantisRow}
                   onChange={(e) =>
                     setEditing({ ...editing, input: { ...editing.input, kind: e.target.value as RiskKind } })
                   }
@@ -534,7 +541,7 @@ export function BoardRisks({
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">狀態</span>
                 <select
                   value={editing.input.status}
-                  disabled={editing.input.status === "PENDING_REVIEW"}
+                  disabled={editing.input.status === "PENDING_REVIEW" || !fieldOpen("status")}
                   onChange={(e) =>
                     setEditing({ ...editing, input: { ...editing.input, status: e.target.value as RiskStatus } })
                   }
@@ -557,6 +564,7 @@ export function BoardRisks({
               <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">標題</span>
               <input
                 value={editing.input.title}
+                disabled={!fieldOpen("content")}
                 onChange={(e) => setEditing({ ...editing, input: { ...editing.input, title: e.target.value } })}
                 placeholder="例如:主控板 MCU 交期可能延到 12 週"
                 className={fieldClass}
@@ -567,10 +575,17 @@ export function BoardRisks({
               <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">說明</span>
               <textarea
                 value={editing.input.description}
+                disabled={!fieldOpen("content") || !!mantisRow?.descriptionTruncated}
+                title={mantisRow?.descriptionTruncated ? "說明很長,本系統只存了前面一段,請到 Mantis 修改" : undefined}
                 onChange={(e) => setEditing({ ...editing, input: { ...editing.input, description: e.target.value } })}
                 rows={2}
                 className={fieldClass}
               />
+              {mantisRow?.notes && (
+                <pre className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md bg-neutral-50 px-2 py-1 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                  {mantisRow.notes}
+                </pre>
+              )}
             </label>
 
             <div className="grid grid-cols-3 gap-3">
@@ -578,6 +593,8 @@ export function BoardRisks({
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">機率(1-5)</span>
                 <select
                   value={editing.input.probability}
+                  disabled={!!mantisRow}
+                  title={mantisRow ? "Mantis 的問題是已經發生的事,機率固定最高" : undefined}
                   onChange={(e) =>
                     setEditing({ ...editing, input: { ...editing.input, probability: Number(e.target.value) } })
                   }
@@ -594,6 +611,8 @@ export function BoardRisks({
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">衝擊(1-5)</span>
                 <select
                   value={editing.input.impact}
+                  disabled={!fieldOpen("severity")}
+                  title={mantisRow ? "對應 Mantis 的嚴重度(對應表在系統設定的 Mantis 卡片)" : undefined}
                   onChange={(e) =>
                     setEditing({ ...editing, input: { ...editing.input, impact: Number(e.target.value) } })
                   }
@@ -649,6 +668,26 @@ export function BoardRisks({
                   className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
                 />
               </label>
+              {mantisRow && (
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">Mantis 優先權</span>
+                  <select
+                    value={editing.input.mantisPriorityId ?? ""}
+                    disabled={!fieldOpen("severity") || mantisRow.priorityOptions.length === 0}
+                    onChange={(e) =>
+                      setEditing({ ...editing, input: { ...editing.input, mantisPriorityId: e.target.value ? Number(e.target.value) : null } })
+                    }
+                    className={fieldClass}
+                  >
+                    {editing.input.mantisPriorityId == null && <option value="">—</option>}
+                    {mantisRow.priorityOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.text}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div>
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">分數</span>
                 <div
@@ -680,7 +719,10 @@ export function BoardRisks({
             <div className="grid grid-cols-3 gap-3">
               <div className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">負責人</span>
-                <div className="rounded-md border border-neutral-300 dark:border-neutral-600">
+                <div
+                  className={`rounded-md border border-neutral-300 dark:border-neutral-600 ${fieldOpen("handler") ? "" : "pointer-events-none opacity-50"}`}
+                  aria-disabled={!fieldOpen("handler")}
+                >
                   <PersonPicker
                     users={users.filter((u) => !u.isResource)}
                     selectedId={editing.input.ownerId ?? null}
@@ -695,6 +737,7 @@ export function BoardRisks({
                 <input
                   type="date"
                   value={editing.input.dueDate ?? ""}
+                  disabled={!fieldOpen("content")}
                   onChange={(e) =>
                     setEditing({ ...editing, input: { ...editing.input, dueDate: e.target.value || null } })
                   }
@@ -703,6 +746,7 @@ export function BoardRisks({
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">相關工作項</span>
+                <div className={mantisRow ? "pointer-events-none opacity-50" : ""} aria-disabled={!!mantisRow} title={mantisRow ? "Mantis 同步來的問題固定掛在 ISSUE 工作項底下" : undefined}>
                 <ItemTreePicker
                   items={board.items}
                   wbsByItemId={wbsByItemId}
@@ -712,6 +756,7 @@ export function BoardRisks({
                   }
                   className={`${fieldClass} flex items-center justify-between gap-1`}
                 />
+                </div>
               </label>
             </div>
 

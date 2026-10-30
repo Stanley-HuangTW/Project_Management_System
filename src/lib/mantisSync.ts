@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type RiskStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/secretBox";
 import { RISK_STATUS_LABELS } from "@/lib/riskRegister";
@@ -8,8 +8,10 @@ import {
   mapMantisIssue,
   parseIssuesPage,
   parseProjects,
+  resolveLocalStatus,
   type MantisIssue,
   type MantisProject,
+  type MappedIssue,
   type MantisUser,
 } from "@/lib/mantis";
 import { parseMapping } from "@/lib/mantisMapping";
@@ -31,11 +33,19 @@ export const MANTIS_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 /** 帶著可以直接給人看的訊息。 */
 export class MantisError extends Error {}
 
-async function request(baseUrl: string, token: string, path: string, params: Record<string, string>, auth: "bearer" | "bare") {
+type Method = "GET" | "PATCH";
+
+async function request(method: Method, baseUrl: string, token: string, path: string, params: Record<string, string>, auth: "bearer" | "bare", body?: unknown) {
   const url = new URL(`${baseUrl}/api/rest/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return fetch(url, {
-    headers: { authorization: auth === "bearer" ? `Bearer ${token}` : token, accept: "application/json" },
+    method,
+    headers: {
+      authorization: auth === "bearer" ? `Bearer ${token}` : token,
+      accept: "application/json",
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     // 被轉址(例如 http 轉 https、轉去登入頁)不要默默跟過去,請管理者改用最終的網址。
     redirect: "manual",
     cache: "no-store",
@@ -46,19 +56,37 @@ async function request(baseUrl: string, token: string, path: string, params: Rec
 /** 每個 Mantis 網站上次成功的驗證寫法。舊版 Mantis 每個請求都先試一次必定 401 的 Bearer 太浪費,記住就直接用。 */
 const authSchemeByBaseUrl = new Map<string, "bearer" | "bare">();
 
+/** Mantis 回的錯誤 JSON({ message, localized }):有就取出來,讓使用者看到 Mantis 說的原因。 */
+async function mantisMessage(response: Response): Promise<string> {
+  try {
+    const json = (await response.json()) as { localized?: unknown; message?: unknown } | null;
+    const text = typeof json?.localized === "string" && json.localized.trim() ? json.localized : json?.message;
+    return typeof text === "string" ? text.trim().slice(0, 300) : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
- * GET {網址}/api/rest/{path},回解析好的 JSON。
+ * {GET|PATCH} {網址}/api/rest/{path},回解析好的 JSON。
  * 先用 Bearer(Mantis 2.29 起的標準寫法);舊版只認不加 Bearer 的 token,401 時換另一種寫法重試一次,
  * 哪一種成功就記起來,同一個網站下次直接用。
  */
-export async function mantisGet(baseUrl: string, token: string, path: string, params: Record<string, string> = {}): Promise<unknown> {
+export async function mantisCall(
+  method: Method,
+  baseUrl: string,
+  token: string,
+  path: string,
+  params: Record<string, string> = {},
+  body?: unknown
+): Promise<unknown> {
   let response: Response;
   try {
     const preferred = authSchemeByBaseUrl.get(baseUrl) ?? "bearer";
     const other = preferred === "bearer" ? "bare" : "bearer";
-    response = await request(baseUrl, token, path, params, preferred);
+    response = await request(method, baseUrl, token, path, params, preferred, body);
     if (response.status === 401) {
-      const retry = await request(baseUrl, token, path, params, other);
+      const retry = await request(method, baseUrl, token, path, params, other, body);
       if (retry.status !== 401) authSchemeByBaseUrl.set(baseUrl, other);
       response = retry;
     } else if (response.ok) {
@@ -72,20 +100,53 @@ export async function mantisGet(baseUrl: string, token: string, path: string, pa
     throw new MantisError(`網址被轉址到 ${response.headers.get("location") ?? "別處"},請改用最終的網址`);
   }
   if (response.status === 401 || response.status === 403) {
+    if (method !== "GET") {
+      const detail = await mantisMessage(response);
+      throw new MantisError(
+        "Mantis 拒絕了這次修改:這個連線的 API token 對應的帳號沒有修改這一筆問題的權限(或 token 已經失效)。" + (detail ? `Mantis 說:${detail}` : "")
+      );
+    }
     throw new MantisError(
       "Mantis 拒絕了這個 API token:請確認 token 沒有過期、貼對了,而且那個帳號對這個專案有檢視權限。" +
         "(token 確定沒錯的話,可能是網站伺服器沒有把 Authorization 標頭傳給 Mantis——Apache 搭配 FastCGI 時常見,要請 Mantis 管理者設定。)"
     );
   }
   if (response.status === 404) {
-    throw new MantisError("找不到 Mantis 的 REST API(404):請確認網址、Mantis 版本(建議 2.20 以上)與 REST API 已啟用");
+    throw new MantisError(
+      method === "GET"
+        ? "找不到 Mantis 的 REST API(404):請確認網址、Mantis 版本(建議 2.20 以上)與 REST API 已啟用"
+        : "Mantis 說找不到這一筆問題(404):可能已經在 Mantis 上被刪掉或搬到別的專案,請先按「立即同步」"
+    );
   }
-  if (!response.ok) throw new MantisError(`Mantis 回應錯誤(HTTP ${response.status})`);
+  if (!response.ok) {
+    const detail = await mantisMessage(response);
+    throw new MantisError(`Mantis 回應錯誤(HTTP ${response.status})${detail ? `:${detail}` : ""}`);
+  }
+  const text = await response.text();
+  // 修改成功時有些版本回 204 或空內容;讀資料就一定要有 JSON。
+  if (method !== "GET" && !text.trim()) return null;
   try {
-    return await response.json();
+    return JSON.parse(text);
   } catch {
     throw new MantisError("Mantis 的回應不是 JSON(可能被導到登入頁,或網址不對)");
   }
+}
+
+export async function mantisGet(baseUrl: string, token: string, path: string, params: Record<string, string> = {}): Promise<unknown> {
+  return mantisCall("GET", baseUrl, token, path, params);
+}
+
+/** 讀單一一筆問題(寫回前確認它沒被別人改過、寫回後讀回最新的值)。 */
+export async function fetchMantisIssue(baseUrl: string, token: string, id: number): Promise<MantisIssue | null> {
+  const json = await mantisGet(baseUrl, token, `issues/${id}`);
+  const single = (json as { issue?: unknown } | null)?.issue;
+  const list = single && typeof single === "object" ? [single as MantisIssue] : parseIssuesPage(json);
+  return list.find((i) => i.id === id) ?? list[0] ?? null;
+}
+
+/** 修改一筆問題(只送有變的欄位)。成功時 Mantis 有的會回修改後的問題,有的回空內容。 */
+export async function patchMantisIssue(baseUrl: string, token: string, id: number, payload: Record<string, unknown>): Promise<void> {
+  await mantisCall("PATCH", baseUrl, token, `issues/${id}`, {}, payload);
 }
 
 /** 這個 token 看得到的 Mantis 專案,管理者設定時挑一個。 */
@@ -144,6 +205,32 @@ export async function explainEmptyResult(baseUrl: string, token: string, project
   }
   return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有問題。`;
 }
+/** 同步 / 寫回後讀回的問題,對應成風險與議題那一列要寫的欄位。 */
+export function riskFieldsFromMapped(m: MappedIssue, ownerId: string | null, itemId: string | null, status: RiskStatus) {
+  return {
+    title: m.title,
+    description: m.description || null,
+    status,
+    probability: m.probability,
+    impact: m.impact,
+    dueDate: m.dueDate,
+    ownerId,
+    itemId,
+    mantisUrl: m.mantisUrl,
+    mantisStatus: m.mantisStatus,
+    mantisHandler: m.mantisHandler,
+    mantisUpdatedAt: m.mantisUpdatedAt,
+    mantisSeverity: m.mantisSeverity,
+    mantisPriority: m.mantisPriority,
+    mantisCategory: m.mantisCategory,
+    mantisReporter: m.mantisReporter,
+    mantisStatusId: m.mantisStatusId,
+    mantisSeverityId: m.mantisSeverityId,
+    mantisPriorityId: m.mantisPriorityId,
+    mantisHandlerId: m.mantisHandlerId,
+  };
+}
+
 /** 這個連線收集到的 Mantis 使用者:這次看到的蓋掉舊的,沒再出現的保留(處理人要寫回時還要用)。 */
 export function mergeMantisUsers(stored: unknown, seen: MantisUser[]): MantisUser[] {
   const byId = new Map<number, MantisUser>();
@@ -226,29 +313,10 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
   if (mapped.length === 0) summary.note = await explainEmptyResult(conn.baseUrl, token, conn.projectId);
   for (const m of mapped) {
     const ownerId = m.handlerEmail ? (userByEmail.get(m.handlerEmail) ?? null) : null;
-    const fields = {
-      title: m.title,
-      description: m.description || null,
-      status: m.status,
-      probability: m.probability,
-      impact: m.impact,
-      dueDate: m.dueDate,
-      ownerId,
-      itemId: conn.issueItemId,
-      mantisUrl: m.mantisUrl,
-      mantisStatus: m.mantisStatus,
-      mantisHandler: m.mantisHandler,
-      mantisUpdatedAt: m.mantisUpdatedAt,
-      mantisSeverity: m.mantisSeverity,
-      mantisPriority: m.mantisPriority,
-      mantisCategory: m.mantisCategory,
-      mantisReporter: m.mantisReporter,
-      mantisStatusId: m.mantisStatusId,
-      mantisSeverityId: m.mantisSeverityId,
-      mantisPriorityId: m.mantisPriorityId,
-      mantisHandlerId: m.mantisHandlerId,
-    };
     const old = existing.get(m.mantisId);
+    // 「待審核」是本系統自己的流程,Mantis 沒有對應的狀態:只要 Mantis 還沒結案,就不能被同步蓋回處理中。
+    const status = resolveLocalStatus(old?.status, m.status, m.mantisStatusId, mapping.statusOut.PENDING_REVIEW?.id);
+    const fields = riskFieldsFromMapped(m, ownerId, conn.issueItemId, status);
     try {
       if (!old) {
         const created = await prisma.riskEntry.create({
@@ -260,7 +328,7 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
             riskId: created.id,
             boardId: conn.boardId,
             category: "RISK",
-            message: `從 Mantis 同步建立議題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[m.status]})${
+            message: `從 Mantis 同步建立議題 #${m.mantisId}「${m.title}」(${RISK_STATUS_LABELS[status]})${
               ownerId ? `,指派給 ${userNameById.get(ownerId) ?? ""}` : ""
             }`,
           },
@@ -273,7 +341,7 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
       const same =
         old.mantisUpdatedAt?.getTime() === m.mantisUpdatedAt?.getTime() &&
         old.title === m.title &&
-        old.status === m.status &&
+        old.status === status &&
         old.impact === m.impact &&
         old.ownerId === ownerId &&
         old.itemId === conn.issueItemId &&
@@ -306,13 +374,13 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
         });
         if (ownerId) await notifyRiskAssigned(old.id, null, { title: m.title, kindLabel: `Mantis #${m.mantisId} 議題` }, { ownerId });
       }
-      if (old.status !== m.status) {
+      if (old.status !== status) {
         await prisma.activityLogEntry.create({
           data: {
             riskId: old.id,
             boardId: conn.boardId,
             category: "RISK",
-            message: `Mantis #${m.mantisId}「${m.title}」狀態:${RISK_STATUS_LABELS[old.status]} → ${RISK_STATUS_LABELS[m.status]}`,
+            message: `Mantis #${m.mantisId}「${m.title}」狀態:${RISK_STATUS_LABELS[old.status]} → ${RISK_STATUS_LABELS[status]}`,
           },
         });
       }

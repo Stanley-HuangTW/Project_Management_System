@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   allReviewersApproved,
   describeRiskChanges,
+  mantisPermissions,
   mantisReadOnly,
   riskPermissions,
   type RiskActors,
@@ -176,5 +177,39 @@ describe("從 Mantis 同步來的議題是唯讀的", () => {
     const base = riskPermissions({ userId: "owner", role: "MEMBER", status: "OPEN", actors });
     expect(base.canPostUpdate).toBe(true);
     expect(mantisReadOnly(base).canPostUpdate).toBe(true);
+  });
+});
+
+describe("Mantis 同步來的議題:這個連線開了寫回", () => {
+  const all = { enabled: true, fields: ["status", "handler", "severity", "content"] };
+  const perms = (userId: string, role: "ADMIN" | "MEMBER", status: "OPEN" | "MITIGATING" | "PENDING_REVIEW" | "CLOSED") =>
+    riskPermissions({ userId, role, status, actors });
+
+  it("沒開寫回就跟唯讀一樣", () => {
+    const base = perms("admin", "ADMIN", "MITIGATING");
+    expect(mantisPermissions(base, undefined)).toEqual(mantisReadOnly(base));
+    expect(mantisPermissions(base, { enabled: false, fields: ["status"] })).toEqual(mantisReadOnly(base));
+  });
+
+  it("開了:內容照一般議題的分工(管理者、審核人可以改,負責人不行),狀態與結案流程可以走", () => {
+    expect(mantisPermissions(perms("admin", "ADMIN", "MITIGATING"), all)).toMatchObject({ canEditContent: true, canSetWorkingStatus: true, canRequestClosure: true });
+    expect(mantisPermissions(perms("rev1", "MEMBER", "PENDING_REVIEW"), all)).toMatchObject({ canEditContent: true, canReview: true });
+    expect(mantisPermissions(perms("owner", "MEMBER", "MITIGATING"), all)).toMatchObject({ canEditContent: false, canSetWorkingStatus: true, canRequestClosure: true });
+    expect(mantisPermissions(perms("admin", "ADMIN", "CLOSED"), all).canReopen).toBe(true);
+  });
+
+  it("仍然不能刪除", () => {
+    for (const userId of ["admin", "creator"]) {
+      expect(mantisPermissions(perms(userId, userId === "admin" ? "ADMIN" : "MEMBER", "OPEN"), all).canDelete).toBe(false);
+    }
+  });
+
+  it("沒勾「狀態」:狀態寫不回 Mantis,所以狀態與結案流程維持鎖住,內容與進度更新不受影響", () => {
+    const onlyContent = { enabled: true, fields: ["content"] };
+    const pending = mantisPermissions(perms("rev1", "MEMBER", "PENDING_REVIEW"), onlyContent);
+    expect(pending).toMatchObject({ canEditContent: true, canReview: false, canWithdrawClosure: false });
+    const working = mantisPermissions(perms("admin", "ADMIN", "MITIGATING"), onlyContent);
+    expect(working).toMatchObject({ canEditContent: true, canSetWorkingStatus: false, canRequestClosure: false, canPostUpdate: true });
+    expect(mantisPermissions(perms("admin", "ADMIN", "CLOSED"), onlyContent).canReopen).toBe(false);
   });
 });

@@ -84,6 +84,26 @@ export function mantisReadOnly(base: RiskPermissions): RiskPermissions {
   };
 }
 
+/**
+ * 從 MantisBT 同步來的議題、而且這個連線開了「寫回」:改了會馬上寫回 Mantis,所以內容照一般議題的分工
+ * (建立者、審核人、管理者可以改;同步來的沒有建立者,實際上是審核人與管理者)。狀態與結案流程要看有沒有
+ * 勾「狀態」這一類——沒勾的話狀態寫不回 Mantis,就維持唯讀。刪除永遠不行(刪了下次同步又長回來)。
+ * 沒開寫回就跟以前一樣全部唯讀(mantisReadOnly)。
+ */
+export function mantisPermissions(base: RiskPermissions, writeBack: { enabled: boolean; fields: readonly string[] } | undefined): RiskPermissions {
+  if (!writeBack?.enabled) return mantisReadOnly(base);
+  const status = writeBack.fields.includes("status");
+  return {
+    ...base,
+    canSetWorkingStatus: base.canSetWorkingStatus && status,
+    canRequestClosure: base.canRequestClosure && status,
+    canWithdrawClosure: base.canWithdrawClosure && status,
+    canReview: base.canReview && status,
+    canReopen: base.canReopen && status,
+    canDelete: false,
+  };
+}
+
 /** 有審核人、而且每一位這一輪都同意了。 */
 export function allReviewersApproved(reviewers: { approved: boolean }[]): boolean {
   return reviewers.length > 0 && reviewers.every((r) => r.approved);
