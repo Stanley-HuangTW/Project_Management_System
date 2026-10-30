@@ -6,6 +6,7 @@
  */
 import type { RiskStatus } from "@prisma/client";
 import { toTaipei } from "./googleCalendar";
+import type { MantisMapping } from "./mantisMapping";
 
 export type MantisUserRef = { id?: number; name?: string; real_name?: string; email?: string };
 export type MantisEnum = { id?: number; name?: string; label?: string };
@@ -91,6 +92,18 @@ export function severityToImpact(severityId: number | undefined): number {
   return 1;
 }
 
+/** 狀態編號 → 本系統狀態:設定過的對應表優先,沒列到的走上面的編號門檻。 */
+export function statusWithMapping(statusIn: Record<string, RiskStatus> | undefined, statusId: number | undefined): RiskStatus {
+  const explicit = statusId === undefined ? undefined : statusIn?.[String(statusId)];
+  return explicit ?? statusToRisk(statusId);
+}
+
+/** 嚴重度編號 → 衝擊 1–5:設定過的對應表優先,沒列到的走上面的預設規則。 */
+export function impactWithMapping(severityIn: Record<string, number> | undefined, severityId: number | undefined): number {
+  const explicit = severityId === undefined ? undefined : severityIn?.[String(severityId)];
+  return explicit ?? severityToImpact(severityId);
+}
+
 /** Mantis 的到期日(可能帶時間與時區)→ 台灣的 "YYYY-MM-DD";沒有或看不懂回 null。 */
 export function formatDueDate(due: string | null | undefined): string | null {
   if (!due) return null;
@@ -135,6 +148,11 @@ export type MappedIssue = {
   mantisPriority: string | null;
   mantisCategory: string | null;
   mantisReporter: string | null;
+  /** 列舉值與處理人的編號:比對有沒有被別人改過、寫回時用。 */
+  mantisStatusId: number | null;
+  mantisSeverityId: number | null;
+  mantisPriorityId: number | null;
+  mantisHandlerId: number | null;
   title: string;
   description: string;
   status: RiskStatus;
@@ -155,7 +173,14 @@ const toDate = (text: string | undefined) => {
   return Number.isNaN(ms) ? null : new Date(ms);
 };
 
-export function mapMantisIssue(issue: MantisIssue, baseUrl: string): MappedIssue {
+const positiveId = (v: number | undefined) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null);
+
+/** mapping 是這個連線設定的對應表;沒給就是預設規則(以前寫死的那一套)。 */
+export function mapMantisIssue(
+  issue: MantisIssue,
+  baseUrl: string,
+  mapping?: Pick<MantisMapping, "statusIn" | "severityIn">
+): MappedIssue {
   const handlerName = personName(issue.handler);
   return {
     mantisId: issue.id,
@@ -167,15 +192,44 @@ export function mapMantisIssue(issue: MantisIssue, baseUrl: string): MappedIssue
     mantisPriority: enumText(issue.priority),
     mantisCategory: issue.category?.name?.trim() || null,
     mantisReporter: personName(issue.reporter) || null,
+    mantisStatusId: positiveId(issue.status?.id),
+    mantisSeverityId: positiveId(issue.severity?.id),
+    mantisPriorityId: positiveId(issue.priority?.id),
+    mantisHandlerId: positiveId(issue.handler?.id),
     title: (issue.summary ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || `Mantis #${issue.id}`,
     description: buildDescription(issue),
-    status: statusToRisk(issue.status?.id),
+    status: statusWithMapping(mapping?.statusIn, issue.status?.id),
     probability: 5,
-    impact: severityToImpact(issue.severity?.id),
+    impact: impactWithMapping(mapping?.severityIn, issue.severity?.id),
     handlerEmail: issue.handler?.email?.trim().toLowerCase() || null,
     dueDate: formatDueDate(issue.due_date),
     createdAt: toDate(issue.created_at),
   };
+}
+
+/** 同步時從問題上收集到的 Mantis 使用者:寫回「處理人」時,用 Email 對應本系統的使用者。 */
+export type MantisUser = { id: number; name: string; realName: string; email: string };
+
+/** 問題的處理人、回報人、備註作者裡,有編號的 Mantis 使用者(同一個編號只留一筆,後面的補前面缺的欄位)。 */
+export function collectMantisUsers(issues: MantisIssue[]): MantisUser[] {
+  const byId = new Map<number, MantisUser>();
+  const add = (u: MantisUserRef | undefined) => {
+    const id = positiveId(u?.id);
+    if (id === null) return;
+    const prev = byId.get(id);
+    byId.set(id, {
+      id,
+      name: u?.name?.trim() || prev?.name || "",
+      realName: u?.real_name?.trim() || prev?.realName || "",
+      email: u?.email?.trim().toLowerCase() || prev?.email || "",
+    });
+  };
+  for (const issue of issues) {
+    add(issue.handler);
+    add(issue.reporter);
+    for (const note of issue.notes ?? []) add(note.reporter);
+  }
+  return [...byId.values()].sort((a, b) => a.id - b.id);
 }
 
 /** GET /issues 的回應:{ issues: [...] }。也容忍直接回陣列;沒有 id 的丟掉。 */

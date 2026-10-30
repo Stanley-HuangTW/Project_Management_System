@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { MantisError, explainEmptyResult, mantisGet } from "@/lib/mantisSync";
+import { MantisError, explainEmptyResult, mantisGet, mergeMantisUsers } from "@/lib/mantisSync";
 
 /** 假的 fetch:依序回應,並記下每次送出的 Authorization 標頭。 */
 function stubFetch(responses: { status: number; body?: unknown; location?: string; text?: string }[]) {
@@ -131,5 +131,26 @@ describe("explainEmptyResult(一筆問題都沒取到時的提示)", () => {
     const note = await explainEmptyResult(freshBase(), "tok", 7);
     expect(note).toContain("一筆問題都沒取到");
     expect(note).toContain("檢視權限");
+  });
+});
+
+describe("mergeMantisUsers", () => {
+  it("keeps users that did not show up this time, and lets the newest sighting win", () => {
+    const stored = [
+      { id: 7, name: "emei", realName: "", email: "old@x.com" },
+      { id: 9, name: "qa", realName: "黃雅婷", email: "qa@x.com" },
+    ];
+    const seen = [{ id: 7, name: "emei", realName: "陳美玲", email: "emei@x.com" }];
+    expect(mergeMantisUsers(stored, seen)).toEqual([
+      { id: 7, name: "emei", realName: "陳美玲", email: "emei@x.com" },
+      { id: 9, name: "qa", realName: "黃雅婷", email: "qa@x.com" },
+    ]);
+  });
+
+  it("copes with nothing stored or something that is not a list", () => {
+    const seen = [{ id: 3, name: "a", realName: "", email: "" }];
+    expect(mergeMantisUsers(null, seen)).toEqual(seen);
+    expect(mergeMantisUsers({ not: "a list" }, seen)).toEqual(seen);
+    expect(mergeMantisUsers([null, 5, { id: "x" }], [])).toEqual([]);
   });
 });

@@ -13,6 +13,8 @@ import {
   type MantisConnectionRow,
 } from "@/lib/actions/mantis";
 import type { MantisProject } from "@/lib/mantis";
+import { WRITE_FIELD_LABELS } from "@/lib/mantisMapping";
+import { MantisMappingEditor } from "./MantisMappingEditor";
 import type { SyncSummary } from "@/lib/mantisSync";
 import { actionErrorMessage } from "@/lib/userError";
 
@@ -45,6 +47,7 @@ export function MantisIntegrationCard() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [projects, setProjects] = useState<MantisProject[]>([]);
   const [busy, setBusy] = useState(false);
+  const [mappingFor, setMappingFor] = useState<{ boardId: string; boardName: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,9 +166,9 @@ export function MantisIntegrationCard() {
     <div className="max-w-3xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
       <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">MantisBT 同步</p>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        把 MantisBT 專案的問題<b>單向同步</b>進看板的「風險與議題」(只讀 Mantis,不會改 Mantis)。一個看板對一個 Mantis 專案;
-        同步下來的問題都掛在看板上一個叫「ISSUE」的工作項底下,在這裡是唯讀的,要修改請到 Mantis。每 15 分鐘自動同步一次,
-        也可以按「立即同步」。需要 Mantis 2.20 以上、在 Mantis 的「我的帳號 → API 權杖」建一個 token(那個帳號要能檢視該專案)。
+        把 MantisBT 專案的問題同步進看板的「風險與議題」。一個看板對一個 Mantis 專案;同步下來的問題都掛在看板上一個叫「ISSUE」的工作項底下。
+        預設只從 Mantis 讀、問題在這裡是唯讀的;在「欄位對應與寫回」可以設定 Mantis 與本系統欄位的對應,並選擇開啟寫回(在這邊改了就寫進 Mantis)。
+        每 15 分鐘自動同步一次,也可以按「立即同步」。需要 Mantis 2.20 以上、在 Mantis 的「我的帳號 → API 權杖」建一個 token(那個帳號要能檢視該專案)。
       </p>
 
       {data === null ? (
@@ -204,6 +207,14 @@ export function MantisIntegrationCard() {
                 <button
                   type="button"
                   disabled={busy}
+                  onClick={() => setMappingFor({ boardId: c.boardId, boardName: c.boardName })}
+                  className="rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  欄位對應與寫回
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
                   onClick={() => remove(c)}
                   className="rounded p-1 text-neutral-400 hover:text-red-600 disabled:opacity-50 dark:text-neutral-500"
                   aria-label={`刪除 ${c.boardName} 的 Mantis 連線`}
@@ -217,6 +228,11 @@ export function MantisIntegrationCard() {
                 {c.lastSyncAt && <>・上次同步 {new Date(c.lastSyncAt).toLocaleString("zh-TW")}</>}
                 {!c.enabled && "・已停用"}
               </p>
+              {c.writeBack.enabled && (
+                <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  已開啟寫回 Mantis:{c.writeBack.fields.map((f) => WRITE_FIELD_LABELS[f]).join("、")}
+                </p>
+              )}
               {c.lastSyncError ? (
                 <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950 dark:text-red-200">
                   上次同步失敗:{c.lastSyncError}
@@ -330,6 +346,18 @@ export function MantisIntegrationCard() {
             </button>
           )}
         </div>
+      )}
+      {mappingFor && (
+        <MantisMappingEditor
+          key={mappingFor.boardId}
+          boardId={mappingFor.boardId}
+          boardName={mappingFor.boardName}
+          open
+          onOpenChange={(open) => {
+            if (!open) setMappingFor(null);
+          }}
+          onSaved={reload}
+        />
       )}
     </div>
   );

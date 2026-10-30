@@ -1246,6 +1246,11 @@ model RiskEntry {
   /// Issue 分頁顯示用的 Mantis 欄位原文(嚴重度、優先權、分類、回報人)。
   mantisSeverity  String?
   mantisPriority  String?
+  /// Mantis 列舉值的編號(狀態、嚴重度、優先權、處理人):同步時填,比對與寫回用;顯示用的文字在上面。
+  mantisStatusId   Int?
+  mantisSeverityId Int?
+  mantisPriorityId Int?
+  mantisHandlerId  Int?
   mantisCategory  String?
   mantisReporter  String?
 
@@ -1289,6 +1294,10 @@ model MantisConnection {
   lastSyncError String?
   /// 上一次同步的結果:{ total, created, updated, unchanged, truncated }。
   lastSyncSummary Json?
+  /// 欄位對應與寫回設定(見 mantisMapping.ts);null = 預設值(跟以前寫死的規則一樣,而且不寫回)。
+  mapping     Json?
+  /// 同步時從問題的處理人 / 回報人收集到的 Mantis 使用者:[{ id, name, realName, email }],寫回處理人時比對用。
+  users       Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

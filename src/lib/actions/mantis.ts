@@ -6,8 +6,9 @@ import { requireSession } from "@/lib/session";
 import { requireBoardAdmin } from "@/lib/permissions";
 import { logAudit } from "@/lib/activityLog";
 import { decryptSecret, encryptSecret } from "@/lib/secretBox";
-import { normalizeBaseUrl, type MantisProject } from "@/lib/mantis";
-import { fetchMantisProjects, MantisError, syncMantisConnection, type SyncSummary } from "@/lib/mantisSync";
+import { normalizeBaseUrl, type MantisProject, type MantisUser } from "@/lib/mantis";
+import { ENUM_CONFIG_OPTIONS, enumsFromMantis, parseMapping, validateMapping, type MantisEnums, type MantisMapping } from "@/lib/mantisMapping";
+import { fetchMantisProjects, mantisGet, MantisError, syncMantisConnection, type SyncSummary } from "@/lib/mantisSync";
 import { createItem } from "./item";
 
 /**
@@ -28,6 +29,8 @@ export type MantisConnectionRow = {
   lastSyncAt: string | null;
   lastSyncError: string | null;
   summary: SyncSummary | null;
+  /** 這個連線是不是開了「寫回 Mantis」,以及寫回哪幾類欄位(設定畫面標示用)。 */
+  writeBack: MantisMapping["writeBack"];
 };
 
 async function requireAdmin() {
@@ -64,6 +67,7 @@ export async function listMantisConnections(): Promise<{
         lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
         lastSyncError: c.lastSyncError,
         summary: (c.lastSyncSummary as SyncSummary | null) ?? null,
+        writeBack: parseMapping(c.mapping).writeBack,
       };
     }),
     boards: boards.filter((b) => !connected.has(b.id)),
@@ -178,6 +182,71 @@ export async function setMantisEnabled(boardId: string, enabled: boolean): Promi
   await logAudit("BOARD", session.userId, `${enabled ? "啟用" : "停用"}與 Mantis 的同步:看板「${conn.board.name}」`, boardId);
   revalidatePath("/settings");
   return {};
+}
+
+/** 設定畫面「欄位對應與寫回」要用的資料:這個連線的對應設定、同步時收集到的 Mantis 使用者、本系統的使用者。 */
+export async function getMantisMapping(boardId: string): Promise<
+  | { mapping: MantisMapping; mantisUsers: MantisUser[]; localUsers: { id: string; name: string; email: string }[] }
+  | { error: string }
+> {
+  await requireAdmin();
+  const conn = await prisma.mantisConnection.findUnique({ where: { boardId }, select: { mapping: true, users: true } });
+  if (!conn) return { error: "找不到這個連線" };
+  const localUsers = await prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { name: "asc" } });
+  return {
+    mapping: parseMapping(conn.mapping),
+    mantisUsers: Array.isArray(conn.users) ? (conn.users as MantisUser[]) : [],
+    localUsers,
+  };
+}
+
+/** 從這個連線的 Mantis 讀它的狀態、嚴重度、優先權、resolution 列舉值(給對應表的下拉選單)。讀不到就用 Mantis 內建的,並說明。 */
+export async function loadMantisEnums(boardId: string): Promise<{ enums: MantisEnums; fromMantis: boolean; note?: string } | { error: string }> {
+  await requireAdmin();
+  const conn = await prisma.mantisConnection.findUnique({ where: { boardId }, select: { baseUrl: true, tokenEnc: true } });
+  if (!conn) return { error: "找不到這個連線" };
+  const token = decryptSecret(conn.tokenEnc);
+  if (token === null) return { error: "API token 解不開,請重新輸入 token" };
+  const query = ENUM_CONFIG_OPTIONS.map((o) => `option[]=${o}`).join("&");
+  try {
+    const config = await mantisGet(conn.baseUrl, token, `config?${query}`);
+    // 翻成使用者語言的顯示文字是加分項,讀不到就只用英文名稱。
+    const lang = await mantisGet(conn.baseUrl, token, `lang?${ENUM_CONFIG_OPTIONS.map((o) => `string[]=${o}`).join("&")}`).catch(() => null);
+    return { enums: enumsFromMantis(config, lang), fromMantis: true };
+  } catch (err) {
+    return {
+      enums: enumsFromMantis(null),
+      fromMantis: false,
+      note: `${err instanceof MantisError ? err.message : "讀取失敗"}——先用 Mantis 內建的列舉值;你的 Mantis 有改過的話,可能對不上。`,
+    };
+  }
+}
+
+/** 存欄位對應與寫回設定。存好馬上同步一次,讓新的對應套用到已經同步下來的問題。 */
+export async function saveMantisMapping(
+  boardId: string,
+  input: unknown
+): Promise<{ error?: string; sync?: { ok: true; summary: SyncSummary } | { ok: false; error: string } }> {
+  const session = await requireAdmin();
+  const conn = await prisma.mantisConnection.findUnique({ where: { boardId }, include: { board: { select: { name: true } } } });
+  if (!conn) return { error: "找不到這個連線" };
+  const checked = validateMapping(input);
+  if ("error" in checked) return checked;
+  const before = parseMapping(conn.mapping);
+  await prisma.mantisConnection.update({ where: { boardId }, data: { mapping: checked.mapping } });
+  const wb = checked.mapping.writeBack;
+  await logAudit(
+    "BOARD",
+    session.userId,
+    `更新與 Mantis 的欄位對應:看板「${conn.board.name}」${
+      wb.enabled !== before.writeBack.enabled ? (wb.enabled ? "(開啟寫回 Mantis)" : "(關閉寫回 Mantis)") : ""
+    }`,
+    boardId
+  );
+  const sync = conn.enabled ? await syncMantisConnection(conn.id) : undefined;
+  revalidatePath("/settings");
+  revalidatePath(`/boards/${boardId}`);
+  return { sync };
 }
 
 export async function syncMantisNow(boardId: string): Promise<{ error?: string; summary?: SyncSummary }> {

@@ -4,12 +4,15 @@ import { decryptSecret } from "@/lib/secretBox";
 import { RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { notifyRiskAssigned } from "@/lib/notify";
 import {
+  collectMantisUsers,
   mapMantisIssue,
   parseIssuesPage,
   parseProjects,
   type MantisIssue,
   type MantisProject,
+  type MantisUser,
 } from "@/lib/mantis";
+import { parseMapping } from "@/lib/mantisMapping";
 
 /**
  * MantisBT → 風險與議題的單向同步(伺服器端)。
@@ -141,6 +144,24 @@ export async function explainEmptyResult(baseUrl: string, token: string, project
   }
   return `${head}請確認 token 對應的帳號對這個專案有檢視權限,而且專案裡真的有問題。`;
 }
+/** 這個連線收集到的 Mantis 使用者:這次看到的蓋掉舊的,沒再出現的保留(處理人要寫回時還要用)。 */
+export function mergeMantisUsers(stored: unknown, seen: MantisUser[]): MantisUser[] {
+  const byId = new Map<number, MantisUser>();
+  const list = Array.isArray(stored) ? stored : [];
+  for (const u of list) {
+    if (u && typeof u === "object" && Number.isInteger((u as MantisUser).id)) byId.set((u as MantisUser).id, u as MantisUser);
+  }
+  for (const u of seen) byId.set(u.id, u);
+  return [...byId.values()].sort((a, b) => a.id - b.id).slice(0, 2000);
+}
+
+async function rememberMantisUsers(connectionId: string, stored: unknown, seen: MantisUser[]): Promise<void> {
+  if (seen.length === 0) return;
+  const merged = mergeMantisUsers(stored, seen);
+  if (JSON.stringify(merged) === JSON.stringify(Array.isArray(stored) ? stored : [])) return;
+  await prisma.mantisConnection.update({ where: { id: connectionId }, data: { users: merged } });
+}
+
 export type SyncOutcome = { ok: true; summary: SyncSummary } | { ok: false; error: string };
 
 /** 同步一個連線。結果(成功的統計或失敗的原因)也記在連線上,設定畫面讀得到。 */
@@ -170,7 +191,9 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
     return record({ ok: false, error: err instanceof MantisError ? err.message : "同步失敗" });
   }
 
-  const mapped = fetched.issues.map((i) => mapMantisIssue(i, conn.baseUrl));
+  const mapping = parseMapping(conn.mapping);
+  const mapped = fetched.issues.map((i) => mapMantisIssue(i, conn.baseUrl, mapping));
+  await rememberMantisUsers(conn.id, conn.users, collectMantisUsers(fetched.issues));
   const [existingRows, users] = await Promise.all([
     prisma.riskEntry.findMany({
       where: { boardId: conn.boardId, mantisId: { in: mapped.map((m) => m.mantisId) } },
@@ -180,12 +203,17 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
         mantisUpdatedAt: true,
         title: true,
         status: true,
+        impact: true,
         ownerId: true,
         itemId: true,
         mantisSeverity: true,
         mantisPriority: true,
         mantisCategory: true,
         mantisReporter: true,
+        mantisStatusId: true,
+        mantisSeverityId: true,
+        mantisPriorityId: true,
+        mantisHandlerId: true,
       },
     }),
     prisma.user.findMany({ select: { id: true, email: true, name: true } }),
@@ -215,6 +243,10 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
       mantisPriority: m.mantisPriority,
       mantisCategory: m.mantisCategory,
       mantisReporter: m.mantisReporter,
+      mantisStatusId: m.mantisStatusId,
+      mantisSeverityId: m.mantisSeverityId,
+      mantisPriorityId: m.mantisPriorityId,
+      mantisHandlerId: m.mantisHandlerId,
     };
     const old = existing.get(m.mantisId);
     try {
@@ -241,12 +273,18 @@ export async function syncMantisConnection(connectionId: string): Promise<SyncOu
       const same =
         old.mantisUpdatedAt?.getTime() === m.mantisUpdatedAt?.getTime() &&
         old.title === m.title &&
+        old.status === m.status &&
+        old.impact === m.impact &&
         old.ownerId === ownerId &&
         old.itemId === conn.issueItemId &&
         old.mantisSeverity === m.mantisSeverity &&
         old.mantisPriority === m.mantisPriority &&
         old.mantisCategory === m.mantisCategory &&
-        old.mantisReporter === m.mantisReporter;
+        old.mantisReporter === m.mantisReporter &&
+        old.mantisStatusId === m.mantisStatusId &&
+        old.mantisSeverityId === m.mantisSeverityId &&
+        old.mantisPriorityId === m.mantisPriorityId &&
+        old.mantisHandlerId === m.mantisHandlerId;
       if (same) {
         summary.unchanged++;
         continue;
