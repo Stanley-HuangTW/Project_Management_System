@@ -51,6 +51,7 @@ import { saveSidebarOrder } from "@/lib/actions/sidebarOrder";
 import { applyStoredOrder } from "@/lib/sidebarOrder";
 import { SortableList } from "@/components/ui/SortableList";
 import { logout } from "@/lib/actions/auth";
+import { knownErrorMessage } from "@/lib/userError";
 
 type Board = { id: string; name: string; ownerId: string };
 /** A 專案群組 and how many of its boards this person can open — a group whose
@@ -145,7 +146,7 @@ export function BoardSidebar({
   async function handleReorder(kind: "board" | "program", ids: string[]) {
     if (kind === "board") setBoardList(applyStoredOrder(boardList, ids));
     else setProgramList(applyStoredOrder(programList, ids));
-    const result = await saveSidebarOrder(kind, ids).catch(() => ({ error: "無法儲存順序" }));
+    const result = await saveSidebarOrder(kind, ids).catch((err) => ({ error: knownErrorMessage(err, "無法儲存順序") }));
     if (result.error) {
       if (kind === "board") setBoardList(boards);
       else setProgramList(programs);

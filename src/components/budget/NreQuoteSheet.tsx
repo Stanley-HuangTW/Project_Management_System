@@ -26,6 +26,7 @@ import {
   type NreCategoryKey,
   type NreLineInput,
 } from "@/lib/nre";
+import { knownErrorMessage } from "@/lib/userError";
 
 const fieldClass =
   "w-full rounded-md border border-neutral-300 px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900";
@@ -442,8 +443,8 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
         }
       }
       return result;
-    } catch {
-      return { error: "儲存失敗,請重新整理後再試一次。" };
+    } catch (err) {
+      return { error: knownErrorMessage(err, "儲存失敗,請重新整理後再試一次。") };
     }
   }
 
@@ -465,8 +466,8 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
       a.download = out.filename;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      await notify("匯出失敗,請重新整理後再試一次。", { title: "無法匯出" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "匯出失敗,請重新整理後再試一次。"), { title: "無法匯出" });
     } finally {
       setExporting(false);
     }
@@ -521,8 +522,8 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
         return;
       }
       await reload();
-    } catch {
-      await notify("匯入失敗,請重新整理後再試一次。", { title: "無法匯入" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "匯入失敗,請重新整理後再試一次。"), { title: "無法匯入" });
     } finally {
       setImporting(false);
     }
@@ -534,8 +535,8 @@ export function NreQuoteSheet({ phaseId }: { phaseId: string }) {
       const result = await deleteNreLine(boardId, line.id);
       if (result.error) await notify(result.error, { title: "無法刪除" });
       else await reload();
-    } catch {
-      await notify("刪除失敗,請重新整理後再試一次。", { title: "無法刪除" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "刪除失敗,請重新整理後再試一次。"), { title: "無法刪除" });
     }
   }
 

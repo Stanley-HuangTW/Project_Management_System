@@ -46,7 +46,7 @@ import { setUserOrgNode } from "@/lib/actions/orgChart";
 import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { HandoverDialog } from "./HandoverDialog";
-import { actionErrorMessage } from "@/lib/userError";
+import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
@@ -418,15 +418,15 @@ export function UserManagement({
 
   /** 「組織單位」選部門 = 把這個人掛到那個部門(同組織架構圖)。主管互為上下級之類的錯,伺服器端會擋並說明。 */
   async function handleDepartmentChange(userId: string, nodeId: string | null) {
-    const result = await setUserOrgNode(userId, nodeId).catch(() => ({ error: "操作失敗,請重新整理後再試一次。" }));
+    const result = await setUserOrgNode(userId, nodeId).catch((err) => ({ error: knownErrorMessage(err, "操作失敗,請重新整理後再試一次。") }));
     if (result.error) await notify(result.error, { title: "無法修改組織單位" });
     router.refresh();
   }
 
   /** 部門對應好幾個人力單位時,由人選這個人是哪一個(只有管理者能改)。 */
   async function handleUnitChange(userId: string, code: string | null) {
-    await updateUserDiscipline(userId, code).catch(async () => {
-      await notify("無法修改人力單位,請重新整理後再試一次。", { title: "無法修改人力單位" });
+    await updateUserDiscipline(userId, code).catch(async (err) => {
+      await notify(knownErrorMessage(err, "無法修改人力單位,請重新整理後再試一次。"), { title: "無法修改人力單位" });
     });
     router.refresh();
   }

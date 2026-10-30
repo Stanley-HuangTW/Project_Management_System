@@ -11,6 +11,7 @@ import { collapseToRoots, subtreeIdsOf } from "@/lib/bulkStructure";
 import type { BoardWithData } from "@/types/board";
 import { BulkRenameDialog } from "./BulkRenameDialog";
 import { BulkTargetDialog, type BulkTarget } from "./BulkTargetDialog";
+import { knownErrorMessage } from "@/lib/userError";
 
 const MAX_LISTED = 12;
 const MAX_NAMED = 5;
@@ -86,8 +87,8 @@ export function BulkStructureActions({
       await notify(`已${verb} ${result.roots} 項(含子項目共 ${result.items} 項)到${where}。${notes}`, {
         title: `${verb}完成`,
       });
-    } catch {
-      await notify("操作失敗,請重新整理後再試一次。", { title: `無法${mode === "copy" ? "複製" : "移動"}` });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "操作失敗,請重新整理後再試一次。"), { title: `無法${mode === "copy" ? "複製" : "移動"}` });
     } finally {
       setBusy(false);
     }
@@ -110,8 +111,8 @@ export function BulkStructureActions({
         }。`,
         { title: "取代完成" }
       );
-    } catch {
-      await notify("操作失敗,請重新整理後再試一次。", { title: "無法取代名稱" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "操作失敗,請重新整理後再試一次。"), { title: "無法取代名稱" });
     } finally {
       setBusy(false);
     }
@@ -200,8 +201,8 @@ export function BulkStructureActions({
             ].join("\n"),
         { title: failed.length === 0 ? "刪除完成" : "部分項目沒有刪除" }
       );
-    } catch {
-      await notify("刪除失敗,請重新整理後再試一次。", { title: "無法刪除" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "刪除失敗,請重新整理後再試一次。"), { title: "無法刪除" });
     } finally {
       setBusy(false);
     }

@@ -12,6 +12,7 @@ import { appendTodoNote } from "@/lib/todoNote";
 import type { ChatMessageDto } from "@/lib/chatTypes";
 import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "@/components/board/AssigneeSelect";
 import { BoardRefPicker, REF_KIND_LABELS, type BoardRef, type RefKind } from "./BoardRefPicker";
+import { knownErrorMessage } from "@/lib/userError";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
@@ -109,8 +110,8 @@ export function ConvertMessageDialog({
         }
         onClose();
         void notify(`已更新「${target.text}」的備註`, { title: "完成" });
-      } catch {
-        await notify(`沒有成功。請確認你有「${picked.boardName}」這個看板的權限。`);
+      } catch (err) {
+        await notify(knownErrorMessage(err, `沒有成功。請確認你有「${picked.boardName}」這個看板的權限。`));
       } finally {
         setBusy(false);
       }
@@ -141,8 +142,8 @@ export function ConvertMessageDialog({
       // 先關掉轉換視窗再提示,不讓人還要多按一下才回得到對話。
       onClose();
       void notify(`已加到「${picked.name}」的${targetLabel}`, { title: "完成" });
-    } catch {
-      await notify(`沒有成功。請確認你有「${picked.boardName}」這個看板的權限。`);
+    } catch (err) {
+      await notify(knownErrorMessage(err, `沒有成功。請確認你有「${picked.boardName}」這個看板的權限。`));
     } finally {
       setBusy(false);
     }

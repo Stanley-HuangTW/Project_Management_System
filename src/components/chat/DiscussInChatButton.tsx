@@ -7,6 +7,7 @@ import { openBoardChat } from "@/lib/actions/chat";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { chatRefParam } from "@/lib/chatRefMention";
 import type { RefKind } from "@/lib/chatLinks";
+import { knownErrorMessage } from "@/lib/userError";
 
 /**
  * 「在對話中討論」:跳到這個看板的頻道,輸入框已經帶好 #這個項目 與連結,直接打字留言就好。
@@ -28,8 +29,8 @@ export function DiscussInChatButton({ boardId, kind, id }: { boardId: string; ki
       }
       if (!("conversationId" in result)) return;
       router.push(`/chat?c=${result.conversationId}&ref=${encodeURIComponent(chatRefParam(kind, id))}`);
-    } catch {
-      await notify("沒有成功開啟對話。請確認你有這個看板的權限。", { title: "無法開啟對話" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "沒有成功開啟對話。請確認你有這個看板的權限。"), { title: "無法開啟對話" });
     } finally {
       setBusy(false);
     }

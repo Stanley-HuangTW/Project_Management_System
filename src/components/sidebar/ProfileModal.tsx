@@ -12,9 +12,8 @@ import {
   stopImpersonation,
   type ImpersonationUser,
 } from "@/lib/actions/impersonate";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { useTheme } from "@/lib/useTheme";
-import { actionErrorMessage } from "@/lib/userError";
+import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
 
 export function ProfileModal({
   userName,
@@ -95,7 +94,7 @@ export function ProfileModal({
       }
       window.location.reload();
     } catch (err) {
-      setSwitchError(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : "切換失敗");
+      setSwitchError(knownErrorMessage(err, "切換失敗"));
     } finally {
       setSwitching(false);
     }

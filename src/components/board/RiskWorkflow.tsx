@@ -17,6 +17,7 @@ import {
   type RiskUpdateRow,
 } from "@/lib/actions/risk";
 import type { UserOption } from "@/types/board";
+import { knownErrorMessage } from "@/lib/userError";
 
 export const STATUS_CHIP_CLASS: Record<RiskStatus, string> = {
   OPEN: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
@@ -99,8 +100,8 @@ export function ClosureBar({ risk, onChanged }: { risk: RiskRow; onChanged: () =
       }
       await onChanged();
       return true;
-    } catch {
-      await notify("操作失敗,請重新整理後再試一次。", { title: failTitle });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "操作失敗,請重新整理後再試一次。"), { title: failTitle });
       return false;
     } finally {
       setBusy(false);
@@ -262,8 +263,8 @@ export function UpdatesPanel({
       }
       setText("");
       await onChanged();
-    } catch {
-      await notify("操作失敗,請重新整理後再試一次。", { title: "無法送出" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "操作失敗,請重新整理後再試一次。"), { title: "無法送出" });
     } finally {
       setBusy(false);
     }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { approveAuthorization } from "@/lib/actions/oauth";
+import { knownErrorMessage } from "@/lib/userError";
 
 /**
  * 同意畫面。
@@ -51,8 +52,8 @@ export function ConsentForm({
         return;
       }
       window.location.href = result.redirectTo!;
-    } catch {
-      setError("授權失敗,請重試");
+    } catch (err) {
+      setError(knownErrorMessage(err, "授權失敗,請重試"));
       setBusy(false);
     }
   }

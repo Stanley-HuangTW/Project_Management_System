@@ -27,7 +27,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { useEditHistory } from "../EditHistoryProvider";
 import type { UndoResult } from "@/lib/editHistory";
 import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
-import { actionErrorMessage } from "@/lib/userError";
+import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
 
 export function ItemCardTab({
   boardId,
@@ -185,7 +185,7 @@ export function ItemCardTab({
       const after = name.trim();
       renameItem(boardId, item.id, after)
         .then(() => recordRename(before, after))
-        .catch(() => notify("儲存失敗,請重新整理後再試一次。", { title: "無法儲存" }));
+        .catch((err) => notify(knownErrorMessage(err, "儲存失敗,請重新整理後再試一次。"), { title: "無法儲存" }));
     } else {
       setName(item.name);
     }

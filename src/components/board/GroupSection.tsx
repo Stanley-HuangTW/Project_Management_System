@@ -22,7 +22,7 @@ import { ItemRow } from "./ItemRow";
 import { gridTemplate, frozenPaneWidth } from "./gridTemplate";
 import { renameGroup, deleteGroup } from "@/lib/actions/group";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
+import { isStaleBuildError } from "@/lib/staleBuild";
 import { createItem } from "@/lib/actions/item";
 import { pasteNewItems } from "@/lib/actions/paste";
 import { parseClipboardTable } from "@/lib/clipboardTable";
@@ -34,7 +34,7 @@ import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
 import { classifyDropZone, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import type { PredLamp } from "@/lib/predLamp";
-import { actionErrorMessage } from "@/lib/userError";
+import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
 
 /** 貼上新增項目時,每一批送多少列給伺服器。 */
 const PASTE_BATCH = 20;
@@ -224,7 +224,7 @@ export function GroupSection({
         }
       }
     } catch (err) {
-      failures.push(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : "貼上失敗,請重新整理後再試一次。");
+      failures.push(knownErrorMessage(err, "貼上失敗,請重新整理後再試一次。"));
     } finally {
       setAdding(false);
       setPasteProgress(null);

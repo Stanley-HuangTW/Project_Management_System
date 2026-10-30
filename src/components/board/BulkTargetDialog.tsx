@@ -12,6 +12,7 @@ import {
 } from "@/lib/actions/bulkCrossBoard";
 import type { BoardWithData } from "@/types/board";
 import { ItemTreePicker } from "./ItemTreePicker";
+import { knownErrorMessage } from "@/lib/userError";
 
 /** position 只有「同看板移動」會用到:複製與跨看板一律接在目標底下現有項目的最後面。 */
 export type BulkTarget = { boardId: string; groupId: string; parentId: string | null; position?: MovePosition };
@@ -74,8 +75,8 @@ export function BulkTargetDialog({
       try {
         const result = await loadBulkTargetTree(targetBoardId);
         if (!cancelled) setTree({ boardId: targetBoardId, items: result.items, error: result.error });
-      } catch {
-        if (!cancelled) setTree({ boardId: targetBoardId, items: [], error: "載入目標看板失敗" });
+      } catch (err) {
+        if (!cancelled) setTree({ boardId: targetBoardId, items: [], error: knownErrorMessage(err, "載入目標看板失敗") });
       }
     })();
     return () => {

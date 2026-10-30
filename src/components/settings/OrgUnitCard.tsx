@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Plus, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import type { OrgUnit } from "@/lib/orgUnits";
 import type { OrgNodeLite } from "@/lib/orgTree";
 import { OrgUnitNodesPicker } from "./OrgUnitNodesPicker";
@@ -16,6 +15,7 @@ import {
   moveOrgUnit,
 } from "@/lib/actions/orgUnit";
 import { setOrgUnitNodes } from "@/lib/actions/orgChart";
+import { knownErrorMessage } from "@/lib/userError";
 
 /**
  * 公司組織單位。
@@ -40,7 +40,7 @@ export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNode
       startTransition(() => router.refresh());
       return true;
     } catch (error) {
-      await notify(isStaleBuildError(error) ? STALE_BUILD_MESSAGE : "操作失敗,請稍後再試", {
+      await notify(knownErrorMessage(error, "操作失敗,請稍後再試"), {
         title: "無法完成",
       });
       return false;

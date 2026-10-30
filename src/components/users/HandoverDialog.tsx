@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { executeHandover, previewHandover, type HandoverPreview } from "@/lib/actions/handover";
+import { knownErrorMessage } from "@/lib/userError";
 
 const ROLE_LABELS: Record<string, string> = {
   TEAM_LEADER: "Team Leader",
@@ -101,7 +102,7 @@ export function HandoverDialog({
     (async () => {
       setLoading(true);
       setError(null);
-      const result = await previewHandover(fromId, toId).catch(() => ({ error: "無法讀取交接清單,請稍後再試。", preview: undefined }));
+      const result = await previewHandover(fromId, toId).catch((err) => ({ error: knownErrorMessage(err, "無法讀取交接清單,請稍後再試。"), preview: undefined }));
       if (cancelled) return;
       setLoading(false);
       if (result.error || !result.preview) {
@@ -142,7 +143,7 @@ export function HandoverDialog({
       riskIds: [...riskIds],
       slotIds: [...slotIds],
       roleIds: [...roleIds],
-    }).catch(() => ({ error: "交接失敗,請重新整理後再試一次。", moved: undefined }));
+    }).catch((err) => ({ error: knownErrorMessage(err, "交接失敗,請重新整理後再試一次。"), moved: undefined }));
     setBusy(false);
     if (result.error || !result.moved) {
       setError(result.error ?? "交接失敗。");

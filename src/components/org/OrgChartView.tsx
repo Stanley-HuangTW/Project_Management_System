@@ -44,6 +44,7 @@ import {
   type OrgChartPerson,
   type OrgRoleRow,
 } from "@/lib/actions/orgChart";
+import { knownErrorMessage } from "@/lib/userError";
 
 type RunResult = { error?: string; supervisorsChanged?: number };
 
@@ -116,8 +117,8 @@ export function OrgChartView({ data, canEdit, units }: { data: OrgChartData; can
       afterOk?.();
       router.refresh();
       return true;
-    } catch {
-      await notify("操作失敗,請重新整理後再試一次。", { title: "無法修改組織架構圖" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "操作失敗,請重新整理後再試一次。"), { title: "無法修改組織架構圖" });
       return false;
     } finally {
       setBusy(false);

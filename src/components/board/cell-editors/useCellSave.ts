@@ -6,6 +6,7 @@ import { upsertCellValue } from "@/lib/actions/cell";
 import { sameJson, type UndoResult } from "@/lib/editHistory";
 import type { CellValueJson } from "@/types/column";
 import { useEditHistory, type EditHistoryApi } from "../EditHistoryProvider";
+import { knownErrorMessage } from "@/lib/userError";
 
 /**
  * Runs a cell-update server action and surfaces its error instead of leaving
@@ -41,8 +42,8 @@ export function useCellSave() {
           onSuccess?.();
         }
       })
-      .catch(() => {
-        notify("儲存失敗,請重新整理後再試一次。", { title: "無法儲存" });
+      .catch((err) => {
+        notify(knownErrorMessage(err, "儲存失敗,請重新整理後再試一次。"), { title: "無法儲存" });
         router.refresh();
       });
   };
@@ -81,8 +82,8 @@ async function writeIfUnchanged(
       return { ok: false, reason: result.error };
     }
     return { ok: true };
-  } catch {
-    return { ok: false, reason: "儲存失敗,請重新整理後再試一次。" };
+  } catch (err) {
+    return { ok: false, reason: knownErrorMessage(err, "儲存失敗,請重新整理後再試一次。") };
   }
 }
 

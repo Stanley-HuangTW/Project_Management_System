@@ -10,6 +10,7 @@ import type { BoardWithData, UserOption } from "@/types/board";
 import type { CellValueJson } from "@/types/column";
 import { useEditHistory, type EditHistoryApi } from "./EditHistoryProvider";
 import type { CellRange } from "./useCellRangeSelection";
+import { knownErrorMessage } from "@/lib/userError";
 
 /** 每一批送多少格給伺服器(一格一格套用規則,太多一次跑會太久)。 */
 const PASTE_BATCH = 60;
@@ -62,8 +63,8 @@ async function rewriteIfUnchanged(
     const { failed } = await writeInBatches(boardId, write);
     if (failed.length > 0) return { ok: false, reason: `有 ${failed.length} 格沒有成功:${failed[0].error}` };
     return { ok: true };
-  } catch {
-    return { ok: false, reason: "儲存失敗,請重新整理後再試一次。" };
+  } catch (err) {
+    return { ok: false, reason: knownErrorMessage(err, "儲存失敗,請重新整理後再試一次。") };
   }
 }
 
@@ -140,8 +141,8 @@ export function usePasteIntoRange({ board, users }: { board: BoardWithData; user
     let result: Awaited<ReturnType<typeof writeInBatches>>;
     try {
       result = await writeInBatches(board.id, plan.entries.map((e) => ({ itemId: e.itemId, columnId: column.id, value: e.value })));
-    } catch {
-      await notify("貼上失敗,請重新整理後再試一次。", { title: "無法貼上" });
+    } catch (err) {
+      await notify(knownErrorMessage(err, "貼上失敗,請重新整理後再試一次。"), { title: "無法貼上" });
       router.refresh();
       return true;
     }

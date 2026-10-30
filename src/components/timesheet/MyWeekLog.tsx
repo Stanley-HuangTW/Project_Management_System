@@ -28,7 +28,7 @@ import { WeekCalendar } from "./WeekCalendar";
 import { getMyEstimates } from "@/lib/actions/timesheetEstimate";
 import type { EstimateWeek } from "@/lib/timesheetEstimate";
 import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
-import { actionErrorMessage } from "@/lib/userError";
+import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
 
 function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
@@ -90,8 +90,8 @@ export function MyWeekLog({ today }: { today: string }) {
       try {
         const data = await getMyEstimates(weekStart);
         if (!cancelled) setEstimates({ weekStart, data });
-      } catch {
-        if (!cancelled) setEstimates({ weekStart, data: { error: "讀取失敗,請重新整理後再試一次。" } });
+      } catch (err) {
+        if (!cancelled) setEstimates({ weekStart, data: { error: knownErrorMessage(err, "讀取失敗,請重新整理後再試一次。") } });
       }
     })();
     return () => {

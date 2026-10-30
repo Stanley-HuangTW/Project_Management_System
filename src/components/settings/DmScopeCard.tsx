@@ -4,9 +4,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { GroupDiscipline } from "@prisma/client";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { isStaleBuildError, STALE_BUILD_MESSAGE } from "@/lib/staleBuild";
 import { setDmScope } from "@/lib/actions/dmScope";
 import { NO_DM_LIMITS, type DmScopeFlags, type DmScopeSettings } from "@/lib/dmScope";
+import { knownErrorMessage } from "@/lib/userError";
 
 const ROWS: { discipline: GroupDiscipline; label: string }[] = [
   { discipline: "SW", label: "SW DM(軟體)" },
@@ -49,7 +49,7 @@ export function DmScopeCard({ initial }: { initial: DmScopeSettings }) {
         router.refresh();
       } catch (err) {
         setSettings((prev) => ({ ...prev, [discipline]: current }));
-        await notify(isStaleBuildError(err) ? STALE_BUILD_MESSAGE : "儲存失敗,請稍後再試", { title: "無法儲存" });
+        await notify(knownErrorMessage(err, "儲存失敗,請稍後再試"), { title: "無法儲存" });
       }
     });
   }

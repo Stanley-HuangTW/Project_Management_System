@@ -32,13 +32,23 @@ export function userErrorMessage(error: unknown): string | null {
 }
 
 /**
- * catch 到 Server Action 的錯誤時,要顯示給使用者的那句話:
- * UserError 的原因 → 「頁面是舊版」的說明 → production 被洗過的通用訊息換成 fallback → 其他錯誤的 message。
+ * 只顯示「已知的原因」:UserError 的原因、「頁面是舊版」的說明;其他錯誤一律用 fallback,
+ * 不把英文的技術訊息丟給使用者。畫面本來就有一句友善的固定文字時用這個。
  */
-export function actionErrorMessage(error: unknown, fallback: string): string {
+export function knownErrorMessage(error: unknown, fallback: string): string {
   const reason = userErrorMessage(error);
   if (reason) return reason;
   if (isStaleBuildError(error)) return STALE_BUILD_MESSAGE;
+  return fallback;
+}
+
+/**
+ * catch 到 Server Action 的錯誤時,要顯示給使用者的那句話:
+ * 已知的原因 → production 被洗過的通用訊息換成 fallback → 其他錯誤的 message。
+ */
+export function actionErrorMessage(error: unknown, fallback: string): string {
+  const known = knownErrorMessage(error, "");
+  if (known) return known;
   const masked = typeof error === "object" && error !== null && typeof (error as { digest?: unknown }).digest === "string";
   if (masked && process.env.NODE_ENV === "production") return fallback;
   return error instanceof Error && error.message ? error.message : fallback;

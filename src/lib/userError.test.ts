@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STALE_BUILD_MESSAGE } from "./staleBuild";
-import { UserError, actionErrorMessage, userErrorMessage } from "./userError";
+import { UserError, actionErrorMessage, knownErrorMessage, userErrorMessage } from "./userError";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -64,5 +64,22 @@ describe("actionErrorMessage", () => {
     expect(actionErrorMessage("x", "新增失敗")).toBe("新增失敗");
     expect(actionErrorMessage(undefined, "新增失敗")).toBe("新增失敗");
     expect(actionErrorMessage(new Error(""), "新增失敗")).toBe("新增失敗");
+  });
+});
+
+describe("knownErrorMessage", () => {
+  it("shows a UserError's reason, also after it crossed to the browser as a digest", () => {
+    const masked = Object.assign(new Error("masked"), { digest: "USER_ERROR:只有管理員可以新增資源" });
+    expect(knownErrorMessage(masked, "新增失敗")).toBe("只有管理員可以新增資源");
+  });
+
+  it("explains a stale page", () => {
+    expect(knownErrorMessage(new Error("Failed to find Server Action \"abc\""), "操作失敗")).toBe(STALE_BUILD_MESSAGE);
+  });
+
+  it("never passes an unknown error's own message through: the friendly fixed text wins", () => {
+    expect(knownErrorMessage(new Error("Failed to fetch"), "儲存失敗,請重新整理後再試一次。")).toBe("儲存失敗,請重新整理後再試一次。");
+    expect(knownErrorMessage(Object.assign(new Error("masked"), { digest: "2874239491" }), "儲存失敗")).toBe("儲存失敗");
+    expect(knownErrorMessage(undefined, "儲存失敗")).toBe("儲存失敗");
   });
 });
