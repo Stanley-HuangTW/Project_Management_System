@@ -9,6 +9,7 @@ import { canManageBoard, canManageStructure } from "@/lib/permissions";
 import { resolveStatusColumn } from "@/lib/dashboard";
 import { EditHistoryProvider } from "./EditHistoryProvider";
 import { OwnerDefaultPctProvider } from "./OwnerDefaultPctContext";
+import { ItemProtoUnitsProvider } from "./ItemProtoUnitsContext";
 import { BoardTable } from "./BoardTable";
 import type { ItemEventSummary } from "@/lib/itemEvents";
 import { BoardKanban } from "./BoardKanban";
@@ -294,6 +295,7 @@ export function BoardView({
       </div>
 
       <OwnerDefaultPctProvider value={ownerDefaultPct}>
+      <ItemProtoUnitsProvider data={protoUnits ?? null}>
       <EditHistoryProvider key={board.id} board={board}>
       <div className={`flex-1 p-3 sm:p-6 ${view === "table" ? "overflow-hidden" : "overflow-auto"}`}>
         {view === "table" && (
@@ -365,6 +367,7 @@ export function BoardView({
         )}
       </div>
       </EditHistoryProvider>
+      </ItemProtoUnitsProvider>
       </OwnerDefaultPctProvider>
 
       {canManageStructure(userRole) && (

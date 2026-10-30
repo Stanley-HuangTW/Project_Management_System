@@ -9,6 +9,9 @@ import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { logActivity } from "@/lib/activityLog";
 import { protoUnitLabel } from "@/lib/protoUnits";
+import { loadProtoUnitsData, type ProtoUnitOptionData } from "@/lib/protoUnitsServer";
+
+type ProtoUnitsPayload = { options: ProtoUnitOptionData[]; byItem: Record<string, string[]> };
 
 const MAX_UNITS = 200;
 
@@ -71,7 +74,19 @@ export async function setItemProtoUnits(itemId: string, protoUnitIds: string[]):
     .sort((a, b) => a.localeCompare(b));
   await logActivity(itemId, session.userId, labels.length > 0 ? `使用樣機改為:${labels.join("、")}` : "使用樣機清空");
   revalidatePath(`/boards/${boardId}`);
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/project/${boardId}`);
   return {};
+}
+
+/**
+ * 在看板以外的地方(儀表板)開項目卡片、人員分配視窗時,「使用樣機」要選的樣機與這個工作項目前用到的。
+ * 看板裡面這些資料已經由看板頁面給了,不用呼叫這個。
+ */
+export async function loadItemProtoUnits(itemId: string): Promise<ProtoUnitsPayload> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  return loadProtoUnitsData(boardId, new Set([itemId]));
 }
 
 /**

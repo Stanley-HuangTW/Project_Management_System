@@ -10,6 +10,8 @@ import { useItemProtoUnits, type ProtoUnitOption } from "./ItemProtoUnitsContext
 import { actionErrorMessage } from "@/lib/userError";
 
 const cellBase = "flex h-full min-w-0 items-center border-r border-neutral-100 px-2 dark:border-neutral-700";
+/** 項目卡片、人員分配視窗裡的樣子:一個有框的欄位,不是表格的一格。 */
+const fieldBase = "flex min-w-0 items-center rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-600";
 
 /** 這個工作項用到的樣機,縮成一行:第一台的名字,多的寫「等 N 台」。 */
 function summarise(picked: ProtoUnitOption[]): string {
@@ -22,13 +24,26 @@ function summarise(picked: ProtoUnitOption[]): string {
  * 點一下開選單,勾要用的樣機(依產品 → 階段分組,可以搜尋),關掉選單時存檔。
  * 沒有編輯權限的人只看得到、不能改。
  */
-export function ItemProtoUnitCell({ itemId, canEdit }: { itemId: string; canEdit: boolean }) {
+export function ItemProtoUnitCell({
+  itemId,
+  canEdit,
+  bordered = false,
+  onSaved,
+}: {
+  itemId: string;
+  canEdit: boolean;
+  /** 放在項目卡片、人員分配視窗裡(有框的欄位),不是表格的一格。 */
+  bordered?: boolean;
+  /** 存檔成功之後(給不在看板頁面裡、資料要自己重讀的地方)。 */
+  onSaved?: () => void;
+}) {
   const data = useItemProtoUnits();
   const { notify } = useDialogs();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string[]>([]);
   const [query, setQuery] = useState("");
 
+  const base = bordered ? fieldBase : cellBase;
   const options = data?.options ?? [];
   const saved = data?.byItem[itemId] ?? [];
   const byId = new Map(options.map((o) => [o.id, o]));
@@ -37,7 +52,7 @@ export function ItemProtoUnitCell({ itemId, canEdit }: { itemId: string; canEdit
   // 這個看板沒有排任何樣機:沒東西可選,也沒東西可看。
   if (options.length === 0 && picked.length === 0) {
     return (
-      <div className={cellBase} data-proto-units-item={itemId}>
+      <div className={base} data-proto-units-item={itemId}>
         <span className="text-xs text-neutral-300 dark:text-neutral-600">—</span>
       </div>
     );
@@ -58,6 +73,7 @@ export function ItemProtoUnitCell({ itemId, canEdit }: { itemId: string; canEdit
     try {
       const result = await setItemProtoUnits(itemId, ids);
       if (result.error) await notify(result.error, { title: "無法儲存「使用樣機」" });
+      else onSaved?.();
     } catch (err) {
       await notify(
         actionErrorMessage(err, "儲存失敗"),
@@ -71,7 +87,7 @@ export function ItemProtoUnitCell({ itemId, canEdit }: { itemId: string; canEdit
 
   if (!canEdit) {
     return (
-      <div className={cellBase} data-proto-units-item={itemId}>
+      <div className={base} data-proto-units-item={itemId}>
         {text ? (
           <span className="truncate text-xs text-neutral-700 dark:text-neutral-200" title={title}>
             {text}
@@ -95,7 +111,7 @@ export function ItemProtoUnitCell({ itemId, canEdit }: { itemId: string; canEdit
   }
 
   return (
-    <div className={cellBase} data-proto-units-item={itemId}>
+    <div className={base} data-proto-units-item={itemId}>
       <Popover.Root open={open} onOpenChange={handleOpenChange}>
         <Popover.Trigger asChild>
           <button

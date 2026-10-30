@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
+import { canManageStructure } from "@/lib/permissions";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { upsertCellValue } from "@/lib/actions/cell";
@@ -10,6 +11,7 @@ import { previewSchedule } from "@/lib/actions/predecessorSchedule";
 import { listDependentItems, type SchedulePreview } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "./DependentItemsRow";
 import { AssignmentEditor } from "./AssignmentEditor";
+import { ItemProtoUnitsField } from "./ItemProtoUnitsField";
 import { CellEditor } from "./cell-editors/CellEditor";
 import { OwnerAllocationInput } from "./OwnerAllocationInput";
 import { ConstraintRow } from "./item-detail/ConstraintRow";
@@ -202,6 +204,13 @@ export function AssignmentModal({
           onChanged={() => router.refresh()}
         />
       </div>
+
+      <ItemProtoUnitsField
+        itemId={item.id}
+        canEdit={canManageStructure(userRole) || item.assignments.some((a) => a.userId === currentUserId)}
+        className="mt-4 flex items-center justify-between gap-3 border-t border-neutral-100 pt-4 dark:border-neutral-700"
+        labelClassName="text-neutral-500 dark:text-neutral-400"
+      />
 
       {scheduleColumns.length > 0 && (
         <div className="mt-4 space-y-3 border-t border-neutral-100 dark:border-neutral-700 pt-4">

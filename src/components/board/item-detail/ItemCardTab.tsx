@@ -23,6 +23,7 @@ import { RollupProgress } from "../RollupProgress";
 import { computeItemProgress } from "@/lib/progress";
 import { OwnerAllocationInput } from "../OwnerAllocationInput";
 import { AssignmentEditor } from "../AssignmentEditor";
+import { ItemProtoUnitsField } from "../ItemProtoUnitsField";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { useEditHistory } from "../EditHistoryProvider";
 import type { UndoResult } from "@/lib/editHistory";
@@ -365,6 +366,12 @@ export function ItemCardTab({
           </div>
         );
       })}
+      <ItemProtoUnitsField
+        itemId={item.id}
+        canEdit={canEditCellValue(userRole, "STATUS", false, isAssignedToUser)}
+        className="flex items-center justify-between border-b border-neutral-100 px-4 py-2.5 dark:border-neutral-700"
+        labelClassName="text-neutral-400 dark:text-neutral-500"
+      />
       <div className="border-b border-neutral-100 px-4 py-3 dark:border-neutral-700">
         <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
           人員分配
