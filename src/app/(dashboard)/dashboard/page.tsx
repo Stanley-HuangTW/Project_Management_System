@@ -23,6 +23,8 @@ import {
 } from "@/lib/dashboard";
 import { TeamWorkloadCard } from "@/components/dashboard/TeamWorkloadCard";
 import { WorkloadDetailSection } from "@/components/dashboard/WorkloadDetailSection";
+import { ProtoUsageSection } from "@/components/dashboard/ProtoUsageSection";
+import { loadProtoUsage } from "@/lib/protoUsageServer";
 import { PersonalItemsList } from "@/components/dashboard/PersonalItemsList";
 import { OverAllocationCard } from "@/components/dashboard/OverAllocationCard";
 import { BudgetAlertCard } from "@/components/dashboard/BudgetAlertCard";
@@ -187,7 +189,8 @@ export default async function DashboardPage({
       ? buildFullParentTree(visibleBoards, holidays)
       : buildSupervisorParentTree(boards, [session.userId, ...teamMembers.map((m) => m.id)], holidays);
   const weekColumns = computeWeekColumns(boards, holidays);
-  const weeklyLoadMap = computeMemberWeeklyLoad(boards, workloadScopeIds, weekColumns, holidays, ownerDefaultAllocationPct);
+  const protoUsage = await loadProtoUsage(boards, weekColumns, holidays);
+  const weeklyLoadMap =computeMemberWeeklyLoad(boards, workloadScopeIds, weekColumns, holidays, ownerDefaultAllocationPct);
 
   const tasksByUser: Record<string, MemberTask[]> = {};
   const weeklyLoadByUser: Record<string, number[]> = {};
@@ -232,6 +235,7 @@ export default async function DashboardPage({
   const defaultSections = DASHBOARD_SECTIONS.filter(
     (section) =>
       (section.id !== "teamItems" || hasTeam) &&
+      (section.id !== "protoUsage" || protoUsage.machines.length > 0) &&
       (section.id !== "myResourceItems" || myResourceIds.length > 0)
   ).map((section) => ({ id: section.id as string, label: section.label as string }));
   const orderedSectionRows = orderDashboardSections(defaultSections, dashboardOrder);
@@ -301,6 +305,19 @@ export default async function DashboardPage({
         currentUserId={session.userId}
         userRole={session.role}
       />
+
+      {protoUsage.machines.length > 0 && (
+        <ProtoUsageSection
+          key="protoUsage"
+          title={`樣機使用時程(${protoUsage.machines.length} 台使用中)`}
+          machines={protoUsage.machines}
+          tasksByMachine={protoUsage.tasksByMachine}
+          weeks={weekColumns}
+          weeklyLoadByMachine={protoUsage.weeklyLoadByMachine}
+          colors={workloadThreshold}
+          showBoardName={new Set(protoUsage.machines.map((m) => m.boardId)).size > 1}
+        />
+      )}
 
       <section key="boardProgress">
         <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-100">看板進度總覽</h2>

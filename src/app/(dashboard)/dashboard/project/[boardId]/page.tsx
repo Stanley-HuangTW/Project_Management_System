@@ -12,6 +12,10 @@ import { fullProjectScope, PROJECT_ROLE_LABELS, resolveProjectScope } from "@/li
 import { ProjectDashboardView } from "@/components/dashboard/ProjectDashboardView";
 import { OpenRisksCard } from "@/components/dashboard/OpenRisksCard";
 import { loadOpenRiskRows } from "@/lib/dashboardRisksServer";
+import { ProtoUsageSection } from "@/components/dashboard/ProtoUsageSection";
+import { loadProtoUsage } from "@/lib/protoUsageServer";
+import { computeWeekColumns } from "@/lib/workload";
+import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 
 /**
  * 專案儀表板(側邊欄「看板名稱-儀表板」):這個人在這個專案上有角色的話,看專案的逾期、本週完成、未來 7 天工作項,
@@ -53,6 +57,11 @@ export default async function ProjectDashboardPage({ params }: { params: Promise
   const relatedIds = new Set([session.userId]);
   for (const groupScope of scope.groups.values()) if (groupScope !== "all") for (const id of groupScope) relatedIds.add(id);
 
+  // 這個專案每一台有工作項在用的樣機,以及用它的工作項(樣機計畫 → 表格「使用樣機」欄選的)。
+  const holidays = toHolidaySet(holidayRows);
+  const weeks = computeWeekColumns([board], holidays);
+  const [protoUsage, threshold] = await Promise.all([loadProtoUsage([board], weeks, holidays), getWorkloadThreshold()]);
+
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-6">
       <div>
@@ -67,6 +76,17 @@ export default async function ProjectDashboardPage({ params }: { params: Promise
       </div>
       <OpenRisksCard rows={riskRows} relatedUserIds={[...relatedIds]} defaultAll />
       <ProjectDashboardView board={overview} />
+      {protoUsage.machines.length > 0 && (
+        <ProtoUsageSection
+          title={`樣機使用時程(${protoUsage.machines.length} 台使用中)`}
+          machines={protoUsage.machines}
+          tasksByMachine={protoUsage.tasksByMachine}
+          weeks={weeks}
+          weeklyLoadByMachine={protoUsage.weeklyLoadByMachine}
+          colors={threshold}
+          showBoardName={false}
+        />
+      )}
     </div>
   );
 }

@@ -15,6 +15,7 @@ export const DASHBOARD_SECTIONS = [
   { id: "teamWorkload", label: "工作量總覽" },
   { id: "overAllocation", label: "過度配置" },
   { id: "workloadDetail", label: "成員工作量明細" },
+  { id: "protoUsage", label: "樣機使用時程(只有已有工作項選了樣機的看板才會出現)" },
   { id: "boardProgress", label: "看板進度總覽" },
   { id: "dueLists", label: "待辦事項到期清單(逾期 / 本週完成 / 未來 7 天 / 30 天)" },
   { id: "todoDeadlines", label: "工作項目的待辦事項期限" },

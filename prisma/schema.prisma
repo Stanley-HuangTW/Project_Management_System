@@ -946,6 +946,8 @@ model ItemProtoUnit {
   item        Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   protoUnitId String
   protoUnit   ProtoUnit @relation(fields: [protoUnitId], references: [id], onDelete: Cascade)
+  /// 這個工作項佔用這台樣機的百分比(預設 100%,跟人員分配的百分比同一個意思)。儀表板的樣機使用時程用它。
+  usagePct    Int       @default(100)
   createdAt   DateTime  @default(now())
 
   @@id([itemId, protoUnitId])

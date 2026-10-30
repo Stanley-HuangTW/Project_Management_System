@@ -29,7 +29,7 @@ export function ProtoMachineList({
       </summary>
       <div className="space-y-4 border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          樣機計畫每一台各有一筆。工作項(例如測試項目)在表格的「使用樣機」欄位選它;台數減少時,從最大的號碼開始拿掉,用到它的工作項的參照會一併解除。
+          樣機計畫每一台各有一筆。工作項(例如測試項目)在看板<b>表格</b>最右邊的「使用樣機」欄位選它(選好之後這裡和儀表板的「樣機使用時程」就看得到);台數減少時,從最大的號碼開始拿掉,用到它的工作項的參照會一併解除。
         </p>
         {[...byProduct].map(([product, list]) => (
           <div key={product}>
