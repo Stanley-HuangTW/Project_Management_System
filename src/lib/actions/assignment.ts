@@ -13,6 +13,7 @@ import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { subordinateIdsOf } from "@/lib/orgChartServer";
 import type { SessionPayload } from "@/lib/jwt";
 import { UserError } from "@/lib/userError";
+import { itemLink } from "@/lib/notificationLink";
 
 /**
  * Managing an item's Gantt Assignments is limited to the item's own
@@ -114,7 +115,7 @@ export async function upsertAssignment(
         },
       });
     }
-    await notifyEmailIfNeeded(userId, "ASSIGNED", message);
+    await notifyEmailIfNeeded(userId, "ASSIGNED", message, itemLink(boardId, itemId));
   }
 
   revalidatePath(`/boards/${boardId}`);

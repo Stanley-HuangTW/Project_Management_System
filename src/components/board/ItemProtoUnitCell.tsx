@@ -6,6 +6,8 @@ import { Search } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { setItemProtoUnits } from "@/lib/actions/itemProtoUnits";
 import { isStaleBuildError } from "@/lib/staleBuild";
+import { useEditHistory } from "./EditHistoryProvider";
+import type { UndoResult } from "@/lib/editHistory";
 import { useItemProtoUnits, type ProtoUnitOption } from "./ItemProtoUnitsContext";
 import { actionErrorMessage } from "@/lib/userError";
 
@@ -38,6 +40,7 @@ export function ItemProtoUnitCell({
   onSaved?: () => void;
 }) {
   const data = useItemProtoUnits();
+  const history = useEditHistory();
   const { notify } = useDialogs();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string[]>([]);
@@ -64,16 +67,35 @@ export function ItemProtoUnitCell({
       setQuery("");
     } else {
       const changed = draft.length !== saved.length || draft.some((id) => !saved.includes(id));
-      if (changed) void save(draft);
+      if (changed) void save(draft, saved);
     }
     setOpen(next);
   }
 
-  async function save(ids: string[]) {
+  /** 登記到看板的「上一步 / 下一步」:還原就是換回原本那幾台;期望的現況交給伺服器核對,中間被別人改過就不蓋掉。 */
+  function recordHistory(before: string[], after: string[]) {
+    if (!history) return;
+    const apply = async (expected: string[], target: string[]): Promise<UndoResult> => {
+      try {
+        const result = await setItemProtoUnits(itemId, target, expected);
+        return result.error ? { ok: false, reason: result.error } : { ok: true };
+      } catch (err) {
+        return { ok: false, reason: actionErrorMessage(err, "修改失敗") };
+      }
+    };
+    history.record({ label: "修改使用樣機", undo: () => apply(after, before), redo: () => apply(before, after) });
+  }
+
+  async function save(ids: string[], before: string[]) {
     try {
       const result = await setItemProtoUnits(itemId, ids);
-      if (result.error) await notify(result.error, { title: "無法儲存「使用樣機」" });
-      else onSaved?.();
+      if (result.error) {
+        await notify(result.error, { title: "無法儲存「使用樣機」" });
+        return;
+      }
+      onSaved?.();
+      recordHistory(before, ids);
+      if (result.warning) await notify(result.warning, { title: "樣機使用時間重疊" });
     } catch (err) {
       await notify(
         actionErrorMessage(err, "儲存失敗"),

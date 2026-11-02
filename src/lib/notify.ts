@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mail";
 import { mailBody } from "@/lib/appUrl";
 import { DEFAULT_NOTIFICATION_PREFERENCE } from "@/lib/notificationTypes";
+import { riskLink } from "@/lib/notificationLink";
 
 const DEFAULT_IN_APP: Record<NotificationType, boolean> = Object.fromEntries(
   Object.entries(DEFAULT_NOTIFICATION_PREFERENCE).map(([t, p]) => [t, p.inApp])
@@ -203,6 +204,7 @@ export async function notifyRiskAssigned(
   const userIds = [...messages.keys()];
   if (userIds.length === 0) return;
 
+  const riskBoardId = (await prisma.riskEntry.findUnique({ where: { id: riskId }, select: { boardId: true } }))?.boardId;
   const inApp = await filterInAppRecipients(prisma, "ASSIGNED", userIds);
   if (inApp.length > 0) {
     await prisma.notification.createMany({
@@ -211,7 +213,7 @@ export async function notifyRiskAssigned(
   }
   for (const userId of userIds) {
     try {
-      await notifyEmailIfNeeded(userId, "ASSIGNED", messages.get(userId)!);
+      await notifyEmailIfNeeded(userId, "ASSIGNED", messages.get(userId)!, riskBoardId ? riskLink(riskBoardId, riskId) : undefined);
     } catch {
       // 寄信失敗不影響指派本身。
     }

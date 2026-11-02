@@ -33,6 +33,7 @@ import type {
   ChatResult,
   ChatSearchHit,
 } from "@/lib/chatTypes";
+import { chatLink } from "@/lib/notificationLink";
 
 /** 動手的人:id、角色(看板權限要看)、名字(通知要寫)。 */
 export type ChatSender = ChatActor & { name: string };
@@ -558,7 +559,7 @@ async function notifyNewMessage(
   void (async () => {
     for (const n of plan) {
       try {
-        await notifyEmailIfNeeded(n.userId, "CHAT", `${n.message}\n\n${messagePreview(body, hasFiles, 120)}`);
+        await notifyEmailIfNeeded(n.userId, "CHAT", `${n.message}\n\n${messagePreview(body, hasFiles, 120)}`, chatLink(conv.id));
       } catch (err) {
         console.error("chat email failed:", err);
       }

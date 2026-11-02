@@ -19,6 +19,8 @@ import { summarizeBudget, CATEGORY_LABELS } from "@/lib/budget";
 import { buildLabourSheet, type PhaseRow, type SlotRow } from "@/lib/labourSheet";
 import { loadSlotRates } from "@/lib/labourRate";
 import { summariseProtoPlan } from "@/lib/protoPlan";
+import { loadProtoUsage } from "@/lib/protoUsageServer";
+import type { ProtoUsageMachine } from "@/lib/protoUsage";
 import { unitLabel } from "@/lib/orgUnits";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { subordinateIds, orgDepth } from "@/lib/orgChart";
@@ -157,7 +159,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "get_proto_plan",
-    description: "樣機使用計畫:產品 × 用途單位 × 階段各要幾台,含小計。",
+    description: "樣機使用計畫:產品 × 用途單位 × 階段各要幾台,含小計;另外列出每一台樣機(machines),以及哪些工作項在用它(起訖日、佔用百分比),沒人在用的 usedBy 是空的。",
     inputSchema: {
       type: "object",
       properties: { boardId: str("看板 id") },
@@ -604,6 +606,25 @@ async function getProtoPlanTool(session: SessionPayload, args: Json) {
   const named = (list: { phaseId: string; qty: number }[]) =>
     list.map((c) => ({ phase: phaseName.get(c.phaseId) ?? "", qty: c.qty }));
 
+  // 每一台樣機被哪些工作項使用——只含這把金鑰擁有者看得到的工作項(私人項目、DM 的可見範圍跟畫面一樣)。
+  const [visibleBoard] = await accessibleBoards(session, boardId);
+  const usage = visibleBoard ? await loadProtoUsage([visibleBoard], [], toHolidaySet(await listHolidays())) : null;
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const machineOf = (m: ProtoUsageMachine) => ({
+    id: m.id,
+    label: m.label,
+    product: m.product,
+    phase: m.phaseName,
+    usedBy: (usage?.tasksByMachine[m.id] ?? []).map((t) => ({
+      itemId: t.itemId,
+      name: t.itemName,
+      wbsCode: t.wbsCode,
+      start: iso(t.startDate),
+      end: iso(t.endDate),
+      usagePct: t.allocationPct,
+    })),
+  });
+
   return {
     phases: phases.map((p) => p.name),
     products: summary.products.map((p) => ({
@@ -614,6 +635,7 @@ async function getProtoPlanTool(session: SessionPayload, args: Json) {
     })),
     byPhase: named(summary.byPhase),
     total: summary.total,
+    machines: usage ? [...usage.machines, ...usage.idle].map(machineOf) : [],
   };
 }
 

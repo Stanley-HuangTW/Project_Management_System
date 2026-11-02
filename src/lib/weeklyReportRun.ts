@@ -24,6 +24,7 @@ export async function deliverProgramReports(target: string): Promise<ProgramRunR
     try {
       const report = await buildProgramWeeklyReportData(sub.programId, target, {
         upcomingDays: sub.upcomingDays,
+        includeBudget: sub.includeBudget,
         include: {
           summary: sub.includeSummary,
           programs: sub.includeProgramDiff,

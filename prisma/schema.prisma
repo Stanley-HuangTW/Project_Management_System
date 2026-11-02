@@ -2123,6 +2123,8 @@ model ProgramReportSubscription {
   upcomingDays       Int                      @default(7)
   includeSummary     Boolean                  @default(true)
   includeProgramDiff Boolean                  @default(true)
+  /// 專案時程與預算那一段裡,要不要列預算金額。收件人可能是外部信箱,沒有帳號可以問權限,所以由管理者在這裡決定。
+  includeBudget      Boolean                  @default(true)
   includeDepartments Boolean                  @default(true)
   includeActivity    Boolean                  @default(true)
   recipients         ProgramReportRecipient[]

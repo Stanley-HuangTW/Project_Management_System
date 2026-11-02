@@ -764,6 +764,8 @@ export function renderWeeklyReportMarkdown(
   if (includeSummary) {
     out.push("## 本週摘要");
     out.push("");
+    // 預算金額一點都沒列給這位讀者(沒有權限、或分發設定關掉)時,摘要也不報預算異動幾筆——那會讓人以為預算沒動。
+    const budgetShown = !data.programs.every((p) => p.budgetHidden && p.budgets.length === 0);
     const infoItems = data.programs.some((p) => p.itemUpdates) ? countItemsWithUpdates(data.programs) : null;
     if (diff.firstEver) {
       out.push("這是第一份週報,沒有上一週可以比,所以下面只有目前的狀態。");
@@ -774,7 +776,8 @@ export function renderWeeklyReportMarkdown(
       out.push(
         `完成 ${diff.completed.length}・新逾期 ${diff.newlyOverdue.length}・` +
           `脫離逾期 ${diff.recovered.length}・改期 ${diff.scheduleChanged.length}・` +
-          `狀態更新 ${diff.statusChanged.length}・預算異動 ${diff.budgetChanged.length}` +
+          `狀態更新 ${diff.statusChanged.length}` +
+          (budgetShown ? `・預算異動 ${diff.budgetChanged.length}` : "") +
           (infoItems === null ? "" : `・資訊更新 ${infoItems}`)
       );
       const newlyOver = diff.budgetChanged.filter((b) => b.newlyOver);

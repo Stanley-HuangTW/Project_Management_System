@@ -80,6 +80,7 @@ export default async function ProjectDashboardPage({ params }: { params: Promise
         <ProtoUsageSection
           title={`樣機使用時程(${protoUsage.machines.length} 台使用中)`}
           machines={protoUsage.machines}
+          idle={protoUsage.idle}
           tasksByMachine={protoUsage.tasksByMachine}
           weeks={weeks}
           weeklyLoadByMachine={protoUsage.weeklyLoadByMachine}

@@ -10,6 +10,7 @@ import { logActivity } from "@/lib/activityLog";
 import { canManageStructure } from "@/lib/permissions";
 import { publishChatEvent } from "@/lib/chatServer";
 import { UserError } from "@/lib/userError";
+import { itemLink } from "@/lib/notificationLink";
 
 export async function createComment(
   /** Not trusted for authorization — see requireItemBoardAccess below. */
@@ -34,7 +35,7 @@ export async function createComment(
   // Whoever was named gets told directly, before the general "someone
   // commented" that goes to the item's assignees — being @-mentioned is the
   // one notification you actually have to read, so it says what it is.
-  const mentionedIds = await notifyMentions(itemId, trimmed, session.userId, session.name, item?.name);
+  const mentionedIds = await notifyMentions(boardId, itemId, trimmed, session.userId, session.name, item?.name);
 
   if (item) {
     await notifyItemAssignees(
@@ -67,6 +68,7 @@ export async function createComment(
 /** Notifies everyone named in a comment. Returns the ids, so the caller can
  *  leave them out of the broader assignee notification. */
 async function notifyMentions(
+  boardId: string,
   itemId: string,
   body: string,
   actorId: string,
@@ -86,7 +88,7 @@ async function notifyMentions(
         data: { userId, actorId, type: "COMMENTED", itemId, message },
       });
     }
-    await notifyEmailIfNeeded(userId, "COMMENTED", message);
+    await notifyEmailIfNeeded(userId, "COMMENTED", message, itemLink(boardId, itemId, "updates"));
   }
   return mentioned;
 }

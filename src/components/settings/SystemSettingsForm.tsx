@@ -33,6 +33,7 @@ import { ProgramCard, type ProgramBoard } from "./ProgramCard";
 import { ProgramReportSubscriptionCard } from "./ProgramReportSubscriptionCard";
 import { WeeklyReportScheduleCard } from "./WeeklyReportScheduleCard";
 import { BackupSettingsCard } from "./BackupSettingsCard";
+import { DiskUsageCard } from "./DiskUsageCard";
 import { TimeCategoryCard } from "./TimeCategoryCard";
 import type { BackupScheduleInput } from "@/lib/actions/backup";
 import { ExchangeRateCard } from "./ExchangeRateCard";
@@ -609,6 +610,7 @@ export function SystemSettingsForm({
           <ProgramCard programs={programs} boards={programBoards} />
           <WeeklyReportScheduleCard initial={weeklyReportSchedule} lastRun={weeklyReportLastRun} />
           <BackupSettingsCard initial={backupSchedule} />
+          <DiskUsageCard />
           <ProgramReportSubscriptionCard subscriptions={programReportSubscriptions} users={users} />
           <GanttColumnMappingCard boards={ganttMappingBoards} />
           <DefaultColumnsCard

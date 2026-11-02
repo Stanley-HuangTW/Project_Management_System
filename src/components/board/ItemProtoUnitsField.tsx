@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { loadItemProtoUnits } from "@/lib/actions/itemProtoUnits";
+import { canEditProtoUnitsOf, loadItemProtoUnits } from "@/lib/actions/itemProtoUnits";
 import { ItemProtoUnitCell } from "./ItemProtoUnitCell";
 import { ItemProtoUnitsProvider, useItemProtoUnits, type ProtoUnitsData } from "./ItemProtoUnitsContext";
 
@@ -35,6 +35,19 @@ export function ItemProtoUnitsField({
     if (!fromBoard) load();
   }, [fromBoard, load]);
 
+  // 能不能改:問伺服器(跟存檔時同一份判斷,含「分組同職能」);回來之前先用呼叫端給的。
+  const [serverCanEdit, setServerCanEdit] = useState<{ itemId: string; value: boolean } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    canEditProtoUnitsOf(itemId)
+      .then((value) => !cancelled && setServerCanEdit({ itemId, value }))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+  const effectiveCanEdit = serverCanEdit?.itemId === itemId ? serverCanEdit.value : canEdit;
+
   const data = fromBoard ?? (fetched?.itemId === itemId ? fetched.data : null);
   if (!data || (data.options.length === 0 && (data.byItem[itemId] ?? []).length === 0)) return null;
 
@@ -44,7 +57,7 @@ export function ItemProtoUnitsField({
         <span className={`shrink-0 text-xs ${labelClassName}`}>使用樣機</span>
         {/* 樣機名字(產品 / 階段 / 用途 #第幾台)比一般欄位的值長,留寬一點。 */}
         <span className="w-56">
-          <ItemProtoUnitCell itemId={itemId} canEdit={canEdit} bordered onSaved={fromBoard ? undefined : load} />
+          <ItemProtoUnitCell itemId={itemId} canEdit={effectiveCanEdit} bordered onSaved={fromBoard ? undefined : load} />
         </span>
       </div>
     </ItemProtoUnitsProvider>

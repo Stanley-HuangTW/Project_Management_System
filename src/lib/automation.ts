@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
+import { itemLink } from "@/lib/notificationLink";
 
 /**
  * Runs board automation rules whose trigger (STATUS column -> value) matches
@@ -39,7 +40,7 @@ export async function executeAutomationRules(
           },
         });
       }
-      await notifyEmailIfNeeded(rule.notifyUserId, "AUTOMATION", message);
+      await notifyEmailIfNeeded(rule.notifyUserId, "AUTOMATION", message, itemLink(boardId, itemId));
     }
 
     if (rule.setColumnId && rule.setValue !== null) {

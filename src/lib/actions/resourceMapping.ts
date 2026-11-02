@@ -8,6 +8,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { normalizeAllocationPct } from "@/lib/allocationPct";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 import { UserError } from "@/lib/userError";
+import { itemLink } from "@/lib/notificationLink";
 
 export async function getDistinctTextValues(boardId: string, columnId: string) {
   const session = await requireSession();
@@ -167,7 +168,7 @@ export async function applyResourceMapping(
   );
 
   for (const n of notifications) {
-    await notifyEmailIfNeeded(n.userId, n.type, n.message);
+    await notifyEmailIfNeeded(n.userId, n.type, n.message, n.itemId ? itemLink(boardId, n.itemId) : undefined);
   }
 
   return result;

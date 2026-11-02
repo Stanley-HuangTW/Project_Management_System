@@ -30,13 +30,15 @@ export type ProtoUsageMachine = {
 export type ProtoUsage = {
   /** 只含有工作項在使用的樣機。 */
   machines: ProtoUsageMachine[];
+  /** 這些看板上沒有任何(看得到的)工作項在用的樣機——看哪些還閒著。 */
+  idle: ProtoUsageMachine[];
   /** 樣機 id → 用到它的工作項(allocationPct = 這個工作項佔用這台的百分比)。 */
   tasksByMachine: Record<string, MemberTask[]>;
   /** 樣機 id → 每週佔用 %,取那一週裡最滿的一天(不是平均:週末沒人用不該把重疊稀釋掉);超過 100 = 同一天不只一個工作項在用。 */
   weeklyLoadByMachine: Record<string, number[]>;
 };
 
-export const EMPTY_PROTO_USAGE: ProtoUsage = { machines: [], tasksByMachine: {}, weeklyLoadByMachine: {} };
+export const EMPTY_PROTO_USAGE: ProtoUsage = { machines: [], idle: [], tasksByMachine: {}, weeklyLoadByMachine: {} };
 
 const toIsoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
@@ -115,31 +117,37 @@ export function computeProtoUsage(
     }
   }
 
-  const machines = [...used.values()]
-    .map((u) => {
-      const phase = phaseById.get(u.phaseId);
-      return {
-        unit: u,
-        order: phase?.order ?? 0,
-        machine: {
-          id: u.id,
-          boardId: u.boardId,
-          boardName: boardById.get(u.boardId)?.name ?? "",
-          product: u.product,
-          phaseName: phase?.name ?? "",
-          label: protoUnitLabel(u, phase?.name ?? ""),
-        },
-      };
-    })
-    .sort(
-      (a, b) =>
-        a.machine.boardName.localeCompare(b.machine.boardName) ||
-        a.unit.product.localeCompare(b.unit.product) ||
-        a.order - b.order ||
-        a.unit.unit.localeCompare(b.unit.unit) ||
-        a.unit.seq - b.unit.seq
-    )
-    .map((m) => m.machine);
+  /** 看板 → 產品 → 階段順序 → 用途 → 第幾台。 */
+  const arrange = (list: ProtoUsageUnit[]): ProtoUsageMachine[] =>
+    list
+      .map((u) => {
+        const phase = phaseById.get(u.phaseId);
+        return {
+          unit: u,
+          order: phase?.order ?? 0,
+          machine: {
+            id: u.id,
+            boardId: u.boardId,
+            boardName: boardById.get(u.boardId)?.name ?? "",
+            product: u.product,
+            phaseName: phase?.name ?? "",
+            label: protoUnitLabel(u, phase?.name ?? ""),
+          },
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.machine.boardName.localeCompare(b.machine.boardName) ||
+          a.unit.product.localeCompare(b.unit.product) ||
+          a.order - b.order ||
+          a.unit.unit.localeCompare(b.unit.unit) ||
+          a.unit.seq - b.unit.seq
+      )
+      .map((m) => m.machine);
+
+  const machines = arrange([...used.values()]);
+  // 傳進來的樣機(只要是這幾個看板的)裡,沒有人在用的,就是閒置。
+  const idle = arrange(units.filter((u) => boardById.has(u.boardId) && !used.has(u.id)));
 
   // 工作項依分組、WBS 代號排,跟成員工作量明細一致。
   for (const tasks of Object.values(tasksByMachine)) {
@@ -156,7 +164,7 @@ export function computeProtoUsage(
     });
   }
 
-  return { machines, tasksByMachine, weeklyLoadByMachine };
+  return { machines, idle, tasksByMachine, weeklyLoadByMachine };
 }
 
 /**
@@ -165,4 +173,49 @@ export function computeProtoUsage(
  */
 export function machineLoadColor(pct: number, threshold: Pick<WorkloadThresholdSettings, "greenColor" | "redColor">): string {
   return pct > 100 ? threshold.redColor : threshold.greenColor;
+}
+
+/** 一台樣機上,佔用合計超過 100% 的那段日子。 */
+export type OverloadSpan = {
+  /** 超過 100% 的第一天與最後一天(YYYY-MM-DD)。 */
+  from: string;
+  to: string;
+  /** 那些天裡最高的合計百分比。 */
+  peak: number;
+  /** 在超過 100% 的那些天裡有用到這台的工作項。 */
+  itemIds: string[];
+};
+
+/**
+ * 一台樣機被好幾個工作項用:同一天佔用加起來超過 100% 的那段日子(沒有就是 null)。
+ * 跟每週格子變紅是同一個判斷(逐日加總、工作天模式略過週末與假日),只是回報的是「哪幾天、哪幾個工作項」,
+ * 給選樣機、改百分比之後提醒用。沒排程(沒有起訖)的工作項不佔日子,不算。
+ */
+export function findOverload(
+  entries: { itemId: string; pct: number; start: Date | null; end: Date | null; businessDaysOnly: boolean }[],
+  holidays: Set<string> = new Set()
+): OverloadSpan | null {
+  const perDay = new Map<string, { sum: number; items: Set<string> }>();
+  for (const e of entries) {
+    if (!e.start || !e.end) continue;
+    const cursor = new Date(e.start);
+    while (cursor <= e.end) {
+      if (!e.businessDaysOnly || !isNonWorkingDay(cursor, holidays)) {
+        const key = toIsoDate(cursor);
+        const day = perDay.get(key) ?? { sum: 0, items: new Set<string>() };
+        day.sum += e.pct;
+        day.items.add(e.itemId);
+        perDay.set(key, day);
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  const over = [...perDay.entries()].filter(([, d]) => d.sum > 100).sort(([a], [b]) => a.localeCompare(b));
+  if (over.length === 0) return null;
+  return {
+    from: over[0][0],
+    to: over[over.length - 1][0],
+    peak: Math.max(...over.map(([, d]) => d.sum)),
+    itemIds: [...new Set(over.flatMap(([, d]) => [...d.items]))],
+  };
 }

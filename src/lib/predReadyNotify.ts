@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { filterInAppRecipients, notifyEmailIfNeeded } from "@/lib/notify";
 import { getPersonIds } from "@/types/column";
 import { buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
+import { itemLink } from "@/lib/notificationLink";
 
 type CompletionColumns = {
   progressColumnId: string | null;
@@ -145,7 +146,7 @@ export async function notifyDependentsWhenDone(
           data: { userId, actorId, type: "UPDATED", itemId: dependent.id, message },
         });
       }
-      await notifyEmailIfNeeded(userId, "UPDATED", message);
+      await notifyEmailIfNeeded(userId, "UPDATED", message, itemLink(boardId, dependent.id));
     }
   }
 }

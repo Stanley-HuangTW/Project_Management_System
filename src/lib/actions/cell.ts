@@ -24,6 +24,7 @@ import { statusActivityDetail } from "@/lib/statusEvent";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { getPersonIds, getStatusOptions, type CellValueJson } from "@/types/column";
+import { itemLink } from "@/lib/notificationLink";
 
 /** Human-readable form of a cell's raw value for the activity log — STATUS
  *  values are stored as option ids, so the log needs the option's label,
@@ -212,7 +213,7 @@ export async function upsertCellValue(
             },
           });
         }
-        await notifyEmailIfNeeded(userId, "ASSIGNED", message);
+        await notifyEmailIfNeeded(userId, "ASSIGNED", message, itemLink(boardId, itemId));
       }
     } else {
       const changed =

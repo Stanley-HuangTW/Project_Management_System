@@ -30,7 +30,7 @@ export type DeliveryResult = {
   mail: { ok: boolean; to?: string; reason?: string; messages: MailOutcome[] };
 };
 
-function reportDir(): string {
+export function reportDir(): string {
   return process.env.WEEKLY_REPORT_DIR || "/app/weekly-reports";
 }
 

@@ -131,6 +131,7 @@ export function ProgramReportSubscriptionCard({
                   [
                     ["includeSummary", "本週摘要"],
                     ["includeProgramDiff", "專案時程與預算"],
+                    ["includeBudget", "預算金額"],
                     ["includeDepartments", "各部門工作事項"],
                     ["includeActivity", "本週異動筆數"],
                   ] as const

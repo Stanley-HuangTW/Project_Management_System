@@ -439,6 +439,23 @@ describe("Markdown", () => {
       expect(md).not.toContain("僅限有權限的人檢視");
     });
 
+    it("預算金額一點都沒列給這位讀者:摘要也不報「預算異動」,免得以為預算沒動", () => {
+      const prev = snapshot([]);
+      const now = hidden([]);
+      const diff = diffWeeks({ programs: now.programs, weekStart: now.weekStart, weekEnd: now.weekEnd }, { programs: prev.programs });
+      expect(diff.firstEver).toBe(false);
+      const md = renderWeeklyReportMarkdown(now, diff);
+      expect(md).toContain("狀態更新 0");
+      expect(md).not.toContain("預算異動");
+    });
+
+    it("看得到預算時,摘要照舊報預算異動", () => {
+      const prev = snapshot([]);
+      const now = snapshot([]);
+      const diff = diffWeeks({ programs: now.programs, weekStart: now.weekStart, weekEnd: now.weekEnd }, { programs: prev.programs });
+      expect(renderWeeklyReportMarkdown(now, diff)).toContain("預算異動 0");
+    });
+
     it("真的沒編預算(而且看得到):仍然說沒有編列預算的階段", () => {
       expect(renderWeeklyReportMarkdown(snapshot([]), noDiff)).toContain("沒有編列預算的階段。");
     });

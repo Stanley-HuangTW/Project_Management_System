@@ -11,6 +11,7 @@ import { pickStatusColumnId } from "@/lib/itemEvents";
 import { getPersonIds, getStatusOptions } from "@/types/column";
 import { currentMonthTaipei, isUnfinished, mergeAllocationPct, replacePersonValue, slotIsOngoing } from "@/lib/handover";
 import { syncGroupRolesFromBoard } from "@/lib/boardRolesServer";
+import { itemLink } from "@/lib/notificationLink";
 
 /** 交接清單裡「看板層級角色」那幾列的 id 前綴(跟分組角色的列區分)。 */
 const BOARD_ROLE_PREFIX = "board:";
@@ -329,7 +330,7 @@ export async function executeHandover(args: {
     if (notifiableId) {
       await prisma.notification.create({ data: { userId: to.id, actorId, type: "ASSIGNED", itemId: movedItems[0].id, message } });
     }
-    await notifyEmailIfNeeded(to.id, "ASSIGNED", message);
+    await notifyEmailIfNeeded(to.id, "ASSIGNED", message, itemLink(movedItems[0].boardId, movedItems[0].id));
   }
 
   for (const boardId of new Set(movedItems.map((i) => i.boardId))) revalidatePath(`/boards/${boardId}`);

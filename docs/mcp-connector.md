@@ -83,7 +83,7 @@ Claude Code 用金鑰就夠了,但 **Cowork 與 claude.ai 的自訂連接器走 
 | `get_delay_analysis` | 整體晚幾天、哪些工作項是自己延誤的 |
 | `get_budget` | 一個階段的核准／已花費／已下單／剩餘、是否超支 |
 | `get_labour_sheet` | 人力表：逐月投入、各單位人月與金額、階段差異 |
-| `get_proto_plan` | 樣機計畫：產品 × 用途 × 階段 |
+| `get_proto_plan` | 樣機計畫：產品 × 用途 × 階段;另外列出每一台樣機,以及哪些工作項在用它(起訖日、佔用百分比),沒人在用的是空的 |
 | `get_workload` | 每個人被指派了什麼、負載多少 |
 | `get_org_chart` | 角色、單位、主管、階層、下轄人數 |
 | `run_sql` | 唯讀 SQL（僅管理者） |

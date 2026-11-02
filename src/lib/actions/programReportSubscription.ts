@@ -30,6 +30,7 @@ export type ProgramReportSubscriptionRow = {
   upcomingDays: number;
   includeSummary: boolean;
   includeProgramDiff: boolean;
+  includeBudget: boolean;
   includeDepartments: boolean;
   includeActivity: boolean;
   recipients: ReportRecipientRow[];
@@ -39,6 +40,7 @@ const DEFAULTS = {
   upcomingDays: 7,
   includeSummary: true,
   includeProgramDiff: true,
+  includeBudget: true,
   includeDepartments: true,
   includeActivity: true,
 };
@@ -65,6 +67,7 @@ export async function listProgramReportSubscriptions(): Promise<ProgramReportSub
       upcomingDays: sub?.upcomingDays ?? DEFAULTS.upcomingDays,
       includeSummary: sub?.includeSummary ?? DEFAULTS.includeSummary,
       includeProgramDiff: sub?.includeProgramDiff ?? DEFAULTS.includeProgramDiff,
+      includeBudget: sub?.includeBudget ?? DEFAULTS.includeBudget,
       includeDepartments: sub?.includeDepartments ?? DEFAULTS.includeDepartments,
       includeActivity: sub?.includeActivity ?? DEFAULTS.includeActivity,
       recipients:
@@ -93,6 +96,7 @@ export async function setProgramReportOptions(
     upcomingDays: number;
     includeSummary: boolean;
     includeProgramDiff: boolean;
+    includeBudget: boolean;
     includeDepartments: boolean;
     includeActivity: boolean;
   }>

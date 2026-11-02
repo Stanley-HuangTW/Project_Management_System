@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoardWithData } from "@/types/board";
-import { computeProtoUsage, machineLoadColor, type ProtoUsageUnit } from "./protoUsage";
+import { computeProtoUsage, findOverload, machineLoadColor, type ProtoUsageUnit } from "./protoUsage";
 import type { WeekColumn } from "./workload";
 
 const item = (id: string, name: string, start: string | null, days: number | null, groupId = "g1") => ({
@@ -175,5 +175,72 @@ describe("machineLoadColor", () => {
   it("滿載 100% 還是綠色,超過才紅", () => {
     expect(machineLoadColor(100, t)).toBe("#0f0");
     expect(machineLoadColor(101, t)).toBe("#f00");
+  });
+});
+
+describe("computeProtoUsage: idle machines", () => {
+  it("lists the machines nobody is using, in the same order as the busy ones", () => {
+    const usage = computeProtoUsage(
+      [board()],
+      [unit("u1", 1), unit("u2", 2), unit("u3", 3, { unit: "EE" })],
+      phases,
+      [{ itemId: "i1", protoUnitId: "u2", usagePct: 100 }],
+      weeks
+    );
+    expect(usage.machines.map((m) => m.id)).toEqual(["u2"]);
+    expect(usage.idle.map((m) => m.label)).toEqual(["PS30 / EVT1 / EE #3", "PS30 / EVT1 / QA #1"]);
+  });
+
+  it("a machine whose only user is hidden from the viewer counts as idle", () => {
+    const usage = computeProtoUsage(
+      [board({ items: [item("i1", "跑 72 小時", "2026-10-05", 5)] })],
+      [unit("u1", 1)],
+      phases,
+      [{ itemId: "hidden", protoUnitId: "u1", usagePct: 100 }],
+      weeks
+    );
+    expect(usage.machines).toEqual([]);
+    expect(usage.idle.map((m) => m.id)).toEqual(["u1"]);
+  });
+
+  it("ignores machines of boards that were not passed in", () => {
+    const usage = computeProtoUsage([board()], [unit("u1", 1, { boardId: "other" })], phases, [], weeks);
+    expect(usage.idle).toEqual([]);
+  });
+});
+
+describe("findOverload", () => {
+  const d = (iso: string) => new Date(iso);
+  const entry = (itemId: string, pct: number, start: string | null, end: string | null, businessDaysOnly = false) => ({
+    itemId,
+    pct,
+    start: start ? d(start) : null,
+    end: end ? d(end) : null,
+    businessDaysOnly,
+  });
+
+  it("is null for one item at 100%, or two that never meet", () => {
+    expect(findOverload([entry("a", 100, "2026-10-05", "2026-10-09")])).toBeNull();
+    expect(findOverload([entry("a", 100, "2026-10-05", "2026-10-09"), entry("b", 100, "2026-10-10", "2026-10-12")])).toBeNull();
+  });
+
+  it("two items that split the machine 50/50 are fine", () => {
+    expect(findOverload([entry("a", 50, "2026-10-05", "2026-10-09"), entry("b", 50, "2026-10-05", "2026-10-09")])).toBeNull();
+  });
+
+  it("reports the days, the peak and who is involved when they overlap", () => {
+    const span = findOverload([entry("a", 100, "2026-10-05", "2026-10-09"), entry("b", 40, "2026-10-07", "2026-10-12"), entry("c", 100, "2026-10-20", "2026-10-21")]);
+    expect(span).toEqual({ from: "2026-10-07", to: "2026-10-09", peak: 140, itemIds: ["a", "b"] });
+  });
+
+  it("business-day mode skips the weekend, so an overlap that only exists on a weekend does not count", () => {
+    // 10/10、10/11 是週六日:a 排到週日,b 從週六開始,只有週末重疊。
+    const entries = (business: boolean) => [entry("a", 100, "2026-10-05", "2026-10-11", business), entry("b", 100, "2026-10-10", "2026-10-12", business)];
+    expect(findOverload(entries(false))?.from).toBe("2026-10-10");
+    expect(findOverload(entries(true))).toBeNull();
+  });
+
+  it("skips unscheduled items", () => {
+    expect(findOverload([entry("a", 100, "2026-10-05", "2026-10-09"), entry("b", 100, null, null)])).toBeNull();
   });
 });

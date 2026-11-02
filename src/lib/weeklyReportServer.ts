@@ -868,7 +868,7 @@ async function saveProgramSnapshot(programId: string, weekStart: string, snapsho
 export async function buildProgramWeeklyReportData(
   programId: string,
   weekStartIso: string,
-  options: { upcomingDays: number; include: WeeklyReportSections }
+  options: { upcomingDays: number; include: WeeklyReportSections; includeBudget?: boolean }
 ): Promise<{ programName: string; snapshot: WeeklyReportSnapshot; markdown: string } | null> {
   const program = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, name: true } });
   if (!program) return null;
@@ -918,7 +918,9 @@ export async function buildProgramWeeklyReportData(
       programName: program.name,
       boards: boardLinesOf(boards, program.name, holidays),
       items,
-      budgets: await gatherBudgets(boards),
+      // 收件人可能是外部信箱,沒有帳號可以問預算權限:要不要列金額由管理者在分發設定決定。
+      budgets: options.includeBudget === false ? [] : await gatherBudgets(boards),
+      budgetHidden: options.includeBudget === false || undefined,
       delays: await gatherDelays(boards, systemSession),
       risks: await gatherRisks(boards, program.name, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, DEFAULT_WEEKLY_INFO),

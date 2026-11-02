@@ -28,6 +28,8 @@ import { loadProtoUsage } from "@/lib/protoUsageServer";
 import { PersonalItemsList } from "@/components/dashboard/PersonalItemsList";
 import { OverAllocationCard } from "@/components/dashboard/OverAllocationCard";
 import { BudgetAlertCard } from "@/components/dashboard/BudgetAlertCard";
+import { DiskAlertCard } from "@/components/dashboard/DiskAlertCard";
+import { readDiskLevel } from "@/lib/diskUsageServer";
 import { budgetAlerts } from "@/lib/budgetAlerts";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
@@ -240,6 +242,9 @@ export default async function DashboardPage({
   ).map((section) => ({ id: section.id as string, label: section.label as string }));
   const orderedSectionRows = orderDashboardSections(defaultSections, dashboardOrder);
 
+  // 伺服器磁碟快滿了:只給管理者看,放在可排序的區塊外面、最上面。
+  const disk = isAdmin ? await readDiskLevel() : null;
+
   return (
     <div className="mx-auto max-w-5xl space-y-8 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -257,6 +262,8 @@ export default async function DashboardPage({
           />
         </div>
       </div>
+
+      {disk && <DiskAlertCard level={disk.level} totalBytes={disk.totalBytes} freeBytes={disk.freeBytes} />}
 
       <OrderedSections order={dashboardOrder}>
 
@@ -311,6 +318,7 @@ export default async function DashboardPage({
           key="protoUsage"
           title={`樣機使用時程(${protoUsage.machines.length} 台使用中)`}
           machines={protoUsage.machines}
+          idle={protoUsage.idle}
           tasksByMachine={protoUsage.tasksByMachine}
           weeks={weekColumns}
           weeklyLoadByMachine={protoUsage.weeklyLoadByMachine}
