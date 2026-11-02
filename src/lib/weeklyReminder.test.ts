@@ -3,6 +3,7 @@ import {
   buildReminderMail,
   formatClock,
   nextTrigger,
+  programsByRecipient,
   reminderTime,
   reminderWeekKey,
   reminderWindow,
@@ -106,5 +107,66 @@ describe("buildReminderMail", () => {
     expect(mail.text).toContain("更新你負責的工作事項");
     expect(mail.text).toContain("https://pm.example.com");
     expect(mail.text).toContain("24 小時");
+  });
+});
+
+describe("buildReminderMail with project names", () => {
+  const base = { triggerAt: at("2026-10-26T16:00"), hours: 24, range: { startDow: 2, endDow: 1 }, baseUrl: "https://pm.example.com" };
+
+  it("names the projects in the subject and the body", () => {
+    const mail = buildReminderMail({ ...base, programNames: ["M3", "PS30"] });
+    expect(mail.subject).toContain("M3、PS30");
+    expect(mail.text).toContain("你所屬的專案:M3、PS30");
+    expect(mail.text).toContain("2026-10-13 ~ 2026-10-19");
+    expect(mail.text).toContain("更新你負責的工作事項");
+  });
+
+  it("keeps the generic wording when there are no project names", () => {
+    for (const programNames of [undefined, []]) {
+      const mail = buildReminderMail({ ...base, programNames });
+      expect(mail.subject).toBe("【週報提醒】週報將於 2026-10-26(週一)16:00 產生,請先更新你的工作事項");
+      expect(mail.text).not.toContain("你所屬的專案");
+    }
+  });
+});
+
+describe("programsByRecipient", () => {
+  const emails = new Map([
+    ["u1", "u1@example.com"],
+    ["u2", "u2@example.com"],
+  ]);
+
+  it("lists each person's projects once, in the order of the projects", () => {
+    const result = programsByRecipient(
+      [
+        { name: "M3", userIds: ["u1", "u2"] },
+        { name: "PS30", userIds: new Set(["u1"]) },
+        { name: "M3 二期", userIds: ["u1", "u1"] },
+      ],
+      emails
+    );
+    expect(result.get("u1@example.com")).toEqual(["M3", "PS30", "M3 二期"]);
+    expect(result.get("u2@example.com")).toEqual(["M3"]);
+  });
+
+  it("leaves out people who have no email, and people nobody listed", () => {
+    const result = programsByRecipient([{ name: "M3", userIds: ["u1", "ghost"] }], emails);
+    expect([...result.keys()]).toEqual(["u1@example.com"]);
+  });
+
+  it("collapses two accounts that share an email into one mail", () => {
+    const shared = new Map([
+      ["a", "x@example.com"],
+      ["b", "x@example.com"],
+    ]);
+    const result = programsByRecipient(
+      [
+        { name: "M3", userIds: ["a"] },
+        { name: "PS30", userIds: ["b"] },
+      ],
+      shared
+    );
+    expect(result.size).toBe(1);
+    expect(result.get("x@example.com")).toEqual(["M3", "PS30"]);
   });
 });

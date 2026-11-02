@@ -76,14 +76,21 @@ export function buildReminderMail(args: {
   hours: number;
   range: ReportRangeConfig;
   baseUrl: string;
+  /** 這位收件人所屬、而且會寄週報的專案(群組)名稱。有的話標題與內文都寫出來,沒有就是通用的寫法。 */
+  programNames?: string[];
 }): { subject: string; text: string } {
   const when = formatInstant(args.triggerAt);
   const covered = lastCompletedReportRange(args.triggerAt.toISOString().slice(0, 10), args.range);
-  const subject = `【週報提醒】週報將於 ${when} 產生,請先更新你的工作事項`;
+  const names = (args.programNames ?? []).join("、");
+  const subject = names
+    ? `【週報提醒】${names} 週報將於 ${when} 產生,請先更新你的工作事項`
+    : `【週報提醒】週報將於 ${when} 產生,請先更新你的工作事項`;
   const text = [
     "各位同仁好:",
     "",
-    `專案週報將於 ${when} 自動產生,並寄給各專案的收件人;內容涵蓋 ${covered.weekStart} ~ ${covered.weekEnd} 這段期間的工作狀況。`,
+    names
+      ? `你所屬的專案:${names}。這些專案的週報將於 ${when} 自動產生,並寄給專案的收件人;內容涵蓋 ${covered.weekStart} ~ ${covered.weekEnd} 這段期間的工作狀況。`
+      : `專案週報將於 ${when} 自動產生,並寄給各專案的收件人;內容涵蓋 ${covered.weekStart} ~ ${covered.weekEnd} 這段期間的工作狀況。`,
     "",
     "請在這個時間之前,到系統更新你負責的工作事項:",
     "・狀態與進度(做完的請切成「完成」)",
@@ -97,4 +104,25 @@ export function buildReminderMail(args: {
     `(這封信由系統自動寄出,在週報產生前 ${args.hours} 小時提醒一次。)`,
   ].join("\n");
   return { subject, text };
+}
+
+/**
+ * 每位收件人(以 Email 為準)所屬的專案名稱:一個人在好幾個專案裡只收一封信,信裡把他的專案全部列出來。
+ * programs 是會寄週報的專案與它的成員(使用者 id);沒有 Email 的人不會出現在結果裡。專案名稱照傳進來的順序、不重複。
+ */
+export function programsByRecipient(
+  programs: { name: string; userIds: Iterable<string> }[],
+  emailOf: ReadonlyMap<string, string>
+): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (const program of programs) {
+    for (const userId of program.userIds) {
+      const email = emailOf.get(userId);
+      if (!email) continue;
+      const names = result.get(email) ?? [];
+      if (!names.includes(program.name)) names.push(program.name);
+      result.set(email, names);
+    }
+  }
+  return result;
 }

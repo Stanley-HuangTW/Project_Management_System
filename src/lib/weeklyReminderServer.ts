@@ -1,12 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { sendMailChecked } from "@/lib/mail";
-import { buildReminderMail, reminderWeekKey, reminderWindow } from "@/lib/weeklyReminder";
+import { getPersonIds } from "@/types/column";
+import { buildReminderMail, programsByRecipient, reminderWeekKey, reminderWindow } from "@/lib/weeklyReminder";
 
 /**
  * 週報排程前的提醒信:排程心跳(weekly-report-tick,每五分鐘一次)每次都會問這一支,
  * 它自己判斷現在是不是落在「下一次週報產生的前 N 小時」、這一輪寄過了沒。
  *
- * 寄給所有有帳號的同仁(使用者管理裡的每個人)——要更新工作事項的是各單位的人,不只是週報的收件人。
+ * 只寄給「會寄週報的專案」的成員——要更新工作事項的是專案裡的人,不是系統裡每一個帳號。
+ * 專案成員 = 專案底下看板的擁有者、看板成員、看板與分組的角色(Team Leader、DM、PMD…)、
+ * 分組成員,以及被指派到工作項(人員分配或負責人欄位)的人。同時在好幾個專案的人只收一封,信裡列出他所有的專案。
  * 預設不提醒(0 小時),管理者在系統設定打開。
  */
 
@@ -25,6 +28,64 @@ export type ReminderSettings = {
 export type ReminderOutcome = { sent: boolean; reason?: string; week?: string; mailed?: number; failed?: number };
 
 const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/** 每個「有設定週報收件人」的專案群組,以及它底下的成員(使用者 id)。 */
+async function loadSubscribedProgramMembers(): Promise<{ name: string; userIds: Set<string> }[]> {
+  const programs = await prisma.program.findMany({
+    where: { reportSubscription: { is: { recipients: { some: {} } } } },
+    orderBy: { name: "asc" },
+    select: {
+      name: true,
+      boards: {
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          ownerId: true,
+          members: { select: { userId: true } },
+          roleAssignments: { select: { userId: true } },
+          groups: { select: { members: { select: { userId: true } }, roleAssignments: { select: { userId: true } } } },
+        },
+      },
+    },
+  });
+  const boardIds = programs.flatMap((p) => p.boards.map((b) => b.id));
+  if (boardIds.length === 0) return programs.map((p) => ({ name: p.name, userIds: new Set<string>() }));
+
+  // 被指派到工作項的人也算:人員分配,以及負責人這類「人員」欄位裡的名字。
+  const [assignments, personCells] = await Promise.all([
+    prisma.assignment.findMany({
+      where: { item: { boardId: { in: boardIds }, deletedAt: null } },
+      select: { userId: true, item: { select: { boardId: true } } },
+    }),
+    prisma.cellValue.findMany({
+      where: { column: { type: "PERSON" }, item: { boardId: { in: boardIds }, deletedAt: null } },
+      select: { value: true, item: { select: { boardId: true } } },
+    }),
+  ]);
+  const onBoard = new Map<string, Set<string>>();
+  const add = (boardId: string, userId: string) => {
+    const set = onBoard.get(boardId) ?? new Set<string>();
+    set.add(userId);
+    onBoard.set(boardId, set);
+  };
+  for (const a of assignments) add(a.item.boardId, a.userId);
+  for (const c of personCells) for (const id of getPersonIds(c.value)) add(c.item.boardId, id);
+
+  return programs.map((program) => {
+    const userIds = new Set<string>();
+    for (const board of program.boards) {
+      userIds.add(board.ownerId);
+      for (const m of board.members) userIds.add(m.userId);
+      for (const r of board.roleAssignments) userIds.add(r.userId);
+      for (const g of board.groups) {
+        for (const m of g.members) userIds.add(m.userId);
+        for (const r of g.roleAssignments) userIds.add(r.userId);
+      }
+      for (const id of onBoard.get(board.id) ?? []) userIds.add(id);
+    }
+    return { name: program.name, userIds };
+  });
+}
 
 export async function sendWeeklyReportReminder(settings: ReminderSettings, now = new Date()): Promise<ReminderOutcome> {
   if (!settings.weeklyReportEnabled) return { sent: false, reason: "排程未啟用" };
@@ -45,6 +106,14 @@ export async function sendWeeklyReportReminder(settings: ReminderSettings, now =
   const subscribed = await prisma.programReportSubscription.count({ where: { recipients: { some: {} } } });
   if (subscribed === 0) return { sent: false, reason: "沒有任何專案設定週報收件人", week };
 
+  // 要提醒的人:會寄週報的專案的成員。先算出來再搶鎖——沒有人可以提醒就不要把這一輪標成寄過了。
+  const programs = await loadSubscribedProgramMembers();
+  const memberIds = [...new Set(programs.flatMap((p) => [...p.userIds]))];
+  const users = memberIds.length > 0 ? await prisma.user.findMany({ where: { id: { in: memberIds } }, select: { id: true, email: true } }) : [];
+  const emailOf = new Map(users.flatMap((u) => (u.email ? [[u.id, u.email] as const] : [])));
+  const recipients = programsByRecipient(programs, emailOf);
+  if (recipients.size === 0) return { sent: false, reason: "會寄週報的專案裡沒有可以提醒的成員", week };
+
   // 條件式 updateMany 當原子鎖,跟週報本身一樣:NULL 要明講,SQL 的 <> 比對不到 NULL。
   const claimed = await prisma.systemSettings.updateMany({
     where: { id: "global", OR: [{ weeklyReportReminderLastWeek: null }, { weeklyReportReminderLastWeek: { not: week } }] },
@@ -52,18 +121,16 @@ export async function sendWeeklyReportReminder(settings: ReminderSettings, now =
   });
   if (claimed.count === 0) return { sent: false, reason: "被搶先寄過了", week };
 
-  const users = await prisma.user.findMany({ select: { email: true } });
-  const emails = [...new Set(users.map((u) => u.email).filter((e): e is string => !!e))];
-  const { subject, text } = buildReminderMail({
-    triggerAt,
-    hours,
-    range: { startDow: settings.weeklyReportRangeStartDow, endDow: settings.weeklyReportRangeEndDow },
-    baseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000",
-  });
-
   let mailed = 0;
   let failed = 0;
-  for (const email of emails) {
+  for (const [email, programNames] of recipients) {
+    const { subject, text } = buildReminderMail({
+      triggerAt,
+      hours,
+      range: { startDow: settings.weeklyReportRangeStartDow, endDow: settings.weeklyReportRangeEndDow },
+      baseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000",
+      programNames,
+    });
     const result = await sendMailChecked(email, subject, text);
     if (result.ok) mailed++;
     else failed++;
