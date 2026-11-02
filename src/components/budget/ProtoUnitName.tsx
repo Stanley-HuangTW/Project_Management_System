@@ -3,10 +3,22 @@
 import { useState } from "react";
 
 /**
- * 樣機計畫一列的用途單位名稱:有編輯權的人點一下就能改,按 Enter 或點別處存檔(空的或沒改就放棄)。
+ * 樣機計畫上的一個名稱——一列的用途單位,或一個區塊標題的產品名稱(kind="product"):有編輯權的人點一下就能改,
+ * 按 Enter 或點別處存檔(空的或沒改就放棄)。
  * 存檔失敗的提示由 onSave 自己負責。
  */
-export function ProtoUnitName({ value, canEdit, onSave }: { value: string; canEdit: boolean; onSave: (next: string) => Promise<void> }) {
+export function ProtoUnitName({
+  value,
+  canEdit,
+  onSave,
+  kind = "unit",
+}: {
+  value: string;
+  canEdit: boolean;
+  onSave: (next: string) => Promise<void>;
+  kind?: "unit" | "product";
+}) {
+  const attr = `data-proto-${kind}`;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -25,7 +37,7 @@ export function ProtoUnitName({ value, canEdit, onSave }: { value: string; canEd
         autoFocus
         value={draft}
         maxLength={100}
-        data-proto-unit-input={value}
+        {...{ [`${attr}-input`]: value }}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => void finish()}
         onKeyDown={(e) => {
@@ -43,8 +55,8 @@ export function ProtoUnitName({ value, canEdit, onSave }: { value: string; canEd
         setDraft(value);
         setEditing(true);
       }}
-      data-proto-unit-name={value}
-      title="點一下修改用途單位名稱"
+      {...{ [`${attr}-name`]: value }}
+      title={`點一下修改${kind === "unit" ? "用途單位" : "產品"}名稱`}
       className="cursor-text rounded px-1 text-left hover:bg-neutral-100 dark:hover:bg-neutral-700"
     >
       {value}

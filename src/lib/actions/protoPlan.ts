@@ -61,7 +61,8 @@ export async function getProtoPlanView(boardId: string): Promise<ProtoPlanView |
     }),
     prisma.protoPlan.findMany({
       where: { boardId },
-      orderBy: { createdAt: "asc" },
+      // 同一批建立的列(Excel 匯入)建立時間一樣,再用 id 排:不然順序看資料庫內部位置,改名一下產品區塊就被洗牌。
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { product: true, unit: true, phaseId: true, qty: true, note: true },
     }),
     prisma.protoRowOrder.findMany({ where: { boardId }, select: { product: true, unit: true, order: true } }),

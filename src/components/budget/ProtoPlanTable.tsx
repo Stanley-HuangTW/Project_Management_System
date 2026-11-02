@@ -22,6 +22,7 @@ import {
   reorderProtoRows,
   type ProtoPlanView,
 } from "@/lib/actions/protoPlan";
+import { renameProduct } from "@/lib/actions/bom";
 import { actionErrorMessage } from "@/lib/userError";
 
 /** 拖完階段欄之後,先在畫面上把每一處的階段順序排好(伺服器存好會再載回一次)。 */
@@ -142,6 +143,10 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
     await run(() => renameProtoUnit(boardId, product, unit, next), "無法修改用途單位名稱");
   }
 
+  async function renameProductName(product: string, next: string) {
+    await run(() => renameProduct(boardId, product, next), "無法修改產品名稱");
+  }
+
   function addRow(defaultProduct?: string) {
     setRowDialog({ defaultProduct });
   }
@@ -243,7 +248,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
               <thead>
                 <tr className="border-b-2 border-neutral-300 dark:border-neutral-600">
                   <th className="w-56 py-2 text-left font-semibold text-neutral-800 dark:text-neutral-100">
-                    {product.product}
+                    <ProtoUnitName kind="product" value={product.product} canEdit={canEdit} onSave={(next) => renameProductName(product.product, next)} />
                   </th>
                   <SortableContext items={phases.map((p) => p.id)} strategy={horizontalListSortingStrategy}>
                     {phases.map((phase) => (
