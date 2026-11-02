@@ -1,14 +1,17 @@
 stages:
   - deploy
 
+# 只在排程的時段部署:每天 9:00、12:00、15:00、17:00(台北時間)。
+# 推上 main 不會觸發部署;排程到的時候,git pull 會一次拉下這段時間累積的所有更新。
+# 排程設在 GitLab 的 Build → Pipeline schedules:
+#   Cron  0 9,12,15,17 * * *    時區 Taipei    目標分支 main
 auto-deploy:
   stage: deploy
   tags:
     - Auto Deploy Project Management System
-  only:
-    - main  # 僅在 main 分支有更新時觸發 (若您是用 master 請改為 master)
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == "main"
   script:
     - cd /home/projectadmin/apps/ursrobot_project
     - git pull origin main
     - docker compose --env-file .env.production up -d --build
- 
