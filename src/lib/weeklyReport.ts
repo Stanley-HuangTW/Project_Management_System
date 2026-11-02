@@ -124,8 +124,8 @@ export type RiskLine = {
   latestUpdate?: RiskUpdateLine | null;
 };
 
-/** 這一週工作項上新增的資訊:更新(留言)、連結(網址)、附件、待辦事項、狀態變化。 */
-export type ItemUpdateKind = "COMMENT" | "LINK" | "ATTACHMENT" | "TODO" | "STATUS";
+/** 這一週工作項上新增的資訊:更新(留言)、連結(網址)、附件、待辦事項、狀態變化、欄位修改(進度、改名、指派、使用樣機…,跟「更新記錄」頁的「修改」「指派」同一批)。 */
+export type ItemUpdateKind = "COMMENT" | "LINK" | "ATTACHMENT" | "TODO" | "STATUS" | "FIELD";
 
 export const ITEM_UPDATE_LABELS: Record<ItemUpdateKind, string> = {
   COMMENT: "更新",
@@ -133,11 +133,12 @@ export const ITEM_UPDATE_LABELS: Record<ItemUpdateKind, string> = {
   ATTACHMENT: "附件",
   TODO: "待辦事項",
   STATUS: "狀態",
+  FIELD: "修改",
 };
 
 /** 產生週報時,工作項底下要附哪幾種資訊(狀態變化一定會附)。預設全部都附。 */
-export type WeeklyInfoOptions = { updates: boolean; links: boolean; todos: boolean };
-export const DEFAULT_WEEKLY_INFO: WeeklyInfoOptions = { updates: true, links: true, todos: true };
+export type WeeklyInfoOptions = { updates: boolean; links: boolean; todos: boolean; fields: boolean };
+export const DEFAULT_WEEKLY_INFO: WeeklyInfoOptions = { updates: true, links: true, todos: true, fields: true };
 
 export type ItemUpdateLine = {
   itemId: string;
@@ -576,7 +577,7 @@ export type ItemUpdateGroup = {
   updates: ItemUpdateLine[];
 };
 
-const UPDATE_KIND_ORDER: Record<ItemUpdateKind, number> = { STATUS: 0, COMMENT: 1, LINK: 2, ATTACHMENT: 3, TODO: 4 };
+const UPDATE_KIND_ORDER: Record<ItemUpdateKind, number> = { STATUS: 0, FIELD: 1, COMMENT: 2, LINK: 3, ATTACHMENT: 4, TODO: 5 };
 
 /** 照工作項分組,工作項依 WBS 編號排(1.2 在 1.10 前面),組內依日期、再依留言/連結/附件。 */
 export function groupItemUpdates(updates: ItemUpdateLine[]): ItemUpdateGroup[] {
@@ -632,7 +633,7 @@ export function channelMessageLine(m: ChannelMessageLine): string {
   return `${m.authorName} ${m.date.slice(5)} ${m.time}:${m.text}${files}`;
 }
 
-const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄" };
+const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄", FIELD: "✏️" };
 
 /** 網址用 <…> 包起來:Markdown 與純文字信件都會把它當成可以點的連結。 */
 function updateLine(u: ItemUpdateLine): string {
@@ -771,7 +772,7 @@ export function renderWeeklyReportMarkdown(
       out.push("這是第一份週報,沒有上一週可以比,所以下面只有目前的狀態。");
       // 有實際切成完成的時間的項目不必靠上一週去猜,第一份也列得出這週完成了哪些。
       if (diff.completed.length > 0) out.push("", `這週完成 ${diff.completed.length} 項(以實際切成完成的時間為準)。`);
-      if (infoItems) out.push("", `這週有 ${infoItems} 個工作項有更新(狀態變化、留言、連結、待辦事項或附件)。`);
+      if (infoItems) out.push("", `這週有 ${infoItems} 個工作項有更新(狀態變化、欄位修改、留言、連結、待辦事項或附件)。`);
     } else {
       out.push(
         `完成 ${diff.completed.length}・新逾期 ${diff.newlyOverdue.length}・` +
@@ -917,7 +918,7 @@ function renderProgram(
     out.push("", `### 工作項資訊更新(${groups.length})`, "");
     out.push(
       groups.length === 0
-        ? "這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)。"
+        ? "這週沒有工作項有更新(狀態變化、欄位修改、留言、連結、待辦事項或附件)。"
         : renderItemUpdates(groups).join("\n")
     );
   }

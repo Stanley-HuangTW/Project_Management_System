@@ -93,7 +93,7 @@ function ItemList({
   );
 }
 
-const UPDATE_ICON: Record<ItemUpdateLine["kind"], string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄" };
+const UPDATE_ICON: Record<ItemUpdateLine["kind"], string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄", FIELD: "✏️" };
 
 /** 只有 http(s) 的網址才做成可以點的連結;其他(例如 javascript:)只顯示文字。 */
 function safeHref(url: string | null): string | null {
@@ -135,7 +135,7 @@ function UpdateRows({ updates }: { updates: ItemUpdateLine[] }) {
 function ItemUpdateList({ updates }: { updates: ItemUpdateLine[] }) {
   const groups = groupItemUpdates(updates);
   if (groups.length === 0) {
-    return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)。</p>;
+    return <p className="py-1 text-xs text-neutral-400 dark:text-neutral-500">這週沒有工作項有更新(狀態變化、欄位修改、留言、連結、待辦事項或附件)。</p>;
   }
   return (
     <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">

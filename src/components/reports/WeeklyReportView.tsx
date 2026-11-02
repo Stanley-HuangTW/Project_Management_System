@@ -26,14 +26,14 @@ export type WeeklyReportRow = {
 /** 沒有歸屬專案群組的看板那一段,分頁籤的 key 不能是 null。 */
 const NO_PROGRAM_TAB = "__none__";
 
-export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
+export function WeeklyReportView({ reports, today }: { reports: WeeklyReportRow[]; /** 今天(台北,YYYY-MM-DD),由伺服器給——畫面不自己讀時鐘。 */ today: string }) {
   const { notify } = useDialogs();
   const router = useRouter();
   const [selected, setSelected] = useState(reports[0]?.weekStart ?? null);
   const [busy, setBusy] = useState(false);
   const [activeProgramTab, setActiveProgramTab] = useState<string>(NO_PROGRAM_TAB);
   const [fullscreen, setFullscreen] = useState(false);
-  // 工作項底下要附哪些資訊:更新(留言)、連結(含附件)、待辦事項,預設都附;狀態變化(進行中、完成)一定會附。
+  // 工作項底下要附哪些資訊:更新(留言)、連結(含附件)、待辦事項、欄位修改,預設都附;狀態變化(進行中、完成)一定會附。
   const [info, setInfo] = useState<WeeklyInfoOptions>(DEFAULT_WEEKLY_INFO);
 
   // 全螢幕時按 Esc 退出——跟瀏覽器原生全螢幕的習慣一致。
@@ -131,6 +131,7 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
               ["updates", "更新"],
               ["links", "連結"],
               ["todos", "待辦事項"],
+              ["fields", "欄位修改"],
             ] as const
           ).map(([key, label]) => (
             <label key={key} className="flex items-center gap-1">
@@ -174,8 +175,14 @@ export function WeeklyReportView({ reports }: { reports: WeeklyReportRow[] }) {
         current && (
           <div className="min-w-0 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900">
             <p className="mb-3 text-[11px] text-neutral-400 dark:text-neutral-500">
-              產出時間 {current.createdAt}
+              產出時間 {current.createdAt}(台北時間)
             </p>
+            {/* 週報是產生當下的快照:範圍的最後一天在產生之後才到、而且產生之後已經過了好幾天,中間的更新(切成完成、留言…)不在裡面。 */}
+            {current.createdAt.slice(0, 10) < current.weekEnd && current.createdAt.slice(0, 10) < today && (
+              <p data-stale-snapshot className="mb-3 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                這份是 {current.createdAt} 產生的快照,{current.createdAt.slice(0, 10)} 之後的更新不在裡面(這份的範圍到 {current.weekEnd})。要看最新的,按上面的「產生這一週(到目前為止)」重新產生,會再寄一封信給你。
+              </p>
+            )}
             {current.data && current.diff ? (
               <>
                 <div className="mb-4 flex w-fit flex-wrap overflow-hidden rounded-md border border-neutral-200 text-sm dark:border-neutral-700">

@@ -12,6 +12,7 @@ import { budgetViewableBoardIds } from "@/lib/budgetAccessServer";
 import { getProgramView } from "@/lib/programView";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { loadItemEventSummaries } from "@/lib/itemEventsServer";
+import { describeEvent } from "@/lib/itemEvents";
 import {
   DEFAULT_WEEKLY_INFO,
   diffWeeks,
@@ -642,8 +643,9 @@ async function stampCompletions(boards: BoardWithData[], sections: ProgramSectio
  * 所以看不到的(私人)工作項不會透過這裡漏出去。報銷憑證(掛在費用或承諾上的附件)不算。
  * 週的邊界照台灣時間(UTC+8)——跟工時、排程用同一個時區。
  *
- * info 是產生週報時的勾選:更新(留言)、連結(含附件)、待辦事項,沒勾的不附;狀態變化(切成進行中、完成……)一定附。
- * 待辦事項與狀態變化讀的是活動紀錄上的結構化種類(ActivityLogEntry.eventKind)。
+ * info 是產生週報時的勾選:更新(留言)、連結(含附件)、待辦事項、欄位修改,沒勾的不附;狀態變化(切成進行中、完成……)一定附。
+ * 待辦事項、欄位修改與狀態變化讀的是活動紀錄上的結構化種類(ActivityLogEntry.eventKind)——欄位修改(FIELD)就是「更新記錄」頁
+ * 標「修改」「指派」的那些:進度、改名、指派、使用樣機等。
  */
 async function gatherItemUpdates(
   items: ReportItem[],
@@ -683,7 +685,7 @@ async function gatherItemUpdates(
       where: {
         itemId: { in: itemIds },
         createdAt,
-        eventKind: { in: info.todos ? ["STATUS", "TODO"] : ["STATUS"] },
+        eventKind: { in: ["STATUS", ...(info.todos ? (["TODO"] as const) : []), ...(info.fields ? (["FIELD"] as const) : [])] },
         // 待辦事項被取消「更新至週報」的不彙整(狀態變化一定附,它的旗標永遠是 true)。
         inWeeklyReport: true,
       },
@@ -717,7 +719,19 @@ async function gatherItemUpdates(
     ...links.map((l) => line(l.itemId, "LINK", l.label?.trim() || l.url, absoluteUrl(l.url), l.createdBy.name, l.createdAt)),
     ...attachments.map((a) => line(a.itemId, "ATTACHMENT", a.fileName, absoluteUrl(a.url), a.uploader.name, a.createdAt)),
     ...events.flatMap((e) =>
-      e.itemId ? [line(e.itemId, e.eventKind === "TODO" ? "TODO" : "STATUS", e.message, null, e.actor?.name ?? "系統", e.createdAt)] : []
+      e.itemId
+        ? [
+            line(
+              e.itemId,
+              e.eventKind === "TODO" ? "TODO" : e.eventKind === "FIELD" ? "FIELD" : "STATUS",
+              // 欄位修改寫成跟「更新記錄」頁同一句(「% Done」:0 → 1),不帶「已更新」與管理者代操作的註記。
+              e.eventKind === "FIELD" ? describeEvent({ kind: "FIELD", at: "", actorName: null, summary: e.message }).message : e.message,
+              null,
+              e.actor?.name ?? "系統",
+              e.createdAt
+            ),
+          ]
+        : []
     ),
   ];
 }

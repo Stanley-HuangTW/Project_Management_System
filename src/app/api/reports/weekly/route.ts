@@ -46,8 +46,8 @@ export async function POST(request: Request) {
   }
 
   const deliver = url.searchParams.get("deliver") !== "0";
-  // 工作項底下要附哪些資訊(預設都附;排程不帶這幾個參數,就是全附):updates=0 不附更新、links=0 不附連結與附件、todos=0 不附待辦事項。
-  const info = { updates: url.searchParams.get("updates") !== "0", links: url.searchParams.get("links") !== "0", todos: url.searchParams.get("todos") !== "0" };
+  // 工作項底下要附哪些資訊(預設都附;排程不帶這幾個參數,就是全附):updates=0 不附更新、links=0 不附連結與附件、todos=0 不附待辦事項、fields=0 不附欄位修改。
+  const info = { updates: url.searchParams.get("updates") !== "0", links: url.searchParams.get("links") !== "0", todos: url.searchParams.get("todos") !== "0", fields: url.searchParams.get("fields") !== "0" };
 
   try {
     const { snapshot, diff, markdown } = await generateAndStoreWeeklyReport(session, target, info);

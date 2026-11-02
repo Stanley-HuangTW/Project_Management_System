@@ -6,6 +6,7 @@ import {
   isoWeekLabel,
   diffWeeks,
   renderWeeklyReportMarkdown,
+  DEFAULT_WEEKLY_INFO,
   groupItemUpdates,
   groupChannelMessages,
   channelMessageLine,
@@ -793,6 +794,31 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     expect(md).toContain("💬 更新(Henry 09-16):已更新到 v2");
   });
 
+  it("欄位修改(進度、改名、指派…)跟「更新記錄」頁同一批,列在「工作項資訊更新」裡", () => {
+    const data = snapshot([]);
+    data.programs[0].itemUpdates = [
+      update({ itemId: "a", wbsCode: "1.2.2.2", name: "MCU Schematic", kind: "FIELD", text: "「% Done」:0 → 1", authorName: "Frank Chuang", date: "2026-11-02" }),
+      update({ itemId: "a", wbsCode: "1.2.2.2", name: "MCU Schematic", kind: "STATUS", text: "「Status」已更新:Planned → Completed", authorName: "Stanley Huang", date: "2026-11-02" }),
+    ];
+    const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
+    expect(md).toContain("### 工作項資訊更新(1)");
+    expect(md).toContain("✏️ 修改(Frank Chuang 11-02):「% Done」:0 → 1");
+    expect(md).toContain("🔄 狀態(Stanley Huang 11-02):「Status」已更新:Planned → Completed");
+  });
+
+  it("同一天裡先列狀態、再列欄位修改、再列留言", () => {
+    const [group] = groupItemUpdates([
+      update({ itemId: "a", kind: "COMMENT", date: "2026-11-02" }),
+      update({ itemId: "a", kind: "FIELD", text: "「% Done」:0 → 1", date: "2026-11-02" }),
+      update({ itemId: "a", kind: "STATUS", text: "Planned → Completed", date: "2026-11-02" }),
+    ]);
+    expect(group.updates.map((u) => u.kind)).toEqual(["STATUS", "FIELD", "COMMENT"]);
+  });
+
+  it("預設連欄位修改都附", () => {
+    expect(DEFAULT_WEEKLY_INFO).toEqual({ updates: true, links: true, todos: true, fields: true });
+  });
+
   it("連結沒有取名字就只放網址", () => {
     const data = snapshot([]);
     data.programs[0].itemUpdates = [update({ itemId: "a", kind: "LINK", text: "https://e.com/x", url: "https://e.com/x" })];
@@ -805,7 +831,7 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     const data = snapshot([]);
     data.programs[0].itemUpdates = [];
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
-    expect(md).toContain("這週沒有工作項有更新(狀態變化、留言、連結、待辦事項或附件)");
+    expect(md).toContain("這週沒有工作項有更新(狀態變化、欄位修改、留言、連結、待辦事項或附件)");
   });
 
   it("舊版快照沒有這個欄位就不顯示這一段", () => {

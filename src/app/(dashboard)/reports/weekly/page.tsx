@@ -2,6 +2,7 @@ import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { diffWeeks, previousReportWeekStart, type WeeklyReportData } from "@/lib/weeklyReport";
 import { WeeklyReportView } from "@/components/reports/WeeklyReportView";
+import { taipeiTodayIso } from "@/lib/timesheet";
 
 /** 存的時候沒有驗證過型別(Json 欄位),讀回來時當舊版格式一律當「沒有資料」,
  *  不假裝畫得出分頁籤。 */
@@ -33,6 +34,7 @@ export default async function WeeklyReportPage() {
         其他差異是拿這一份跟上一週那一份比出來的,所以第一份沒有那些差異數字。排程每週自動產一份,也可以在這裡手動補。
       </p>
       <WeeklyReportView
+        today={taipeiTodayIso()}
         reports={reports.map((r) => {
           const data = asReportData(r.data);
           const previous = dataByWeekStart.get(previousReportWeekStart(r.weekStart)) ?? null;
@@ -40,7 +42,8 @@ export default async function WeeklyReportPage() {
             weekStart: r.weekStart,
             weekEnd: r.weekEnd,
             markdown: r.markdown,
-            createdAt: r.createdAt.toISOString().slice(0, 16).replace("T", " "),
+            // 台北時間(資料庫存的是 UTC,直接截字串會晚 8 小時顯示)。
+            createdAt: new Date(r.createdAt.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace("T", " "),
             data,
             diff: data
               ? diffWeeks(
