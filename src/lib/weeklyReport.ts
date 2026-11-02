@@ -171,6 +171,8 @@ export type ProgramSection = {
   boards: BoardLine[];
   items: ReportItem[];
   budgets: BudgetLine[];
+  /** 這個專案有看板的預算金額這份週報的讀者看不到(沒有預算檢視權限),所以沒有列進 budgets。 */
+  budgetHidden?: boolean;
   delays: DelayLine[];
   risks: RiskLine[];
   /** 這一週工作項上新增的留言、連結、附件。舊版快照沒有這個欄位。 */
@@ -1033,7 +1035,7 @@ function renderProgram(
 
   out.push("", "### 預算", "");
   if (program.budgets.length === 0) {
-    out.push("沒有編列預算的階段。");
+    out.push(program.budgetHidden ? "預算金額僅限有權限的人檢視。" : "沒有編列預算的階段。");
   } else {
     const over = program.budgets.filter((b) => b.over);
     out.push(over.length === 0 ? "沒有超支的階段。" : `**${over.length} 個階段超支:**`);
@@ -1056,6 +1058,7 @@ function renderProgram(
         )
       )
     );
+    if (program.budgetHidden) out.push("", "部分看板的預算金額你沒有檢視權限,未列入。");
   }
 
   out.push("", "### 看板進度(產出當下)", "");

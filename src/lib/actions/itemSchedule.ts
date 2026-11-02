@@ -7,6 +7,8 @@ import { canEditGanttItem, canModifyItemSchedule } from "@/lib/permissions";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { subordinateIdsOf } from "@/lib/orgChartServer";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
+import { withoutItemCosts } from "@/lib/budgetAccess";
 import type { ColumnData, ItemData } from "@/types/board";
 
 export type ItemScheduleContext = {
@@ -90,10 +92,11 @@ export async function loadItemScheduleContext(itemId: string): Promise<ItemSched
   );
   if (!canOpen) return null;
 
+  const hideCosts = await hideBudgetOn(boardId, session);
   return {
-    item,
+    item: hideCosts ? withoutItemCosts(item) : item,
     columns: board.columns,
-    groupItems,
+    groupItems: hideCosts ? groupItems.map(withoutItemCosts) : groupItems,
     predColumnId: board.predColumnId,
     linkColumnId: board.linkColumnId,
     lagColumnId: board.lagColumnId,
@@ -151,11 +154,12 @@ export async function loadItemDetailContext(itemId: string): Promise<ItemDetailC
     include: itemInclude,
   });
 
+  const hideCosts = await hideBudgetOn(boardId, session);
   return {
     boardId,
-    item,
+    item: hideCosts ? withoutItemCosts(item) : item,
     columns: board.columns,
-    groupItems,
+    groupItems: hideCosts ? groupItems.map(withoutItemCosts) : groupItems,
     progressColumnId: board.progressColumnId,
     predColumnId: board.predColumnId,
     linkColumnId: board.linkColumnId,

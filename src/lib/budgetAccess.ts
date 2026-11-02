@@ -29,6 +29,14 @@ export type BudgetAccessInput = {
   dmScopeHidesBudget: boolean;
 };
 
+/**
+ * 項目上填的「直接費用」(預算、實際)也是預算金額:看不到預算的人拿到的項目資料,這兩個數字要拿掉,
+ * 不能只在畫面上藏——不然開瀏覽器的開發者工具就看得到。
+ */
+export function withoutItemCosts<T extends { budgetCost: number | null; actualCost: number | null }>(item: T): T {
+  return { ...item, budgetCost: null, actualCost: null };
+}
+
 export function canViewBudget(input: BudgetAccessInput): boolean {
   if (input.isAdmin || input.isBoardOwner || input.isNamedViewer || input.isOrgHead) return true;
   const roles = new Set(input.roles.map((r) => r.role));

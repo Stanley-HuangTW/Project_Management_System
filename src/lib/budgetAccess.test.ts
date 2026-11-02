@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canViewBudget, type BudgetAccessInput } from "./budgetAccess";
+import { canViewBudget, withoutItemCosts, type BudgetAccessInput } from "./budgetAccess";
 
 const none: BudgetAccessInput = {
   isAdmin: false,
@@ -50,5 +50,18 @@ describe("canViewBudget", () => {
 
   it("holding a viewing role on top of a DM role is enough", () => {
     expect(canViewBudget({ ...none, roles: [{ role: "SW_DM" }, { role: "TEAM_LEADER" }] })).toBe(true);
+  });
+});
+
+describe("withoutItemCosts", () => {
+  it("drops the direct costs typed on an item and leaves everything else alone", () => {
+    const item = { id: "i1", name: "機構設計", budgetCost: 50_000, actualCost: 42_000 };
+    expect(withoutItemCosts(item)).toEqual({ id: "i1", name: "機構設計", budgetCost: null, actualCost: null });
+  });
+
+  it("does not change the item it was given", () => {
+    const item = { budgetCost: 1, actualCost: 2 };
+    withoutItemCosts(item);
+    expect(item).toEqual({ budgetCost: 1, actualCost: 2 });
   });
 });

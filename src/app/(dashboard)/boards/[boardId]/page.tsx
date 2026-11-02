@@ -11,6 +11,8 @@ import { applyVisibility } from "@/lib/applyVisibility";
 import { loadDmScopeSettings } from "@/lib/dmScopeServer";
 import { loadItemEventSummaries } from "@/lib/itemEventsServer";
 import { loadProtoUnitsData } from "@/lib/protoUnitsServer";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
+import { withoutItemCosts } from "@/lib/budgetAccess";
 import { externalPredecessors } from "@/lib/externalPredecessors";
 
 export default async function BoardPage({
@@ -62,6 +64,10 @@ export default async function BoardPage({
 
   // Private groups and items the caller is not on never reach the client.
   const visibleBoard = applyVisibility(board, session, await loadDmScopeSettings());
+  // 看不到預算的人,項目上填的直接費用(預算、實際)也不送到瀏覽器。
+  const shownBoard = (await hideBudgetOn(boardId, session))
+    ? { ...visibleBoard, items: visibleBoard.items.map(withoutItemCosts) }
+    : visibleBoard;
   // 表格最右邊三欄(進行中時間、完成時間、更新記錄)的資料——只給看得到的項目。
   const eventSummaries = await loadItemEventSummaries(
     [boardId],
@@ -73,7 +79,7 @@ export default async function BoardPage({
 
   return (
     <BoardView
-      board={visibleBoard}
+      board={shownBoard}
       users={assignees}
       userRole={session.role}
       currentUserId={session.userId}

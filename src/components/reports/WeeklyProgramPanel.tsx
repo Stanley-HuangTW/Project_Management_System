@@ -545,7 +545,9 @@ export function WeeklyProgramPanel({
 
       <Block title="預算">
         {program.budgets.length === 0 ? (
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">沒有編列預算的階段。</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            {program.budgetHidden ? "預算金額僅限有權限的人檢視。" : "沒有編列預算的階段。"}
+          </p>
         ) : (
           <div className="space-y-1 text-xs text-neutral-600 dark:text-neutral-300">
             {program.budgets
@@ -557,6 +559,7 @@ export function WeeklyProgramPanel({
                 </p>
               ))}
             {program.budgets.every((b) => !b.over) && <p>沒有超支的階段。</p>}
+            {program.budgetHidden && <p className="text-neutral-400 dark:text-neutral-500">部分看板的預算金額你沒有檢視權限,未列入。</p>}
           </div>
         )}
       </Block>

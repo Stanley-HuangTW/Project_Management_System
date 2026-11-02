@@ -13,6 +13,7 @@ import type { UserRole } from "@prisma/client";
 import { formatMoney } from "@/lib/cost";
 import {
   listTimeEntries,
+  getItemDirectCosts,
   logTime,
   deleteTimeEntry,
   setItemCosts,
@@ -33,16 +34,12 @@ export function CostTab({
   users,
   currentUserId,
   userRole,
-  budgetCost,
-  actualCost,
   canEdit,
 }: {
   itemId: string;
   users: UserOption[];
   currentUserId: string;
   userRole: UserRole;
-  budgetCost: number | null;
-  actualCost: number | null;
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -57,16 +54,25 @@ export function CostTab({
   const noteSuggestions = useNoteSuggestions(`item:${itemId}`, note);
   const [forUserId, setForUserId] = useState(currentUserId);
 
-  const [budget, setBudget] = useState(budgetCost === null ? "" : String(budgetCost));
-  const [actual, setActual] = useState(actualCost === null ? "" : String(actualCost));
+  // 直接費用(預算、實際)是預算金額:看不到這塊看板預算的人拿不到數字("hidden"),這一段整個不顯示。
+  const [direct, setDirect] = useState<{ budgetCost: number | null; actualCost: number | null } | "hidden" | null>(null);
+  const [budget, setBudget] = useState("");
+  const [actual, setActual] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const rows = await listTimeEntries(itemId);
+      const [rows, costs] = await Promise.all([listTimeEntries(itemId), getItemDirectCosts(itemId)]);
       if (!cancelled) {
         setEntries(rows);
         setLoading(false);
+        if (costs.hidden) {
+          setDirect("hidden");
+        } else {
+          setDirect({ budgetCost: costs.budgetCost, actualCost: costs.actualCost });
+          setBudget(costs.budgetCost === null ? "" : String(costs.budgetCost));
+          setActual(costs.actualCost === null ? "" : String(costs.actualCost));
+        }
       }
     })();
     return () => {
@@ -121,6 +127,7 @@ export function CostTab({
         await notify(result.error, { title: "無法儲存金額" });
         return;
       }
+      setDirect({ budgetCost: parse(budget), actualCost: parse(actual) });
       router.refresh();
     } finally {
       setBusy(false);
@@ -136,6 +143,7 @@ export function CostTab({
 
   return (
     <div className="space-y-5">
+      {direct !== null && direct !== "hidden" && (
       <section>
         <h3 className="mb-1 text-sm font-medium text-neutral-800 dark:text-neutral-100">直接費用</h3>
         <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
@@ -170,8 +178,9 @@ export function CostTab({
           </label>
         </div>
       </section>
+      )}
 
-      <section className="border-t border-neutral-100 dark:border-neutral-700 pt-4">
+      <section className={direct !== null && direct !== "hidden" ? "border-t border-neutral-100 dark:border-neutral-700 pt-4" : undefined}>
         <h3 className="mb-2 text-sm font-medium text-neutral-800 dark:text-neutral-100">
           實際工時
           {totalHours > 0 && (
@@ -270,9 +279,9 @@ export function CostTab({
         )}
       </section>
 
-      {(budgetCost !== null || actualCost !== null) && (
+      {direct !== null && direct !== "hidden" && (direct.budgetCost !== null || direct.actualCost !== null) && (
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          直接費用:預算 {formatMoney(budgetCost ?? 0)} / 實際 {formatMoney(actualCost ?? 0)}。
+          直接費用:預算 {formatMoney(direct.budgetCost ?? 0)} / 實際 {formatMoney(direct.actualCost ?? 0)}。
           完整的計畫 vs 實際(含人力)在報表頁的「成本與 EVM」。
         </p>
       )}

@@ -414,6 +414,36 @@ describe("風險/議題變化", () => {
 describe("Markdown", () => {
   const noDiff = diffWeeks(snapshot([]), null);
 
+  describe("預算金額的可見範圍", () => {
+    const hidden = (budgets: BudgetLine[]) => {
+      const data = snapshot([], budgets);
+      data.programs[0].budgetHidden = true;
+      return data;
+    };
+
+    it("讀者看不到任何看板的預算:不說「沒有編列預算」,說僅限有權限的人檢視", () => {
+      const md = renderWeeklyReportMarkdown(hidden([]), noDiff);
+      expect(md).toContain("預算金額僅限有權限的人檢視。");
+      expect(md).not.toContain("沒有編列預算的階段。");
+    });
+
+    it("只看得到其中幾塊看板的預算:列出看得到的,並註明有的沒列入", () => {
+      const md = renderWeeklyReportMarkdown(hidden([budget({ itemId: "p1", phaseName: "EVT", over: true, remaining: -5 })]), noDiff);
+      expect(md).toContain("EVT");
+      expect(md).toContain("部分看板的預算金額你沒有檢視權限,未列入。");
+    });
+
+    it("看得到全部:跟以前一樣,沒有任何提示", () => {
+      const md = renderWeeklyReportMarkdown(snapshot([], [budget({ itemId: "p1" })]), noDiff);
+      expect(md).not.toContain("沒有檢視權限");
+      expect(md).not.toContain("僅限有權限的人檢視");
+    });
+
+    it("真的沒編預算(而且看得到):仍然說沒有編列預算的階段", () => {
+      expect(renderWeeklyReportMarkdown(snapshot([]), noDiff)).toContain("沒有編列預算的階段。");
+    });
+  });
+
   it("標題帶週數與起訖", () => {
     const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
     expect(md.startsWith("# 週報 2026 W38(2026-09-14 ~ 2026-09-20)")).toBe(true);

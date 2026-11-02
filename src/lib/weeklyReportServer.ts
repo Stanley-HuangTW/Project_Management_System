@@ -8,6 +8,7 @@ import { computeStatusBuckets } from "@/lib/boardReport";
 import { gatherDelayInputs } from "@/lib/delayInputs";
 import { analyzeDelays } from "@/lib/delayAnalysis";
 import { summarizeBudget } from "@/lib/budget";
+import { budgetViewableBoardIds } from "@/lib/budgetAccessServer";
 import { getProgramView } from "@/lib/programView";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { loadItemEventSummaries } from "@/lib/itemEventsServer";
@@ -87,6 +88,12 @@ export async function buildWeeklyReport(
     listHolidays(),
   ]);
   const holidays = toHolidaySet(holidayRows);
+  // 看得到看板不等於看得到預算:這份週報的讀者看不到預算的看板,金額不列進來(也不會寫進他的快照)。
+  const budgetViewable = await budgetViewableBoardIds(boards.map((b) => b.id), session);
+  const budgetsOf = async (list: BoardWithData[]) => {
+    const shown = list.filter((b) => budgetViewable.has(b.id));
+    return { budgets: await gatherBudgets(shown), budgetHidden: shown.length < list.length || undefined };
+  };
 
   // 逾期/未來幾天到期照儀表板那支算,一次算完再分給各專案跟各部門——同一份
   // report 裡「未來幾天」的定義只有一個,不會專案區塊跟部門區塊各自算。
@@ -128,7 +135,7 @@ export async function buildWeeklyReport(
       programName: program.name,
       boards: boardLinesOf(mine, program.name, holidays),
       items,
-      budgets: await gatherBudgets(mine),
+      ...(await budgetsOf(mine)),
       delays: await gatherDelays(mine, session),
       risks: await gatherRisks(mine, program.name, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, info),
@@ -144,7 +151,7 @@ export async function buildWeeklyReport(
       programName: null,
       boards: boardLinesOf(orphans, null, holidays),
       items,
-      budgets: await gatherBudgets(orphans),
+      ...(await budgetsOf(orphans)),
       delays: await gatherDelays(orphans, session),
       risks: await gatherRisks(orphans, null, weekStart, weekEnd),
       itemUpdates: await gatherItemUpdates(items, weekStart, weekEnd, info),

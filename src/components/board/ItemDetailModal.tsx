@@ -125,8 +125,6 @@ export function ItemDetailModal({
           users={users}
           currentUserId={currentUserId}
           userRole={userRole}
-          budgetCost={item.budgetCost}
-          actualCost={item.actualCost}
           canEdit={userRole !== "MEMBER"}
         />
       )}

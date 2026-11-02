@@ -5,6 +5,7 @@ import type { ApprovalStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
+import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import { validateStartMinute } from "@/lib/timeOfDay";
 import { DAILY_LIMIT_HOURS, hoursAlreadyLoggedOn } from "@/lib/timesheetHours";
 import { EXEMPT_DECISION_NOTE, formatApprovers, isTimesheetExempt, resolveApprovers } from "@/lib/timesheetApproval";
@@ -191,6 +192,20 @@ export async function deleteTimeEntry(entryId: string): Promise<{ error?: string
 
 /** 直接費用 (NRE/BOM…) on one item — the other half of its cost, and the
  *  half that is a number somebody agreed to rather than hours worked. */
+/**
+ * 項目卡片「直接費用」(預算、實際)的目前金額。這是預算金額的一種:看不到這塊看板預算的人拿不到數字,
+ * 畫面也就不顯示這一段。
+ */
+export async function getItemDirectCosts(
+  itemId: string
+): Promise<{ hidden: true } | { hidden: false; budgetCost: number | null; actualCost: number | null }> {
+  const session = await requireSession();
+  const boardId = await requireItemBoardAccess(itemId, session);
+  if (await hideBudgetOn(boardId, session)) return { hidden: true };
+  const item = await prisma.item.findUnique({ where: { id: itemId }, select: { budgetCost: true, actualCost: true } });
+  return { hidden: false, budgetCost: item?.budgetCost ?? null, actualCost: item?.actualCost ?? null };
+}
+
 export async function setItemCosts(
   itemId: string,
   budgetCost: number | null,
@@ -198,6 +213,7 @@ export async function setItemCosts(
 ): Promise<{ error?: string }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
+  if (await hideBudgetOn(boardId, session)) return { error: "權限不足:你沒有這塊看板預算金額的檢視權限,不能填直接費用" };
   for (const value of [budgetCost, actualCost]) {
     if (value !== null && (!Number.isInteger(value) || value < 0)) {
       return { error: "金額必須是 0 或正整數(元)" };
