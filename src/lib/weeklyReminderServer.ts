@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { sendMailChecked } from "@/lib/mail";
-import { getPersonIds } from "@/types/column";
 import { buildReminderMail, programsByRecipient, reminderWeekKey, reminderWindow } from "@/lib/weeklyReminder";
 
 /**
@@ -8,8 +7,9 @@ import { buildReminderMail, programsByRecipient, reminderWeekKey, reminderWindow
  * 它自己判斷現在是不是落在「下一次週報產生的前 N 小時」、這一輪寄過了沒。
  *
  * 只寄給「會寄週報的專案」的成員——要更新工作事項的是專案裡的人,不是系統裡每一個帳號。
- * 專案成員 = 專案底下看板的擁有者、看板成員、看板與分組的角色(Team Leader、DM、PMD…)、
- * 分組成員,以及被指派到工作項(人員分配或負責人欄位)的人。同時在好幾個專案的人只收一封,信裡列出他所有的專案。
+ * 專案成員 = 專案底下看板的擁有者、看板成員、看板與分組的角色(Team Leader、DM、PMD…)、分組成員。
+ * 只是被指派到某個工作項、卻不在上面這些名單裡的人,不算專案成員,不會收到。
+ * 同時在好幾個專案的人只收一封,信裡列出他所有的專案。
  * 預設不提醒(0 小時),管理者在系統設定打開。
  */
 
@@ -48,29 +48,6 @@ async function loadSubscribedProgramMembers(): Promise<{ name: string; userIds: 
       },
     },
   });
-  const boardIds = programs.flatMap((p) => p.boards.map((b) => b.id));
-  if (boardIds.length === 0) return programs.map((p) => ({ name: p.name, userIds: new Set<string>() }));
-
-  // 被指派到工作項的人也算:人員分配,以及負責人這類「人員」欄位裡的名字。
-  const [assignments, personCells] = await Promise.all([
-    prisma.assignment.findMany({
-      where: { item: { boardId: { in: boardIds }, deletedAt: null } },
-      select: { userId: true, item: { select: { boardId: true } } },
-    }),
-    prisma.cellValue.findMany({
-      where: { column: { type: "PERSON" }, item: { boardId: { in: boardIds }, deletedAt: null } },
-      select: { value: true, item: { select: { boardId: true } } },
-    }),
-  ]);
-  const onBoard = new Map<string, Set<string>>();
-  const add = (boardId: string, userId: string) => {
-    const set = onBoard.get(boardId) ?? new Set<string>();
-    set.add(userId);
-    onBoard.set(boardId, set);
-  };
-  for (const a of assignments) add(a.item.boardId, a.userId);
-  for (const c of personCells) for (const id of getPersonIds(c.value)) add(c.item.boardId, id);
-
   return programs.map((program) => {
     const userIds = new Set<string>();
     for (const board of program.boards) {
@@ -81,7 +58,6 @@ async function loadSubscribedProgramMembers(): Promise<{ name: string; userIds: 
         for (const m of g.members) userIds.add(m.userId);
         for (const r of g.roleAssignments) userIds.add(r.userId);
       }
-      for (const id of onBoard.get(board.id) ?? []) userIds.add(id);
     }
     return { name: program.name, userIds };
   });

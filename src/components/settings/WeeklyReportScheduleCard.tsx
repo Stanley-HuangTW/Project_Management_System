@@ -156,7 +156,7 @@ export function WeeklyReportScheduleCard({
       <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
         <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">產生前提醒同仁更新工作事項</p>
         <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-          週報產生前先寄一封信給「會寄週報的專案」的成員(那些專案底下看板的擁有者、看板成員、各角色與分組成員、被指派到工作項的人),請他們更新自己的工作事項,
+          週報產生前先寄一封信給「會寄週報的專案」的成員(那些專案底下看板的擁有者、看板成員、各角色與分組成員),請他們更新自己的工作事項,
           信裡寫明他所屬的專案、週報什麼時候產生、涵蓋哪一段;不在這些專案裡的人不會收到,同時在好幾個專案的人只收一封。
           只有排程啟用、而且至少有一個專案群組設定了週報收件人時才會寄。
         </p>

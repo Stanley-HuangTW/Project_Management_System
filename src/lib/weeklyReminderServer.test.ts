@@ -18,8 +18,6 @@ const emptyBoard = (id: string, ownerId: string): Board => ({ id, ownerId, membe
 const state = {
   subscriptions: 1,
   programs: [] as { name: string; boards: Board[] }[],
-  assignments: [] as { userId: string; item: { boardId: string } }[],
-  personCells: [] as { value: unknown; item: { boardId: string } }[],
   users: [] as { id: string; email: string | null }[],
   claimable: true,
   claims: [] as unknown[],
@@ -31,8 +29,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     programReportSubscription: { count: async () => state.subscriptions },
     program: { findMany: async () => state.programs },
-    assignment: { findMany: async () => state.assignments },
-    cellValue: { findMany: async () => state.personCells },
+    // 刻意沒有 assignment、cellValue:被指派到工作項不算專案成員,誰去查它們這個測試就會直接壞掉。
     user: {
       findMany: async (args: { where: { id: { in: string[] } } }) => state.users.filter((u) => args.where.id.in.includes(u.id)),
     },
@@ -74,7 +71,8 @@ const TOO_EARLY = new Date("2026-10-24T09:00:00Z");
 
 beforeEach(() => {
   state.subscriptions = 1;
-  // M3:擁有者 owner、看板成員 member、分組成員 grouper、分組 Team Leader tl、被指派的 assignee、負責人欄的 cellowner。
+  // M3:擁有者 owner、看板成員 member、分組成員 grouper、分組 Team Leader tl。
+  // assignee、cellowner 只被指派到 M3 的工作項(人員分配、負責人欄),不在上面任何名單裡。
   // PS30:只有 member(跟 M3 重疊的人)與 ps30only。
   state.programs = [
     {
@@ -89,8 +87,6 @@ beforeEach(() => {
     },
     { name: "PS30", boards: [{ ...emptyBoard("b-ps30", "owner"), members: [{ userId: "member" }, { userId: "ps30only" }] }] },
   ];
-  state.assignments = [{ userId: "assignee", item: { boardId: "b-m3" } }];
-  state.personCells = [{ value: "cellowner", item: { boardId: "b-m3" } }, { value: ["resource-without-account"], item: { boardId: "b-m3" } }];
   state.users = [
     "owner",
     "member",
@@ -112,9 +108,7 @@ describe("sendWeeklyReportReminder", () => {
     const out = await sendWeeklyReportReminder(settings, INSIDE);
     expect(out).toMatchObject({ sent: true, failed: 0, week: "2026 W44" });
     const to = state.sent.map((m) => m.to).sort();
-    expect(to).toEqual(
-      ["assignee", "cellowner", "grouper", "member", "owner", "ps30only", "tl"].map((id) => `${id}@example.com`).sort()
-    );
+    expect(to).toEqual(["grouper", "member", "owner", "ps30only", "tl"].map((id) => `${id}@example.com`).sort());
     expect(to).not.toContain("sophie@example.com");
     expect(state.claims).toEqual(["2026 W44"]);
   });
@@ -129,6 +123,13 @@ describe("sendWeeklyReportReminder", () => {
     const only = state.sent.find((m) => m.to === "ps30only@example.com")!;
     expect(only.subject).toContain("PS30");
     expect(only.subject).not.toContain("M3");
+  });
+
+  it("being assigned to an item is not enough to count as a project member", async () => {
+    await sendWeeklyReportReminder(settings, INSIDE);
+    const to = state.sent.map((m) => m.to);
+    expect(to).not.toContain("assignee@example.com");
+    expect(to).not.toContain("cellowner@example.com");
   });
 
   it("someone in two projects gets one mail that names both", async () => {
@@ -151,7 +152,7 @@ describe("sendWeeklyReportReminder", () => {
     state.users = state.users.map((u) => (u.id === "tl" ? { ...u, email: null } : u));
     await sendWeeklyReportReminder(settings, INSIDE);
     expect(state.sent.map((m) => m.to)).not.toContain("tl@example.com");
-    expect(state.sent.length).toBe(6);
+    expect(state.sent.length).toBe(4);
   });
 
   it("does not use up the round when there is nobody to remind", async () => {
@@ -199,7 +200,7 @@ describe("sendWeeklyReportReminder", () => {
   it("puts the round back when not a single mail got out, so the next tick tries again", async () => {
     state.mailOk = false;
     const out = await sendWeeklyReportReminder(settings, INSIDE);
-    expect(out).toMatchObject({ sent: false, mailed: 0, failed: 7 });
+    expect(out).toMatchObject({ sent: false, mailed: 0, failed: 5 });
     // 先標成寄過(搶鎖),全部失敗再還原成原本的值
     expect(state.claims).toEqual(["2026 W44", null]);
   });
