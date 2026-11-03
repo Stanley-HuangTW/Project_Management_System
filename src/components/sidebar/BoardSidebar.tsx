@@ -24,6 +24,7 @@ import {
   FolderKanban,
   ClipboardCheck,
   ScrollText,
+  LifeBuoy,
   FileText,
   History,
   MessageCircle,
@@ -87,6 +88,7 @@ export function BoardSidebar({
   currentUserId,
   avatarUrl,
   impersonating = false,
+  feedbackOpen = 0,
 }: {
   boards: Board[];
   programs: Program[];
@@ -103,6 +105,8 @@ export function BoardSidebar({
   avatarUrl?: string | null;
   /** 管理者正以別人的身分檢視(userName / userRole 是被檢視的人)。 */
   impersonating?: boolean;
+  /** 管理者:還沒處理的使用者回報有幾則。 */
+  feedbackOpen?: number;
 }) {
   const { unread: chatUnread } = useChat();
   const canManage = canManageBoard(userRole);
@@ -545,6 +549,25 @@ export function BoardSidebar({
           >
             <ScrollText size={14} className="shrink-0" />
             稽核軌跡
+          </Link>
+        )}
+        {userRole === "ADMIN" && (
+          <Link
+            href="/feedback"
+            data-sidebar-feedback
+            className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+              pathname === "/feedback"
+                ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                : "text-neutral-700 dark:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            <LifeBuoy size={14} className="shrink-0" />
+            使用者回報
+            {feedbackOpen > 0 && (
+              <span className="ml-auto rounded-full bg-red-500 px-1.5 text-[10px] font-medium leading-4 text-white">
+                {feedbackOpen > 99 ? "99+" : feedbackOpen}
+              </span>
+            )}
           </Link>
         )}
         {canManageStructure(userRole) && (

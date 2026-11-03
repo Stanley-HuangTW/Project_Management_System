@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { canManageStructure } from "@/lib/permissions";
+import { MODAL_HELP } from "@/lib/helpTopics";
 import type { ColumnData, ItemData, UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { upsertCellValue } from "@/lib/actions/cell";
@@ -193,7 +194,7 @@ export function AssignmentModal({
     : undefined;
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={`${item.name} — 人員分配`} size="lg">
+    <Modal open={open} onOpenChange={onOpenChange} title={`${item.name} — 人員分配`} size="lg" help={MODAL_HELP.assignment}>
       <div className="mb-4">
         <AssignmentEditor
           boardId={boardId}

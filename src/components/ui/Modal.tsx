@@ -1,7 +1,8 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { HelpCircle, X } from "lucide-react";
+import { manualHref } from "@/lib/helpTopics";
 import { ReactNode } from "react";
 
 type ModalProps = {
@@ -10,11 +11,13 @@ type ModalProps = {
   title: string;
   children: ReactNode;
   size?: "md" | "lg" | "xl";
+  /** 這個視窗在使用手冊裡對應的章節:標題列多一個「?」,點了在新分頁打開。 */
+  help?: { label: string; anchor: string };
 };
 
 const MAX_WIDTH = { md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" };
 
-export function Modal({ open, onOpenChange, title, children, size = "md" }: ModalProps) {
+export function Modal({ open, onOpenChange, title, children, size = "md", help }: ModalProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -26,9 +29,24 @@ export function Modal({ open, onOpenChange, title, children, size = "md" }: Moda
             <Dialog.Title className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
               {title}
             </Dialog.Title>
-            <Dialog.Close className="text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-100">
-              <X size={18} />
-            </Dialog.Close>
+            <div className="flex items-center gap-3">
+              {help && (
+                <a
+                  href={manualHref(help.anchor)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-modal-help
+                  title={`開啟使用手冊:${help.label}`}
+                  aria-label={`開啟使用手冊:${help.label}`}
+                  className="text-neutral-400 hover:text-blue-600 dark:text-neutral-500 dark:hover:text-blue-300"
+                >
+                  <HelpCircle size={18} />
+                </a>
+              )}
+              <Dialog.Close className="text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-100">
+                <X size={18} />
+              </Dialog.Close>
+            </div>
           </div>
           {children}
         </Dialog.Content>

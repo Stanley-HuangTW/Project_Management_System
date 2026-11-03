@@ -10,6 +10,7 @@ import { resolveStatusColumn } from "@/lib/dashboard";
 import { EditHistoryProvider } from "./EditHistoryProvider";
 import { OwnerDefaultPctProvider } from "./OwnerDefaultPctContext";
 import { ItemProtoUnitsProvider } from "./ItemProtoUnitsContext";
+import { useHelpHint } from "@/components/help/helpHint";
 import { BoardTable } from "./BoardTable";
 import type { ItemEventSummary } from "@/lib/itemEvents";
 import { BoardKanban } from "./BoardKanban";
@@ -107,6 +108,8 @@ export function BoardView({
   // width and scroll position instead of resetting to the default view.
   const [ganttMounted, setGanttMounted] = useState(false);
   if (view === "gantt" && !ganttMounted) setGanttMounted(true);
+  // 右下角的「?」要開手冊的哪一章,看這個看板現在在哪個分頁(切分頁不會改網址)。
+  useHelpHint(`board:${view}`);
 
   const [addColumnOpen, setAddColumnOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);

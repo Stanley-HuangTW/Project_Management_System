@@ -11,6 +11,7 @@ import { ImpersonationBanner } from "@/components/sidebar/ImpersonationBanner";
 import { ChatProvider } from "@/components/chat/ChatProvider";
 import { getUnreadTotal } from "@/lib/chatServer";
 import { PROJECT_DASHBOARD_ROLES } from "@/lib/projectRoles";
+import { HelpButton } from "@/components/help/HelpButton";
 
 export default async function DashboardLayout({
   children,
@@ -51,6 +52,8 @@ export default async function DashboardLayout({
   // 代操作時不開對話(發言會變成被代操作的人說的)。
   const chatEnabled = !session.impersonatorId;
   const chatUnread = chatEnabled ? await getUnreadTotal(session) : 0;
+  // 管理者:還沒處理的使用者回報有幾則(側邊欄「使用者回報」旁邊標數字)。
+  const feedbackOpen = session.role === "ADMIN" ? await prisma.userFeedback.count({ where: { status: "OPEN" } }) : 0;
   const programs = applyStoredOrder(programRows, currentUser?.programOrder ?? []).map((program) => ({
     ...program,
     boardCount: boards.filter((b) => b.programId === program.id).length,
@@ -76,9 +79,11 @@ export default async function DashboardLayout({
           currentUserId={session.userId}
           avatarUrl={currentUser?.avatarUrl}
           impersonating={!!session.impersonatorId}
+          feedbackOpen={feedbackOpen}
         />
         {/* pt-12 clears the fixed mobile bar the sidebar renders below md. */}
         <div className="flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800 pt-12 md:pt-0">{children}</div>
+        <HelpButton isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
       </div>
       </div>
     </BoardAdminActionsProvider>

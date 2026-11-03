@@ -146,6 +146,7 @@ model User {
   leaves                  Leave[]
   visibleGroups           GroupViewer[]
   apiKeys                 ApiKey[]                 @relation("ApiKeyOwner")
+  feedback                UserFeedback[]           @relation("UserFeedbackAuthor")
   managedResources        Resource[]               @relation("ResourceManager")
   groupRoleAssignments    GroupRoleAssignment[]    @relation("GroupRoleAssignments")
   groupMemberships        GroupMember[]            @relation("GroupMembers")
@@ -2347,4 +2348,34 @@ model ChatEvent {
   createdAt      DateTime @default(now())
 
   @@index([createdAt])
+}
+
+enum FeedbackStatus {
+  OPEN
+  RESOLVED
+}
+
+/// 使用者在畫面上按「說明與問題回報」寫下的問題:哪個畫面、誰、寫了什麼。管理者在「使用者回報」頁統一看與處理。
+model UserFeedback {
+  id           String         @id @default(cuid())
+  userId       String?
+  user         User?          @relation("UserFeedbackAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  /// 送出當下的姓名與 Email:帳號之後被刪除,回報還留著看得出是誰寫的。
+  userName     String
+  userEmail    String
+  /// 送出時的畫面網址(路徑與查詢字串,不含網域)。
+  path         String
+  /// 那個畫面的名稱(例如「甘特圖」)與對應的手冊章節錨點(例如 ch-9)。
+  pageLabel    String
+  manualAnchor String
+  message      String
+  status       FeedbackStatus @default(OPEN)
+  /// 管理者處理時留的說明。
+  adminNote    String?
+  resolvedAt   DateTime?
+  resolvedByName String?
+  createdAt    DateTime       @default(now())
+
+  @@index([status, createdAt])
+  @@index([userId])
 }

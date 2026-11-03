@@ -15,6 +15,7 @@ import { ActivityLogTab } from "./item-detail/ActivityLogTab";
 import { ItemCardTab } from "./item-detail/ItemCardTab";
 import { ChecklistTab } from "./item-detail/ChecklistTab";
 import { CostTab } from "./item-detail/CostTab";
+import { MODAL_HELP } from "@/lib/helpTopics";
 
 const TABS = [
   { id: "updates", label: "更新" },
@@ -97,7 +98,7 @@ export function ItemDetailModal({
   if (!item) return null;
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={item.name} size="xl">
+    <Modal open={open} onOpenChange={onOpenChange} title={item.name} size="xl" help={MODAL_HELP.itemCard}>
       <div className="mb-4 flex gap-1 border-b border-neutral-200 dark:border-neutral-700">
         {TABS.map((t) => (
           <button
