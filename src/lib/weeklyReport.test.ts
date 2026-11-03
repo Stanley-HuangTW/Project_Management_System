@@ -5,6 +5,7 @@ import {
   isPastWeeklyTrigger,
   isoWeekLabel,
   diffWeeks,
+  dedupePersonSections,
   renderWeeklyReportMarkdown,
   DEFAULT_WEEKLY_INFO,
   groupItemUpdates,
@@ -651,6 +652,64 @@ describe("Markdown", () => {
     expect(md).toContain("#### Team Leader");
     expect(md).toContain("**[Team Leader] Jason Huang**");
     expect(md).toContain("**這週已完成(1)**");
+  });
+
+  describe("同一個人在同一個專案群組的好幾個分組都有角色", () => {
+    const person = (over: Partial<PersonSection>): PersonSection => ({
+      userId: "u-stanley",
+      userName: "Stanley Huang",
+      role: "DM",
+      discipline: "PM 專案管理",
+      programName: "M3",
+      groupName: "POC",
+      boardName: "M3專案",
+      overdue: [item({ id: "o", bucket: "overdue" })],
+      completedThisWeek: [],
+      upcoming: [],
+      ...over,
+    });
+
+    it("週報只列一份,不會每個分組各重複一次", () => {
+      const data = snapshot([]);
+      data.departments = [person({ groupName: "POC" }), person({ groupName: "EVT" }), person({ groupName: "DVT" })];
+      const md = renderWeeklyReportMarkdown(data, noDiff);
+      expect(md.split("**[DM] Stanley Huang**")).toHaveLength(2); // 只出現一次
+      expect(md.split("#### PM 專案管理")).toHaveLength(2);
+    });
+
+    it("是不同的人、或同一個人在不同職能,各自照常列出", () => {
+      const data = snapshot([]);
+      data.departments = [
+        person({ groupName: "POC" }),
+        person({ groupName: "EVT" }),
+        person({ userId: "u-other", userName: "Tony Chia", groupName: "POC" }),
+        person({ discipline: "SW 軟體", role: "MEMBER", groupName: "POC" }),
+      ];
+      const md = renderWeeklyReportMarkdown(data, noDiff);
+      expect(md.split("**[DM] Stanley Huang**")).toHaveLength(2);
+      expect(md).toContain("**[DM] Tony Chia**");
+      expect(md).toContain("**[成員] Stanley Huang**");
+    });
+
+    it("dedupePersonSections:順序不動;在某個分組是 DM、別的分組只是成員,算 DM;不同專案群組不合併", () => {
+      const rows = [
+        person({ userId: "a", userName: "A", role: "MEMBER", groupName: "POC" }),
+        person({ userId: "b", userName: "B", groupName: "POC" }),
+        person({ userId: "a", userName: "A", role: "DM", groupName: "EVT" }),
+        person({ userId: "b", userName: "B", groupName: "EVT" }),
+        person({ userId: "b", userName: "B", programName: "AMR BOX", groupName: "POC" }),
+        person({ userId: "t", userName: "T", role: "TEAM_LEADER", discipline: "Team Leader", groupName: "POC" }),
+        person({ userId: "t", userName: "T", role: "TEAM_LEADER", discipline: "Team Leader", groupName: "EVT" }),
+      ];
+      const result = dedupePersonSections(rows);
+      expect(result.map((r) => `${r.programName}/${r.discipline}/${r.userName}/${r.role}`)).toEqual([
+        "M3/PM 專案管理/A/DM",
+        "M3/PM 專案管理/B/DM",
+        "AMR BOX/PM 專案管理/B/DM",
+        "M3/Team Leader/T/TEAM_LEADER",
+      ]);
+      expect(rows[0].role).toBe("MEMBER"); // 輸入不被改動
+    });
   });
 
   it("沒有部門名冊時說得出原因,而不是一段空白", () => {

@@ -818,9 +818,29 @@ const ROLE_LABEL: Record<PersonSection["role"], string> = {
   MEMBER: "成員",
 };
 
+/**
+ * 同一個人在同一個專案群組、同一個職能只留一份。
+ *
+ * 一個人手上的工作項是依專案群組算的(不分分組),但名冊與角色是一個分組一份:同一個人在同一個專案群組的
+ * 好幾個分組都有同一個角色(看板角色沿用到每個分組就是這樣),gatherPersonSections 會各給一份,
+ * 內容一模一樣,週報就重複好幾次。這裡合併成一份(順序不動);在其中某個分組是 DM、別的分組只是成員,算 DM。
+ * 放在畫面與信件的渲染這一層,以前產生、已經存起來的週報也一樣不會重複。
+ */
+export function dedupePersonSections(people: PersonSection[]): PersonSection[] {
+  const byKey = new Map<string, PersonSection>();
+  for (const person of people) {
+    const key = [person.programName ?? "", person.discipline, person.userId].join("\u0000");
+    const first = byKey.get(key);
+    if (!first) byKey.set(key, person);
+    else if (first.role === "MEMBER" && person.role === "DM") byKey.set(key, { ...first, role: "DM" });
+  }
+  return [...byKey.values()];
+}
+
 /** 屬於這個專案群組的人,依職能分組——組內保留原本的排序(DM/成員/Team Leader
  *  的排法是 gatherPersonSections 那邊決定的,這裡不重排,只是分組)。 */
-function renderDepartments(people: PersonSection[], upcomingDays: number, updates: Map<string, ItemUpdateLine[]>): string[] {
+function renderDepartments(rawPeople: PersonSection[], upcomingDays: number, updates: Map<string, ItemUpdateLine[]>): string[] {
+  const people = dedupePersonSections(rawPeople);
   const out: string[] = [];
   if (people.length === 0) {
     out.push("沒有設定分組角色與部門名冊,所以分不出部門。分組角色設定在「分組角色設定」頁。");

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   ITEM_UPDATE_LABELS,
   byPriority,
+  dedupePersonSections,
   groupChannelMessages,
   groupItemUpdates,
   risksToList,
@@ -346,7 +347,7 @@ function RiskList({
 }
 
 function DepartmentBlock({
-  people,
+  people: rawPeople,
   upcomingDays,
   updates,
 }: {
@@ -354,6 +355,7 @@ function DepartmentBlock({
   upcomingDays: number;
   updates: Map<string, ItemUpdateLine[]>;
 }) {
+  const people = dedupePersonSections(rawPeople);
   if (people.length === 0) {
     return (
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
