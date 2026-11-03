@@ -4,6 +4,9 @@ export const boardWithDataArgs = Prisma.validator<Prisma.BoardDefaultArgs>()({
   include: {
     // 看板層級的角色(分組預設沿用的名單)。
     roleAssignments: { select: { role: true, userId: true } },
+    // 看板層級的實作成員與 Resource 成員(分組預設沿用的名單)。
+    disciplineMembers: { select: { discipline: true, userId: true } },
+    resourceMembers: { select: { resourceId: true } },
     groups: {
       orderBy: { order: "asc" },
       include: {

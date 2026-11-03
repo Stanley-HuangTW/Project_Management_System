@@ -12,7 +12,11 @@ import {
   setGroupRoleAssignments,
   setGroupRoleInherit,
   setGroupMembers,
+  setGroupMemberInherit,
   setGroupResourceMembers,
+  setGroupResourceInherit,
+  setBoardMembers,
+  setBoardResourceMembers,
 } from "@/lib/actions/groupRoles";
 
 /** The slice of Group data this modal actually needs — kept structural
@@ -24,8 +28,14 @@ export type GroupRolesData = {
   roleAssignments: { role: GroupRole; userId: string }[];
   /** 這個分組自己設定的角色(不沿用看板)。看板層級(mode="board")用不到,給空陣列。 */
   roleOverrides: GroupRole[];
+  /** 實作成員。看板層級(mode="board")放的是看板的名單。 */
   members: { discipline: GroupDiscipline; userId: string }[];
+  /** 這個分組自己設定實作成員的職能(不沿用看板)。看板層級用不到,給空陣列。 */
+  memberOverrides: GroupDiscipline[];
+  /** Resource 成員。看板層級(mode="board")放的是看板的名單。 */
   resourceMembers: { resourceId: string }[];
+  /** 這個分組自己設定 Resource 成員(不沿用看板)。看板層級用不到,給 false。 */
+  resourceOverride: boolean;
 };
 
 export const ROLE_LABELS: Record<GroupRole, string> = {
@@ -189,7 +199,21 @@ export function GroupRolesModal({
     const next = current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId];
     setPending(`member:${discipline}`);
     try {
-      const result = await setGroupMembers(boardId, group.id, discipline, next);
+      const result = boardMode
+        ? await setBoardMembers(boardId, discipline, next)
+        : await setGroupMembers(boardId, group.id, discipline, next);
+      if (result.error) await notify(result.error);
+      router.refresh();
+    } finally {
+      setPending(null);
+    }
+  }
+
+  /** 分組的某個職能的實作成員:改成沿用看板 / 改成自己設定。 */
+  async function toggleMemberInherit(discipline: GroupDiscipline, inherit: boolean) {
+    setPending(`member:${discipline}`);
+    try {
+      const result = await setGroupMemberInherit(boardId, group.id, discipline, inherit);
       if (result.error) await notify(result.error);
       router.refresh();
     } finally {
@@ -204,7 +228,24 @@ export function GroupRolesModal({
       : [...current, resourceId];
     setPending("resource");
     try {
-      await setGroupResourceMembers(boardId, group.id, next);
+      if (boardMode) {
+        const result = await setBoardResourceMembers(boardId, next);
+        if (result.error) await notify(result.error);
+      } else {
+        await setGroupResourceMembers(boardId, group.id, next);
+      }
+      router.refresh();
+    } finally {
+      setPending(null);
+    }
+  }
+
+  /** 分組的 Resource 成員:改成沿用看板 / 改成自己設定。 */
+  async function toggleResourceInherit(inherit: boolean) {
+    setPending("resource");
+    try {
+      const result = await setGroupResourceInherit(boardId, group.id, inherit);
+      if (result.error) await notify(result.error);
       router.refresh();
     } finally {
       setPending(null);
@@ -236,7 +277,7 @@ export function GroupRolesModal({
   }
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={boardMode ? `${group.name} — 看板角色` : `${group.name} — 分組角色設定`} size="xl">
+    <Modal open={open} onOpenChange={onOpenChange} title={boardMode ? `${group.name} — 看板角色與成員` : `${group.name} — 分組角色設定`} size="xl">
       <div className="space-y-5">
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">角色</h3>
@@ -303,10 +344,12 @@ export function GroupRolesModal({
           </div>
         </section>
 
-        {!boardMode && (
         <section>
           <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">實作成員</h3>
           <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+            {boardMode
+              ? "設在這裡的實作成員,這個看板的每個分組預設都沿用。分組如果自己改過某個職能,就以分組的為準,不受這裡影響;分組可以在「分組角色設定」逐一職能改回沿用看板。"
+              : "每個職能旁邊勾「沿用看板」,名單就跟看板設定的一樣、看板改了也跟著改;取消勾選才能在這個分組另外挑人。"}
             SW/EE/ME/QA DM 只能管理各自欄位底下列出的成員。人選同樣預設只列該部門的人。
           </p>
           <div className="space-y-2">
@@ -316,8 +359,10 @@ export function GroupRolesModal({
                 group.members.filter((m) => m.discipline === discipline).map((m) => m.userId)
               );
               const { options, scoped, deptEmpty } = optionsFor(key, discipline, selectedIds);
+              // Team Leader 直接可編(第一次改就變成這個分組自己的名單),不需要「沿用看板」開關。
+              const inherited = !boardMode && !leaderOnly && !group.memberOverrides.includes(discipline);
               return (
-                <div key={discipline} className="flex items-center gap-2">
+                <div key={discipline} className="flex items-center gap-2" data-member-row={discipline}>
                   <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                     {DISCIPLINE_LABELS[discipline]} member
                   </span>
@@ -328,33 +373,67 @@ export function GroupRolesModal({
                       hint: scoped ? undefined : (u.discipline ?? undefined),
                     }))}
                     selectedIds={selectedIds}
-                    disabled={pending === key}
+                    disabled={pending === key || inherited}
                     placeholder={scoped ? `未指定(${DISCIPLINE_LABELS[discipline]} 部門)` : "未指定"}
                     footer={scopeFooter(key, discipline, deptEmpty)}
                     onToggle={(userId) => toggleMember(discipline, userId)}
                   />
+                  {!boardMode && !leaderOnly && (
+                    <label
+                      className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400"
+                      title="勾選:名單跟看板設定的一樣,看板改了這裡跟著改。取消勾選:這個分組自己挑人。"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={inherited}
+                        disabled={pending === key}
+                        onChange={(e) => void toggleMemberInherit(discipline, e.target.checked)}
+                        className="h-3 w-3"
+                        data-member-inherit={discipline}
+                      />
+                      沿用看板
+                    </label>
+                  )}
                 </div>
               );
             })}
           </div>
         </section>
 
-        )}
-
-        {!boardMode && !leaderOnly && resources.length > 0 && (
+        {!leaderOnly && resources.length > 0 && (
           <section>
             <h3 className="mb-1 text-sm font-semibold text-neutral-800 dark:text-neutral-100">Resource 成員</h3>
-            <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">花名冊用途,Resource 沒有登入帳號、不會取得任何操作權限。</p>
-            <div className="flex items-center gap-2">
+            <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+              {boardMode
+                ? "花名冊用途,Resource 沒有登入帳號、不會取得任何操作權限。設在這裡的名單,這個看板的每個分組預設都沿用;分組自己改過就以分組的為準,可以在「分組角色設定」改回沿用看板。"
+                : "花名冊用途,Resource 沒有登入帳號、不會取得任何操作權限。勾「沿用看板」,名單就跟看板設定的一樣、看板改了也跟著改;取消勾選才能在這個分組另外挑。"}
+            </p>
+            <div className="flex items-center gap-2" data-resource-row>
               <span className="w-32 shrink-0 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 Resource
               </span>
               <MultiSelect
                 options={resources.map((r) => ({ id: r.id, name: r.name }))}
                 selectedIds={new Set(group.resourceMembers.map((m) => m.resourceId))}
-                disabled={pending === "resource"}
+                disabled={pending === "resource" || (!boardMode && !group.resourceOverride)}
                 onToggle={toggleResource}
               />
+              {!boardMode && (
+                <label
+                  className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400"
+                  title="勾選:名單跟看板設定的一樣,看板改了這裡跟著改。取消勾選:這個分組自己挑。"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!group.resourceOverride}
+                    disabled={pending === "resource"}
+                    onChange={(e) => void toggleResourceInherit(e.target.checked)}
+                    className="h-3 w-3"
+                    data-resource-inherit
+                  />
+                  沿用看板
+                </label>
+              )}
             </div>
           </section>
         )}

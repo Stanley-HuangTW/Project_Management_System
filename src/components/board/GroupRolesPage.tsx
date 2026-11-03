@@ -5,7 +5,15 @@ import { Shield } from "lucide-react";
 import { GroupRolesModal, type GroupRolesData } from "./GroupRolesModal";
 import type { UserOption } from "@/types/board";
 
-type BoardWithGroups = { id: string; name: string; roleAssignments: GroupRolesData["roleAssignments"]; groups: GroupRolesData[] };
+type BoardWithGroups = {
+  id: string;
+  name: string;
+  roleAssignments: GroupRolesData["roleAssignments"];
+  /** 看板層級的實作成員與 Resource 成員。 */
+  disciplineMembers: GroupRolesData["members"];
+  resourceMembers: GroupRolesData["resourceMembers"];
+  groups: GroupRolesData[];
+};
 
 export function GroupRolesPage({
   boards,
@@ -29,7 +37,16 @@ export function GroupRolesPage({
   const targetData: GroupRolesData | null = !target || !targetBoard
     ? null
     : target.groupId === null
-      ? { id: targetBoard.id, name: targetBoard.name, roleAssignments: targetBoard.roleAssignments, roleOverrides: [], members: [], resourceMembers: [] }
+      ? {
+          id: targetBoard.id,
+          name: targetBoard.name,
+          roleAssignments: targetBoard.roleAssignments,
+          roleOverrides: [],
+          members: targetBoard.disciplineMembers,
+          memberOverrides: [],
+          resourceMembers: targetBoard.resourceMembers,
+          resourceOverride: false,
+        }
       : (targetBoard.groups.find((g) => g.id === target.groupId) ?? null);
 
   return (

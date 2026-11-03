@@ -26,6 +26,8 @@ export default async function GroupRolesSettingsPage() {
         id: true,
         name: true,
         roleAssignments: { select: { role: true, userId: true } },
+        disciplineMembers: { select: { discipline: true, userId: true } },
+        resourceMembers: { select: { resourceId: true } },
         groups: {
           ...(ledGroups ? { where: { id: { in: ledGroups } } } : {}),
           orderBy: { order: "asc" },
@@ -33,6 +35,8 @@ export default async function GroupRolesSettingsPage() {
             id: true,
             name: true,
             roleOverrides: true,
+            memberOverrides: true,
+            resourceOverride: true,
             roleAssignments: { select: { role: true, userId: true } },
             members: { select: { discipline: true, userId: true } },
             resourceMembers: { select: { resourceId: true } },

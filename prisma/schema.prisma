@@ -161,6 +161,7 @@ model User {
   chatMemberships         ChatMember[]
   chatMessages            ChatMessage[]
   boardRoleAssignments    BoardRoleAssignment[]    @relation("BoardRoleAssignments")
+  boardDisciplineMembers  BoardDisciplineMember[]  @relation("BoardDisciplineMembers")
 }
 
 // A non-login entity (tool, equipment, external vendor/supplier) that can be
@@ -181,6 +182,7 @@ model Resource {
   manager   User?   @relation("ResourceManager", fields: [managerId], references: [id], onDelete: SetNull)
 
   groupMemberships GroupResourceMember[]
+  boardMemberships BoardResourceMember[]
 }
 
 model Board {
@@ -290,6 +292,8 @@ model Board {
   mantisConnection    MantisConnection?
   chatConversation    ChatConversation?
   roleAssignments     BoardRoleAssignment[]
+  disciplineMembers   BoardDisciplineMember[]
+  resourceMembers     BoardResourceMember[]
 }
 
 /// 這塊看板指名「可以看預算金額」的人(看板分享設定);管理者、擁有者、Team Leader / PMD / PM DM 本來就看得到,不用列在這裡。
@@ -338,6 +342,11 @@ model Group {
   roleAssignments       GroupRoleAssignment[]
   members               GroupMember[]
   resourceMembers       GroupResourceMember[]
+  /// 這個分組「自己設定」實作成員的職能(不沿用看板的)。規則跟 roleOverrides 一樣:有列的職能以分組自己的名單為準,
+  /// 沒列的職能,GroupMember 就是看板實作成員(BoardDisciplineMember)的複本,由 boardRolesServer 同步。
+  memberOverrides       GroupDiscipline[]     @default([])
+  /// true = 這個分組自己設定 Resource 成員;false = GroupResourceMember 是看板 Resource 成員(BoardResourceMember)的複本。
+  resourceOverride      Boolean               @default(false)
 
   @@index([boardId])
 }
@@ -354,6 +363,32 @@ model BoardRoleAssignment {
 
   @@unique([boardId, role, userId])
   @@index([userId])
+}
+
+/// 看板層級的實作成員(SW/EE/ME/QA/PM 各職能):每個分組預設沿用這裡的名單(分組可以逐一職能改成自己的,見 Group.memberOverrides)。
+/// 實際生效的權限仍然讀 GroupMember——沒有自己設定的職能,那裡的列就是這裡的複本。
+model BoardDisciplineMember {
+  id         String          @id @default(cuid())
+  boardId    String
+  board      Board           @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  discipline GroupDiscipline
+  userId     String
+  user       User            @relation("BoardDisciplineMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, discipline, userId])
+  @@index([userId])
+}
+
+/// 看板層級的 Resource 成員(花名冊):分組預設沿用(分組自己設定時 Group.resourceOverride = true)。
+model BoardResourceMember {
+  id         String   @id @default(cuid())
+  boardId    String
+  board      Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, resourceId])
+  @@index([resourceId])
 }
 
 // A user holding TEAM_LEADER or PMD for a Group can edit the schedule

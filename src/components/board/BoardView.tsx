@@ -432,7 +432,16 @@ export function BoardView({
         <GroupRolesModal
           mode="board"
           boardId={board.id}
-          group={{ id: board.id, name: board.name, roleAssignments: board.roleAssignments, roleOverrides: [], members: [], resourceMembers: [] }}
+          group={{
+            id: board.id,
+            name: board.name,
+            roleAssignments: board.roleAssignments,
+            roleOverrides: [],
+            members: board.disciplineMembers,
+            memberOverrides: [],
+            resourceMembers: board.resourceMembers,
+            resourceOverride: false,
+          }}
           users={users}
           open={rolesOpen}
           onOpenChange={setRolesOpen}

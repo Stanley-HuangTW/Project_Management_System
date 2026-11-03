@@ -11,13 +11,17 @@ type Session = { userId: string; role: "ADMIN" | "SUPERVISOR" | "MEMBER"; name: 
 const state = {
   session: { userId: "u_tl", role: "MEMBER", name: "TL", email: "tl@example.com" } as Session,
   groups: [
-    { id: "g1", boardId: "b1", roleOverrides: [] as string[] },
-    { id: "g2", boardId: "b1", roleOverrides: [] as string[] },
-    { id: "g_other", boardId: "b2", roleOverrides: [] as string[] },
+    { id: "g1", boardId: "b1", roleOverrides: [] as string[], memberOverrides: [] as string[], resourceOverride: false },
+    { id: "g2", boardId: "b1", roleOverrides: [] as string[], memberOverrides: [] as string[], resourceOverride: false },
+    { id: "g_other", boardId: "b2", roleOverrides: [] as string[], memberOverrides: [] as string[], resourceOverride: false },
   ],
   /** 誰在哪個分組擔任什麼角色 */
   roles: [{ groupId: "g1", role: "TEAM_LEADER", userId: "u_tl" }] as { groupId: string; role: string; userId: string }[],
   members: [] as { groupId: string; discipline: string; userId: string }[],
+  groupResources: [] as { groupId: string; resourceId: string }[],
+  /** 看板層級的實作成員與 Resource 成員 */
+  boardMembers: [] as { boardId: string; discipline: string; userId: string }[],
+  boardResources: [] as { boardId: string; resourceId: string }[],
   /** 看板層級的角色(管理者在「整個看板」設的) */
   boardRoles: [] as { boardId: string; role: string; userId: string }[],
   boards: [
@@ -29,14 +33,14 @@ const state = {
 vi.mock("@/lib/session", () => ({ requireSession: async () => state.session }));
 vi.mock("@/lib/boardAccess", () => ({ requireBoardAccess: async () => undefined }));
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
-vi.mock("@/lib/boardRolesServer", () => ({ syncGroupRolesFromBoard: async () => undefined }));
+const sync = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<undefined>>(async () => undefined));
+vi.mock("@/lib/boardRolesServer", () => ({ syncGroupRolesFromBoard: sync }));
 vi.mock("@/lib/prisma", () => {
   const tx = {
     group: {
       findUnique: async ({ where }: { where: { id: string } }) => state.groups.find((g) => g.id === where.id) ?? null,
-      update: async ({ where, data }: { where: { id: string }; data: { roleOverrides: string[] } }) => {
-        const g = state.groups.find((x) => x.id === where.id)!;
-        g.roleOverrides = data.roleOverrides;
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        Object.assign(state.groups.find((x) => x.id === where.id)!, data);
       },
     },
     board: {
@@ -57,6 +61,38 @@ vi.mock("@/lib/prisma", () => {
         state.boardRoles.push(...data);
       },
     },
+    groupMember: {
+      deleteMany: async ({ where }: { where: { groupId: string; discipline: string } }) => {
+        state.members = state.members.filter((m) => !(m.groupId === where.groupId && m.discipline === where.discipline));
+      },
+      createMany: async ({ data }: { data: { groupId: string; discipline: string; userId: string }[] }) => {
+        state.members.push(...data);
+      },
+    },
+    groupResourceMember: {
+      deleteMany: async ({ where }: { where: { groupId: string } }) => {
+        state.groupResources = state.groupResources.filter((r) => r.groupId !== where.groupId);
+      },
+      createMany: async ({ data }: { data: { groupId: string; resourceId: string }[] }) => {
+        state.groupResources.push(...data);
+      },
+    },
+    boardDisciplineMember: {
+      deleteMany: async ({ where }: { where: { boardId: string; discipline: string } }) => {
+        state.boardMembers = state.boardMembers.filter((m) => !(m.boardId === where.boardId && m.discipline === where.discipline));
+      },
+      createMany: async ({ data }: { data: { boardId: string; discipline: string; userId: string }[] }) => {
+        state.boardMembers.push(...data);
+      },
+    },
+    boardResourceMember: {
+      deleteMany: async ({ where }: { where: { boardId: string } }) => {
+        state.boardResources = state.boardResources.filter((r) => r.boardId !== where.boardId);
+      },
+      createMany: async ({ data }: { data: { boardId: string; resourceId: string }[] }) => {
+        state.boardResources.push(...data);
+      },
+    },
     groupRoleAssignment: {
       findFirst: async ({ where }: { where: { userId: string; groupId: string; role: string } }) =>
         state.roles.find((r) => r.userId === where.userId && r.groupId === where.groupId && r.role === where.role) ?? null,
@@ -71,22 +107,21 @@ vi.mock("@/lib/prisma", () => {
   return {
     prisma: {
       ...tx,
-      groupMember: {
-        deleteMany: ({ where }: { where: { groupId: string; discipline: string } }) => {
-          state.members = state.members.filter((m) => !(m.groupId === where.groupId && m.discipline === where.discipline));
-          return Promise.resolve();
-        },
-        create: ({ data }: { data: { groupId: string; discipline: string; userId: string } }) => {
-          state.members.push(data);
-          return Promise.resolve();
-        },
-      },
       $transaction: async (arg: unknown) => (typeof arg === "function" ? (arg as (t: typeof tx) => unknown)(tx) : Promise.all(arg as unknown[])),
     },
   };
 });
 
-const { setGroupRoleAssignments, setGroupMembers, setBoardRoleAssignments } = await import("./groupRoles");
+const {
+  setGroupRoleAssignments,
+  setGroupMembers,
+  setBoardRoleAssignments,
+  setGroupMemberInherit,
+  setGroupResourceMembers,
+  setGroupResourceInherit,
+  setBoardMembers,
+  setBoardResourceMembers,
+} = await import("./groupRoles");
 
 const rolesOf = (groupId: string, role: string) => state.roles.filter((r) => r.groupId === groupId && r.role === role).map((r) => r.userId);
 
@@ -94,8 +129,12 @@ beforeEach(() => {
   state.session = { userId: "u_tl", role: "MEMBER", name: "TL", email: "tl@example.com" };
   state.roles = [{ groupId: "g1", role: "TEAM_LEADER", userId: "u_tl" }];
   state.members = [];
+  state.groupResources = [];
+  state.boardMembers = [];
+  state.boardResources = [];
   state.boardRoles = [];
-  for (const g of state.groups) g.roleOverrides = [];
+  for (const g of state.groups) Object.assign(g, { roleOverrides: [], memberOverrides: [], resourceOverride: false });
+  sync.mockClear();
 });
 
 describe("分組的 Team Leader 指定 DM", () => {
@@ -221,5 +260,115 @@ describe("看板層級的 Team Leader(管理者在「整個看板」設的)", ()
   it("看板擁有者照舊可以設任何看板角色", async () => {
     state.session = { userId: "u_owner", role: "SUPERVISOR", name: "Owner", email: "o@example.com" };
     expect(await setBoardRoleAssignments("b1", "TEAM_LEADER", ["u_z"])).toEqual({});
+  });
+});
+
+describe("實作成員、Resource 成員:分組自己設定 vs 沿用看板", () => {
+  const asAdmin = () => {
+    state.session = { userId: "u_admin", role: "ADMIN", name: "A", email: "a@example.com" };
+  };
+  const group = (id: string) => state.groups.find((g) => g.id === id)!;
+
+  it("在分組改某個職能的名單 = 這個分組自己設定那個職能(別的職能仍然沿用)", async () => {
+    expect(await setGroupMembers("b1", "g1", "SW", ["u_a"])).toEqual({});
+    expect(group("g1").memberOverrides).toEqual(["SW"]);
+    // 再改一次同一個職能,不會重複記
+    await setGroupMembers("b1", "g1", "SW", ["u_b"]);
+    expect(group("g1").memberOverrides).toEqual(["SW"]);
+    await setGroupMembers("b1", "g1", "QA", ["u_c"]);
+    expect(group("g1").memberOverrides).toEqual(["SW", "QA"]);
+  });
+
+  it("管理者把某個職能改回沿用看板:取消「自己設定」,並從看板重新同步這個分組", async () => {
+    asAdmin();
+    group("g1").memberOverrides = ["SW", "QA"];
+    expect(await setGroupMemberInherit("b1", "g1", "SW", true)).toEqual({});
+    expect(group("g1").memberOverrides).toEqual(["QA"]);
+    expect(sync).toHaveBeenCalledWith("b1", { groupId: "g1" }, expect.anything());
+    // 改成自己設定:名單先不動,只記下來,也不需要同步
+    sync.mockClear();
+    expect(await setGroupMemberInherit("b1", "g1", "ME", false)).toEqual({});
+    expect(group("g1").memberOverrides).toEqual(["QA", "ME"]);
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("沿用看板的開關只有管理者能動(分組的 Team Leader 也不行),也不能拿別的看板的 boardId 去改", async () => {
+    group("g1").memberOverrides = ["SW"];
+    expect((await setGroupMemberInherit("b1", "g1", "SW", true)).error).toMatch(/權限不足/);
+    expect(group("g1").memberOverrides).toEqual(["SW"]);
+    asAdmin();
+    await setGroupMemberInherit("b2", "g1", "SW", true); // g1 不屬於 b2
+    expect(group("g1").memberOverrides).toEqual(["SW"]);
+  });
+
+  it("管理者在分組改 Resource 名單 = 這個分組自己設定 Resource;改回沿用 → 重新同步", async () => {
+    asAdmin();
+    await setGroupResourceMembers("b1", "g1", ["r1", "r1", "r2"]);
+    expect(state.groupResources.map((r) => r.resourceId)).toEqual(["r1", "r2"]);
+    expect(group("g1").resourceOverride).toBe(true);
+    expect(await setGroupResourceInherit("b1", "g1", true)).toEqual({});
+    expect(group("g1").resourceOverride).toBe(false);
+    expect(sync).toHaveBeenCalledWith("b1", { groupId: "g1" }, expect.anything());
+  });
+
+  it("分組的 Team Leader 不能改 Resource 成員,也不能動沿用開關", async () => {
+    await expect(setGroupResourceMembers("b1", "g1", ["r1"])).rejects.toThrow();
+    expect(state.groupResources).toEqual([]);
+    expect((await setGroupResourceInherit("b1", "g1", false)).error).toMatch(/權限不足/);
+    expect(group("g1").resourceOverride).toBe(false);
+  });
+});
+
+describe("看板層級的實作成員與 Resource 成員", () => {
+  const boardMembersOf = (boardId: string, discipline: string) =>
+    state.boardMembers.filter((m) => m.boardId === boardId && m.discipline === discipline).map((m) => m.userId);
+  const asBoardLeader = () => {
+    state.roles = [];
+    state.boardRoles = [{ boardId: "b1", role: "TEAM_LEADER", userId: "u_tl" }];
+  };
+  const asOwner = () => {
+    state.session = { userId: "u_owner", role: "SUPERVISOR", name: "Owner", email: "o@example.com" };
+  };
+
+  it("看板擁有者可以設各職能的實作成員(整批取代、重複的人只算一個),並同步所有沒有自己設定的分組", async () => {
+    asOwner();
+    expect(await setBoardMembers("b1", "SW", ["u_a", "u_a", "u_b"])).toEqual({});
+    expect(boardMembersOf("b1", "SW")).toEqual(["u_a", "u_b"]);
+    expect(await setBoardMembers("b1", "SW", ["u_c"])).toEqual({});
+    expect(boardMembersOf("b1", "SW")).toEqual(["u_c"]);
+    expect(sync).toHaveBeenCalledWith("b1", {}, expect.anything());
+  });
+
+  it("管理者與整個看板的 Team Leader 可以設實作成員", async () => {
+    state.session = { userId: "u_admin", role: "ADMIN", name: "A", email: "a@example.com" };
+    expect(await setBoardMembers("b1", "ME", ["u_a"])).toEqual({});
+    state.session = { userId: "u_tl", role: "MEMBER", name: "TL", email: "tl@example.com" };
+    asBoardLeader();
+    expect(await setBoardMembers("b1", "QA", ["u_b"])).toEqual({});
+    expect(boardMembersOf("b1", "QA")).toEqual(["u_b"]);
+  });
+
+  it("別的看板的 Team Leader、分組層級的 Team Leader、一般成員都不行", async () => {
+    asBoardLeader();
+    expect((await setBoardMembers("b2", "SW", ["u_a"])).error).toMatch(/權限不足/);
+    state.roles = [{ groupId: "g1", role: "TEAM_LEADER", userId: "u_tl" }];
+    state.boardRoles = [];
+    expect((await setBoardMembers("b1", "SW", ["u_a"])).error).toMatch(/權限不足/);
+    state.roles = [];
+    expect((await setBoardMembers("b1", "SW", ["u_a"])).error).toMatch(/權限不足/);
+    expect(state.boardMembers).toEqual([]);
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("Resource 成員只有管理者與看板擁有者能設;整個看板的 Team Leader 不行", async () => {
+    asBoardLeader();
+    expect((await setBoardResourceMembers("b1", ["r1"])).error).toMatch(/權限不足/);
+    expect(state.boardResources).toEqual([]);
+    asOwner();
+    expect(await setBoardResourceMembers("b1", ["r1", "r1", "r2"])).toEqual({});
+    expect(state.boardResources.map((r) => r.resourceId)).toEqual(["r1", "r2"]);
+    expect(await setBoardResourceMembers("b1", [])).toEqual({});
+    expect(state.boardResources).toEqual([]);
+    expect(sync).toHaveBeenCalledWith("b1", {}, expect.anything());
   });
 });
