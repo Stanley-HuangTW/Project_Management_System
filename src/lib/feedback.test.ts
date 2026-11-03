@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FEEDBACK_MAX_LENGTH, feedbackCsv, normalizeFeedback } from "./feedback";
+import type { FeedbackContext } from "./feedbackContext";
 
 const ok = { message: "甘特圖的長條拖不動", path: "/boards/b1", pageLabel: "甘特圖", manualAnchor: "ch-9" };
 
@@ -45,6 +46,17 @@ describe("normalizeFeedback", () => {
   it("names an unknown screen instead of leaving it blank", () => {
     expect(normalizeFeedback({ ...ok, pageLabel: "  " })).toMatchObject({ value: { pageLabel: "(未知畫面)" } });
   });
+
+  it("keeps a picked element's context, and leaves the key out when there is none or it is junk", () => {
+    const context = { element: { tag: "button", label: "新增項目", selector: "main > button" }, viewport: { width: 1400, height: 900, dpr: 1.5 } };
+    const result = normalizeFeedback({ ...ok, context });
+    expect("value" in result && result.value.context?.element?.label).toBe("新增項目");
+    for (const junk of [undefined, null, "x", 5, [], {}, { element: { tag: "<script>" } }]) {
+      const r = normalizeFeedback({ ...ok, context: junk });
+      expect(r).toEqual({ value: ok });
+      expect("value" in r && "context" in r.value).toBe(false);
+    }
+  });
 });
 
 describe("feedbackCsv", () => {
@@ -60,11 +72,12 @@ describe("feedbackCsv", () => {
     adminNote: null,
     resolvedAt: null,
     resolvedByName: null,
+    context: null as FeedbackContext | null,
   };
 
   it("has a header and one line per report", () => {
     const lines = feedbackCsv([row, { ...row, userName: "王主管" }]).split("\r\n");
-    expect(lines[0]).toBe('"送出時間","回報人","Email","畫面","網址","手冊章節","內容","狀態","處理說明","處理時間","處理人"');
+    expect(lines[0]).toBe('"送出時間","回報人","Email","畫面","網址","手冊章節","內容","狀態","處理說明","處理時間","處理人","選取的元素","selector"');
     // 表頭 + 兩列;內容裡的換行是 LF,不會被當成列的結尾(CRLF)。
     expect(lines).toHaveLength(3);
   });
@@ -79,6 +92,14 @@ describe("feedbackCsv", () => {
   it("writes the resolution when there is one", () => {
     const csv = feedbackCsv([{ ...row, status: "RESOLVED", adminNote: "手冊第 9 章有寫", resolvedAt: "2026-11-03 10:00", resolvedByName: "Admin" }]);
     expect(csv).toContain('"已處理","手冊第 9 章有寫","2026-11-03 10:00","Admin"');
+  });
+
+  it("writes the picked element and its selector, empty when no element was picked", () => {
+    const context: FeedbackContext = {
+      element: { tag: "button", label: "新增項目", text: "新增項目", selector: "main > button.add", attrs: {}, classes: "", html: "", ancestors: [], rect: { x: 1, y: 2, width: 3, height: 4 } },
+    };
+    expect(feedbackCsv([{ ...row, context }])).toContain('"<button>「新增項目」","main > button.add"');
+    expect(feedbackCsv([row]).split("\r\n")[1]).toMatch(/"",""$/);
   });
 
   it("is just the header when there is nothing", () => {

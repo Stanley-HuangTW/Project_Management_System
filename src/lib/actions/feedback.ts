@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { UserError } from "@/lib/userError";
 import { logAudit } from "@/lib/activityLog";
 import { FEEDBACK_DAILY_LIMIT, normalizeFeedback, type FeedbackCsvRow, type FeedbackInput } from "@/lib/feedback";
+import { normalizeContext } from "@/lib/feedbackContext";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOTE_MAX = 1000;
@@ -20,7 +22,7 @@ async function requireAdmin() {
 }
 
 /**
- * 使用者按畫面右下角「?」寫下的問題。誰都能送;誰送的、在哪個畫面由伺服器記(姓名與 Email 取自登入的帳號,
+ * 使用者按畫面右下角「?」(或選取畫面上的元素)寫下的問題。誰都能送;誰送的、在哪個畫面由伺服器記(姓名與 Email 取自登入的帳號,
  * 不信畫面傳來的),畫面帶來的網址、畫面名稱與手冊錨點只當作說明用,先檢查過(見 normalizeFeedback)。
  *
  * 管理者代操作別人的帳號時不能送:回報會變成被代操作的人寫的。
@@ -38,7 +40,13 @@ export async function submitFeedback(input: Partial<FeedbackInput>): Promise<{ e
   if (sentToday >= FEEDBACK_DAILY_LIMIT) return { error: `今天已經送了 ${sentToday} 則了(一天最多 ${FEEDBACK_DAILY_LIMIT} 則),請明天再送,或直接跟管理者說。` };
 
   await prisma.userFeedback.create({
-    data: { ...checked.value, userId: session.userId, userName: session.name, userEmail: session.email },
+    data: {
+      ...checked.value,
+      context: checked.value.context as Prisma.InputJsonValue | undefined,
+      userId: session.userId,
+      userName: session.name,
+      userEmail: session.email,
+    },
   });
   revalidatePath("/feedback");
   return {};
@@ -63,6 +71,8 @@ export async function listFeedback(): Promise<FeedbackRow[]> {
     adminNote: r.adminNote,
     resolvedAt: r.resolvedAt ? taipei(r.resolvedAt) : null,
     resolvedByName: r.resolvedByName,
+    // 讀出來也再檢查一次:資料庫裡的 JSON 不保證是現在這個形狀。
+    context: normalizeContext(r.context),
   }));
 }
 

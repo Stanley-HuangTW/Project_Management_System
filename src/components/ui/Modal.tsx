@@ -1,8 +1,9 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { HelpCircle, X } from "lucide-react";
+import { Crosshair, HelpCircle, X } from "lucide-react";
 import { manualHref } from "@/lib/helpTopics";
+import { startElementPicker, useElementPickerAvailable } from "@/components/help/pickerState";
 import { ReactNode } from "react";
 
 type ModalProps = {
@@ -18,6 +19,7 @@ type ModalProps = {
 const MAX_WIDTH = { md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" };
 
 export function Modal({ open, onOpenChange, title, children, size = "md", help }: ModalProps) {
+  const canPick = useElementPickerAvailable();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -30,6 +32,19 @@ export function Modal({ open, onOpenChange, title, children, size = "md", help }
               {title}
             </Dialog.Title>
             <div className="flex items-center gap-3">
+              {canPick && (
+                // 視窗開著時外面的「?」點不到:從標題列開始選取視窗裡的元素。
+                <button
+                  type="button"
+                  data-modal-pick
+                  onClick={startElementPicker}
+                  title="選取這個視窗裡有疑問的地方:查手冊或回報問題"
+                  aria-label="選取元素:查手冊或回報問題"
+                  className="text-neutral-400 hover:text-blue-600 dark:text-neutral-500 dark:hover:text-blue-300"
+                >
+                  <Crosshair size={18} />
+                </button>
+              )}
               {help && (
                 <a
                   href={manualHref(help.anchor)}

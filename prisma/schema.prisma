@@ -2404,6 +2404,9 @@ model UserFeedback {
   pageLabel    String
   manualAnchor String
   message      String
+  /// 用「選取元素」送出時附上的位置資訊(選到的元素的標籤、文字、selector、上層鏈、HTML 片段,加上視窗大小與瀏覽器),
+  /// 給管理者交給 Claude Code 除錯用。形狀見 src/lib/feedbackContext.ts;沒選元素的回報是 null。
+  context      Json?
   status       FeedbackStatus @default(OPEN)
   /// 管理者處理時留的說明。
   adminNote    String?

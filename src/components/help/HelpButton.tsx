@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, CheckCircle2, HelpCircle, Search, Send } from "lucide-react";
+import { BookOpen, CheckCircle2, Crosshair, HelpCircle, Search, Send } from "lucide-react";
 import { submitFeedback } from "@/lib/actions/feedback";
 import { FEEDBACK_MAX_LENGTH } from "@/lib/feedback";
 import { helpTopicFor, manualHref } from "@/lib/helpTopics";
 import { actionErrorMessage } from "@/lib/userError";
 import { useCurrentHelpHint } from "./helpHint";
+import { startElementPicker, useElementPickerAvailable } from "./pickerState";
 
 /**
  * 每個畫面右下角的「?」:不知道怎麼用就開使用手冊裡這個畫面對應的那一章(新分頁,不換掉手上的畫面);
@@ -23,6 +24,7 @@ export function HelpButton({ isAdmin, impersonating }: { isAdmin: boolean; imper
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const topic = helpTopicFor(pathname, hint, isAdmin);
+  const canPick = useElementPickerAvailable();
   // 對話頁的輸入框在右下角,「送出」鈕就在按鈕原本的位置:往上移一點,不要蓋住它。
   const aboveComposer = pathname === "/chat" || pathname.startsWith("/chat/");
 
@@ -96,6 +98,25 @@ export function HelpButton({ isAdmin, impersonating }: { isAdmin: boolean; imper
               <span className="block text-[11px] font-normal text-blue-700/80 dark:text-blue-300/80">在新分頁打開,你手上的畫面不會被換掉</span>
             </span>
           </a>
+
+          {canPick && (
+            <button
+              type="button"
+              data-help-pick
+              onClick={() => {
+                setOpen(false);
+                // 等小視窗收起來,再開始選。
+                setTimeout(startElementPicker, 100);
+              }}
+              className="mt-2 flex w-full items-center gap-2 rounded-md border border-neutral-200 px-3 py-2 text-left font-medium text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            >
+              <Crosshair size={16} className="shrink-0 text-blue-600 dark:text-blue-400" />
+              <span className="min-w-0">
+                選取畫面上的元素
+                <span className="block text-[11px] font-normal text-neutral-500 dark:text-neutral-400">點一下有疑問的地方,再選「查手冊」或「回報問題」</span>
+              </span>
+            </button>
+          )}
 
           <form action="/manual" method="get" target="_blank" className="mt-2 flex items-center gap-1.5 rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-600">
             <Search size={14} className="shrink-0 text-neutral-400" />

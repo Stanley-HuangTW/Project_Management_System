@@ -36,6 +36,34 @@ export const MODAL_HELP = {
   assignment: { label: "點長條:人員分配視窗", anchor: "s-9-6" },
 } as const satisfies Record<string, HelpTopic>;
 
+/**
+ * 「選取元素」選到的地方,比整個畫面更精確的手冊章節:從選到的元素往外找,第一個符合 selector 的就用它。
+ * selector 用畫面上已經有的 data-* 標記;沒對到的元素退回整個畫面的章節(helpTopicFor),
+ * 另外還可以拿元素上的文字去搜尋手冊。新增標記、或某個區塊值得有自己的章節時,在這裡加一列——
+ * helpTopics.test.ts 會檢查錨點都還在手冊裡。越具體的放越前面。
+ */
+export const ELEMENT_TOPICS: [selector: string, topic: HelpTopic][] = [
+  ["[data-gantt-bar]", { label: "甘特圖:拖曳調整時程", anchor: "s-9-3" }],
+  ["[data-link-menu], [data-link-dot]", { label: "甘特圖:前置依賴(Pred / Link)", anchor: "s-9-5" }],
+  ["[data-gantt-row]", { label: "甘特圖:怎麼看長條", anchor: "s-9-2" }],
+  ["[data-kanban-card]", { label: "看板(Kanban)視圖", anchor: "ch-8" }],
+  ["[data-risk-todo], [data-risk-todos]", { label: "風險、議題的待辦事項", anchor: "s-11-3b" }],
+  ["[data-risk-row]", { label: "風險與議題", anchor: "ch-11" }],
+  ["[data-todo-deadlines], [data-todo-deadline-row]", { label: "儀表板:待辦事項期限", anchor: "ch-16" }],
+  ["[data-proto-usage], [data-proto-machine], [data-proto-bar]", { label: "儀表板:樣機使用時程", anchor: "ch-16" }],
+  ["[data-project-dashboard]", { label: "專案儀表板", anchor: "s-16-1" }],
+  ["[data-cell-item], [data-cell-col]", { label: "表格:直接編輯儲存格", anchor: "s-4-2" }],
+  ["[data-item-name-button], [data-card-field], [data-todo-row]", { label: "項目卡片", anchor: "ch-5" }],
+  ["[data-role-row], [data-member-row], [data-resource-row], [data-board-roles-button], [data-group-roles-button]", { label: "分組角色與看板角色", anchor: "ch-2" }],
+  ["[data-budget-viewers], [data-budget-viewer]", { label: "預算金額的可見範圍", anchor: "ch-2" }],
+  ["[data-chat-conversation], [data-chat-input], [data-chat-message]", { label: "對話", anchor: "s-1-7" }],
+  ["[data-stale-snapshot], [data-last-run], [data-dispatch-info]", { label: "週報", anchor: "ch-19" }],
+  ["[data-feedback-list], [data-feedback-row]", { label: "使用者回報", anchor: "s-21-2b", adminOnly: true }],
+  ["[data-disk-usage-card]", { label: "系統設定:磁碟空間", anchor: "s-21-3", adminOnly: true }],
+  ["[data-handover-section]", { label: "使用者管理:工作交接", anchor: "s-21-1", adminOnly: true }],
+  ["[data-org-node]", { label: "組織架構圖", anchor: "s-21-1b" }],
+];
+
 const BOARD_PREFIX = "board:";
 
 /** 路徑 → 主題,長的前綴排前面。 */
@@ -86,6 +114,18 @@ function resolve(pathname: string, hint: string | null | undefined): HelpTopic {
   return route?.[1] ?? FALLBACK;
 }
 
+/**
+ * 選到的元素對應哪一章:matches(selector) 回答「選到的元素本身或它的上層有沒有符合這個 selector」
+ * (畫面那一端用 element.closest)。沒有符合的回 null,呼叫端退回整個畫面的章節。
+ */
+export function helpTopicForElement(matches: (selector: string) => boolean, isAdmin: boolean): HelpTopic | null {
+  for (const [selector, topic] of ELEMENT_TOPICS) {
+    if (!matches(selector)) continue;
+    return topic.adminOnly && !isAdmin ? { label: topic.label, anchor: "" } : topic;
+  }
+  return null;
+}
+
 /** 手冊網頁的連結:有錨點就跳到那一章 / 小節。 */
 export function manualHref(anchor: string): string {
   return anchor ? `/manual#${anchor}` : "/manual";
@@ -93,6 +133,6 @@ export function manualHref(anchor: string): string {
 
 /** 所有會用到的錨點,給測試對照真的手冊。 */
 export function allHelpAnchors(): string[] {
-  const topics = [...Object.values(BOARD_VIEWS), ...Object.values(MODAL_HELP), ...ROUTES.map(([, t]) => t), FALLBACK];
+  const topics = [...Object.values(BOARD_VIEWS), ...Object.values(MODAL_HELP), ...ROUTES.map(([, t]) => t), ...ELEMENT_TOPICS.map(([, t]) => t), FALLBACK];
   return [...new Set(topics.map((t) => t.anchor).filter(Boolean))];
 }

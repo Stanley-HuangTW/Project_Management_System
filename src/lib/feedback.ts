@@ -1,3 +1,5 @@
+import { normalizeContext, elementSummary, type FeedbackContext } from "./feedbackContext";
+
 /**
  * 使用者問題回報:送出的內容怎麼檢查、管理者頁的 CSV 怎麼排。純函式,不碰資料庫。
  */
@@ -13,7 +15,11 @@ export type FeedbackInput = {
   pageLabel: string;
   /** 手冊錨點(ch-9、s-9-6);空字串 = 手冊首頁。 */
   manualAnchor: string;
+  /** 用「選取元素」送出時附上的位置資訊(選到的元素、視窗大小…),見 feedbackContext.ts。 */
+  context?: unknown;
 };
+
+export type NormalizedFeedback = Omit<FeedbackInput, "context"> & { context?: FeedbackContext };
 
 const MAX_PATH = 500;
 const MAX_LABEL = 60;
@@ -23,7 +29,7 @@ const ANCHOR_RE = /^(?:ch|s)-[a-z0-9-]{1,20}$/;
  * 檢查使用者送來的回報。畫面帶來的網址、畫面名稱與錨點都不信任:網址一定是站內路徑,
  * 錨點只認手冊的寫法,其餘裁短——寫進資料庫、之後顯示在管理者頁面上的東西要先乾淨。
  */
-export function normalizeFeedback(input: Partial<FeedbackInput>): { error: string } | { value: FeedbackInput } {
+export function normalizeFeedback(input: Partial<FeedbackInput>): { error: string } | { value: NormalizedFeedback } {
   const message = typeof input.message === "string" ? input.message.trim() : "";
   if (!message) return { error: "請先寫下你的問題或想說的話" };
   if (message.length > FEEDBACK_MAX_LENGTH) return { error: `內容太長了(上限 ${FEEDBACK_MAX_LENGTH} 字,現在 ${message.length} 字)` };
@@ -33,7 +39,8 @@ export function normalizeFeedback(input: Partial<FeedbackInput>): { error: strin
   const path = rawPath.startsWith("/") && !rawPath.startsWith("//") ? rawPath.slice(0, MAX_PATH) : "/";
   const pageLabel = (typeof input.pageLabel === "string" ? input.pageLabel.trim() : "").slice(0, MAX_LABEL) || "(未知畫面)";
   const anchor = typeof input.manualAnchor === "string" ? input.manualAnchor.trim() : "";
-  return { value: { message, path, pageLabel, manualAnchor: ANCHOR_RE.test(anchor) ? anchor : "" } };
+  const context = normalizeContext(input.context);
+  return { value: { message, path, pageLabel, manualAnchor: ANCHOR_RE.test(anchor) ? anchor : "", ...(context ? { context } : {}) } };
 }
 
 export type FeedbackCsvRow = {
@@ -48,6 +55,8 @@ export type FeedbackCsvRow = {
   adminNote: string | null;
   resolvedAt: string | null;
   resolvedByName: string | null;
+  /** 選取的元素(簡短名稱)與它的 selector;沒選元素是 null。 */
+  context: FeedbackContext | null;
 };
 
 const csvCell = (value: string): string => `"${value.replace(/"/g, '""')}"`;
@@ -56,7 +65,7 @@ export const FEEDBACK_STATUS_LABELS = { OPEN: "未處理", RESOLVED: "已處理"
 
 /** 回報清單轉成 CSV(逗號分隔,每格用雙引號包起來,內容裡的雙引號與換行都保留)。給 Excel 開要在前面加 BOM,由下載的那一端加。 */
 export function feedbackCsv(rows: FeedbackCsvRow[]): string {
-  const header = ["送出時間", "回報人", "Email", "畫面", "網址", "手冊章節", "內容", "狀態", "處理說明", "處理時間", "處理人"];
+  const header = ["送出時間", "回報人", "Email", "畫面", "網址", "手冊章節", "內容", "狀態", "處理說明", "處理時間", "處理人", "選取的元素", "selector"];
   const lines = rows.map((r) =>
     [
       r.createdAt,
@@ -70,6 +79,8 @@ export function feedbackCsv(rows: FeedbackCsvRow[]): string {
       r.adminNote ?? "",
       r.resolvedAt ?? "",
       r.resolvedByName ?? "",
+      elementSummary(r.context) ?? "",
+      r.context?.element?.selector ?? "",
     ]
       .map(csvCell)
       .join(",")

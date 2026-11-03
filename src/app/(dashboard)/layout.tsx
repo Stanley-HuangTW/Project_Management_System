@@ -12,6 +12,7 @@ import { ChatProvider } from "@/components/chat/ChatProvider";
 import { getUnreadTotal } from "@/lib/chatServer";
 import { PROJECT_DASHBOARD_ROLES } from "@/lib/projectRoles";
 import { HelpButton } from "@/components/help/HelpButton";
+import { ElementPicker } from "@/components/help/ElementPicker";
 
 export default async function DashboardLayout({
   children,
@@ -84,6 +85,7 @@ export default async function DashboardLayout({
         {/* pt-12 clears the fixed mobile bar the sidebar renders below md. */}
         <div className="flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800 pt-12 md:pt-0">{children}</div>
         <HelpButton isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
+        <ElementPicker isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
       </div>
       </div>
     </BoardAdminActionsProvider>

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { allHelpAnchors, helpTopicFor, manualHref, MODAL_HELP } from "./helpTopics";
+import { allHelpAnchors, ELEMENT_TOPICS, helpTopicFor, helpTopicForElement, manualHref, MODAL_HELP } from "./helpTopics";
 import { parseManual } from "./manual";
 
 describe("helpTopicFor", () => {
@@ -69,6 +69,38 @@ describe("helpTopicFor", () => {
 
   it("the manual page itself opens the manual front page", () => {
     expect(helpTopicFor("/manual", null, false).anchor).toBe("");
+  });
+});
+
+describe("helpTopicForElement", () => {
+  /** 假裝選到的元素(或它的上層)帶著這些 data 標記。 */
+  const has = (...marks: string[]) => (selector: string) => selector.split(",").some((part) => marks.includes(part.trim()));
+
+  it("finds the chapter for the spot that was picked", () => {
+    expect(helpTopicForElement(has("[data-gantt-bar]"), false)).toMatchObject({ anchor: "s-9-3" });
+    expect(helpTopicForElement(has("[data-todo-deadline-row]"), false)).toMatchObject({ label: "儀表板:待辦事項期限", anchor: "ch-16" });
+    expect(helpTopicForElement(has("[data-risk-todo]"), false)).toMatchObject({ anchor: "s-11-3b" });
+    expect(helpTopicForElement(has("[data-member-row]"), false)).toMatchObject({ anchor: "ch-2" });
+  });
+
+  it("the more specific spot wins when several match (a bar inside a gantt row)", () => {
+    expect(helpTopicForElement(has("[data-gantt-row]", "[data-gantt-bar]"), false)?.anchor).toBe("s-9-3");
+  });
+
+  it("is null when nothing known was picked, so the caller falls back to the whole screen", () => {
+    expect(helpTopicForElement(has(), false)).toBeNull();
+  });
+
+  it("admin-only spots send everyone else to the manual front page", () => {
+    expect(helpTopicForElement(has("[data-feedback-row]"), true)).toMatchObject({ anchor: "s-21-2b" });
+    expect(helpTopicForElement(has("[data-feedback-row]"), false)).toEqual({ label: "使用者回報", anchor: "" });
+  });
+
+  it("every entry is a valid selector list with a topic", () => {
+    for (const [selector, topic] of ELEMENT_TOPICS) {
+      expect(selector.split(",").every((part) => /^\[data-[a-z0-9-]+\]$/.test(part.trim()))).toBe(true);
+      expect(topic.label.length).toBeGreaterThan(0);
+    }
   });
 });
 
