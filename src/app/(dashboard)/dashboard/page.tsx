@@ -9,7 +9,7 @@ import { TodoDeadlinesSection } from "@/components/dashboard/TodoDeadlinesSectio
 import { OrderedSections } from "@/components/dashboard/OrderedSections";
 import { DashboardOrderButton } from "@/components/dashboard/DashboardOrderButton";
 import { DASHBOARD_SECTIONS, orderDashboardSections } from "@/lib/dashboardSections";
-import { taipeiClock, todoDeadlineEntries } from "@/lib/todoDeadline";
+import { mergeTodoDeadlines, riskTodoDeadlineEntries, taipeiClock, todoDeadlineEntries } from "@/lib/todoDeadline";
 import { teamViewIdsOf } from "@/lib/orgChartServer";
 import { canManageStructure } from "@/lib/permissions";
 import {
@@ -161,14 +161,30 @@ export default async function DashboardPage({
         select: { id: true, itemId: true, text: true, dueDate: true, done: true, createdById: true, assigneeId: true },
       })
     : [];
-  const todoDeadlines = todoDeadlineEntries(
-    boards,
-    todoRows,
-    hasTeam
-      ? withManagedResourceIds([session.userId, ...teamMembers.map((m) => m.id)])
-      : isAdmin
-        ? undefined
-        : withManagedResourceIds([session.userId])
+  const todoScope = hasTeam
+    ? withManagedResourceIds([session.userId, ...teamMembers.map((m) => m.id)])
+    : isAdmin
+      ? undefined
+      : withManagedResourceIds([session.userId]);
+  // 風險 / 議題底下的待辦事項也要列(指定他處理、他是那一筆的負責人、或他自己寫的),不然指給他的待辦在儀表板上看不到。
+  const riskTodoRows = boards.length
+    ? await prisma.riskTodo.findMany({
+        where: { done: false, dueDate: { not: null }, risk: { boardId: { in: boards.map((b) => b.id) } } },
+        select: {
+          id: true,
+          riskId: true,
+          text: true,
+          dueDate: true,
+          done: true,
+          createdById: true,
+          assigneeId: true,
+          risk: { select: { title: true, kind: true, ownerId: true, boardId: true } },
+        },
+      })
+    : [];
+  const todoDeadlines = mergeTodoDeadlines(
+    todoDeadlineEntries(boards, todoRows, todoScope),
+    riskTodoDeadlineEntries(boards, riskTodoRows, todoScope)
   );
   const personalItems = computePersonalItems(boards, [session.userId], userById, holidays);
   const myResourceIds = resourceIdsByManager.get(session.userId) ?? [];

@@ -18,7 +18,7 @@ export const DASHBOARD_SECTIONS = [
   { id: "protoUsage", label: "樣機使用時程(只有已有工作項選了樣機的看板才會出現)" },
   { id: "boardProgress", label: "看板進度總覽" },
   { id: "dueLists", label: "待辦事項到期清單(逾期 / 本週完成 / 未來 7 天 / 30 天)" },
-  { id: "todoDeadlines", label: "工作項目的待辦事項期限" },
+  { id: "todoDeadlines", label: "待辦事項期限(工作項目、風險 / 議題)" },
   { id: "teamItems", label: "團隊項目(主管)" },
   { id: "myItems", label: "我的項目" },
   { id: "myResourceItems", label: "我負責窗口的資源的項目" },

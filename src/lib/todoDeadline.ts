@@ -82,17 +82,26 @@ export function reminderLink(
     : `/boards/${target.boardId}?view=risks&risk=${target.riskId}`;
 }
 
-/** 儀表板「待辦事項期限」清單的一列:工作項目 - 待辦事項,加上期限。 */
+/**
+ * 儀表板「待辦事項期限」清單的一列:工作項目 - 待辦事項,加上期限。
+ * kind "risk" = 風險 / 議題底下的待辦事項:itemName 放那一筆的標題,riskId / riskKind 有值,itemId 是空字串。
+ */
 export type TodoDeadlineEntry = {
+  kind: "item" | "risk";
   todoId: string;
   text: string;
   dueDate: string;
   itemId: string;
   itemName: string;
+  riskId?: string;
+  riskKind?: "RISK" | "ISSUE";
   boardId: string;
   boardName: string;
   groupName: string;
 };
+
+const compareEntries = (a: TodoDeadlineEntry, b: TodoDeadlineEntry) =>
+  a.dueDate.localeCompare(b.dueDate) || a.itemName.localeCompare(b.itemName, "zh-Hant");
 
 type TodoRow = { id: string; itemId: string; text: string; dueDate: string | null; done: boolean; createdById: string | null; assigneeId?: string | null };
 
@@ -127,6 +136,7 @@ export function todoDeadlineEntries(
       if (!assigned && !wroteIt && !handlesIt) continue;
     }
     entries.push({
+      kind: "item",
       todoId: todo.id,
       text: todo.text,
       dueDate: todo.dueDate,
@@ -137,5 +147,62 @@ export function todoDeadlineEntries(
       groupName: info.board.groups.find((g) => g.id === info.item.groupId)?.name ?? "",
     });
   }
-  return entries.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.itemName.localeCompare(b.itemName, "zh-Hant"));
+  return entries.sort(compareEntries);
+}
+
+type RiskTodoRow = {
+  id: string;
+  riskId: string;
+  text: string;
+  dueDate: string | null;
+  done: boolean;
+  createdById: string | null;
+  assigneeId: string | null;
+  risk: { title: string; kind: "RISK" | "ISSUE"; ownerId: string | null; boardId: string };
+};
+
+/**
+ * 風險 / 議題底下的待辦事項(有期限、還沒完成),列給這幾位:指定他處理的,沒指定處理者就是那一筆的負責人,
+ * 或是他們自己寫的——跟到期提醒寄給誰是同一條規則。userIds 是 undefined = 不篩(管理者看全部)。
+ * 只列 boards 裡的看板(已經濾掉這個人看不到的看板)。
+ */
+export function riskTodoDeadlineEntries(
+  boards: Pick<BoardWithData, "id" | "name">[],
+  todos: RiskTodoRow[],
+  userIds: string[] | undefined
+): TodoDeadlineEntry[] {
+  const wanted = userIds ? new Set(userIds) : null;
+  const boardName = new Map(boards.map((b) => [b.id, b.name]));
+
+  const entries: TodoDeadlineEntry[] = [];
+  for (const todo of todos) {
+    if (todo.done || !todo.dueDate) continue;
+    const name = boardName.get(todo.risk.boardId);
+    if (name === undefined) continue;
+    if (wanted) {
+      const handler = todo.assigneeId ?? todo.risk.ownerId;
+      const handlesIt = !!handler && wanted.has(handler);
+      const wroteIt = !!todo.createdById && wanted.has(todo.createdById);
+      if (!handlesIt && !wroteIt) continue;
+    }
+    entries.push({
+      kind: "risk",
+      todoId: todo.id,
+      text: todo.text,
+      dueDate: todo.dueDate,
+      itemId: "",
+      itemName: todo.risk.title,
+      riskId: todo.riskId,
+      riskKind: todo.risk.kind,
+      boardId: todo.risk.boardId,
+      boardName: name,
+      groupName: "",
+    });
+  }
+  return entries.sort(compareEntries);
+}
+
+/** 工作項目的與風險 / 議題的待辦事項併成一份,依期限由近到遠排。 */
+export function mergeTodoDeadlines(...lists: TodoDeadlineEntry[][]): TodoDeadlineEntry[] {
+  return lists.flat().sort(compareEntries);
 }

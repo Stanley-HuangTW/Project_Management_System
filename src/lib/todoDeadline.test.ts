@@ -6,8 +6,10 @@ import {
   describeDeadline,
   formatDueShort,
   isValidDueDate,
+  mergeTodoDeadlines,
   reminderLink,
   reminderMessage,
+  riskTodoDeadlineEntries,
   taipeiClock,
   todoDeadlineEntries,
 } from "./todoDeadline";
@@ -128,6 +130,74 @@ describe("todoDeadlineEntries", () => {
     const assigned = { ...todo("t1", "i3", "2026-10-30"), assigneeId: "u9" }; // i3 沒人負責,指定 u9 處理
     expect(todoDeadlineEntries([board], [assigned], ["u9"]).map((r) => r.todoId)).toEqual(["t1"]);
     expect(todoDeadlineEntries([board], [assigned], ["u1"])).toEqual([]);
+  });
+});
+
+describe("riskTodoDeadlineEntries", () => {
+  const boards = [{ id: "b1", name: "PS30" }] as unknown as BoardWithData[];
+
+  const row = (
+    id: string,
+    extra: Partial<{ dueDate: string | null; done: boolean; createdById: string | null; assigneeId: string | null; ownerId: string | null; boardId: string; kind: "RISK" | "ISSUE"; title: string }> = {}
+  ) => ({
+    id,
+    riskId: `r_${id}`,
+    text: `待辦 ${id}`,
+    dueDate: extra.dueDate === undefined ? "2026-11-06" : extra.dueDate,
+    done: extra.done ?? false,
+    createdById: extra.createdById ?? null,
+    assigneeId: extra.assigneeId ?? null,
+    risk: { title: extra.title ?? "找不到 resource", kind: extra.kind ?? "ISSUE", ownerId: extra.ownerId ?? null, boardId: extra.boardId ?? "b1" },
+  });
+
+  it("lists a risk / issue todo assigned to the person — even when they own nothing else on the board", () => {
+    const rows = riskTodoDeadlineEntries(boards, [row("t1", { assigneeId: "sy" })], ["sy"]);
+    expect(rows).toEqual([
+      {
+        kind: "risk",
+        todoId: "t1",
+        text: "待辦 t1",
+        dueDate: "2026-11-06",
+        itemId: "",
+        itemName: "找不到 resource",
+        riskId: "r_t1",
+        riskKind: "ISSUE",
+        boardId: "b1",
+        boardName: "PS30",
+        groupName: "",
+      },
+    ]);
+  });
+
+  it("without an assignee the risk's owner handles it; the author sees their own; nobody else does", () => {
+    const todos = [
+      row("owned", { ownerId: "sy" }), // 沒指定處理者 → 那一筆的負責人
+      row("assignedAway", { ownerId: "sy", assigneeId: "other" }), // 指給別人了,負責人不再算
+      row("wrote", { createdById: "sy", assigneeId: "other" }), // 自己寫的
+      row("unrelated", { ownerId: "other", assigneeId: "other", createdById: "other" }),
+    ];
+    expect(riskTodoDeadlineEntries(boards, todos, ["sy"]).map((r) => r.todoId).sort()).toEqual(["owned", "wrote"]);
+  });
+
+  it("no person filter (admin) lists every open todo with a deadline on the visible boards", () => {
+    const todos = [
+      row("t1"),
+      row("done", { done: true }),
+      row("noDue", { dueDate: null }),
+      row("hidden", { boardId: "not_visible" }),
+    ];
+    expect(riskTodoDeadlineEntries(boards, todos, undefined).map((r) => r.todoId)).toEqual(["t1"]);
+  });
+
+  it("marks risks and issues apart, and merges with work-item todos nearest-first", () => {
+    const risk = riskTodoDeadlineEntries(
+      boards,
+      [row("r1", { assigneeId: "sy", dueDate: "2026-11-02", kind: "RISK", title: "風險甲" }), row("r2", { assigneeId: "sy", dueDate: "2026-11-09" })],
+      ["sy"]
+    );
+    expect(risk.map((r) => r.riskKind)).toEqual(["RISK", "ISSUE"]);
+    const item = [{ kind: "item" as const, todoId: "i1", text: "x", dueDate: "2026-11-05", itemId: "i", itemName: "項目", boardId: "b1", boardName: "PS30", groupName: "" }];
+    expect(mergeTodoDeadlines(item, risk).map((r) => r.todoId)).toEqual(["r1", "i1", "r2"]);
   });
 });
 
