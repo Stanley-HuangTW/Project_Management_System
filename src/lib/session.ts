@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import {
   SESSION_COOKIE,
   SESSION_DURATION_SECONDS,
@@ -32,7 +33,19 @@ export async function getSession(): Promise<SessionPayload | null> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return verifySessionToken(token);
+  const payload = await verifySessionToken(token);
+  if (!payload) return null;
+
+  // JWT 裡的 role 只是登入當下的快照(cookie 最長活 7 天)。如果之後有人在
+  // DB 把這個使用者升/降權,要立刻生效,不能讓畫面和權限檢查一直看著舊角色,
+  // 直到他重新登入。代操作時 userId 是被檢視者,查到的就是對方現在的角色。
+  const current = await prisma.user.findUnique({
+    where: { id: payload.userId },
+    select: { role: true },
+  });
+  if (!current) return null;
+
+  return { ...payload, role: current.role };
 }
 
 export async function requireSession(): Promise<SessionPayload> {
