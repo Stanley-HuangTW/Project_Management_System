@@ -10,6 +10,7 @@ import { subordinateIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError } from "@/lib/staleBuild";
 import {
+  canAssignToAnyone,
   listAssignments,
   upsertAssignment,
   removeAssignment,
@@ -51,7 +52,19 @@ export function AssignmentEditor({
   const [selectedUserId, setSelectedUserId] = useState("");
   const [pct, setPct] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [leaderAnyone, setLeaderAnyone] = useState(false);
   const { notify } = useDialogs();
+
+  useEffect(() => {
+    if (userRole !== "SUPERVISOR") return;
+    let cancelled = false;
+    void canAssignToAnyone(itemId).then((yes) => {
+      if (!cancelled) setLeaderAnyone(yes);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId, userRole]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,8 +86,9 @@ export function AssignmentEditor({
   // 負責人,但不能有百分比配置。
   const realUsers = users.filter((u) => !u.isResource);
   const below = subordinateIds(users, currentUserId);
+  // 主管只能選自己團隊的人;這個項目所在分組的 Team Leader 例外,可以選任何人(伺服器那邊是同一條規則)。
   const assignableUsers =
-    userRole === "SUPERVISOR" ? realUsers.filter((u) => below.has(u.id)) : realUsers;
+    userRole === "SUPERVISOR" && !leaderAnyone ? realUsers.filter((u) => below.has(u.id)) : realUsers;
   const assignedUserIds = new Set(assignments.map((a) => a.userId));
   const availableUsers = assignableUsers.filter((u) => !assignedUserIds.has(u.id));
 

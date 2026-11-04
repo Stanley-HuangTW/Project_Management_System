@@ -11,6 +11,7 @@ import { normalizeAllocationPct } from "@/lib/allocationPct";
 import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment";
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { subordinateIdsOf } from "@/lib/orgChartServer";
+import { isGroupLeader } from "@/lib/groupLeaderServer";
 import type { SessionPayload } from "@/lib/jwt";
 import { UserError } from "@/lib/userError";
 import { itemLink } from "@/lib/notificationLink";
@@ -51,6 +52,23 @@ async function assertCanEditAssignment(boardId: string, itemId: string, session:
   }
 }
 
+/**
+ * 主管只能把任務指派給自己或自己團隊的成員;但這個項目所在分組的 Team Leader(那個分組的,或整個看板的)
+ * 是專案的負責人,可以指派給任何人——被指派的人不一定是他的部屬。
+ */
+async function isLeaderOfItemGroup(itemId: string, userId: string): Promise<boolean> {
+  const item = await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true } });
+  return item ? isGroupLeader(userId, item.groupId) : false;
+}
+
+/** 畫面用:這個人在這個項目上,指派時能不能選團隊以外的人(不受「主管只管自己團隊」限制)。 */
+export async function canAssignToAnyone(itemId: string): Promise<boolean> {
+  const session = await requireSession();
+  await requireItemBoardAccess(itemId, session);
+  if (session.role !== "SUPERVISOR") return true; // 其他身分本來就沒有這個限制
+  return isLeaderOfItemGroup(itemId, session.userId);
+}
+
 export async function listAssignments(itemId: string) {
   const session = await requireSession();
   const item = await prisma.item.findUnique({ where: { id: itemId }, select: { boardId: true } });
@@ -74,8 +92,8 @@ export async function upsertAssignment(
   const pct = normalizeAllocationPct(allocationPct);
 
   if (session.role === "SUPERVISOR" && userId !== session.userId) {
-    if (!(await subordinateIdsOf(session.userId)).has(userId)) {
-      throw new UserError("主管只能將任務指派給自己或自己團隊的成員");
+    if (!(await subordinateIdsOf(session.userId)).has(userId) && !(await isLeaderOfItemGroup(itemId, session.userId))) {
+      throw new UserError("主管只能將任務指派給自己或自己團隊的成員(這個分組的 Team Leader 可以指派給任何人)");
     }
   }
 
