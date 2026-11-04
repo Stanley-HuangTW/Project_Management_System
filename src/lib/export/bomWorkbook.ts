@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { reconstructBomTree, type BomNode, type IndentedBomLine, type RootedBomLine } from "@/lib/bom";
+import type { BomColumnType } from "@/lib/bomColumns";
 
 /**
  * 樣機 BOM 的 Excel 往返。
@@ -13,6 +14,9 @@ import { reconstructBomTree, type BomNode, type IndentedBomLine, type RootedBomL
  * 「單價(台幣)」「小計(台幣)」是公式:子集的單價是底下子項目的小計加起來,
  * 寫成公式而不是算好的數字,在 Excel 裡改一顆零件的單價,上面所有祖先的
  * 小計都會跟著動。
+ *
+ * 看板的自訂欄位接在固定的 12 欄後面(第 13 欄起,標題就是欄位名稱,照看板設定的順序):以前匯出的檔案沒有這幾欄,
+ * 照樣匯得進來;匯入時靠標題對欄位,標題對不上的欄略過。
  *
  * 匯入是整個區塊換掉,不是逐列比對:一棵樹的形狀變了(插了一層、搬了
  * 位置),要它去猜哪一列對應哪一列只會猜錯。所以匯入時這個(產品,階段)
@@ -35,20 +39,30 @@ const COLUMN_HEADERS = [
   "備註",
   "交期",
 ];
+/** 固定欄位的數量;自訂欄位從下一欄開始。 */
+const FIXED_COLUMNS = COLUMN_HEADERS.length;
 const [DEPTH_COL, NAME_COL, VENDOR_COL, PART_COL, QTY_COL, PRICE_COL, CCY_COL, FX_COL, , , NOTE_COL, DELIVERY_COL] =
   COLUMN_HEADERS.map((_, i) => i + 1);
 
 export type BomWorkbookBlock = { product: string; phaseName: string; nodes: BomNode[] };
 
+export type BomWorkbookCustomColumn = { id: string; name: string; type: BomColumnType };
+
 export type BomWorkbookInput = {
   boardName: string;
   blocks: BomWorkbookBlock[];
+  /** 看板的自訂欄位,照設定的順序;沒有就只有固定的 12 欄。 */
+  customColumns?: BomWorkbookCustomColumn[];
+  /** 「人員」欄位寫姓名不寫代號:使用者代號 → 姓名。 */
+  userNames?: Map<string, string>;
 };
 
 export type ParsedBomBlock = {
   product: string;
   phaseName: string;
   rows: RootedBomLine[];
+  /** 這個區塊的欄位標題列裡,第 13 欄起的自訂欄位標題(照欄的順序)。 */
+  extraHeaders: string[];
 };
 
 export type ParsedBomWorkbook = {
@@ -75,6 +89,7 @@ function textOf(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value.trim();
   if (typeof value === "number") return String(value);
+  if (value instanceof Date) return value.toISOString().slice(0, 10); // 在 Excel 裡手打的日期
   if (typeof value === "object") {
     const v = value as unknown as Record<string, unknown>;
     if (Array.isArray(v.richText)) {
@@ -91,11 +106,28 @@ function textOf(value: ExcelJS.CellValue): string {
  * 才回頭補這一列的「單價(台幣)」「小計(台幣)」公式——子集的單價要指到
  * 子項目所在的列號,那些列號要等子項目寫完才知道。
  */
+/** 自訂欄位的一格寫進 Excel 的樣子。 */
+function customCellValue(column: BomWorkbookCustomColumn, value: unknown, userNames: Map<string, string>): string | number {
+  if (value === null || value === undefined || value === false) return "";
+  switch (column.type) {
+    case "CHECKBOX":
+      return value === true ? "是" : "";
+    case "PERSON":
+      return userNames.get(String(value)) ?? String(value);
+    case "NUMBER":
+      return typeof value === "number" ? value : String(value);
+    default:
+      return String(value);
+  }
+}
+
 function writeNode(
   ws: ExcelJS.Worksheet,
   node: BomNode,
   rowRef: { current: number },
-  rowNumberOf: Map<string, number>
+  rowNumberOf: Map<string, number>,
+  custom: BomWorkbookCustomColumn[],
+  userNames: Map<string, string>
 ) {
   const row = rowRef.current++;
   rowNumberOf.set(node.id, row);
@@ -112,8 +144,13 @@ function writeNode(
     r.getCell(PRICE_COL).value = node.unitPrice;
     r.getCell(FX_COL).value = node.fxRate;
   }
+  custom.forEach((column, i) => {
+    // 檔案附件欄位:Excel 裡只列檔名(唯讀,檔案要在系統上傳 / 下載)。
+    const value = column.type === "FILE" ? (node.files?.[column.id] ?? []).map((f) => f.fileName).join("、") : node.extra?.[column.id];
+    r.getCell(FIXED_COLUMNS + 1 + i).value = customCellValue(column, value, userNames);
+  });
 
-  for (const child of node.children) writeNode(ws, child, rowRef, rowNumberOf);
+  for (const child of node.children) writeNode(ws, child, rowRef, rowNumberOf, custom, userNames);
 
   const priceLetter = ws.getColumn(9).letter; // 單價(台幣)
   const subtotalLetter = ws.getColumn(10).letter; // 小計(台幣)
@@ -146,6 +183,11 @@ export async function buildBomWorkbook(input: BomWorkbookInput): Promise<Buffer>
   ws.getColumn(10).width = 12;
   ws.getColumn(NOTE_COL).width = 20;
   ws.getColumn(DELIVERY_COL).width = 12;
+  const custom = input.customColumns ?? [];
+  const userNames = input.userNames ?? new Map<string, string>();
+  custom.forEach((_, i) => {
+    ws.getColumn(FIXED_COLUMNS + 1 + i).width = 16;
+  });
 
   let r = 1;
   for (const block of input.blocks) {
@@ -155,13 +197,13 @@ export async function buildBomWorkbook(input: BomWorkbookInput): Promise<Buffer>
     header.font = { bold: true };
     r++;
 
-    ws.getRow(r).values = COLUMN_HEADERS;
+    ws.getRow(r).values = [...COLUMN_HEADERS, ...custom.map((c) => c.name)];
     ws.getRow(r).font = { italic: true, color: { argb: "FF808080" } };
     r++;
 
     const rowRef = { current: r };
     const rowNumberOf = new Map<string, number>();
-    for (const node of block.nodes) writeNode(ws, node, rowRef, rowNumberOf);
+    for (const node of block.nodes) writeNode(ws, node, rowRef, rowNumberOf, custom, userNames);
     r = rowRef.current + 1; // 區塊之間留一列空白,純粹排版用,匯入時當區塊結束。
   }
 
@@ -194,7 +236,7 @@ export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkboo
 
   const warnings: string[] = [];
   const blocks: ParsedBomBlock[] = [];
-  let current: { product: string; phaseName: string; lines: IndentedBomLine[] } | null = null;
+  let current: { product: string; phaseName: string; lines: IndentedBomLine[]; extraCols: { col: number; name: string }[] } | null = null;
 
   function closeBlock() {
     if (!current) return;
@@ -202,7 +244,7 @@ export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkboo
     warnings.push(
       ...treeWarnings.map((w) => `「${current!.product} / ${current!.phaseName}」${w}`)
     );
-    blocks.push({ product: current.product, phaseName: current.phaseName, rows });
+    blocks.push({ product: current.product, phaseName: current.phaseName, rows, extraHeaders: current.extraCols.map((c) => c.name) });
     current = null;
   }
 
@@ -218,8 +260,15 @@ export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkboo
         warnings.push(`第 ${r} 列的區塊表頭缺產品或階段名稱,這個區塊略過。`);
         continue;
       }
-      current = { product, phaseName, lines: [] };
-      r++; // 下一列是欄位標題,不是資料,跳過。
+      // 下一列是欄位標題:第 13 欄起的標題是自訂欄位。
+      const titles = ws.getRow(r + 1);
+      const extraCols: { col: number; name: string }[] = [];
+      for (let c = FIXED_COLUMNS + 1; c <= Math.max(ws.columnCount, FIXED_COLUMNS); c++) {
+        const name = textOf(titles.getCell(c).value);
+        if (name) extraCols.push({ col: c, name });
+      }
+      current = { product, phaseName, lines: [], extraCols };
+      r++; // 標題列不是資料,跳過。
       continue;
     }
 
@@ -271,6 +320,9 @@ export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkboo
       fxRate,
       note: textOf(row.getCell(NOTE_COL).value),
       deliveryDate: textOf(row.getCell(DELIVERY_COL).value) || null,
+      ...(current.extraCols.length > 0
+        ? { extra: Object.fromEntries(current.extraCols.map((c) => [c.name, textOf(row.getCell(c.col).value)])) }
+        : {}),
     });
   }
   closeBlock();

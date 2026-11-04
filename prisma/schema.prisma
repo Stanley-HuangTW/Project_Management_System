@@ -162,6 +162,7 @@ model User {
   chatMessages            ChatMessage[]
   boardRoleAssignments    BoardRoleAssignment[]    @relation("BoardRoleAssignments")
   boardDisciplineMembers  BoardDisciplineMember[]  @relation("BoardDisciplineMembers")
+  bomAttachments          BomAttachment[]          @relation("BomAttachmentUploader")
 }
 
 // A non-login entity (tool, equipment, external vendor/supplier) that can be
@@ -294,6 +295,10 @@ model Board {
   roleAssignments     BoardRoleAssignment[]
   disciplineMembers   BoardDisciplineMember[]
   resourceMembers     BoardResourceMember[]
+  /// 這個看板 BOM 的欄位設定(有順序的清單:欄位、類型、必填、預設值;格式見 src/lib/bomColumns.ts)。
+  /// null = 沒有自己設定,沿用 SystemSettings.bomDefaultColumns(系統預設也沒設就是內建的)。
+  bomColumns          Json?
+  bomAttachments      BomAttachment[]
 }
 
 /// 這塊看板指名「可以看預算金額」的人(看板分享設定);管理者、擁有者、Team Leader / PMD / PM DM 本來就看得到,不用列在這裡。
@@ -1047,14 +1052,41 @@ model BomLine {
   note         String  @default("")
   /// 預估交期,不影響金額計算,只是排期用。沒填就是還不知道。
   deliveryDate String? // "YYYY-MM-DD"
+  /// 自訂欄位的值:{ 欄位代號: 值 }。內建欄位(廠商、型號、交期、備註)仍在上面各自的欄位裡。
+  extra        Json    @default("{}")
   order        Int
 
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  attachments BomAttachment[]
+
   @@index([boardId, product, phaseId, order])
   @@index([parentId])
+}
+
+/// BOM 某一列在某個「檔案附件」欄位上的檔案(規格書、報價單、承認書……)。
+/// 檔案本體寫在 public/uploads/bom/<看板>/ 底下(跟其他附件同一個磁碟區,備份一併帶走),
+/// 下載走 /api/bom-attachments/<id>,先查看板權限與預算可見範圍(BOM 有單價,看不到預算金額的人不能下載)。
+/// columnId 是看板 BOM 欄位設定(Board.bomColumns)裡那個欄位的代號,不是資料表的外鍵。
+model BomAttachment {
+  id         String   @id @default(cuid())
+  boardId    String
+  board      Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  bomLineId  String
+  bomLine    BomLine  @relation(fields: [bomLineId], references: [id], onDelete: Cascade)
+  columnId   String
+  fileName   String
+  /// 相對於 public/ 的路徑,例如 /uploads/bom/<看板>/<時間>-<亂數>-<檔名>。
+  url        String
+  size       Int
+  uploaderId String
+  uploader   User     @relation("BomAttachmentUploader", fields: [uploaderId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([bomLineId, columnId])
+  @@index([boardId])
 }
 
 /// 公司組織單位。人力成本、人力預算、樣機用途都按這個分,因為「這個階段
@@ -1148,6 +1180,8 @@ model SystemSettings {
   /// Null means nobody has set one, and a new board falls back to the built-in
   /// list — the same one this used to be, hardcoded.
   defaultColumns            Json?
+  /// BOM 欄位的系統預設(沒有自己設定的看板都沿用)。null = 內建的欄位。格式見 src/lib/bomColumns.ts。
+  bomDefaultColumns         Json?
   /// 專案週報分發的排程時間。enabled 是總開關;dow 是星期幾(0=週日,
   /// 沿用 JS Date.getDay() 的編號,1=週一)。
   weeklyReportEnabled       Boolean            @default(false)

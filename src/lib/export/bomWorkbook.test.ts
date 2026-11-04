@@ -236,3 +236,68 @@ describe("樣機 BOM Excel 往返", () => {
     expect(text).toContain("BOM: 產品名稱");
   });
 });
+
+describe("自訂欄位(第 13 欄起)", () => {
+  const custom = [
+    { id: "c_status01", name: "驗證狀態", type: "SELECT" as const },
+    { id: "c_buyer001", name: "採購負責人", type: "PERSON" as const },
+    { id: "c_qty00001", name: "採購量", type: "NUMBER" as const },
+    { id: "c_ok000001", name: "已簽核", type: "CHECKBOX" as const },
+  ];
+  const lines: BomLineInput[] = m3EfsLines.map((l) =>
+    l.id === "mod"
+      ? { ...l, extra: { c_status01: "已送樣", c_buyer001: "u1", c_qty00001: 500, c_ok000001: true } }
+      : l.id === "mcu"
+        ? { ...l, extra: { c_status01: "通過" } }
+        : l
+  );
+
+  it("匯出:固定 12 欄後面接自訂欄位,標題是欄位名稱;人員寫姓名、勾選寫「是」、數字還是數字", async () => {
+    const ws = await open(await buildBomWorkbook({ boardName: "M3專案", blocks: [block("M3", "EFS", lines)], customColumns: custom, userNames: new Map([["u1", "王小明"]]) }));
+    const titles = ws.getRow(2).values as unknown[];
+    expect(titles.slice(13)).toEqual(["驗證狀態", "採購負責人", "採購量", "已簽核"]);
+    // 主機板是第一個資料列(第 3 列)
+    const mod = ws.getRow(3);
+    expect(mod.getCell(13).value).toBe("已送樣");
+    expect(mod.getCell(14).value).toBe("王小明");
+    expect(mod.getCell(15).value).toBe(500);
+    expect(mod.getCell(16).value).toBe("是");
+    expect(ws.getRow(4).getCell(13).value).toBe("通過"); // 子項目 MCU
+    expect(ws.getRow(4).getCell(14).value).toBe(""); // 沒填的是空白
+    expect(ws.getRow(4).getCell(16).value).toBe("");
+  });
+
+  it("匯出再匯入:標題與每一列的文字都帶回來(欄位代號對應由呼叫端依標題做)", async () => {
+    const buffer = await buildBomWorkbook({ boardName: "M3專案", blocks: [block("M3", "EFS", lines)], customColumns: custom, userNames: new Map([["u1", "王小明"]]) });
+    const parsed = await parseBomWorkbook(buffer);
+    expect(parsed.blocks[0].extraHeaders).toEqual(["驗證狀態", "採購負責人", "採購量", "已簽核"]);
+    const [mod, mcu, screw] = parsed.blocks[0].rows;
+    expect(mod.extra).toEqual({ 驗證狀態: "已送樣", 採購負責人: "王小明", 採購量: "500", 已簽核: "是" });
+    expect(mcu.extra).toEqual({ 驗證狀態: "通過", 採購負責人: "", 採購量: "", 已簽核: "" });
+    expect(screw.extra).toEqual({ 驗證狀態: "", 採購負責人: "", 採購量: "", 已簽核: "" });
+    // 固定欄位沒被動到
+    expect(mcu).toMatchObject({ name: "MCU 晶片", vendor: "TI", qty: 2, unitPrice: 5, currency: "USD", fxRate: 32, deliveryDate: "2026-11-01" });
+  });
+
+  it("以前匯出的檔案(只有固定 12 欄)照樣匯得進來:沒有自訂欄位標題、列上也沒有 extra", async () => {
+    const parsed = await parseBomWorkbook(await buildBomWorkbook({ boardName: "M3專案", blocks: [block("M3", "EFS", m3EfsLines)] }));
+    expect(parsed.blocks[0].extraHeaders).toEqual([]);
+    expect(parsed.blocks[0].rows.every((r) => r.extra === undefined)).toBe(true);
+  });
+
+  it("沒有自訂欄位的看板匯出:跟以前一樣只有 12 欄標題", async () => {
+    const ws = await open(await buildBomWorkbook({ boardName: "M3專案", blocks: [block("M3", "EFS", m3EfsLines)] }));
+    expect((ws.getRow(2).values as unknown[]).slice(1)).toHaveLength(12);
+  });
+
+  it("在 Excel 裡手打的日期(儲存格是日期型態)也讀得到", async () => {
+    const buffer = await buildBomWorkbook({ boardName: "M3專案", blocks: [block("M3", "EFS", lines)], customColumns: [{ id: "c_due00001", name: "到貨日", type: "DATE" }] });
+    const wb = new ExcelJS.Workbook();
+    // @ts-expect-error - exceljs 帶著自己那份舊的 @types/node
+    await wb.xlsx.load(buffer);
+    const ws = wb.getWorksheet(SHEET_NAME)!;
+    ws.getRow(3).getCell(13).value = new Date(Date.UTC(2026, 10, 30)); // 儲存格是真的日期,不是文字
+    const parsed = await parseBomWorkbook((await wb.xlsx.writeBuffer()) as unknown as Buffer);
+    expect(parsed.blocks[0].rows[0].extra).toEqual({ 到貨日: "2026-11-30" });
+  });
+});

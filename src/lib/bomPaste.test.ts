@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PASTED_BOM_ROWS, parseBomPaste } from "./bomPaste";
+import type { BomColumnDef } from "./bomColumns";
 
 const tsv = (rows: string[][]) => rows.map((r) => r.join("\t")).join("\n") + "\n";
 
@@ -110,5 +111,55 @@ describe("parseBomPaste:有問題的列整列略過並說明,其他列照貼", (
     const out = parseBomPaste(Array.from({ length: MAX_PASTED_BOM_ROWS + 1 }, (_, i) => `料${i}`).join("\n"));
     expect(out.error).toContain(String(MAX_PASTED_BOM_ROWS));
     expect(out.rows).toEqual([]);
+  });
+});
+
+describe("parseBomPaste:看板的 BOM 欄位設定", () => {
+  const column = (over: Partial<BomColumnDef> & { id: string; name: string }): BomColumnDef => ({
+    type: "TEXT",
+    options: [],
+    required: false,
+    defaultValue: null,
+    visible: true,
+    ...over,
+  });
+  const columns = [
+    column({ id: "vendor", name: "Supplier Name" }),
+    column({ id: "c_status01", name: "驗證狀態", type: "SELECT", options: ["未送樣", "已送樣"] }),
+    column({ id: "c_buyer001", name: "採購負責人", type: "PERSON" }),
+  ];
+
+  it("內建欄位改過名:表頭寫新名字也對得上(舊的別名照樣認得)", () => {
+    const out = parseBomPaste(tsv([["名稱", "Supplier Name", "數量"], ["主機板", "廣達", "2"]]), columns);
+    expect(out.rows[0]).toMatchObject({ name: "主機板", vendor: "廣達", qty: 2 });
+    const old = parseBomPaste(tsv([["名稱", "廠商", "數量"], ["主機板", "廣達", "2"]]), columns);
+    expect(old.rows[0].vendor).toBe("廣達");
+  });
+
+  it("自訂欄位:表頭寫它的名字就讀進 extra(欄位代號 → 貼上的文字),並說有讀到", () => {
+    const out = parseBomPaste(tsv([["名稱", "數量", "驗證狀態", "採購負責人"], ["主機板", "1", "已送樣", "王小明"], ["電池", "2", "", ""]]), columns);
+    expect(out.customColumnNames).toEqual(["驗證狀態", "採購負責人"]);
+    expect(out.rows[0].extra).toEqual({ c_status01: "已送樣", c_buyer001: "王小明" });
+    expect(out.rows[1].extra).toEqual({ c_status01: "", c_buyer001: "" }); // 欄位在、格子空白 = 明確的空白
+  });
+
+  it("表頭裡沒有的自訂欄位,那一列沒有 extra(伺服器帶預設值);名稱大小寫、前後空白不影響", () => {
+    const out = parseBomPaste(tsv([["名稱", "數量"], ["主機板", "1"]]), columns);
+    expect(out.rows[0].extra).toBeUndefined();
+    expect(out.customColumnNames).toEqual([]);
+    const loose = parseBomPaste(tsv([["名稱", " 驗證狀態 "], ["主機板", "通過"]]), columns);
+    expect(loose.rows[0].extra).toEqual({ c_status01: "通過" });
+  });
+
+  it("沒有表頭時只照固定順序,自訂欄位對不上(沒辦法猜)", () => {
+    const out = parseBomPaste(tsv([["主機板", "廣達", "MB-1", "1", "100", "TWD", "", "", "", "已送樣"]]), columns);
+    expect(out.hadHeader).toBe(false);
+    expect(out.rows[0].extra).toBeUndefined();
+  });
+
+  it("沒給欄位設定(以前的用法)行為不變", () => {
+    const out = parseBomPaste(tsv([["名稱", "驗證狀態"], ["主機板", "已送樣"]]));
+    expect(out.rows[0].extra).toBeUndefined();
+    expect(out.customColumnNames).toEqual([]);
   });
 });

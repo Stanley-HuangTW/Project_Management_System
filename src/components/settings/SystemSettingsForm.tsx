@@ -44,6 +44,8 @@ import { IntegrationCard } from "./IntegrationCard";
 import { MantisIntegrationCard } from "./MantisIntegrationCard";
 import { StatusColorCard, type StatusColorBoard } from "./StatusColorCard";
 import { DefaultColumnsCard, type DefaultColumnsBoard } from "./DefaultColumnsCard";
+import { BomDefaultColumnsCard } from "./BomDefaultColumnsCard";
+import type { BomColumnDef } from "@/lib/bomColumns";
 import type { DefaultColumn } from "@/lib/defaultColumns";
 
 const MAX_LEVELS = 6;
@@ -535,6 +537,8 @@ export function SystemSettingsForm({
   defaultColumnsBoards,
   defaultColumns,
   defaultColumnsConfigured,
+  bomDefaultColumns,
+  bomDefaultColumnsConfigured,
   sharingBoards,
   users,
 }: {
@@ -577,6 +581,8 @@ export function SystemSettingsForm({
   defaultColumnsBoards: DefaultColumnsBoard[];
   defaultColumns: DefaultColumn[];
   defaultColumnsConfigured: boolean;
+  bomDefaultColumns: BomColumnDef[];
+  bomDefaultColumnsConfigured: boolean;
   sharingBoards: SharingBoard[];
   users: UserOption[];
 }) {
@@ -618,6 +624,7 @@ export function SystemSettingsForm({
             initialColumns={defaultColumns}
             initialConfigured={defaultColumnsConfigured}
           />
+          <BomDefaultColumnsCard initialColumns={bomDefaultColumns} initialConfigured={bomDefaultColumnsConfigured} />
           <ReportSettingsCard boards={reportSettingsBoards} />
           <IntegrationCard boards={sharingBoards.map((b) => ({ id: b.id, name: b.name }))} />
           <MantisIntegrationCard />

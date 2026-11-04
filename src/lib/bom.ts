@@ -27,6 +27,10 @@ export type BomLineInput = {
   note: string;
   /** 預估交期,不影響金額計算,只是排期用。null = 還不知道。 */
   deliveryDate: string | null;
+  /** 自訂欄位的值(欄位代號 → 值),不影響金額計算。沒有自訂欄位就是空物件。 */
+  extra?: Record<string, unknown>;
+  /** 「檔案附件」欄位上的檔案(欄位代號 → 檔案清單)。 */
+  files?: Record<string, { id: string; fileName: string; size: number }[]>;
   order: number;
 };
 
@@ -181,6 +185,8 @@ export type IndentedBomLine = {
   fxRate: number;
   note: string;
   deliveryDate: string | null;
+  /** Excel 裡自訂欄位的文字(欄位標題 → 格子裡的字),沒讀過、沒有自訂欄位就不帶。 */
+  extra?: Record<string, string>;
 };
 
 export type RootedBomLine = IndentedBomLine & {

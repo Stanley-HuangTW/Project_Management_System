@@ -1,4 +1,5 @@
 import { parseClipboardTable } from "@/lib/clipboardTable";
+import { isCustomColumn, type BomColumnDef } from "@/lib/bomColumns";
 
 /**
  * 從 Excel / Google 試算表貼上整張 BOM — 純邏輯。
@@ -8,6 +9,8 @@ import { parseClipboardTable } from "@/lib/clipboardTable";
  *     表頭多一欄「階層」(0 = 最上層、1 = 它的子項目…)就用它排出上下層。
  *   - 沒有表頭:照畫面上的欄位順序——名稱、廠商、型號/料號、數量、單價、幣別、匯率、交期、備註;
  *     名稱前面縮排(每兩個空白一層)就是子項目。
+ *   看板設定過的欄位名稱也認得:內建欄位改了名(廠商 → 供應商)、自訂欄位(驗證狀態…),表頭寫那個名稱就對得上
+ *   (自訂欄位只能靠表頭,沒有表頭時沒辦法照順序猜)。
  * 填空白的欄位用預設:數量 1、單價 0、幣別 TWD。匯率空白的外幣,由伺服器用目前的匯率補。
  * 有問題的列整列略過並說明是第幾列、什麼原因,其他列照常貼上,不會因為一列壞掉整份貼不進來。
  */
@@ -28,6 +31,8 @@ export type PastedBomRow = {
   /** "YYYY-MM-DD"。 */
   deliveryDate: string | null;
   note: string;
+  /** 自訂欄位的值(欄位代號 → 貼上的文字,沒整理過,由伺服器依欄位類型讀):只有表頭裡找得到的自訂欄位才有 key。 */
+  extra?: Record<string, string>;
   /** 在貼上的文字裡是第幾列(從 1 起算,含表頭),說明用。 */
   sourceRow: number;
 };
@@ -52,9 +57,14 @@ const POSITIONAL: Field[] = ["name", "vendor", "partNumber", "qty", "unitPrice",
 
 const MAX_LEN = { name: 200, vendor: 100, partNumber: 100, note: 500 };
 
-function fieldOfHeader(cell: string): Field | null {
+/** 內建欄位在貼上時對到的欄位。 */
+const BUILT_IN_PASTE_FIELD: Record<string, Field> = { vendor: "vendor", partNumber: "partNumber", delivery: "deliveryDate", note: "note" };
+
+function fieldOfHeader(cell: string, configured: Map<string, Field>): Field | null {
   const text = cell.trim().toLowerCase();
   if (!text) return null;
+  const named = configured.get(text); // 看板設定的名稱優先(內建欄位改過名)
+  if (named) return named;
   for (const field of Object.keys(ALIASES) as Field[]) if (ALIASES[field].includes(text)) return field;
   return null;
 }
@@ -93,24 +103,46 @@ export type ParsedBomPaste = {
   warnings: string[];
   /** 第一列被當成表頭。 */
   hadHeader: boolean;
+  /** 表頭裡對到的自訂欄位名稱(預覽時說一聲有讀到)。 */
+  customColumnNames: string[];
   error?: string;
 };
 
-export function parseBomPaste(text: string): ParsedBomPaste {
+export function parseBomPaste(text: string, columns: BomColumnDef[] = []): ParsedBomPaste {
+  // 看板設定的欄位名稱:內建欄位的新名字 → 欄位;自訂欄位的名字 → 代號。
+  const configured = new Map<string, Field>();
+  const customIdByName = new Map<string, { id: string; name: string }>();
+  for (const c of columns) {
+    const key = c.name.trim().toLowerCase();
+    if (c.id in BUILT_IN_PASTE_FIELD) configured.set(key, BUILT_IN_PASTE_FIELD[c.id]);
+    else if (isCustomColumn(c) && !customIdByName.has(key)) customIdByName.set(key, { id: c.id, name: c.name });
+  }
   const table = parseClipboardTable(text).map((r) => r);
   if (table.length === 0 || table.every((r) => r.every((c) => c.trim() === ""))) {
-    return { rows: [], warnings: [], hadHeader: false, error: "沒有內容可以貼上" };
+    return { rows: [], warnings: [], hadHeader: false, customColumnNames: [], error: "沒有內容可以貼上" };
   }
 
   // 表頭:第一列至少有兩格是認得的欄位名稱。
-  const firstFields = table[0].map(fieldOfHeader);
-  const hadHeader = firstFields.filter((f) => f !== null).length >= 2;
+  const firstFields = table[0].map((c) => fieldOfHeader(c, configured));
+  // 表頭:第一列至少有兩格是認得的欄位名稱(自訂欄位的名字也算)。
+  const customHeaderHits = table[0].filter((c) => customIdByName.has(c.trim().toLowerCase())).length;
+  const hadHeader = firstFields.filter((f) => f !== null).length + customHeaderHits >= 2;
   const columnOf = new Map<Field, number>();
+  /** 自訂欄位在貼上的表裡是第幾欄(欄位代號 → 欄的位置)。 */
+  const customColumnOf = new Map<string, number>();
+  const customColumnNames: string[] = [];
   if (hadHeader) {
     firstFields.forEach((f, i) => {
       if (f && !columnOf.has(f)) columnOf.set(f, i);
     });
-    if (!columnOf.has("name")) return { rows: [], warnings: [], hadHeader, error: "表頭裡找不到「名稱」欄" };
+    if (!columnOf.has("name")) return { rows: [], warnings: [], hadHeader, customColumnNames: [], error: "表頭裡找不到「名稱」欄" };
+    table[0].forEach((headerCell, i) => {
+      const custom = customIdByName.get(headerCell.trim().toLowerCase());
+      if (custom && !customColumnOf.has(custom.id)) {
+        customColumnOf.set(custom.id, i);
+        customColumnNames.push(custom.name);
+      }
+    });
   } else {
     POSITIONAL.forEach((f, i) => columnOf.set(f, i));
   }
@@ -179,6 +211,8 @@ export function parseBomPaste(text: string): ParsedBomPaste {
     } else {
       depth = indentOf(nameCell);
     }
+    const extra: Record<string, string> | undefined =
+      customColumnOf.size > 0 ? Object.fromEntries([...customColumnOf].map(([id, i]) => [id, (raw[i] ?? "").trim()])) : undefined;
     rows.push({
       depth,
       name,
@@ -190,12 +224,13 @@ export function parseBomPaste(text: string): ParsedBomPaste {
       fxRate: currency === "TWD" ? 1 : fxN,
       deliveryDate,
       note,
+      ...(extra ? { extra } : {}),
       sourceRow,
     });
   }
 
   if (rows.length > MAX_PASTED_BOM_ROWS) {
-    return { rows: [], warnings, hadHeader, error: `一次最多貼上 ${MAX_PASTED_BOM_ROWS} 列(這次有 ${rows.length} 列),請分批貼。` };
+    return { rows: [], warnings, hadHeader, customColumnNames, error: `一次最多貼上 ${MAX_PASTED_BOM_ROWS} 列(這次有 ${rows.length} 列),請分批貼。` };
   }
 
   // 階層從 1 起算的表(最上層寫 1)整體往上提;之後每一列最多比上一列深一層,不會冒出沒有上層的子項目。
@@ -208,5 +243,5 @@ export function parseBomPaste(text: string): ParsedBomPaste {
     r.depth = Math.min(r.depth, prev + 1);
     prev = r.depth;
   }
-  return { rows, warnings, hadHeader };
+  return { rows, warnings, hadHeader, customColumnNames };
 }

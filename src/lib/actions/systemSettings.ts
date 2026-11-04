@@ -14,6 +14,7 @@ import {
   parseDefaultColumns,
   type DefaultColumn,
 } from "@/lib/defaultColumns";
+import { BUILT_IN_BOM_COLUMNS, parseBomColumns, validateBomColumns, type BomColumnDef } from "@/lib/bomColumns";
 import { UserError } from "@/lib/userError";
 
 export async function getSystemSettings() {
@@ -35,6 +36,7 @@ export async function getSystemSettings() {
     workingDaysPerMonth: 21,
     ownerDefaultAllocationPct: 2,
     defaultColumns: null as Prisma.JsonValue,
+    bomDefaultColumns: null as Prisma.JsonValue,
     weeklyReportEnabled: false,
     weeklyReportDow: 1,
     weeklyReportHour: 6,
@@ -129,6 +131,47 @@ export async function resetDefaultBoardColumns() {
 
   revalidatePath("/settings");
   return BUILT_IN_DEFAULT_COLUMNS;
+}
+
+/** BOM 欄位的系統預設,設定卡片用:沒有自己設定的看板都沿用它。沒設定過就是內建的欄位。 */
+export async function listBomDefaultColumns(): Promise<{ columns: BomColumnDef[]; configured: boolean }> {
+  await requireSession();
+  const settings = await getSystemSettings();
+  const parsed = parseBomColumns(settings.bomDefaultColumns);
+  return { columns: parsed ?? BUILT_IN_BOM_COLUMNS, configured: parsed !== null };
+}
+
+/** 存 BOM 欄位的系統預設。已經有自己設定的看板不受影響,其他看板立刻沿用新的。 */
+export async function saveBomDefaultColumns(columns: unknown): Promise<{ error?: string }> {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") return { error: "權限不足:僅管理者可以設定 BOM 欄位的預設" };
+  const checked = validateBomColumns(columns);
+  if ("error" in checked) return { error: checked.error };
+
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", bomDefaultColumns: checked.value as unknown as Prisma.InputJsonValue },
+    update: { bomDefaultColumns: checked.value as unknown as Prisma.InputJsonValue },
+  });
+  await logAudit("SETTINGS", session.userId, `BOM 欄位的系統預設已更新(${checked.value.filter((c) => c.visible).length} 個顯示的欄位)`);
+  revalidatePath("/settings");
+  revalidatePath("/boards");
+  return {};
+}
+
+/** BOM 欄位的系統預設恢復成內建的。 */
+export async function resetBomDefaultColumns(): Promise<{ error?: string }> {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") return { error: "權限不足:僅管理者可以設定 BOM 欄位的預設" };
+  await prisma.systemSettings.upsert({
+    where: { id: "global" },
+    create: { id: "global", bomDefaultColumns: Prisma.DbNull },
+    update: { bomDefaultColumns: Prisma.DbNull },
+  });
+  await logAudit("SETTINGS", session.userId, "BOM 欄位的系統預設恢復為內建的");
+  revalidatePath("/settings");
+  revalidatePath("/boards");
+  return {};
 }
 
 /** 一天算幾小時 — the factor that turns "50% for 10 days" into hours, and

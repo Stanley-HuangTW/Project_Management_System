@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { formatMoney } from "@/lib/cost";
 import { parseBomPaste } from "@/lib/bomPaste";
+import type { BomColumnDef } from "@/lib/bomColumns";
 
 const PREVIEW_ROWS = 10;
 
@@ -17,6 +18,7 @@ export function BomPasteDialog({
   initialText,
   product,
   phaseName,
+  columns,
   onApply,
 }: {
   open: boolean;
@@ -25,6 +27,8 @@ export function BomPasteDialog({
   initialText: string;
   product: string;
   phaseName: string;
+  /** 這個看板的 BOM 欄位設定:內建欄位的新名字、自訂欄位的名字,貼上的表頭寫那個名稱就對得上。 */
+  columns: BomColumnDef[];
   /** 回傳錯誤說明就留在視窗;null = 成功,視窗關掉。 */
   onApply: (rows: ReturnType<typeof parseBomPaste>["rows"]) => Promise<string | null>;
 }) {
@@ -40,7 +44,7 @@ export function BomPasteDialog({
     setError(null);
   }
 
-  const parsed = useMemo(() => (text.trim() === "" ? null : parseBomPaste(text)), [text]);
+  const parsed = useMemo(() => (text.trim() === "" ? null : parseBomPaste(text, columns)), [text, columns]);
 
   async function apply() {
     if (!parsed || parsed.error || parsed.rows.length === 0 || busy) return;
@@ -62,6 +66,12 @@ export function BomPasteDialog({
           貼到「<b>{product || "(先選產品)"}</b> / <b>{phaseName}</b>」,接在現有的列後面。欄位順序:<b>名稱、廠商、型號/料號、數量、單價、幣別、匯率、交期、備註</b>
           (有表頭的話照表頭的字找,順序不拘;表頭多一欄「階層」可以排出上下層;沒有表頭時,名稱前面縮排兩個空白就是子項目)。
           空白的欄位用預設:數量 1、單價 0、幣別 TWD。
+          {columns.some((c) => !(["vendor", "partNumber", "delivery", "note", "money"] as string[]).includes(c.id)) && (
+            <>
+              {" "}
+              這個看板的<b>自訂欄位</b>({columns.filter((c) => c.id.startsWith("c_")).map((c) => c.name).join("、")})也讀得到:表頭寫欄位名稱就對得上;表頭裡沒有的自訂欄位,新增的列帶它的預設值。
+            </>
+          )}
         </p>
         <textarea
           value={text}
@@ -79,7 +89,7 @@ export function BomPasteDialog({
             <p className="text-xs text-neutral-600 dark:text-neutral-300">
               讀到 <b>{parsed.rows.length}</b> 列{parsed.hadHeader ? "(第一列當表頭)" : ""}
               {parsed.warnings.length > 0 && <span className="text-amber-700 dark:text-amber-400">,{parsed.warnings.length} 列有問題會略過</span>}
-              。
+              。{parsed.customColumnNames.length > 0 && <span data-paste-custom-columns>也讀到自訂欄位:{parsed.customColumnNames.join("、")}。</span>}
             </p>
             {parsed.rows.length > 0 && (
               <div className="max-h-56 overflow-auto rounded-md border border-neutral-200 dark:border-neutral-700">

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { AlertTriangle, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
@@ -18,12 +18,24 @@ import {
   copyBomLines,
   createBom,
   pasteBomLines,
+  saveBomColumns,
+  resetBomColumns,
   type BomContext,
   type BomView,
   type BomLineRow,
   type BomLineDraft,
 } from "@/lib/actions/bom";
-import { BomRow, type BomColumns } from "./BomRow";
+import { BomRow, columnMinWidth, MONEY_MIN_WIDTH, NAME_MIN_WIDTH, type BomRowInitial } from "./BomRow";
+import { BomColumnsDialog } from "./BomColumnsDialog";
+import type { BomFileRef } from "./BomFileCell";
+import { deleteBomFile, uploadBomFile } from "@/lib/actions/bomAttachment";
+import {
+  countRowsMissingRequired,
+  initialColumnValues,
+  isEmptyCellValue,
+  isMoneyBlock,
+  type BomColumnDef,
+} from "@/lib/bomColumns";
 import { BomPasteDialog } from "./BomPasteDialog";
 import { NewBomDialog } from "./NewBomDialog";
 import { BomExcelButtons } from "./BomExcelButtons";
@@ -40,17 +52,43 @@ function subtreeIds(lines: BomLineRow[], rootIndex: number): Set<string> {
   return ids;
 }
 
-const NEW_ROW_BLANK = {
-  name: "",
-  vendor: "",
-  partNumber: "",
-  qty: 1,
-  unitPrice: 0,
-  currency: "TWD",
-  fxRate: 1,
-  deliveryDate: null,
-  note: "",
-};
+/** 內建的次要欄位:預設收起來,有資料、必填、或使用者要看才顯示。 */
+const SECONDARY_COLUMNS = new Set(["delivery", "note"]);
+
+/** 一列在某個欄位上的值(內建欄位在 BomLine 自己的欄位裡,自訂欄位在 extra 裡)。 */
+function lineValue(line: BomLineRow, column: BomColumnDef): unknown {
+  switch (column.id) {
+    case "vendor":
+      return line.vendor;
+    case "partNumber":
+      return line.partNumber;
+    case "delivery":
+      return line.deliveryDate;
+    case "note":
+      return line.note;
+    default:
+      // 檔案附件:有沒有檔案(必填欄位要用來判斷有沒有填)。
+      return column.type === "FILE" ? ((line.files?.[column.id]?.length ?? 0) > 0 ? true : null) : line.extra?.[column.id];
+  }
+}
+
+/** 空白列:各欄位帶設定好的預設值。 */
+function blankRow(columns: BomColumnDef[]): Omit<BomRowInitial, "parentId"> {
+  const defaults = initialColumnValues(columns);
+  const text = (id: string) => (typeof defaults[id] === "string" ? (defaults[id] as string) : "");
+  return {
+    name: "",
+    vendor: text("vendor"),
+    partNumber: text("partNumber"),
+    qty: 1,
+    unitPrice: 0,
+    currency: "TWD",
+    fxRate: 1,
+    deliveryDate: text("delivery") || null,
+    note: text("note"),
+    extra: defaults,
+  };
+}
 
 /**
  * 一個節點自己那一列,展開後是它的子項目,子項目底下(展開的話)接著一列
@@ -61,23 +99,34 @@ const NEW_ROW_BLANK = {
 function BomNodeRows({
   node,
   canEdit,
-  cols,
+  columns,
+  showFx,
+  users,
+  blank,
   collapsedIds,
   childEntryIds,
   toggleCollapse,
   revealChildEntry,
   onCommit,
   onDelete,
+  onUploadFile,
+  onDeleteFile,
 }: {
   node: BomLineRow;
   canEdit: boolean;
-  cols: BomColumns;
+  columns: BomColumnDef[];
+  showFx: boolean;
+  users: { id: string; name: string }[];
+  /** 新增子項目那一列的起點(各欄位的預設值)。 */
+  blank: Omit<BomRowInitial, "parentId">;
   collapsedIds: Set<string>;
   childEntryIds: Set<string>;
   toggleCollapse: (id: string) => void;
   revealChildEntry: (id: string) => void;
   onCommit: (draft: BomLineDraft) => Promise<boolean>;
   onDelete: (node: BomLineRow) => void;
+  onUploadFile: (lineId: string, columnId: string, file: File) => Promise<boolean>;
+  onDeleteFile: (file: BomFileRef) => Promise<void>;
 }) {
   const collapsed = collapsedIds.has(node.id);
   const showNewChildRow = canEdit && !collapsed && (node.isAssembly || childEntryIds.has(node.id));
@@ -98,13 +147,19 @@ function BomNodeRows({
           fxRate: node.fxRate,
           deliveryDate: node.deliveryDate,
           note: node.note,
+          extra: node.extra,
+          files: node.files,
         }}
         disablePrice={node.isAssembly}
         extendedTwd={node.extendedTwd}
         canEdit={canEdit}
-        cols={cols}
+        columns={columns}
+        showFx={showFx}
+        users={users}
         vendorListId="bom-vendors"
         onCommit={onCommit}
+        onUploadFile={onUploadFile}
+        onDeleteFile={onDeleteFile}
         leading={
           node.isAssembly ? (
             <button
@@ -148,24 +203,31 @@ function BomNodeRows({
             key={child.id}
             node={child}
             canEdit={canEdit}
-            cols={cols}
+            columns={columns}
+            showFx={showFx}
+            users={users}
+            blank={blank}
             collapsedIds={collapsedIds}
             childEntryIds={childEntryIds}
             toggleCollapse={toggleCollapse}
             revealChildEntry={revealChildEntry}
             onCommit={onCommit}
             onDelete={onDelete}
+            onUploadFile={onUploadFile}
+            onDeleteFile={onDeleteFile}
           />
         ))}
       {showNewChildRow && (
         <BomRow
           key={`new-${node.id}`}
           depth={node.depth + 1}
-          initial={{ parentId: node.id, ...NEW_ROW_BLANK }}
+          initial={{ parentId: node.id, ...blank }}
           disablePrice={false}
           extendedTwd={null}
           canEdit={canEdit}
-          cols={cols}
+          columns={columns}
+          showFx={showFx}
+          users={users}
           vendorListId="bom-vendors"
           onCommit={onCommit}
           leading={<span className="inline-block w-[18px] shrink-0" />}
@@ -198,6 +260,9 @@ export function BomTable({ boardId }: { boardId: string }) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [childEntryIds, setChildEntryIds] = useState<Set<string>>(new Set());
   const [showAllCols, setShowAllCols] = useState(false);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  /** 欄位設定改過之後加一:整張表的列重新掛上去,各列的輸入框狀態才會跟著新的欄位重來。 */
+  const [tableVersion, setTableVersion] = useState(0);
   const [newBomOpen, setNewBomOpen] = useState(false);
   const [paste, setPaste] = useState<{ open: boolean; text: string }>({ open: false, text: "" });
 
@@ -263,6 +328,18 @@ export function BomTable({ boardId }: { boardId: string }) {
 
   function commit(draft: BomLineDraft): Promise<boolean> {
     return run(() => upsertBomLine(boardId, product, phaseId, draft), draft.id ? "無法儲存" : "無法新增");
+  }
+
+  /** 檔案附件欄位:傳一個檔案(傳完整張表重讀)。失敗的原因 run 已經跳出說明。 */
+  function uploadFile(lineId: string, columnId: string, file: File): Promise<boolean> {
+    const form = new FormData();
+    form.append("file", file);
+    return run(() => uploadBomFile(boardId, lineId, columnId, form), "無法上傳檔案");
+  }
+
+  async function removeFile(file: BomFileRef) {
+    const ok = await confirm(`刪除檔案「${file.fileName}」?`, { title: "刪除檔案", confirmLabel: "刪除", danger: true });
+    if (ok) await run(() => deleteBomFile(boardId, file.id), "無法刪除檔案");
   }
 
   function toggleCollapse(id: string) {
@@ -376,10 +453,15 @@ export function BomTable({ boardId }: { boardId: string }) {
       if (result.error) return result.error;
       await reload();
       setCtx(await getBomContext(boardId));
-      if (result.skipped && result.skipped.length > 0) {
-        await notify([`貼上了 ${result.created} 列,${result.skipped.length} 列略過:`, ...result.skipped.slice(0, 10).map((w) => `• ${w}`)].join("\n"), {
-          title: "貼上 BOM",
-        });
+      const skipped = result.skipped ?? [];
+      const cellWarnings = result.warnings ?? [];
+      if (skipped.length > 0 || cellWarnings.length > 0) {
+        const lines = [
+          skipped.length > 0 ? `貼上了 ${result.created} 列,${skipped.length} 列略過:` : `貼上了 ${result.created} 列,有幾格讀不懂、留空了:`,
+          ...skipped.slice(0, 10).map((w) => `• ${w}`),
+          ...cellWarnings.slice(0, 10).map((w) => `• ${w}`),
+        ];
+        await notify(lines.join("\n"), { title: "貼上 BOM" });
       }
       return null;
     } catch (err) {
@@ -413,6 +495,13 @@ export function BomTable({ boardId }: { boardId: string }) {
 
   const otherPhasesWithBom = ctx.phases.filter((p) => p.id !== phaseId);
 
+  /** 欄位設定改過:重讀欄位與資料,整張表的列重新掛上去。 */
+  async function afterColumnsChanged() {
+    setCtx(await getBomContext(boardId));
+    await reload();
+    setTableVersion((v) => v + 1);
+  }
+
   async function onBomImported() {
     await reload();
     // 匯入可能一次動到很多產品/階段,候選清單也要一併重讀。
@@ -420,14 +509,25 @@ export function BomTable({ boardId }: { boardId: string }) {
   }
 
   const roots = view?.lines.filter((l) => l.depth === 0) ?? [];
-  // 次要欄位(匯率、交期、備註)預設收起來,表格才放得進一個畫面;這一份有資料、或使用者要看就顯示。
-  const cols: BomColumns = {
-    fx: showAllCols || (view?.lines.some((l) => l.currency !== "TWD") ?? false),
-    delivery: showAllCols || (view?.lines.some((l) => !!l.deliveryDate) ?? false),
-    note: showAllCols || (view?.lines.some((l) => !!l.note) ?? false),
-  };
-  const leadCols = 6 + (cols.fx ? 1 : 0) + (cols.delivery ? 1 : 0); // 名稱、廠商、型號、數量、單價、幣別(+匯率、交期),小計之前
-  const totalCols = leadCols + 1 + (cols.note ? 1 : 0) + (ctx.canEdit ? 1 : 0);
+  const lines = view?.lines ?? [];
+  const showFx = showAllCols || lines.some((l) => l.currency !== "TWD");
+  // 次要欄位(交期、備註)預設收起來,表格才放得進一個畫面;這一份有資料、必填、或使用者要看才顯示。
+  const columns = ctx.columns.filter(
+    (c) =>
+      isMoneyBlock(c) ||
+      (c.visible && (!SECONDARY_COLUMNS.has(c.id) || c.required || showAllCols || lines.some((l) => !isEmptyCellValue(c, lineValue(l, c)))))
+  );
+  const blank = blankRow(ctx.columns);
+  const rowsMissing = countRowsMissingRequired(
+    columns,
+    lines.map((l) => ({ valueOf: (c: BomColumnDef) => lineValue(l, c) }))
+  );
+  const requiredNames = columns.filter((c) => !isMoneyBlock(c) && c.required).map((c) => c.name);
+  // 頁尾的「單台成本」要橫跨到小計之前:名稱、金額區塊前面的欄位、數量、單價、幣別(+匯率)。
+  const moneyAt = columns.findIndex(isMoneyBlock);
+  const leadCols = 1 + moneyAt + 3 + (showFx ? 1 : 0);
+  const trailCols = columns.length - moneyAt - 1 + (ctx.canEdit ? 1 : 0);
+  const totalCols = leadCols + 1 + trailCols;
 
   return (
     <div className="space-y-4">
@@ -584,14 +684,39 @@ export function BomTable({ boardId }: { boardId: string }) {
             </div>
           )}
 
+          {rowsMissing > 0 && (
+            <div
+              data-bom-missing-required
+              className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+            >
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <p>
+                有 {rowsMissing} 列還有必填欄位沒填({requiredNames.join("、")}),格子已經標成黃色。不會擋存檔,補齊之後標記就會消失。
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
             <span>
               {ctx.canEdit && "表格上直接按 Ctrl+V,可以把 Excel 複製的整張表貼進來。"}
             </span>
-            <label className="flex shrink-0 items-center gap-1.5">
-              <input type="checkbox" checked={showAllCols} onChange={(e) => setShowAllCols(e.target.checked)} />
-              顯示匯率、交期、備註
-            </label>
+            <div className="flex shrink-0 items-center gap-3">
+              {ctx.canEdit && (
+                <button
+                  type="button"
+                  data-bom-columns-button
+                  onClick={() => setColumnsOpen(true)}
+                  className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  title="自訂 BOM 的欄位:加欄位、改名、換順序、必填與預設值"
+                >
+                  <Settings2 size={12} /> 欄位設定
+                </button>
+              )}
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={showAllCols} onChange={(e) => setShowAllCols(e.target.checked)} />
+                顯示匯率與收起來的欄位
+              </label>
+            </div>
           </div>
 
           <div
@@ -608,16 +733,31 @@ export function BomTable({ boardId }: { boardId: string }) {
             <table className="w-full text-sm">
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">名稱</th>
-                  <th className="px-3 py-2 text-left font-medium">廠商</th>
-                  <th className="px-3 py-2 text-left font-medium">型號/料號</th>
-                  <th className="px-3 py-2 text-right font-medium">數量</th>
-                  <th className="px-3 py-2 text-right font-medium">單價</th>
-                  <th className="px-3 py-2 text-center font-medium">幣別</th>
-                  {cols.fx && <th className="px-3 py-2 text-right font-medium">匯率</th>}
-                  {cols.delivery && <th className="px-3 py-2 text-left font-medium">交期</th>}
-                  <th className="px-3 py-2 text-right font-medium">小計(台幣)</th>
-                  {cols.note && <th className="px-3 py-2 text-left font-medium">備註</th>}
+                  <th className={`px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH}`}>名稱</th>
+                  {columns.map((c) =>
+                    isMoneyBlock(c) ? (
+                      <Fragment key={c.id}>
+                        <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.qty}`}>數量</th>
+                        <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.price}`}>單價</th>
+                        <th className={`px-3 py-2 text-center font-medium ${MONEY_MIN_WIDTH.currency}`}>幣別</th>
+                        {showFx && <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.fx}`}>匯率</th>}
+                        <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.subtotal}`}>小計(台幣)</th>
+                      </Fragment>
+                    ) : (
+                      <th
+                        key={c.id}
+                        data-bom-column={c.id}
+                        className={`px-3 py-2 font-medium ${columnMinWidth(c)} ${c.type === "NUMBER" ? "text-right" : c.type === "CHECKBOX" ? "text-center" : "text-left"}`}
+                      >
+                        {c.name}
+                        {c.required && (
+                          <span className="ml-0.5 text-amber-600" title="必填">
+                            *
+                          </span>
+                        )}
+                      </th>
+                    )
+                  )}
                   {view.canEdit && <th className="px-3 py-2" />}
                 </tr>
               </thead>
@@ -631,27 +771,34 @@ export function BomTable({ boardId }: { boardId: string }) {
                 )}
                 {roots.map((root) => (
                   <BomNodeRows
-                    key={root.id}
+                    key={`${tableVersion}-${root.id}`}
                     node={root}
                     canEdit={view.canEdit}
-                    cols={cols}
+                    columns={columns}
+                    showFx={showFx}
+                    users={ctx.users}
+                    blank={blank}
                     collapsedIds={collapsedIds}
                     childEntryIds={childEntryIds}
                     toggleCollapse={toggleCollapse}
                     revealChildEntry={revealChildEntry}
                     onCommit={commit}
                     onDelete={removeLine}
+                    onUploadFile={uploadFile}
+                    onDeleteFile={removeFile}
                   />
                 ))}
                 {view.canEdit && (
                   <BomRow
-                    key="new-root"
+                    key={`new-root-${tableVersion}`}
                     depth={0}
-                    initial={{ parentId: null, ...NEW_ROW_BLANK }}
+                    initial={{ parentId: null, ...blank }}
                     disablePrice={false}
                     extendedTwd={null}
                     canEdit={view.canEdit}
-                    cols={cols}
+                    columns={columns}
+                    showFx={showFx}
+                    users={ctx.users}
                     vendorListId="bom-vendors"
                     onCommit={commit}
                     leading={<span className="inline-block w-[18px] shrink-0" />}
@@ -666,8 +813,7 @@ export function BomTable({ boardId }: { boardId: string }) {
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-neutral-900 dark:text-neutral-50">
                     {formatMoney(view.unitCostTwd)}
                   </td>
-                  {cols.note && <td />}
-                  {view.canEdit && <td />}
+                  {trailCols > 0 && <td colSpan={trailCols} />}
                 </tr>
                 {view.lineCount > 0 && (
                   <tr>
@@ -677,8 +823,7 @@ export function BomTable({ boardId }: { boardId: string }) {
                     <td className="px-3 pb-2 text-right text-xs font-medium tabular-nums text-neutral-700 dark:text-neutral-200">
                       {formatMoney(Math.round(view.unitCostTwd * view.planQty))}
                     </td>
-                    {cols.note && <td />}
-                    {view.canEdit && <td />}
+                    {trailCols > 0 && <td colSpan={trailCols} />}
                   </tr>
                 )}
               </tfoot>
@@ -687,6 +832,32 @@ export function BomTable({ boardId }: { boardId: string }) {
         </>
       )}
 
+      <BomColumnsDialog
+        open={columnsOpen}
+        onOpenChange={setColumnsOpen}
+        title="BOM 欄位設定"
+        intro={
+          ctx.columnsSource === "board"
+            ? "這個看板自己的欄位設定。要回到跟系統預設一樣,按「改回沿用系統預設」。"
+            : "目前沿用系統預設的欄位。在這裡改過之後,就是這個看板自己的設定,系統預設之後再改也不會動到它。"
+        }
+        columns={ctx.columns}
+        onSave={async (next) => {
+          const result = await saveBomColumns(boardId, next);
+          if (!result.error) await afterColumnsChanged();
+          return result.error ?? null;
+        }}
+        onReset={
+          ctx.columnsSource === "board"
+            ? async () => {
+                const result = await resetBomColumns(boardId);
+                if (!result.error) await afterColumnsChanged();
+                return result.error ?? null;
+              }
+            : undefined
+        }
+        resetLabel="改回沿用系統預設"
+      />
       <NewBomDialog
         open={newBomOpen}
         onOpenChange={setNewBomOpen}
@@ -703,6 +874,7 @@ export function BomTable({ boardId }: { boardId: string }) {
         initialText={paste.text}
         product={product}
         phaseName={ctx.phases.find((p) => p.id === phaseId)?.name ?? ""}
+        columns={ctx.columns}
         onApply={submitPaste}
       />
     </div>
