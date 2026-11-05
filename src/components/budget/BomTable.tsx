@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
@@ -37,6 +37,7 @@ import {
   type BomColumnDef,
 } from "@/lib/bomColumns";
 import { BomPasteDialog } from "./BomPasteDialog";
+import { BomDiffDialog } from "./BomDiffDialog";
 import { NewBomDialog } from "./NewBomDialog";
 import { BomExcelButtons } from "./BomExcelButtons";
 import { actionErrorMessage } from "@/lib/userError";
@@ -264,6 +265,7 @@ export function BomTable({ boardId }: { boardId: string }) {
   /** 欄位設定改過之後加一:整張表的列重新掛上去,各列的輸入框狀態才會跟著新的欄位重來。 */
   const [tableVersion, setTableVersion] = useState(0);
   const [newBomOpen, setNewBomOpen] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
   const [paste, setPaste] = useState<{ open: boolean; text: string }>({ open: false, text: "" });
 
   useEffect(() => {
@@ -701,6 +703,16 @@ export function BomTable({ boardId }: { boardId: string }) {
               {ctx.canEdit && "表格上直接按 Ctrl+V,可以把 Excel 複製的整張表貼進來。"}
             </span>
             <div className="flex shrink-0 items-center gap-3">
+              <button
+                type="button"
+                data-bom-diff-button
+                onClick={() => setDiffOpen(true)}
+                disabled={ctx.sources.length < 2}
+                className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                title={ctx.sources.length < 2 ? "要有兩份以上的 BOM(不同階段或不同產品)才能比較" : "比較兩份 BOM:增減了哪些料、改了什麼、單台成本差多少"}
+              >
+                <ArrowLeftRight size={12} /> 比較 BOM
+              </button>
               {ctx.canEdit && (
                 <button
                   type="button"
@@ -867,6 +879,14 @@ export function BomTable({ boardId }: { boardId: string }) {
         defaultProduct={product}
         defaultPhaseId={phaseId}
         onSubmit={submitNewBom}
+      />
+      <BomDiffDialog
+        open={diffOpen}
+        onOpenChange={setDiffOpen}
+        boardId={boardId}
+        phases={ctx.phases}
+        sources={ctx.sources}
+        current={product && phaseId ? { product, phaseId } : null}
       />
       <BomPasteDialog
         open={paste.open}
