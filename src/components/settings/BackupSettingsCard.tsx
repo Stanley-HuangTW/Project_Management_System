@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { AlertTriangle, DatabaseBackup, RefreshCw, Upload } from "lucide-react";
+import { AlertTriangle, DatabaseBackup, Download, RefreshCw, Upload } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import {
@@ -180,7 +180,7 @@ export function BackupSettingsCard({ initial }: { initial: BackupScheduleInput }
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         備份涵蓋資料庫跟所有上傳的附件。排程跟手動備份都存進伺服器上的同一個
         <code className="mx-1 rounded bg-neutral-100 dark:bg-neutral-800 px-1">backups/</code>
-        資料夾。
+        資料夾。每一份備份旁可以下載資料庫與附件的檔案,留一份在別的地方保存。
       </p>
 
       <label className="mb-3 flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200">
@@ -279,6 +279,24 @@ export function BackupSettingsCard({ initial }: { initial: BackupScheduleInput }
                 DB {formatSize(b.dbSize)}
                 {b.uploadsSize !== null && ` · 附件 ${formatSize(b.uploadsSize)}`}
               </span>
+              <a
+                href={`/api/backups/${b.timestamp}/db`}
+                data-backup-download="db"
+                title={`下載這一份的資料庫備份(${b.timestamp},.sql.gz)`}
+                className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
+              >
+                <Download size={12} /> 資料庫
+              </a>
+              {b.uploadsSize !== null && (
+                <a
+                  href={`/api/backups/${b.timestamp}/uploads`}
+                  data-backup-download="uploads"
+                  title={`下載這一份的附件備份(${b.timestamp},.tgz)`}
+                  className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950"
+                >
+                  <Download size={12} /> 附件
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => setRestoreTarget(b)}
