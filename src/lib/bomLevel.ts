@@ -53,7 +53,14 @@ export function setBomLevel(lines: FlatBomLine[], id: string, level: number): { 
   depths[0] = 0;
   for (let i = 1; i < depths.length; i++) depths[i] = Math.min(depths[i], depths[i - 1] + 1);
 
-  // 照新的階層重新找每一列的上層,同層的順序就是它在清單裡的先後(從 1 起算)。
+  return { moves: deriveBomMoves(lines, depths) };
+}
+
+/**
+ * 照每一列新的階層(depths,跟 lines 同順序)重新找每一列的上層,同層的順序就是它在清單裡的先後(從 1 起算)。
+ * 回傳上層或順序真的變了的列。depths 要合法:第一列是 0,每一列最多比前一列深一層。
+ */
+export function deriveBomMoves(lines: FlatBomLine[], depths: number[]): BomMove[] {
   const stack: number[] = [];
   const nextOrder = new Map<string | null, number>();
   const moves: BomMove[] = [];
@@ -66,7 +73,7 @@ export function setBomLevel(lines: FlatBomLine[], id: string, level: number): { 
     nextOrder.set(parentId, order);
     if (parentId !== line.parentId || order !== line.order) moves.push({ id: line.id, parentId, order });
   });
-  return { moves };
+  return moves;
 }
 
 /** 這一列最深可以放到第幾層(畫面上 → 按鈕要不要停用)。 */

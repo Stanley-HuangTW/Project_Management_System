@@ -153,6 +153,8 @@ export function BomRow({
   leading,
   actions,
   levelCell,
+  selectColumn,
+  selectCell,
   canEdit,
   columns,
   showFx,
@@ -174,6 +176,9 @@ export function BomRow({
   actions?: React.ReactNode;
   /** 「BOM LEVEL」欄的內容(可以改階層的數字與按鈕)。空白列還沒存,只畫它會在的那一層。 */
   levelCell?: React.ReactNode;
+  /** 最前面有勾選欄(能編輯的人才有);空白列還沒存,勾選框留白。 */
+  selectColumn?: boolean;
+  selectCell?: React.ReactNode;
   canEdit: boolean;
   /** 要畫出來的欄位,照顯示順序。 */
   columns: BomColumnDef[];
@@ -373,6 +378,7 @@ export function BomRow({
 
   return (
     <tr onBlur={handleRowBlur}>
+      {selectColumn && <td className="w-8 px-2 py-1 text-center">{selectCell}</td>}
       <td className={`${cellPad} ${NAME_MIN_WIDTH}`} style={{ paddingLeft: 4 + depth * 20 }}>
         <div className="flex items-center gap-1">
           {leading}

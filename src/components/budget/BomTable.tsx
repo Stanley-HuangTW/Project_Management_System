@@ -28,6 +28,7 @@ import {
 } from "@/lib/actions/bom";
 import { BomRow, columnMinWidth, LEVEL_MIN_WIDTH, MONEY_MIN_WIDTH, NAME_MIN_WIDTH, type BomRowInitial } from "./BomRow";
 import { BomLevelCell } from "./BomLevelCell";
+import { BomBulkBar } from "./BomBulkBar";
 import { BomColumnsDialog } from "./BomColumnsDialog";
 import type { BomFileRef } from "./BomFileCell";
 import { deleteBomFile, uploadBomFile } from "@/lib/actions/bomAttachment";
@@ -116,6 +117,8 @@ function BomNodeRows({
   onDeleteFile,
   maxLevelOf,
   onSetLevel,
+  selectedIds,
+  onToggleSelect,
 }: {
   node: BomLineRow;
   canEdit: boolean;
@@ -135,6 +138,8 @@ function BomNodeRows({
   /** 每一列最深可以放到第幾層(前一列的階層 + 1)。 */
   maxLevelOf: Map<string, number>;
   onSetLevel: (lineId: string, level: number) => Promise<boolean>;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }) {
   const collapsed = collapsedIds.has(node.id);
   const showNewChildRow = canEdit && !collapsed && (node.isAssembly || childEntryIds.has(node.id));
@@ -168,6 +173,16 @@ function BomNodeRows({
         onCommit={onCommit}
         onUploadFile={onUploadFile}
         onDeleteFile={onDeleteFile}
+        selectColumn={canEdit}
+        selectCell={
+          <input
+            type="checkbox"
+            data-bom-select={node.id}
+            aria-label={`選取「${node.name}」`}
+            checked={selectedIds.has(node.id)}
+            onChange={() => onToggleSelect(node.id)}
+          />
+        }
         levelCell={
           <BomLevelCell
             key={node.depth}
@@ -234,12 +249,15 @@ function BomNodeRows({
             onDeleteFile={onDeleteFile}
             maxLevelOf={maxLevelOf}
             onSetLevel={onSetLevel}
+            selectedIds={selectedIds}
+            onToggleSelect={onToggleSelect}
           />
         ))}
       {showNewChildRow && (
         <BomRow
           key={`new-${node.id}`}
           depth={node.depth + 1}
+          selectColumn={canEdit}
           initial={{ parentId: node.id, ...blank }}
           disablePrice={false}
           extendedTwd={null}
@@ -284,6 +302,8 @@ export function BomTable({ boardId }: { boardId: string }) {
   const [tableVersion, setTableVersion] = useState(0);
   const [newBomOpen, setNewBomOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
+  /** 勾選的列(id)。換了產品 / 階段或列被刪掉,不在畫面上的 id 自然被過濾掉。 */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [paste, setPaste] = useState<{ open: boolean; text: string }>({ open: false, text: "" });
 
   useEffect(() => {
@@ -372,6 +392,22 @@ export function BomTable({ boardId }: { boardId: string }) {
     }, "無法調整階層");
     if (ok && notice) await notify(notice, { title: "階層調整後的提醒" });
     return ok;
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** 勾選動作做完:重讀這份 BOM 與候選清單,整張表的列重新掛上去(列自己的輸入框狀態才會跟著新的值)。 */
+  async function afterBulk() {
+    await reload();
+    setCtx(await getBomContext(boardId));
+    setTableVersion((v) => v + 1);
   }
 
   function toggleCollapse(id: string) {
@@ -544,6 +580,9 @@ export function BomTable({ boardId }: { boardId: string }) {
   const lines = view?.lines ?? [];
   // 每一列最深可以放到第幾層:前一列(畫面上的順序)的階層 + 1;第一列只能是 1。
   const maxLevelOf = new Map(lines.map((l, i) => [l.id, i === 0 ? 1 : lines[i - 1].depth + 2]));
+  const lineIds = new Set(lines.map((l) => l.id));
+  const liveSelected = new Set([...selected].filter((id) => lineIds.has(id)));
+  const allSelected = lines.length > 0 && liveSelected.size === lines.length;
   const showFx = showAllCols || lines.some((l) => l.currency !== "TWD");
   // 次要欄位(交期、備註)預設收起來,表格才放得進一個畫面;這一份有資料、必填、或使用者要看才顯示。
   const columns = ctx.columns.filter(
@@ -559,7 +598,7 @@ export function BomTable({ boardId }: { boardId: string }) {
   const requiredNames = columns.filter((c) => !isMoneyBlock(c) && c.required).map((c) => c.name);
   // 頁尾的「單台成本」要橫跨到小計之前:名稱、金額區塊前面的欄位、數量、單價、幣別(+匯率)。
   const moneyAt = columns.findIndex(isMoneyBlock);
-  const leadCols = 2 + moneyAt + 3 + (showFx ? 1 : 0);
+  const leadCols = 2 + moneyAt + 3 + (showFx ? 1 : 0) + (ctx.canEdit ? 1 : 0);
   const trailCols = columns.length - moneyAt - 1 + (ctx.canEdit ? 1 : 0);
   const totalCols = leadCols + 1 + trailCols;
 
@@ -763,6 +802,22 @@ export function BomTable({ boardId }: { boardId: string }) {
             </div>
           </div>
 
+          {ctx.canEdit && liveSelected.size > 0 && (
+            <BomBulkBar
+              boardId={boardId}
+              product={product}
+              phaseId={phaseId}
+              lines={lines}
+              columns={ctx.columns}
+              users={ctx.users}
+              products={ctx.products}
+              phases={ctx.phases}
+              selectedIds={liveSelected}
+              onClear={() => setSelected(new Set())}
+              onChanged={afterBulk}
+            />
+          )}
+
           <div
             className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700"
             onPaste={(e) => {
@@ -777,6 +832,21 @@ export function BomTable({ boardId }: { boardId: string }) {
             <table className="w-full text-sm">
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <tr>
+                  {view.canEdit && (
+                    <th className="w-8 px-2 py-2">
+                      <input
+                        type="checkbox"
+                        data-bom-select-all
+                        aria-label="全選"
+                        title="全選 / 取消全選這一份 BOM 的所有列"
+                        checked={allSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = liveSelected.size > 0 && !allSelected;
+                        }}
+                        onChange={() => setSelected(allSelected ? new Set() : new Set(lines.map((l) => l.id)))}
+                      />
+                    </th>
+                  )}
                   <th className={`px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH}`}>名稱</th>
                   <th
                     data-bom-level-header
@@ -839,12 +909,15 @@ export function BomTable({ boardId }: { boardId: string }) {
                     onDeleteFile={removeFile}
                     maxLevelOf={maxLevelOf}
                     onSetLevel={setLevel}
+                    selectedIds={liveSelected}
+                    onToggleSelect={toggleSelect}
                   />
                 ))}
                 {view.canEdit && (
                   <BomRow
                     key={`new-root-${tableVersion}`}
                     depth={0}
+                    selectColumn={view.canEdit}
                     initial={{ parentId: null, ...blank }}
                     disablePrice={false}
                     extendedTwd={null}
