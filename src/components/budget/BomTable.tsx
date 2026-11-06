@@ -20,12 +20,14 @@ import {
   pasteBomLines,
   saveBomColumns,
   resetBomColumns,
+  setBomLineLevel,
   type BomContext,
   type BomView,
   type BomLineRow,
   type BomLineDraft,
 } from "@/lib/actions/bom";
-import { BomRow, columnMinWidth, MONEY_MIN_WIDTH, NAME_MIN_WIDTH, type BomRowInitial } from "./BomRow";
+import { BomRow, columnMinWidth, LEVEL_MIN_WIDTH, MONEY_MIN_WIDTH, NAME_MIN_WIDTH, type BomRowInitial } from "./BomRow";
+import { BomLevelCell } from "./BomLevelCell";
 import { BomColumnsDialog } from "./BomColumnsDialog";
 import type { BomFileRef } from "./BomFileCell";
 import { deleteBomFile, uploadBomFile } from "@/lib/actions/bomAttachment";
@@ -112,6 +114,8 @@ function BomNodeRows({
   onDelete,
   onUploadFile,
   onDeleteFile,
+  maxLevelOf,
+  onSetLevel,
 }: {
   node: BomLineRow;
   canEdit: boolean;
@@ -128,6 +132,9 @@ function BomNodeRows({
   onDelete: (node: BomLineRow) => void;
   onUploadFile: (lineId: string, columnId: string, file: File) => Promise<boolean>;
   onDeleteFile: (file: BomFileRef) => Promise<void>;
+  /** 每一列最深可以放到第幾層(前一列的階層 + 1)。 */
+  maxLevelOf: Map<string, number>;
+  onSetLevel: (lineId: string, level: number) => Promise<boolean>;
 }) {
   const collapsed = collapsedIds.has(node.id);
   const showNewChildRow = canEdit && !collapsed && (node.isAssembly || childEntryIds.has(node.id));
@@ -161,6 +168,15 @@ function BomNodeRows({
         onCommit={onCommit}
         onUploadFile={onUploadFile}
         onDeleteFile={onDeleteFile}
+        levelCell={
+          <BomLevelCell
+            key={node.depth}
+            level={node.depth + 1}
+            maxLevel={maxLevelOf.get(node.id) ?? 1}
+            canEdit={canEdit}
+            onSet={(level) => onSetLevel(node.id, level)}
+          />
+        }
         leading={
           node.isAssembly ? (
             <button
@@ -216,6 +232,8 @@ function BomNodeRows({
             onDelete={onDelete}
             onUploadFile={onUploadFile}
             onDeleteFile={onDeleteFile}
+            maxLevelOf={maxLevelOf}
+            onSetLevel={onSetLevel}
           />
         ))}
       {showNewChildRow && (
@@ -342,6 +360,18 @@ export function BomTable({ boardId }: { boardId: string }) {
   async function removeFile(file: BomFileRef) {
     const ok = await confirm(`刪除檔案「${file.fileName}」?`, { title: "刪除檔案", confirmLabel: "刪除", danger: true });
     if (ok) await run(() => deleteBomFile(boardId, file.id), "無法刪除檔案");
+  }
+
+  /** 改一列的階層(BOM LEVEL)。失敗的原因 run 已經跳出說明;成功但有提醒(有的列因此變成子集、單價不再算)再說明一次。 */
+  async function setLevel(lineId: string, level: number): Promise<boolean> {
+    let notice: string | undefined;
+    const ok = await run(async () => {
+      const result = await setBomLineLevel(boardId, product, phaseId, lineId, level);
+      notice = result.notice;
+      return result;
+    }, "無法調整階層");
+    if (ok && notice) await notify(notice, { title: "階層調整後的提醒" });
+    return ok;
   }
 
   function toggleCollapse(id: string) {
@@ -512,6 +542,8 @@ export function BomTable({ boardId }: { boardId: string }) {
 
   const roots = view?.lines.filter((l) => l.depth === 0) ?? [];
   const lines = view?.lines ?? [];
+  // 每一列最深可以放到第幾層:前一列(畫面上的順序)的階層 + 1;第一列只能是 1。
+  const maxLevelOf = new Map(lines.map((l, i) => [l.id, i === 0 ? 1 : lines[i - 1].depth + 2]));
   const showFx = showAllCols || lines.some((l) => l.currency !== "TWD");
   // 次要欄位(交期、備註)預設收起來,表格才放得進一個畫面;這一份有資料、必填、或使用者要看才顯示。
   const columns = ctx.columns.filter(
@@ -527,7 +559,7 @@ export function BomTable({ boardId }: { boardId: string }) {
   const requiredNames = columns.filter((c) => !isMoneyBlock(c) && c.required).map((c) => c.name);
   // 頁尾的「單台成本」要橫跨到小計之前:名稱、金額區塊前面的欄位、數量、單價、幣別(+匯率)。
   const moneyAt = columns.findIndex(isMoneyBlock);
-  const leadCols = 1 + moneyAt + 3 + (showFx ? 1 : 0);
+  const leadCols = 2 + moneyAt + 3 + (showFx ? 1 : 0);
   const trailCols = columns.length - moneyAt - 1 + (ctx.canEdit ? 1 : 0);
   const totalCols = leadCols + 1 + trailCols;
 
@@ -746,6 +778,13 @@ export function BomTable({ boardId }: { boardId: string }) {
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <tr>
                   <th className={`px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH}`}>名稱</th>
+                  <th
+                    data-bom-level-header
+                    className={`px-3 py-2 text-center font-medium ${LEVEL_MIN_WIDTH}`}
+                    title="階層:1 = 最上層。數字可以直接改,或用左右箭頭升階 / 降階;底下的子項目一起走"
+                  >
+                    BOM LEVEL
+                  </th>
                   {columns.map((c) =>
                     isMoneyBlock(c) ? (
                       <Fragment key={c.id}>
@@ -798,6 +837,8 @@ export function BomTable({ boardId }: { boardId: string }) {
                     onDelete={removeLine}
                     onUploadFile={uploadFile}
                     onDeleteFile={removeFile}
+                    maxLevelOf={maxLevelOf}
+                    onSetLevel={setLevel}
                   />
                 ))}
                 {view.canEdit && (

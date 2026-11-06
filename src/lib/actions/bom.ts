@@ -35,6 +35,7 @@ import {
   type BomNode,
   type ProductSource,
 } from "@/lib/bom";
+import { setBomLevel } from "@/lib/bomLevel";
 import { UserError } from "@/lib/userError";
 
 /**
@@ -581,6 +582,84 @@ export async function deleteBomLine(boardId: string, id: string): Promise<{ erro
   await resyncBomMaterial(boardId, line.phaseId);
   revalidatePath(`/boards/${boardId}`);
   return {};
+}
+
+/**
+ * 改一列的階層(BOM LEVEL,1 起算,1 = 最上層)。規則見 lib/bomLevel.ts:這一列底下的子項目整串跟著位移;
+ * 往外升階時,後面原本同層的列會變成它的子項目;一列最多比前一列深一層。
+ * 一列有了子項目,它自己填的單價就不再算(改算底下的加總);失去全部子項目則反過來——這種情形回一段說明給畫面提醒,
+ * 不然總價會無聲無息地變。
+ */
+export async function setBomLineLevel(
+  boardId: string,
+  product: string,
+  phaseId: string,
+  lineId: string,
+  level: number
+): Promise<{ error?: string; notice?: string }> {
+  const session = await requireBomAdmin(boardId);
+
+  const rows = await prisma.bomLine.findMany({
+    where: { boardId, product, phaseId },
+    orderBy: { order: "asc" },
+    select: { id: true, parentId: true, name: true, order: true, unitPrice: true, currency: true },
+  });
+  const target = rows.find((r) => r.id === lineId);
+  if (!target) return { error: "找不到這一列" };
+
+  // 用畫面一樣的算法排出「看到的順序」(先序走訪),階層是從樹算出來的深度。
+  const summary = summariseBom(
+    rows.map((r) => ({
+      id: r.id,
+      parentId: r.parentId,
+      name: r.name,
+      vendor: "",
+      partNumber: "",
+      qty: 1,
+      unitPrice: 0,
+      currency: "TWD",
+      fxRate: 1,
+      note: "",
+      deliveryDate: null,
+      order: r.order,
+    }))
+  );
+  const flat = flattenBom(summary.nodes).map((n) => ({ id: n.id, parentId: n.parentId, depth: n.depth, order: n.order }));
+  const result = setBomLevel(flat, lineId, level);
+  if ("error" in result) return { error: result.error };
+  if (result.moves.length === 0) return {};
+
+  const oldLevel = flat.find((l) => l.id === lineId)!.depth + 1;
+  await prisma.$transaction(
+    result.moves.map((m) => prisma.bomLine.update({ where: { id: m.id }, data: { parentId: m.parentId, order: m.order } }))
+  );
+
+  // 哪些列因此變成子集(單價不再算)、哪些列因此回到零件(改算自己的單價)。
+  const parentAfter = new Map(rows.map((r) => [r.id, r.parentId]));
+  for (const m of result.moves) parentAfter.set(m.id, m.parentId);
+  const parentsBefore = new Set(rows.flatMap((r) => (r.parentId ? [r.parentId] : [])));
+  const parentsAfter = new Set([...parentAfter.values()].flatMap((p) => (p ? [p] : [])));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const priceText = (id: string) => {
+    const r = byId.get(id)!;
+    return `${Number(r.unitPrice)} ${r.currency}`;
+  };
+  const notes: string[] = [];
+  for (const id of parentsAfter) {
+    if (!parentsBefore.has(id) && Number(byId.get(id)!.unitPrice) > 0) {
+      notes.push(`「${byId.get(id)!.name}」現在有子項目了,它自己填的單價(${priceText(id)})不再計算,改算底下子項目的加總。`);
+    }
+  }
+  for (const id of parentsBefore) {
+    if (!parentsAfter.has(id) && byId.has(id)) {
+      notes.push(`「${byId.get(id)!.name}」沒有子項目了,改算它自己填的單價(${priceText(id)})。`);
+    }
+  }
+
+  await logAudit("COST", session.userId, `調整 BOM 項目「${target.name}」的階層(BOM LEVEL ${oldLevel} → ${level})`, boardId);
+  await resyncBomMaterial(boardId, phaseId);
+  revalidatePath(`/boards/${boardId}`);
+  return notes.length > 0 ? { notice: notes.slice(0, 5).join("\n") } : {};
 }
 
 /**

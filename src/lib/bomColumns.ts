@@ -81,7 +81,7 @@ export const BUILT_IN_BOM_COLUMNS: BomColumnDef[] = [
 ];
 
 /** 畫面上固定的欄位名稱,自訂欄位不能跟它們重名(匯入 Excel 時是靠欄位名稱對的)。 */
-export const RESERVED_COLUMN_NAMES = ["名稱", "數量", "單價", "幣別", "匯率", "小計", "小計(台幣)", "階層"];
+export const RESERVED_COLUMN_NAMES = ["名稱", "BOM LEVEL", "數量", "單價", "幣別", "匯率", "小計", "小計(台幣)", "階層"];
 
 export const MAX_BOM_COLUMNS = 30;
 export const MAX_COLUMN_NAME = 30;
@@ -200,7 +200,7 @@ export function validateBomColumns(raw: unknown): { error: string } | { value: B
     const name = (typeof r.name === "string" ? r.name : "").trim();
     if (!name) return { error: "欄位名稱不可為空" };
     if (name.length > MAX_COLUMN_NAME) return { error: `欄位名稱太長了(上限 ${MAX_COLUMN_NAME} 字):${name.slice(0, 10)}…` };
-    if (RESERVED_COLUMN_NAMES.includes(name)) return { error: `「${name}」是表格上固定的欄位名稱,請換一個` };
+    if (RESERVED_COLUMN_NAMES.some((r) => r.toLowerCase() === name.toLowerCase())) return { error: `「${name}」是表格上固定的欄位名稱,請換一個` };
     const nameKey = name.toLowerCase();
     if (seenNames.has(nameKey)) return { error: `欄位名稱「${name}」重複了` };
     seenNames.add(nameKey);

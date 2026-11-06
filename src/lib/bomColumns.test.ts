@@ -118,7 +118,7 @@ describe("validateBomColumns", () => {
   it("names: not empty, not too long, not a reserved table heading, no duplicates (ignoring case)", () => {
     bad(withCustom(custom({ name: "  " })), /不可為空/);
     bad(withCustom(custom({ name: "字".repeat(31) })), /太長/);
-    for (const name of ["名稱", "數量", "單價", "幣別", "匯率", "小計"]) bad(withCustom(custom({ name })), /固定的欄位名稱/);
+    for (const name of ["名稱", "BOM LEVEL", "bom level", "數量", "單價", "幣別", "匯率", "小計"]) bad(withCustom(custom({ name })), /固定的欄位名稱/);
     bad(withCustom(custom({ name: "廠商" })), /重複/);
     bad(withCustom(custom(), custom({ id: "c_other111", name: "驗證狀態" })), /重複/);
     bad(withCustom(custom({ name: "Alpha" }), custom({ id: "c_other111", name: "alpha" })), /重複/);

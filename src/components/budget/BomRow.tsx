@@ -37,6 +37,8 @@ export const MONEY_MIN_WIDTH = {
 
 /** 名稱欄與內建欄位的最小寬度:自訂欄位一多,它們不能被擠到只剩一兩個字。 */
 export const NAME_MIN_WIDTH = "min-w-[11rem]";
+/** 名稱後面固定有的「BOM LEVEL」欄:數字 + 升階 / 降階兩個按鈕。 */
+export const LEVEL_MIN_WIDTH = "min-w-[6.5rem]";
 const BUILT_IN_MIN_WIDTH: Record<string, string> = {
   vendor: "min-w-[6.5rem]",
   partNumber: "min-w-[6.5rem]",
@@ -150,6 +152,7 @@ export function BomRow({
   extendedTwd,
   leading,
   actions,
+  levelCell,
   canEdit,
   columns,
   showFx,
@@ -169,6 +172,8 @@ export function BomRow({
   leading?: React.ReactNode;
   /** 動作欄(新增子項目、刪除),唯讀時不會有。 */
   actions?: React.ReactNode;
+  /** 「BOM LEVEL」欄的內容(可以改階層的數字與按鈕)。空白列還沒存,只畫它會在的那一層。 */
+  levelCell?: React.ReactNode;
   canEdit: boolean;
   /** 要畫出來的欄位,照顯示順序。 */
   columns: BomColumnDef[];
@@ -381,6 +386,9 @@ export function BomRow({
             className={inputClass}
           />
         </div>
+      </td>
+      <td data-bom-level className={`px-1 py-1 text-center ${LEVEL_MIN_WIDTH}`}>
+        {levelCell ?? <span className="text-sm tabular-nums text-neutral-300 dark:text-neutral-600">{depth + 1}</span>}
       </td>
       {columns.map((column) =>
         isMoneyBlock(column) ? (
