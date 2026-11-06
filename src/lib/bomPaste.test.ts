@@ -67,6 +67,35 @@ describe("parseBomPaste:有表頭,照表頭的字找欄位", () => {
   });
 });
 
+describe("parseBomPaste:ERP 匯出常見的「BOM LEVEL」欄也當階層", () => {
+  const names = (out: ReturnType<typeof parseBomPaste>) => out.rows.map((r) => [r.name, r.depth]);
+
+  it("從 0 起算(0 = 成品本身)與從 1 起算都排得出上下層", () => {
+    const zero = parseBomPaste(tsv([["BOM LEVEL", "名稱"], ["0", "巡檢機器人"], ["1", "電池模組"], ["2", "電芯"], ["1", "外殼"]]));
+    expect(zero.hadHeader).toBe(true);
+    expect(names(zero)).toEqual([["巡檢機器人", 0], ["電池模組", 1], ["電芯", 2], ["外殼", 1]]);
+    const one = parseBomPaste(tsv([["BOM LEVEL", "名稱"], ["1", "電池模組"], ["2", "電芯"], ["1", "外殼"]]));
+    expect(names(one)).toEqual([["電池模組", 0], ["電芯", 1], ["外殼", 0]]);
+  });
+
+  it("各種寫法都認:BOM Level、BOMLEVEL、BOM 階層、Lv、LVL", () => {
+    for (const header of ["BOM Level", "BOMLEVEL", "BOM 階層", "bom階層", "Lv", "LVL"]) {
+      const out = parseBomPaste(tsv([[header, "名稱"], ["1", "電池模組"], ["2", "電芯"]]));
+      expect(names(out), header).toEqual([["電池模組", 0], ["電芯", 1]]);
+    }
+  });
+
+  it("看板有一個同名的自訂欄位(例如「BOM LEVEL」):階層照排,數字也存進那個欄位", () => {
+    const columns: BomColumnDef[] = [
+      { id: "c_lvl00001", name: "BOM LEVEL", type: "NUMBER", options: [], required: true, defaultValue: null, visible: true },
+    ];
+    const out = parseBomPaste(tsv([["BOM LEVEL", "名稱"], ["1", "電池模組"], ["2", "電芯"]]), columns);
+    expect(names(out)).toEqual([["電池模組", 0], ["電芯", 1]]);
+    expect(out.rows.map((r) => r.extra)).toEqual([{ c_lvl00001: "1" }, { c_lvl00001: "2" }]);
+    expect(out.customColumnNames).toEqual(["BOM LEVEL"]);
+  });
+});
+
 describe("parseBomPaste:有問題的列整列略過並說明,其他列照貼", () => {
   it("沒有名稱、數量不是正數、單價是負的、幣別不對、匯率是 0", () => {
     const out = parseBomPaste(

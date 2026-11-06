@@ -64,7 +64,7 @@ export function BomPasteDialog({
       <div className="space-y-3">
         <p className="text-xs text-neutral-500 dark:text-neutral-400">
           貼到「<b>{product || "(先選產品)"}</b> / <b>{phaseName}</b>」,接在現有的列後面。欄位順序:<b>名稱、廠商、型號/料號、數量、單價、幣別、匯率、交期、備註</b>
-          (有表頭的話照表頭的字找,順序不拘;表頭多一欄「階層」可以排出上下層;沒有表頭時,名稱前面縮排兩個空白就是子項目)。
+          (有表頭的話照表頭的字找,順序不拘;表頭多一欄「階層」(或 BOM LEVEL、Level、層級)可以排出上下層;沒有表頭時,名稱前面縮排兩個空白就是子項目)。
           空白的欄位用預設:數量 1、單價 0、幣別 TWD。
           {columns.some((c) => !(["vendor", "partNumber", "delivery", "note", "money"] as string[]).includes(c.id)) && (
             <>

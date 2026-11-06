@@ -6,7 +6,8 @@ import { isCustomColumn, type BomColumnDef } from "@/lib/bomColumns";
  *
  * 貼上的文字是一列一列、欄用 Tab 分開(見 parseClipboardTable)。欄位的對應有兩種:
  *   - 第一列是表頭(名稱、廠商、型號、數量、單價、幣別、匯率、交期、備註,順序不拘,多的欄位如「小計」忽略):照表頭的字找;
- *     表頭多一欄「階層」(0 = 最上層、1 = 它的子項目…)就用它排出上下層。
+ *     表頭多一欄「階層」(也認 BOM LEVEL、Level、層級、Lv;0 或 1 起算都行,最小的就是最上層)就用它排出上下層。
+ *     看板的自訂欄位剛好也叫「BOM LEVEL」之類的名字時,階層照排,數字也存進那個自訂欄位。
  *   - 沒有表頭:照畫面上的欄位順序——名稱、廠商、型號/料號、數量、單價、幣別、匯率、交期、備註;
  *     名稱前面縮排(每兩個空白一層)就是子項目。
  *   看板設定過的欄位名稱也認得:內建欄位改了名(廠商 → 供應商)、自訂欄位(驗證狀態…),表頭寫那個名稱就對得上
@@ -49,7 +50,8 @@ const ALIASES: Record<Field, string[]> = {
   fxRate: ["匯率", "rate", "fx", "fx rate"],
   deliveryDate: ["交期", "交貨日", "交貨日期", "delivery", "lead time", "eta"],
   note: ["備註", "說明", "note", "notes", "remark", "remarks"],
-  level: ["階層", "層級", "level", "depth"],
+  // 「BOM LEVEL」是 ERP / PLM 匯出 BOM 最常見的階層欄名稱。
+  level: ["階層", "層級", "level", "depth", "bom level", "bomlevel", "bom 階層", "bom階層", "bom 層級", "bom層級", "lv", "lvl"],
 };
 
 /** 沒有表頭時,照畫面上的欄位順序。 */
