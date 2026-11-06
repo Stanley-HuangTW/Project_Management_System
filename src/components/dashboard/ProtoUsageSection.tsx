@@ -11,8 +11,15 @@ import { setItemProtoUnitPct } from "@/lib/actions/itemProtoUnits";
 import { PercentInput } from "@/components/ui/PercentInput";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import { createTextMeasurer } from "@/components/board/textMeasure";
+import { autoFitCap, fitNameColumnWidth } from "@/lib/nameColumnFit";
 
-const LABEL_WIDTH = 200;
+/** 樣機欄的預設(也是自動調整時最窄的)寬度;之後可以拖欄位標題的右緣調整。 */
+const DEFAULT_LABEL_WIDTH = 200;
+const MIN_LABEL_WIDTH = 120;
+const MAX_LABEL_WIDTH = 720;
+/** 樣機那一列上名稱以外的寬度:左右 padding、展開箭頭、間距、右邊的工作項數量、邊線。 */
+const MACHINE_LABEL_CHROME = 60;
 const WEEK_WIDTH = 26;
 const DAY_MS = 86_400_000;
 
@@ -168,6 +175,10 @@ export function ProtoUsageSection({
   showBoardName: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
+  // 寬度量好了(或量不了)才捲到今天附近,不然欄一變寬,今天就不在中間了。
+  const [labelReady, setLabelReady] = useState(false);
+  const labelTouchedRef = useRef(false);
   // 每個工作項在這一區用到幾台樣機。
   const machinesPerItem = new Map<string, number>();
   for (const tasks of Object.values(tasksByMachine)) for (const t of tasks) machinesPerItem.set(t.itemId, (machinesPerItem.get(t.itemId) ?? 0) + 1);
@@ -178,13 +189,72 @@ export function ProtoUsageSection({
     ? ((new Date(new Date().toISOString().slice(0, 10)).getTime() - timelineOrigin.getTime()) / DAY_MS / 7) * WEEK_WIDTH
     : null;
 
+  // 樣機欄一開始就寬到看得到每一台的全名,照畫面上真正的字型量字,不是固定寬度。只做一次;使用者之後照樣可以拖。
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || todayOffsetPx === null) return;
-    el.scrollLeft = Math.max(0, LABEL_WIDTH + todayOffsetPx - el.clientWidth / 2);
-    // 只在時程第一次畫出來時,捲到今天附近。
+    let cancelled = false;
+    void (async () => {
+      // 字型還沒載入完就量,量的是備用字型,中文字寬會差一截。
+      try {
+        await document.fonts?.ready;
+      } catch {}
+      const scroller = scrollRef.current;
+      if (cancelled || !scroller) return;
+      const measureText = createTextMeasurer(scroller.querySelector("[data-proto-machine] span") ?? scroller);
+      if (measureText && !labelTouchedRef.current) {
+        setLabelWidth(
+          fitNameColumnWidth({
+            items: machines.map((m) => ({ id: m.id, name: showBoardName ? `${m.boardName}・${m.label}` : m.label, parentId: null })),
+            // 樣機名稱是 text-sm、font-medium。
+            measure: (text) => measureText(text, 14, "500"),
+            indentPerLevel: 0,
+            chrome: MACHINE_LABEL_CHROME,
+            min: DEFAULT_LABEL_WIDTH,
+            max: autoFitCap(scroller.clientWidth || 1000, DEFAULT_LABEL_WIDTH),
+          })
+        );
+      }
+      setLabelReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 只在第一次畫出來時量一次。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!labelReady || !el || todayOffsetPx === null) return;
+    el.scrollLeft = Math.max(0, labelWidth + todayOffsetPx - el.clientWidth / 2);
+    // 只在樣機欄的寬度定下來之後,捲到今天附近一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labelReady]);
+
+  function startLabelResize(e: React.PointerEvent) {
+    e.preventDefault();
+    labelTouchedRef.current = true;
+    const startX = e.clientX;
+    const startWidth = labelWidth;
+    function onMove(ev: PointerEvent) {
+      setLabelWidth(Math.min(MAX_LABEL_WIDTH, Math.max(MIN_LABEL_WIDTH, startWidth + (ev.clientX - startX))));
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  const resizeHandle = (
+    <div
+      data-proto-label-resize
+      onPointerDown={startLabelResize}
+      title="拖曳調整樣機欄的寬度"
+      className="absolute right-0 top-0 z-30 h-full w-1.5 cursor-col-resize hover:bg-blue-400"
+      style={{ touchAction: "none" }}
+    />
+  );
 
   const monthGroups: { label: string; count: number }[] = [];
   for (const week of weeks) {
@@ -208,11 +278,11 @@ export function ProtoUsageSection({
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-100">{title}</h2>
       </div>
       <div ref={scrollRef} className="max-h-[70vh] overflow-auto">
-        <div className="relative" style={{ width: LABEL_WIDTH + timelineWidth }}>
+        <div className="relative" style={{ width: labelWidth + timelineWidth }}>
           {todayOffsetPx !== null && (
             <div
               className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400"
-              style={{ left: LABEL_WIDTH + todayOffsetPx }}
+              style={{ left: labelWidth + todayOffsetPx }}
               title="今天"
             />
           )}
@@ -220,10 +290,11 @@ export function ProtoUsageSection({
             <div className="rounded-md border border-neutral-200 dark:border-neutral-700">
               <div className="flex border-b border-neutral-100 bg-neutral-50 text-[10px] font-medium text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <div
-                  style={{ width: LABEL_WIDTH }}
+                  style={{ width: labelWidth }}
                   className="sticky left-0 z-20 shrink-0 border-r border-neutral-100 bg-neutral-50 px-2 py-1 dark:border-neutral-700 dark:bg-neutral-800"
                 >
                   樣機
+                  {resizeHandle}
                 </div>
                 <div className="flex">
                   {monthGroups.map((g, i) => (
@@ -239,9 +310,11 @@ export function ProtoUsageSection({
               </div>
               <div className="flex bg-neutral-50 text-[9px] text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
                 <div
-                  style={{ width: LABEL_WIDTH }}
+                  style={{ width: labelWidth }}
                   className="sticky left-0 z-20 shrink-0 border-r border-neutral-100 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800"
-                />
+                >
+                  {resizeHandle}
+                </div>
                 <div className="flex">
                   {weeks.map((w, i) => (
                     <div
@@ -276,7 +349,7 @@ export function ProtoUsageSection({
                     className="flex w-full items-center text-left hover:bg-neutral-50 dark:hover:bg-neutral-800"
                   >
                     <div
-                      style={{ width: LABEL_WIDTH }}
+                      style={{ width: labelWidth }}
                       className="sticky left-0 z-10 flex shrink-0 items-center gap-1 border-r border-neutral-100 bg-white px-2 py-2 dark:border-neutral-700 dark:bg-neutral-900"
                     >
                       {isOpen ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
@@ -308,7 +381,7 @@ export function ProtoUsageSection({
                         b.groups.flatMap((g) => [
                           <div
                             key={`group-${b.boardId}-${g.groupId}`}
-                            style={{ width: LABEL_WIDTH }}
+                            style={{ width: labelWidth }}
                             className="sticky left-0 z-10 truncate bg-neutral-50/95 px-2 pb-0.5 pt-1.5 text-[10px] text-neutral-400 dark:bg-neutral-800/95 dark:text-neutral-500"
                             title={g.groupName}
                           >
@@ -321,7 +394,7 @@ export function ProtoUsageSection({
                             return (
                               <div key={`${t.boardId}-${t.itemId}`} data-proto-task={t.itemId} className="flex items-center">
                                 <div
-                                  style={{ width: LABEL_WIDTH }}
+                                  style={{ width: labelWidth }}
                                   className="sticky left-0 z-10 shrink-0 truncate border-r border-neutral-100 bg-white py-1 pl-6 pr-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
                                   title={t.itemName}
                                 >
