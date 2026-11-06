@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { formatMoney } from "@/lib/cost";
 import { parseBomPaste } from "@/lib/bomPaste";
+import { parseClipboardTable } from "@/lib/clipboardTable";
 import type { BomColumnDef } from "@/lib/bomColumns";
 
 const PREVIEW_ROWS = 10;
@@ -20,6 +21,7 @@ export function BomPasteDialog({
   phaseName,
   columns,
   onApply,
+  onSwitchToUpdate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -31,6 +33,8 @@ export function BomPasteDialog({
   columns: BomColumnDef[];
   /** 回傳錯誤說明就留在視窗;null = 成功,視窗關掉。 */
   onApply: (rows: ReturnType<typeof parseBomPaste>["rows"]) => Promise<string | null>;
+  /** 改成「更新現有的列」:貼的是要覆蓋某一欄(或某一列)的資料,不是要新增項目。 */
+  onSwitchToUpdate?: (text: string) => void;
 }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +49,8 @@ export function BomPasteDialog({
   }
 
   const parsed = useMemo(() => (text.trim() === "" ? null : parseBomPaste(text, columns)), [text, columns]);
+  // 只有一欄的資料(例如 Excel 裡複製了一欄數量):這個視窗會把每一列當成一個新項目的名稱。
+  const singleColumn = useMemo(() => text.trim() !== "" && parseClipboardTable(text).every((r) => r.length <= 1), [text]);
 
   async function apply() {
     if (!parsed || parsed.error || parsed.rows.length === 0 || busy) return;
@@ -83,6 +89,13 @@ export function BomPasteDialog({
         />
 
         {parsed?.error && <p className="text-xs text-red-600 dark:text-red-400">{parsed.error}</p>}
+
+        {singleColumn && onSwitchToUpdate && (
+          <div data-bom-paste-single-column className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+            這份資料只有<b>一欄</b>。這個視窗是把每一列新增成一個項目(這一欄當名稱)。如果你是要<b>更新現有的列</b>的某一欄(例如把數量、單價整欄換掉),
+            按下面的「<b>改成更新現有的列</b>」,可以選要貼進哪一欄、從哪一列開始。
+          </div>
+        )}
 
         {parsed && !parsed.error && (
           <>
@@ -140,7 +153,24 @@ export function BomPasteDialog({
         )}
 
         {error && <p className="whitespace-pre-line text-xs text-red-600 dark:text-red-400">{error}</p>}
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex items-center justify-between gap-2 pt-1">
+          {onSwitchToUpdate ? (
+            <button
+              type="button"
+              data-bom-paste-switch
+              onClick={() => {
+                onOpenChange(false);
+                onSwitchToUpdate(text);
+              }}
+              disabled={text.trim() === ""}
+              className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              改成更新現有的列
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
@@ -156,6 +186,7 @@ export function BomPasteDialog({
           >
             {busy ? "貼上中..." : parsed && parsed.rows.length > 0 ? `貼上 ${parsed.rows.length} 列` : "貼上"}
           </button>
+          </div>
         </div>
       </div>
     </Modal>

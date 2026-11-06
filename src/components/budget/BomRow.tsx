@@ -215,6 +215,8 @@ export function BomRow({
   const isNew = !initial.id;
 
   const setField = (id: string, value: CellState) => setFields((cur) => ({ ...cur, [id]: value }));
+  /** 已存的列的資料格帶這兩個屬性:框選、複製、貼上更新靠它們找格子(空白列沒有)。 */
+  const cellAttrs = (key: string): Record<string, string> => (initial.id ? { "data-bom-cell-row": initial.id, "data-bom-cell-col": key } : {});
 
   async function commitIfNeeded() {
     if (submitting.current) return;
@@ -379,7 +381,7 @@ export function BomRow({
   return (
     <tr onBlur={handleRowBlur}>
       {selectColumn && <td className="w-8 px-2 py-1 text-center">{selectCell}</td>}
-      <td className={`${cellPad} ${NAME_MIN_WIDTH}`} style={{ paddingLeft: 4 + depth * 20 }}>
+      <td {...cellAttrs("name")} className={`${cellPad} ${NAME_MIN_WIDTH}`} style={{ paddingLeft: 4 + depth * 20 }}>
         <div className="flex items-center gap-1">
           {leading}
           <input
@@ -415,9 +417,10 @@ export function BomRow({
             setFxRate={setFxRate}
             extendedTwd={extendedTwd}
             blurOnEnter={blurOnEnter}
+            cellAttrs={cellAttrs}
           />
         ) : (
-          <td key={column.id} className={`${cellPad} ${columnMinWidth(column)}`}>
+          <td key={column.id} {...(column.type !== "FILE" ? cellAttrs(column.id) : {})} className={`${cellPad} ${columnMinWidth(column)}`}>
             {renderField(column)}
           </td>
         )
@@ -448,6 +451,7 @@ function MoneyCells({
   setFxRate,
   extendedTwd,
   blurOnEnter,
+  cellAttrs,
 }: {
   canEdit: boolean;
   disablePrice: boolean;
@@ -464,10 +468,11 @@ function MoneyCells({
   setFxRate: (v: string) => void;
   extendedTwd: number | null;
   blurOnEnter: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  cellAttrs: (key: string) => Record<string, string>;
 }) {
   return (
     <>
-      <td className={`${cellPad} ${MONEY_MIN_WIDTH.qty}`}>
+      <td {...cellAttrs("qty")} className={`${cellPad} ${MONEY_MIN_WIDTH.qty}`}>
         <input
           value={qty}
           onChange={(e) => setQty(e.target.value)}
@@ -477,7 +482,7 @@ function MoneyCells({
           className={`${inputClass} text-right`}
         />
       </td>
-      <td className={`${cellPad} ${MONEY_MIN_WIDTH.price}`}>
+      <td {...cellAttrs("unitPrice")} className={`${cellPad} ${MONEY_MIN_WIDTH.price}`}>
         {disablePrice ? (
           <span className="block whitespace-nowrap px-2 py-1 text-right text-xs text-neutral-400 dark:text-neutral-500">(子項目加總)</span>
         ) : (
@@ -491,7 +496,7 @@ function MoneyCells({
           />
         )}
       </td>
-      <td className={`${cellPad} ${MONEY_MIN_WIDTH.currency}`}>
+      <td {...cellAttrs("currency")} className={`${cellPad} ${MONEY_MIN_WIDTH.currency}`}>
         {disablePrice ? (
           <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
         ) : (
@@ -521,7 +526,7 @@ function MoneyCells({
         )}
       </td>
       {showFx && (
-        <td className={`${cellPad} ${MONEY_MIN_WIDTH.fx}`}>
+        <td {...cellAttrs("fxRate")} className={`${cellPad} ${MONEY_MIN_WIDTH.fx}`}>
           {disablePrice ? (
             <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
           ) : (

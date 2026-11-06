@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError } from "@/lib/staleBuild";
@@ -29,6 +29,9 @@ import {
 import { BomRow, columnMinWidth, LEVEL_MIN_WIDTH, MONEY_MIN_WIDTH, NAME_MIN_WIDTH, type BomRowInitial } from "./BomRow";
 import { BomLevelCell } from "./BomLevelCell";
 import { BomBulkBar } from "./BomBulkBar";
+import { BomCellPasteDialog } from "./BomCellPasteDialog";
+import { useBomCellSelection } from "./useBomCellSelection";
+import type { CellSelection } from "@/lib/bomCellPaste";
 import { BomColumnsDialog } from "./BomColumnsDialog";
 import type { BomFileRef } from "./BomFileCell";
 import { deleteBomFile, uploadBomFile } from "@/lib/actions/bomAttachment";
@@ -305,6 +308,23 @@ export function BomTable({ boardId }: { boardId: string }) {
   /** 勾選的列(id)。換了產品 / 階段或列被刪掉,不在畫面上的 id 自然被過濾掉。 */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [paste, setPaste] = useState<{ open: boolean; text: string }>({ open: false, text: "" });
+  /** 「貼上更新現有的列」視窗:貼上的文字、一開始的框選(沒有 = 從別的視窗切過來)、貼上當下畫面上列與資料欄的順序。 */
+  const [cellPaste, setCellPaste] = useState<{ open: boolean; text: string; selection: CellSelection | null; rowOrder: string[]; colOrder: string[] }>({
+    open: false,
+    text: "",
+    selection: null,
+    rowOrder: [],
+    colOrder: [],
+  });
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const cellSel = useBomCellSelection(tableWrapRef, {
+    enabled: !!view?.canEdit,
+    onPasteUpdate: (trigger) => {
+      setCellPaste({ open: true, text: trigger.text, selection: trigger.selection, rowOrder: trigger.rowOrder, colOrder: trigger.colOrder });
+      return false; // 對話框開著的時候框選留著,更新成功才取消
+    },
+    onPasteNewRows: (text) => setPaste({ open: true, text }),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -771,7 +791,8 @@ export function BomTable({ boardId }: { boardId: string }) {
 
           <div className="flex items-center justify-between gap-3 text-xs text-neutral-500 dark:text-neutral-400">
             <span>
-              {ctx.canEdit && "表格上直接按 Ctrl+V,可以把 Excel 複製的整張表貼進來。"}
+              {ctx.canEdit &&
+                "貼上:游標在最下面的空白列按 Ctrl+V = 把 Excel 複製的整張表貼成新的列;點欄標題或拖曳框選格子再按 Ctrl+V = 用 Excel 複製的一欄 / 一列更新現有的列。Ctrl+C 複製框選的格子,Ctrl+A 全選。"}
             </span>
             <div className="flex shrink-0 items-center gap-3">
               <button
@@ -818,17 +839,18 @@ export function BomTable({ boardId }: { boardId: string }) {
             />
           )}
 
-          <div
-            className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700"
-            onPaste={(e) => {
-              if (!ctx.canEdit) return;
-              const text = e.clipboardData.getData("text/plain");
-              // 單一格的文字照常貼進輸入框;多格(有 Tab 或換行)才當成一張表。
-              if (!/[\t\n]/.test(text.replace(/\r?\n$/, ""))) return;
-              e.preventDefault();
-              setPaste({ open: true, text });
-            }}
-          >
+          {cellSel.range && (
+            // 浮在畫面底部:提示一出現就推動表格的話,拖曳框選到一半滑鼠底下的格子會跳掉。
+            <p
+              data-bom-cell-hint
+              className="pointer-events-none fixed bottom-4 left-1/2 z-30 max-w-[90vw] -translate-x-1/2 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white shadow-lg"
+            >
+              已框選 {cellSel.range.rowIds.length * cellSel.range.colKeys.length} 格(
+              {cellSel.range.rowIds.length} 列 × {cellSel.range.colKeys.length} 欄)。Ctrl+C 複製;Ctrl+V 用 Excel 複製的內容更新這幾格;Esc 取消。
+            </p>
+          )}
+
+          <div ref={tableWrapRef} className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
             <table className="w-full text-sm">
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <tr>
@@ -847,7 +869,9 @@ export function BomTable({ boardId }: { boardId: string }) {
                       />
                     </th>
                   )}
-                  <th className={`px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH}`}>名稱</th>
+                  <th data-bom-col-header="name" title="點一下選取整欄(可以接著 Ctrl+C 複製、Ctrl+V 貼上更新)" className={`cursor-pointer select-none px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH}`}>
+                    名稱
+                  </th>
                   <th
                     data-bom-level-header
                     className={`px-3 py-2 text-center font-medium ${LEVEL_MIN_WIDTH}`}
@@ -858,17 +882,18 @@ export function BomTable({ boardId }: { boardId: string }) {
                   {columns.map((c) =>
                     isMoneyBlock(c) ? (
                       <Fragment key={c.id}>
-                        <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.qty}`}>數量</th>
-                        <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.price}`}>單價</th>
-                        <th className={`px-3 py-2 text-center font-medium ${MONEY_MIN_WIDTH.currency}`}>幣別</th>
-                        {showFx && <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.fx}`}>匯率</th>}
+                        <th data-bom-col-header="qty" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.qty}`}>數量</th>
+                        <th data-bom-col-header="unitPrice" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.price}`}>單價</th>
+                        <th data-bom-col-header="currency" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-center font-medium ${MONEY_MIN_WIDTH.currency}`}>幣別</th>
+                        {showFx && <th data-bom-col-header="fxRate" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.fx}`}>匯率</th>}
                         <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.subtotal}`}>小計(台幣)</th>
                       </Fragment>
                     ) : (
                       <th
                         key={c.id}
                         data-bom-column={c.id}
-                        className={`px-3 py-2 font-medium ${columnMinWidth(c)} ${c.type === "NUMBER" ? "text-right" : c.type === "CHECKBOX" ? "text-center" : "text-left"}`}
+                        {...(c.type !== "FILE" ? { "data-bom-col-header": c.id, title: "點一下選取整欄" } : {})}
+                        className={`${c.type !== "FILE" ? "cursor-pointer select-none " : ""}px-3 py-2 font-medium ${columnMinWidth(c)} ${c.type === "NUMBER" ? "text-right" : c.type === "CHECKBOX" ? "text-center" : "text-left"}`}
                       >
                         {c.name}
                         {c.required && (
@@ -1010,6 +1035,32 @@ export function BomTable({ boardId }: { boardId: string }) {
         phaseName={ctx.phases.find((p) => p.id === phaseId)?.name ?? ""}
         columns={ctx.columns}
         onApply={submitPaste}
+        onSwitchToUpdate={
+          ctx.canEdit && lines.length > 0
+            ? (text) => {
+                const layout = cellSel.getLayout();
+                setCellPaste({ open: true, text, selection: null, rowOrder: layout.rowOrder, colOrder: layout.colOrder });
+              }
+            : undefined
+        }
+      />
+      <BomCellPasteDialog
+        open={cellPaste.open}
+        onOpenChange={(open) => setCellPaste((cur) => ({ ...cur, open }))}
+        boardId={boardId}
+        product={product}
+        phaseId={phaseId}
+        text={cellPaste.text}
+        initial={cellPaste.selection}
+        rowOrder={cellPaste.rowOrder}
+        colOrder={cellPaste.colOrder}
+        rowNames={new Map(lines.map((l) => [l.id, l.name]))}
+        columns={ctx.columns}
+        onSwitchToNewRows={(text) => setPaste({ open: true, text })}
+        onApplied={async () => {
+          await afterBulk();
+          cellSel.clear();
+        }}
       />
     </div>
   );

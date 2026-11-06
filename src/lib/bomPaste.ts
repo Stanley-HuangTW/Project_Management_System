@@ -72,7 +72,7 @@ function fieldOfHeader(cell: string, configured: Map<string, Field>): Field | nu
 }
 
 /** 空白是 null;「1,250」「NT$1,250」「$ 12.5」「300 元」都讀得到;不是數字回 NaN。 */
-function numberOf(text: string): number | null {
+export function numberOf(text: string): number | null {
   const cleaned = text
     .trim()
     .replace(/^(nt\$|us\$|\$|¥|￥|€|£)/i, "")
@@ -83,7 +83,7 @@ function numberOf(text: string): number | null {
 }
 
 /** "2026/10/8"、"2026-10-08" → "2026-10-08";不合法回 undefined,空白回 null。 */
-function dateOf(text: string): string | null | undefined {
+export function dateOf(text: string): string | null | undefined {
   const t = text.trim();
   if (t === "") return null;
   const m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(t);
