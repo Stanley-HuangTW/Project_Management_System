@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { compareNumericText } from "@/lib/wbs";
 import {
   splitPredEntry,
   formatPredEntries,
@@ -117,7 +118,7 @@ export function PredPicker({
   const localOptions = useMemo(() => {
     const own = options.filter((o) => !o.boardId);
     if (!current) return own;
-    return [...own, current].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    return [...own, current].sort((a, b) => compareNumericText(a.code, b.code));
   }, [options, current]);
 
   async function toggleCrossBoard(next: boolean) {

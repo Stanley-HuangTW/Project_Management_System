@@ -1,13 +1,36 @@
 "use client";
 
 import { useMemo } from "react";
-import { computeWbsCodes } from "@/lib/wbs";
+import { compareNumericText, computeWbsCodes } from "@/lib/wbs";
 import { useRecordedCellSave } from "./useCellSave";
 import { useEditHistory } from "../EditHistoryProvider";
 import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
 import { getStatusOptions } from "@/types/column";
 import { PredPicker } from "./PredPicker";
 import type { ItemData, PredOption } from "@/types/board";
+
+/**
+ * 同一個分組的每一列都要這份選項(只差「自己」那一項不能選):整組排序一次、各列共用,不要每一列各排一次——
+ * 五千項的分組,每列各排一次是 O(n²·log n)。用 codes(分組共用、項目一變就重算的那個 Map)當鑰匙,
+ * 同時核對 groupItems 還是同一份;對不上(例如項目卡片自己算的)就重算。
+ */
+const groupOptionsCache = new WeakMap<Map<string, string>, { items: ItemData[]; options: PredOption[] }>();
+function sortedGroupOptions(groupItems: ItemData[], codes: Map<string, string>): PredOption[] {
+  const hit = groupOptionsCache.get(codes);
+  if (hit && hit.items === groupItems) return hit.options;
+  const options = groupItems
+    .map((i): PredOption => ({
+      id: i.id,
+      code: codes.get(i.id) ?? "",
+      name: i.name,
+      wbsCode: codes.get(i.id) ?? "",
+      parentId: i.parentId,
+    }))
+    .filter((o) => o.code)
+    .sort((a, b) => compareNumericText(a.code, b.code));
+  groupOptionsCache.set(codes, { items: groupItems, options });
+  return options;
+}
 
 /** The table's Pred cell — the picker itself lives in PredPicker, shared with
  *  the assignment modal's own Pred field. */
@@ -39,17 +62,8 @@ export function PredCell({
   const codes = wbsCodes ?? computeWbsCodes(groupItems);
   const options = useMemo<PredOption[]>(
     () =>
-      groupItems
-        .filter((i) => i.id !== itemId)
-        .map((i): PredOption => ({
-          id: i.id,
-          code: codes.get(i.id) ?? "",
-          name: i.name,
-          wbsCode: codes.get(i.id) ?? "",
-          parentId: i.parentId,
-        }))
-        .filter((o) => o.code)
-        .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+      sortedGroupOptions(groupItems, codes)
+        .filter((o) => o.id !== itemId)
         // Own group first, then the rest — the usual case stays at the top.
         .concat(crossGroupPredOptions ?? []),
     [groupItems, itemId, codes, crossGroupPredOptions]

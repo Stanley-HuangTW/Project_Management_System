@@ -14,7 +14,7 @@ import { teamViewIdsOf } from "@/lib/orgChartServer";
 import { canManageStructure } from "@/lib/permissions";
 import {
   computeTeamWorkload,
-  computeMemberItemWorkload,
+  computeMemberItemWorkloadForUsers,
   computeBoardProgressOverview,
   computeDashboardDueLists,
   computePersonalItems,
@@ -238,14 +238,12 @@ export default async function DashboardPage({
     for (const [id, value] of floats) floatByItemId[id] = value.totalFloat;
   }
 
-  const memberItemWorkload: Record<string, Record<WorkloadPeriod, MemberItemWorkloadEntry[]>> = {};
-  for (const id of workloadScopeIds) {
-    memberItemWorkload[id] = {
-      day: computeMemberItemWorkload(boards, id, "day", holidays, ownerDefaultAllocationPct),
-      week: computeMemberItemWorkload(boards, id, "week", holidays, ownerDefaultAllocationPct),
-      month: computeMemberItemWorkload(boards, id, "month", holidays, ownerDefaultAllocationPct),
-    };
-  }
+  const memberItemWorkload: Record<string, Record<WorkloadPeriod, MemberItemWorkloadEntry[]>> = computeMemberItemWorkloadForUsers(
+    boards,
+    workloadScopeIds,
+    holidays,
+    ownerDefaultAllocationPct
+  );
 
   // 區塊的先後順序是每個人自己排的(存在帳號上);沒排過的照預設。只列這個人真的看得到的區塊。
   const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { dashboardOrder: true } });

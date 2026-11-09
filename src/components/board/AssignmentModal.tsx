@@ -21,7 +21,7 @@ import { PredLampDot } from "./PredLampDot";
 import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
 import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
-import { computeWbsCodes } from "@/lib/wbs";
+import { compareNumericText, computeWbsCodes } from "@/lib/wbs";
 
 export function AssignmentModal({
   boardId,
@@ -184,7 +184,7 @@ export function AssignmentModal({
           .filter((i) => i.id !== item.id)
           .map((i) => ({ id: i.id, code: predCodes.get(i.id) ?? "", name: i.name }))
           .filter((o) => o.code)
-          .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+          .sort((a, b) => compareNumericText(a.code, b.code))
       : [];
   const parentCode = item.parentId ? (predCodes?.get(item.parentId) ?? undefined) : undefined;
   const ownPredCode = predCodes?.get(item.id);

@@ -170,6 +170,71 @@ export function computeMemberItemWorkload(
   return entries.sort((a, b) => b.avgPct - a.avgPct);
 }
 
+const WORKLOAD_PERIODS: WorkloadPeriod[] = ["day", "week", "month"];
+
+/**
+ * 一次算出一群人、日 / 週 / 月三個期間的「每個項目平均佔多少 %」——結果跟對每個人、每個期間各呼叫一次
+ * computeMemberItemWorkload 逐筆一樣(測試拿它當對照),但每個工作項只看一次、日期範圍只算一次、
+ * 每個期間的有效天數只算一次。儀表板有幾十個人 × 3 個期間,逐一呼叫等於把全部項目掃幾十遍。
+ */
+export function computeMemberItemWorkloadForUsers(
+  boards: BoardWithData[],
+  userIds: string[],
+  holidays: Set<string> = new Set(),
+  ownerDefaultPct: number = DEFAULT_OWNER_ALLOCATION_PCT
+): Record<string, Record<WorkloadPeriod, MemberItemWorkloadEntry[]>> {
+  const result: Record<string, Record<WorkloadPeriod, MemberItemWorkloadEntry[]>> = {};
+  for (const id of userIds) result[id] = { day: [], week: [], month: [] };
+  const wanted = new Set(userIds);
+  const periodDates = WORKLOAD_PERIODS.map((p) => new Set(datesForPeriod(p).map(toIsoDate)));
+
+  for (const board of boards) {
+    if (!board.ganttStartColumnId || !board.ganttDurationColumnId) continue;
+    const personColumnIds = new Set(board.columns.filter((c) => c.type === "PERSON").map((c) => c.id));
+    for (const item of board.items) {
+      // 這個項目落在名單裡的人各自佔幾 %:人員分配照它自己的百分比(同一人有多筆取第一筆);
+      // 只掛在負責人欄位的,照系統設定的預設比例(0 = 不算)。
+      const pctByUser = new Map<string, number>();
+      for (const a of item.assignments) if (wanted.has(a.userId) && !pctByUser.has(a.userId)) pctByUser.set(a.userId, a.allocationPct);
+      if (ownerDefaultPct > 0) {
+        for (const cv of item.cellValues) {
+          if (!personColumnIds.has(cv.columnId)) continue;
+          for (const id of getPersonIds(cv.value)) if (wanted.has(id) && !pctByUser.has(id)) pctByUser.set(id, ownerDefaultPct);
+        }
+      }
+      if (pctByUser.size === 0) continue;
+
+      const range = getItemDateRange(item, board.ganttStartColumnId, board.ganttDurationColumnId, board.ganttDurationMode, holidays);
+      if (!range) continue;
+
+      const activeDays = periodDates.map((dates) => {
+        let n = 0;
+        const cursor = new Date(range.start);
+        while (cursor <= range.end) {
+          if (dates.has(toIsoDate(cursor))) n++;
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return n;
+      });
+      for (const [userId, allocationPct] of pctByUser) {
+        WORKLOAD_PERIODS.forEach((period, i) => {
+          if (activeDays[i] === 0) return;
+          result[userId][period].push({
+            boardId: board.id,
+            boardName: board.name,
+            itemId: item.id,
+            itemName: item.name,
+            avgPct: Math.round((allocationPct * activeDays[i]) / periodDates[i].size),
+          });
+        });
+      }
+    }
+  }
+
+  for (const id of userIds) for (const period of WORKLOAD_PERIODS) result[id][period].sort((a, b) => b.avgPct - a.avgPct);
+  return result;
+}
+
 export type BoardProgressEntry = {
   boardId: string;
   boardName: string;

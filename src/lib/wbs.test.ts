@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareWbsCodes } from "./wbs";
+import { compareNumericText, compareWbsCodes } from "./wbs";
 
 describe("compareWbsCodes", () => {
   const sorted = (codes: string[]) => [...codes].sort(compareWbsCodes);
@@ -28,5 +28,21 @@ describe("compareWbsCodes", () => {
 
   it("空字串排在最前面,不會把排序弄壞", () => {
     expect(sorted(["1.1", "", "1.2"])).toEqual(["", "1.1", "1.2"]);
+  });
+});
+
+describe("compareNumericText:跟 localeCompare(…, { numeric: true }) 同一個結果(只是比較快)", () => {
+  const sign = (n: number) => Math.sign(n);
+  const samples = ["", "1", "2", "10", "1.1", "1.2", "1.9", "1.10", "1.11", "1.2.1", "2.1", "10.1", "a1", "a2", "a10", "A1", "專案 2", "專案 10", "1.01", "01"];
+
+  it("每一對範例的先後都一樣", () => {
+    for (const a of samples) for (const b of samples) expect(sign(compareNumericText(a, b))).toBe(sign(a.localeCompare(b, undefined, { numeric: true })));
+  });
+
+  it("隨機的 WBS 代號:排出來的順序逐筆相同", () => {
+    let seed = 7;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    const codes = Array.from({ length: 2000 }, () => Array.from({ length: 1 + Math.floor(rand() * 4) }, () => 1 + Math.floor(rand() * 30)).join("."));
+    expect([...codes].sort(compareNumericText)).toEqual([...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })));
   });
 });

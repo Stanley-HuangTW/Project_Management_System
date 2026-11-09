@@ -5,8 +5,17 @@ function isWeekend(date: Date): boolean {
   return day === 0 || day === 6;
 }
 
-function toIsoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+// toISOString 很慢,而排程、工作量的迴圈每走一天就要轉一次(一個五千項的看板,儀表板光是這個就吃掉
+// 六成的 CPU 時間)。同一個 UTC 日只轉一次,之後查表。無效的日期照舊在 toISOString 丟出 RangeError。
+const isoCache = new Map<number, string>();
+export function toIsoDate(date: Date): string {
+  const day = Math.floor(date.getTime() / 86_400_000);
+  const cached = isoCache.get(day);
+  if (cached !== undefined) return cached;
+  const iso = date.toISOString().slice(0, 10);
+  if (isoCache.size >= 50_000) isoCache.clear();
+  isoCache.set(day, iso);
+  return iso;
 }
 
 /** Weekend, or a date in the given holiday set (company-wide, "YYYY-MM-DD"). */
