@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { assertSafeXlsx } from "@/lib/xlsxGuard";
 import type { MonthKey, PhaseRow, SlotRow } from "@/lib/labourSheet";
 import { MAX_FTE, phaseOfMonth } from "@/lib/labourSheet";
 import type { OrgUnit } from "@/lib/orgUnits";
@@ -279,6 +280,7 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
  * 無聲無息地掉光。「合計」那張表是算給人看的,不讀。
  */
 export async function parseLabourWorkbook(buffer: Buffer): Promise<ParsedLabourWorkbook> {
+  await assertSafeXlsx(buffer); // 壓縮炸彈:先擋,不要讓 exceljs 去解壓縮
   const wb = new ExcelJS.Workbook();
   // @ts-expect-error - 同上,exceljs 的 Buffer 型別衝突
   await wb.xlsx.load(buffer);

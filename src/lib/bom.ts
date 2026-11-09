@@ -73,83 +73,110 @@ export function summariseBom(lines: BomLineInput[]): BomSummary {
   const byId = new Map(lines.map((l) => [l.id, l]));
 
   // 先找出走得到根的那些列。繞圈的(A 的上層是 B,B 的上層是 A)一路往上
-  // 走不到 null,就是孤兒。
-  const rooted = new Set<string>();
-  const orphanIds: string[] = [];
+  // 走不到 null,就是孤兒。每一列只判斷一次:沿路走過的列一併記下結果,
+  // 後面的列碰到已經知道結果的就直接用——不然一條很深的鏈,每一列都要從頭走到根,時間是平方。
+  const rootedState = new Map<string, boolean>();
   for (const line of lines) {
-    const seen = new Set<string>([line.id]);
-    let cursor: string | null = line.parentId;
-    let ok = true;
+    if (rootedState.has(line.id)) continue;
+    const path: string[] = [];
+    const onPath = new Set<string>();
+    let result = true;
+    let cursor: string | null = line.id;
     while (cursor !== null) {
-      if (seen.has(cursor) || !byId.has(cursor)) {
-        ok = false;
+      const known = rootedState.get(cursor);
+      if (known !== undefined) {
+        result = known;
         break;
       }
-      seen.add(cursor);
-      cursor = byId.get(cursor)!.parentId;
+      const row = byId.get(cursor);
+      if (onPath.has(cursor) || !row) {
+        result = false;
+        break;
+      }
+      onPath.add(cursor);
+      path.push(cursor);
+      cursor = row.parentId;
     }
-    if (ok) rooted.add(line.id);
-    else orphanIds.push(line.id);
+    for (const id of path) rootedState.set(id, result);
   }
+  const orphanIds: string[] = [];
+  for (const line of lines) if (!rootedState.get(line.id)) orphanIds.push(line.id);
 
+  // 用 push 一列一列放進去:每放一列就把整個陣列複製一次的話,十萬個兄弟列要幾十秒。
   const childrenOf = new Map<string | null, BomLineInput[]>();
   for (const line of lines) {
-    if (!rooted.has(line.id)) continue;
-    const key = line.parentId;
-    childrenOf.set(key, [...(childrenOf.get(key) ?? []), line]);
+    if (!rootedState.get(line.id)) continue;
+    const list = childrenOf.get(line.parentId);
+    if (list) list.push(line);
+    else childrenOf.set(line.parentId, [line]);
   }
   for (const list of childrenOf.values()) list.sort((a, b) => a.order - b.order);
 
-  let lineCount = 0;
-  const currencies = new Set<string>();
+  // 先序走訪排出每一列的位置與深度(用自己的堆疊、不用遞迴:很深的樹不會爆呼叫堆疊),
+  // 再從最後一列倒著算——子孫一定排在祖先後面,倒著走就是「子項目先算完再算上層」。
+  type Slot = { line: BomLineInput; depth: number; kids: number[] };
+  const slots: Slot[] = [];
+  const topSlots: number[] = [];
+  const stack: { line: BomLineInput; depth: number; parent: number }[] = [];
+  const roots = childrenOf.get(null) ?? [];
+  for (let i = roots.length - 1; i >= 0; i--) stack.push({ line: roots[i], depth: 0, parent: -1 });
+  while (stack.length > 0) {
+    const { line, depth, parent } = stack.pop()!;
+    const index = slots.length;
+    slots.push({ line, depth, kids: [] });
+    if (parent >= 0) slots[parent].kids.push(index);
+    else topSlots.push(index);
+    const kids = childrenOf.get(line.id);
+    if (kids) for (let i = kids.length - 1; i >= 0; i--) stack.push({ line: kids[i], depth: depth + 1, parent: index });
+  }
 
-  const build = (line: BomLineInput, depth: number): BomNode => {
-    lineCount++;
-    const kids = (childrenOf.get(line.id) ?? []).map((c) => build(c, depth + 1));
-    const isAssembly = kids.length > 0;
+  const currencies = new Set<string>();
+  const nodes: BomNode[] = new Array(slots.length);
+  for (let i = slots.length - 1; i >= 0; i--) {
+    const { line, depth, kids } = slots[i];
+    const children = kids.map((k) => nodes[k]);
+    const isAssembly = children.length > 0;
     // 子集的單價是底下小計加起來;零件的是自己的單價換成台幣。
     const unitCostTwd = isAssembly
       ? round(
-          kids.reduce((t, k) => t + k.extendedTwd, 0),
+          children.reduce((t, k) => t + k.extendedTwd, 0),
           4
         )
       : round(line.unitPrice * line.fxRate, 4);
     if (!isAssembly && line.currency !== "TWD") currencies.add(line.currency);
-
-    return {
+    nodes[i] = {
       ...line,
       depth,
-      children: kids,
+      children,
       isAssembly,
       unitCostTwd,
       extendedTwd: round(unitCostTwd * line.qty, 4),
     };
-  };
+  }
 
-  const nodes = (childrenOf.get(null) ?? []).map((l) => build(l, 0));
-
+  const top = topSlots.map((i) => nodes[i]);
   return {
-    nodes,
+    nodes: top,
     unitCostTwd: round(
-      nodes.reduce((t, n) => t + n.extendedTwd, 0),
+      top.reduce((t, n) => t + n.extendedTwd, 0),
       2
     ),
-    lineCount,
+    lineCount: slots.length,
     foreignCurrencies: [...currencies].sort(),
     orphanIds,
   };
 }
 
-/** 樹攤平成一列一列,照顯示順序 —— 表格要的是這個。 */
+/** 樹攤平成一列一列,照顯示順序 —— 表格要的是這個。(自己的堆疊,不用遞迴。) */
 export function flattenBom(nodes: BomNode[]): BomNode[] {
   const out: BomNode[] = [];
-  const walk = (list: BomNode[]) => {
-    for (const node of list) {
-      out.push(node);
-      walk(node.children);
-    }
-  };
-  walk(nodes);
+  const stack: BomNode[] = [];
+  for (let i = nodes.length - 1; i >= 0; i--) stack.push(nodes[i]);
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    out.push(node);
+    for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
+  }
   return out;
 }
 

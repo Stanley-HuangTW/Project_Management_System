@@ -1,6 +1,10 @@
 import ExcelJS from "exceljs";
 import { reconstructBomTree, type BomNode, type IndentedBomLine, type RootedBomLine } from "@/lib/bom";
 import type { BomColumnType } from "@/lib/bomColumns";
+import { assertSafeXlsx } from "@/lib/xlsxGuard";
+
+/** 一次匯入最多幾列 BOM(所有區塊加起來)。一份 BOM 通常幾十到幾百列;再大,載入與運算都會拖垮伺服器。 */
+export const MAX_BOM_IMPORT_ROWS = 5000;
 
 /**
  * 樣機 BOM 的 Excel 往返。
@@ -227,6 +231,7 @@ export async function buildBomWorkbook(input: BomWorkbookInput): Promise<Buffer>
 }
 
 export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkbook> {
+  await assertSafeXlsx(buffer); // 壓縮炸彈:先擋,不要讓 exceljs 去解壓縮
   const wb = new ExcelJS.Workbook();
   // @ts-expect-error - exceljs 的 Buffer 型別衝突
   await wb.xlsx.load(buffer);
@@ -331,6 +336,11 @@ export async function parseBomWorkbook(buffer: Buffer): Promise<ParsedBomWorkboo
     throw new Error(
       `找不到任何「${BLOCK_PREFIX}」開頭的區塊表頭。請用程式匯出的檔案來改,不要自己新建一份。`
     );
+  }
+
+  const totalRows = blocks.reduce((t, b) => t + b.rows.length, 0);
+  if (totalRows > MAX_BOM_IMPORT_ROWS) {
+    throw new Error(`這份檔案有 ${totalRows} 列 BOM,一次最多匯入 ${MAX_BOM_IMPORT_ROWS} 列(所有區塊加起來)。請分成幾個檔案匯入。`);
   }
 
   return { blocks, warnings };

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   summariseBom,
   flattenBom,
@@ -9,6 +9,7 @@ import {
   validateProductName,
   validateProductRename,
   type BomLineInput,
+  type BomNode,
   type IndentedBomLine,
 } from "./bom";
 
@@ -301,5 +302,123 @@ describe("產品名稱", () => {
       EVT1: ["bom"],
     });
     expect(sourcesOfProducts([], [], [])).toEqual({});
+  });
+});
+
+/**
+ * 舊版 summariseBom(遞迴、每一列從頭走到根、每放一列複製整個陣列)原樣留在這裡當參照:
+ * 新版改成不遞迴、時間線性,結果必須跟舊版逐欄一樣。只能用小的樹比——舊版的寫法就是它慢、會爆堆疊的原因。
+ */
+function referenceSummarise(lines: BomLineInput[]) {
+  const byId = new Map(lines.map((l) => [l.id, l]));
+  const rooted = new Set<string>();
+  const orphanIds: string[] = [];
+  for (const line of lines) {
+    const seen = new Set<string>([line.id]);
+    let cursor: string | null = line.parentId;
+    let ok = true;
+    while (cursor !== null) {
+      if (seen.has(cursor) || !byId.has(cursor)) {
+        ok = false;
+        break;
+      }
+      seen.add(cursor);
+      cursor = byId.get(cursor)!.parentId;
+    }
+    if (ok) rooted.add(line.id);
+    else orphanIds.push(line.id);
+  }
+  const childrenOf = new Map<string | null, BomLineInput[]>();
+  for (const line of lines) {
+    if (!rooted.has(line.id)) continue;
+    childrenOf.set(line.parentId, [...(childrenOf.get(line.parentId) ?? []), line]);
+  }
+  for (const list of childrenOf.values()) list.sort((a, b) => a.order - b.order);
+  let lineCount = 0;
+  const currencies = new Set<string>();
+  const round4 = (n: number) => Math.round(n * 10000) / 10000;
+  const build = (line: BomLineInput, depth: number): BomNode => {
+    lineCount++;
+    const kids = (childrenOf.get(line.id) ?? []).map((c) => build(c, depth + 1));
+    const isAssembly = kids.length > 0;
+    const unitCostTwd = isAssembly ? round4(kids.reduce((t, k) => t + k.extendedTwd, 0)) : round4(line.unitPrice * line.fxRate);
+    if (!isAssembly && line.currency !== "TWD") currencies.add(line.currency);
+    return { ...line, depth, children: kids, isAssembly, unitCostTwd, extendedTwd: round4(unitCostTwd * line.qty) };
+  };
+  const nodes = (childrenOf.get(null) ?? []).map((l) => build(l, 0));
+  return {
+    nodes,
+    unitCostTwd: Math.round(nodes.reduce((t, n) => t + n.extendedTwd, 0) * 100) / 100,
+    lineCount,
+    foreignCurrencies: [...currencies].sort(),
+    orphanIds,
+  };
+}
+
+describe("summariseBom 很大、很深的 BOM(穩定性)", () => {
+  // 這些測試是在防「變成平方時間」(退化時要幾十秒);整套平行跑、機器忙的時候單獨跑 1 秒的會拖到十幾秒,逾時放寬。
+  vi.setConfig({ testTimeout: 60_000 });
+  // 固定種子的亂數,測試可重現。
+  let seed = 20261109;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+  const pick = <T,>(a: T[]): T => a[Math.floor(rand() * a.length)];
+
+  it("跟舊版逐欄一樣:隨機樹(含環、自己當上層、上層不存在、同序、外幣)", () => {
+    for (let round = 0; round < 400; round++) {
+      const n = 1 + Math.floor(rand() * 40);
+      const ids = Array.from({ length: n }, (_, i) => `L${i}`);
+      const lines: BomLineInput[] = ids.map((id) => ({
+        id,
+        parentId: rand() < 0.3 ? null : rand() < 0.08 ? "不存在" : pick(ids), // 可能指到自己、指到後面的列、繞成環
+        name: id,
+        vendor: "",
+        partNumber: "",
+        qty: pick([1, 2, 0.5, 14]),
+        unitPrice: pick([0, 95, 380, 1200.5]),
+        currency: pick(["TWD", "USD"]),
+        fxRate: pick([1, 32, 31.5]),
+        note: "",
+        deliveryDate: null,
+        order: Math.floor(rand() * 5), // 故意常常同序,穩定排序也要一樣
+      }));
+      expect(summariseBom(lines)).toEqual(referenceSummarise(lines));
+    }
+  });
+
+  it("10 萬個兄弟列:幾百毫秒內算完(舊版要將近一分鐘)", () => {
+    const lines: BomLineInput[] = Array.from({ length: 100_000 }, (_, i) => line({ id: `W${i}`, parentId: i === 0 ? null : "W0", unitPrice: 1, order: i }));
+    const t0 = performance.now();
+    const out = summariseBom(lines);
+    const ms = performance.now() - t0;
+    expect(out.lineCount).toBe(100_000);
+    expect(out.orphanIds).toEqual([]);
+    expect(out.unitCostTwd).toBe(99_999);
+    expect(ms).toBeLessThan(20_000);
+  });
+
+  it("5 萬層深的鏈:不會爆呼叫堆疊、也不是平方時間;攤平一樣不會爆", () => {
+    const depth = 50_000;
+    const lines: BomLineInput[] = Array.from({ length: depth }, (_, i) => line({ id: `D${i}`, parentId: i === 0 ? null : `D${i - 1}`, unitPrice: i === depth - 1 ? 10 : 0, order: 0 }));
+    const t0 = performance.now();
+    const out = summariseBom(lines);
+    const flat = flattenBom(out.nodes);
+    const ms = performance.now() - t0;
+    expect(out.lineCount).toBe(depth);
+    expect(flat).toHaveLength(depth);
+    expect(flat[depth - 1].depth).toBe(depth - 1);
+    expect(out.unitCostTwd).toBe(10);
+    expect(ms).toBeLessThan(20_000);
+  });
+
+  it("10 萬列全是孤兒(上層不存在)或繞成環:也是線性時間,全部列成孤兒", () => {
+    const orphans: BomLineInput[] = Array.from({ length: 100_000 }, (_, i) => line({ id: `O${i}`, parentId: "不存在" }));
+    const ring: BomLineInput[] = Array.from({ length: 100_000 }, (_, i) => line({ id: `R${i}`, parentId: `R${(i + 1) % 100_000}` }));
+    const t0 = performance.now();
+    expect(summariseBom(orphans).orphanIds).toHaveLength(100_000);
+    expect(summariseBom(ring).orphanIds).toHaveLength(100_000);
+    expect(performance.now() - t0).toBeLessThan(20_000);
   });
 });

@@ -33,6 +33,14 @@ services:
     #  原始設定
     expose:
       - "3000"
+    # 行程活著、連得到資料庫才算健康(/api/health,不用登入)。`docker ps` 會看到 healthy / unhealthy;
+    # start_period 留給啟動時的 prisma migrate deploy 與 Next.js 編譯載入。
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     volumes:
       - uploads_data:/app/public/uploads
       # 週報落在專案資料夾底下,直接用檔案總管打得開。不放 public/uploads:

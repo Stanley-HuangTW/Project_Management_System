@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { assertSafeXlsx } from "@/lib/xlsxGuard";
 import type { ProtoSummary } from "@/lib/protoPlan";
 import type { Comment } from "exceljs";
 
@@ -152,6 +153,7 @@ export async function buildProtoWorkbook(input: ProtoWorkbookInput): Promise<Buf
 }
 
 export async function parseProtoWorkbook(buffer: Buffer): Promise<ParsedProtoWorkbook> {
+  await assertSafeXlsx(buffer); // 壓縮炸彈:先擋,不要讓 exceljs 去解壓縮
   const wb = new ExcelJS.Workbook();
   // @ts-expect-error - exceljs 的 Buffer 型別衝突
   await wb.xlsx.load(buffer);

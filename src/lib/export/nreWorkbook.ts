@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { xlsxProblem } from "@/lib/xlsxGuard";
 import {
   NRE_CATEGORIES,
   NRE_CATEGORY_GUIDE,
@@ -245,6 +246,8 @@ function mapColumns(row: ExcelJS.Row): ColumnMap {
  * 不會因為一列壞掉就整份讀不進來。
  */
 export async function parseNreWorkbook(data: Buffer): Promise<ParsedNreWorkbook> {
+  const unsafe = await xlsxProblem(data); // 壓縮炸彈:先擋,不要讓 exceljs 去解壓縮
+  if (unsafe) return { lines: [], warnings: [], error: unsafe };
   const wb = new ExcelJS.Workbook();
   try {
     await wb.xlsx.load(data as unknown as ArrayBuffer);

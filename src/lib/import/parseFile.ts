@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { assertSafeXlsx } from "@/lib/xlsxGuard";
 import { parse as parseCsvSync } from "csv-parse/sync";
 
 export const MAX_IMPORT_ROWS = 2000;
@@ -47,6 +48,7 @@ function parseCsv(buffer: Buffer): ParsedSheet {
 }
 
 async function parseExcel(buffer: Buffer): Promise<ParsedWorkbook> {
+  await assertSafeXlsx(buffer); // 壓縮炸彈:先擋,不要讓 exceljs 去解壓縮
   const workbook = new ExcelJS.Workbook();
   // exceljs depends on fast-csv, which bundles its own old @types/node,
   // producing two incompatible global `Buffer` types during type-checking.
