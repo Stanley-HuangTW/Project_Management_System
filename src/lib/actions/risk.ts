@@ -9,7 +9,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { clampLevel, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
-import { notifyRiskAssigned } from "@/lib/notify";
+import { notifyRiskAssigned, notifyRiskReviewRequested } from "@/lib/notify";
 import { attributeAudit } from "@/lib/impersonation";
 import { descriptionWasTruncated, splitMantisDescription } from "@/lib/mantis";
 import { parseMapping, type WriteField } from "@/lib/mantisMapping";
@@ -669,6 +669,8 @@ export async function requestRiskClosure(riskId: string): Promise<Result> {
       },
     }),
   ]);
+  // 每位審核人收到「等你審核」的通知。
+  await notifyRiskReviewRequested(riskId, session.userId, { title: existing.title, kindLabel: existing.kind === "ISSUE" ? "議題" : "風險" }, existing.reviewers.map((r) => r.userId));
   revalidatePath(`/boards/${existing.boardId}`);
   return {};
 }

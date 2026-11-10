@@ -185,6 +185,41 @@ export async function notifyItemAssignees(
 }
 
 /**
+ * 負責人申請結案:通知每一位審核人「等你審核」(畫面上風險列那顆紅色標籤,通知裡也要有)。
+ * 沿用「指派」這一種通知(站內通知照每個人的指派偏好,Email 照每個人的設定),
+ * 內容寫清楚是誰申請哪一筆,不用點進去才知道。申請的人自己不收。
+ */
+export async function notifyRiskReviewRequested(
+  riskId: string,
+  actorId: string,
+  risk: { title: string; kindLabel: string },
+  reviewerIds: string[]
+) {
+  const userIds = reviewerIds.filter((id) => id !== actorId);
+  if (userIds.length === 0) return;
+
+  const [actor, riskBoardId] = await Promise.all([
+    prisma.user.findUnique({ where: { id: actorId }, select: { name: true } }),
+    prisma.riskEntry.findUnique({ where: { id: riskId }, select: { boardId: true } }).then((r) => r?.boardId),
+  ]);
+  const message = `${actor?.name ?? "負責人"}申請結案${risk.kindLabel}「${risk.title}」,等你審核`;
+
+  const inApp = await filterInAppRecipients(prisma, "ASSIGNED", userIds);
+  if (inApp.length > 0) {
+    await prisma.notification.createMany({
+      data: inApp.map((userId) => ({ userId, actorId, type: "ASSIGNED" as const, riskId, message })),
+    });
+  }
+  for (const userId of userIds) {
+    try {
+      await notifyEmailIfNeeded(userId, "ASSIGNED", message, riskBoardId ? riskLink(riskBoardId, riskId) : undefined);
+    } catch {
+      // 寄信失敗不影響申請結案本身。
+    }
+  }
+}
+
+/**
  * 風險/議題被指派:通知新的負責人與新的審核人(站內通知「指派」,Email 照每個人的設定)。
  * 不通知自己指派自己;同一個人又是負責人又是審核人只通知一次(以負責人為準)。
  * 系統(例如 Mantis 同步)指派的沒有操作者,actorId 傳 null。
