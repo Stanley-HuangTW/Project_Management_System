@@ -30,6 +30,7 @@ export const STATUS_OPTIONS: StatusOption[] = [
   { id: "planned", label: "Planned", color: "#00c875" },
   { id: "in_progress", label: "In Progress", color: "#a25ddc" },
   { id: "done", label: "Completed", color: "#e2445c" },
+  { id: "pending", label: "Pending", color: "#c4c4c4" },
 ];
 
 export const LINK_OPTIONS: StatusOption[] = [
