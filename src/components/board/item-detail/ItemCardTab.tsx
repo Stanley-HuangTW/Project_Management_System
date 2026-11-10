@@ -19,6 +19,7 @@ import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
+import { useCrossGroupPredOptions } from "../cell-editors/useCrossGroupPredOptions";
 import { RollupProgress } from "../RollupProgress";
 import { computeItemProgress } from "@/lib/progress";
 import { OwnerAllocationInput } from "../OwnerAllocationInput";
@@ -44,7 +45,7 @@ export function ItemCardTab({
   predLamp,
   scheduleFloat,
   groupItems,
-  crossGroupPredOptions,
+  crossGroupPredOptions: providedCrossGroupPredOptions,
   onAssignmentChanged,
   lockedScheduleFields,
   manualScheduleHint,
@@ -81,6 +82,12 @@ export function ItemCardTab({
   /** 從「更新記錄」點進來:要標出來的欄位名稱(捲到那一列、閃一下)。 */
   highlightField?: string | null;
 }) {
+  const crossGroupPredOptions = useCrossGroupPredOptions(
+    boardId,
+    item.groupId,
+    providedCrossGroupPredOptions,
+    !!predColumnId
+  );
   // 閃著標出來的欄位:一開始等畫面排好再捲過去,幾秒後自己消掉。
   const [flashField, setFlashField] = useState<string | null>(null);
   useEffect(() => {

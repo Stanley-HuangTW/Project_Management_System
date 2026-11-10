@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { canManageStructure } from "@/lib/permissions";
 import { MODAL_HELP } from "@/lib/helpTopics";
-import type { ColumnData, ItemData, UserOption } from "@/types/board";
+import type { ColumnData, ItemData, PredOption, UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { upsertCellValue } from "@/lib/actions/cell";
 import { previewSchedule } from "@/lib/actions/predecessorSchedule";
@@ -17,6 +17,7 @@ import { CellEditor } from "./cell-editors/CellEditor";
 import { OwnerAllocationInput } from "./OwnerAllocationInput";
 import { ConstraintRow } from "./item-detail/ConstraintRow";
 import { PredPicker } from "./cell-editors/PredPicker";
+import { useCrossGroupPredOptions } from "./cell-editors/useCrossGroupPredOptions";
 import { PredLampDot } from "./PredLampDot";
 import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
@@ -41,6 +42,7 @@ export function AssignmentModal({
   ganttEndColumnId,
   canEditSchedule = false,
   groupItems,
+  crossGroupPredOptions: providedCrossGroupPredOptions,
   predLamp,
   onScheduleApplied,
 }: {
@@ -80,6 +82,8 @@ export function AssignmentModal({
    *  dropdown (item name -> its WBS code, since that's what's actually
    *  stored) instead of making the user type a WBS code by hand. */
   groupItems?: ItemData[];
+  /** 本看板其他分組的工作項(代號已冠上分組名)—— 前置可以跨分組,選單要列得出來。 */
+  crossGroupPredOptions?: PredOption[];
   /** What this item's predecessor's state means for it — see resolvePredLamp. */
   predLamp?: PredLamp | null;
   /** Called after a schedule field is saved, for callers whose `item` is a
@@ -88,6 +92,12 @@ export function AssignmentModal({
   onScheduleApplied?: () => void;
 }) {
   const router = useRouter();
+  const crossGroupPredOptions = useCrossGroupPredOptions(
+    boardId,
+    item?.groupId,
+    providedCrossGroupPredOptions,
+    open && !!predColumnId
+  );
   const [pendingChange, setPendingChange] = useState<{
     columnId: string;
     value: string | number | null;
@@ -185,6 +195,7 @@ export function AssignmentModal({
           .map((i) => ({ id: i.id, code: predCodes.get(i.id) ?? "", name: i.name }))
           .filter((o) => o.code)
           .sort((a, b) => compareNumericText(a.code, b.code))
+          .concat(crossGroupPredOptions ?? [])
       : [];
   const parentCode = item.parentId ? (predCodes?.get(item.parentId) ?? undefined) : undefined;
   const ownPredCode = predCodes?.get(item.id);

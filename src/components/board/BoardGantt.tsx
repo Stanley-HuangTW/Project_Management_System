@@ -33,7 +33,7 @@ import {
   Search,
 } from "lucide-react";
 import NextLink from "next/link";
-import type { BoardWithData, ItemData, UserOption, ExternalPredecessor } from "@/types/board";
+import type { BoardWithData, ItemData, UserOption, ExternalPredecessor, PredOption } from "@/types/board";
 import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
 import {
   canManageGroupStructure,
@@ -83,7 +83,7 @@ type ArrowMenuState = {
   left: number;
   top: number;
 };
-import { computeWbsCodes, computeAncestorIds } from "@/lib/wbs";
+import { computeWbsCodes, computeAncestorIds, compareNumericText } from "@/lib/wbs";
 import { resizeItemBar, moveItemBar } from "@/lib/actions/ganttResize";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
 import { previewGanttLink, setGanttLink } from "@/lib/actions/ganttLink";
@@ -871,6 +871,37 @@ export function BoardGantt({
     }
     return map;
   }, [board.items, board.groups]);
+
+  // 前置可以跨分組(EVT 等 POC 的交付很正常),所以點長條開的視窗要列得出本看板
+  // 其他分組的工作項。代號冠上分組名:WBS 只在自己的分組樹裡唯一。
+  const buildCrossGroupPredOptions = useCallback(
+    (ownGroupId: string | undefined): PredOption[] => {
+    if (!ownGroupId) return [];
+    return board.groups
+      .filter((g) => g.id !== ownGroupId)
+      .flatMap((g) =>
+        board.items
+          .filter((i) => i.groupId === g.id && wbsCodes.has(i.id))
+          .map((i) => ({
+            id: i.id,
+            code: `${g.name} · ${wbsCodes.get(i.id)}`,
+            name: i.name,
+            wbsCode: wbsCodes.get(i.id),
+            parentId: i.parentId,
+          }))
+          .sort((a, b) => compareNumericText(a.wbsCode ?? "", b.wbsCode ?? ""))
+      );
+    },
+    [board.groups, board.items, wbsCodes]
+  );
+  const crossGroupPredOptions = useMemo(
+    () => buildCrossGroupPredOptions(assignmentItem?.groupId),
+    [buildCrossGroupPredOptions, assignmentItem?.groupId]
+  );
+  const detailCrossGroupPredOptions = useMemo(
+    () => buildCrossGroupPredOptions(detailItem?.groupId),
+    [buildCrossGroupPredOptions, detailItem?.groupId]
+  );
 
   // 名稱欄一開始就寬到看得到每個項目的全名(含收合著的子項目),照畫面上真正的字型量字,
   // 不是固定寬度。只做一次;使用者之後照樣可以拖。
@@ -2068,6 +2099,7 @@ export function BoardGantt({
             ? board.items.filter((i) => i.groupId === liveAssignmentItem.groupId)
             : undefined
         }
+        crossGroupPredOptions={crossGroupPredOptions}
       />
 
       <ItemDetailModal
@@ -2086,6 +2118,7 @@ export function BoardGantt({
         groupItems={
           liveDetailItem ? board.items.filter((i) => i.groupId === liveDetailItem.groupId) : undefined
         }
+        crossGroupPredOptions={detailCrossGroupPredOptions}
         lockedScheduleFields={lockedScheduleFields}
         manualScheduleHint={manualScheduleHint}
         userRole={userRole}

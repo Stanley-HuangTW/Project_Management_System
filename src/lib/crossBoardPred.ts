@@ -3,6 +3,50 @@ import { compareWbsCodes, computeWbsCodes } from "@/lib/wbs";
 import type { PredOption } from "@/types/board";
 
 /**
+ * 同一個看板裡,「其他分組」的工作項 —— 給沒有整個看板資料可傳的入口
+ * (儀表板、專案甘特圖、更新動態)用。代號冠上分組名,理由同下。
+ */
+export async function sameBoardOtherGroupPredOptions(
+  boardId: string,
+  groupId: string,
+  /** 使用者看得到的項目;沒給就不過濾。看板上的 WBS 是用看得到的項目編的,所以先濾再編號。 */
+  visibleItemIds?: Set<string>
+): Promise<PredOption[]> {
+  const groups = await prisma.group.findMany({
+    where: { boardId, id: { not: groupId } },
+    orderBy: { order: "asc" },
+    select: {
+      id: true,
+      name: true,
+      items: {
+        where: { deletedAt: null },
+        orderBy: { order: "asc" },
+        select: { id: true, name: true, parentId: true, order: true },
+      },
+    },
+  });
+  const options: PredOption[] = [];
+  for (const group of groups) {
+    const items = visibleItemIds ? group.items.filter((i) => visibleItemIds.has(i.id)) : group.items;
+    const codes = computeWbsCodes(items);
+    const ordered = items
+      .filter((item) => codes.has(item.id))
+      .sort((a, b) => compareWbsCodes(codes.get(a.id)!, codes.get(b.id)!));
+    for (const item of ordered) {
+      const code = codes.get(item.id)!;
+      options.push({
+        id: item.id,
+        code: `${group.name} · ${code}`,
+        name: item.name,
+        wbsCode: code,
+        parentId: item.parentId,
+      });
+    }
+  }
+  return options;
+}
+
+/**
  * 同一個專案群組裡,其他看板的工作項 —— 給 Pred 選單用。
  *
  * 排程引擎一直都吃跨看板的前置(buildScheduleContext 會把整個群組的看板

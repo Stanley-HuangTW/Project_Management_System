@@ -2,7 +2,8 @@
 
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
-import { crossBoardPredOptions } from "@/lib/crossBoardPred";
+import { crossBoardPredOptions, sameBoardOtherGroupPredOptions } from "@/lib/crossBoardPred";
+import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import type { PredOption } from "@/types/board";
 
 /**
@@ -17,4 +18,11 @@ export async function listCrossBoardPredOptions(boardId: string): Promise<PredOp
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
   return crossBoardPredOptions(boardId);
+}
+
+/** 本看板其他分組的工作項 —— 給拿不到整個看板資料的入口(儀表板等)。 */
+export async function listOtherGroupPredOptions(boardId: string, groupId: string): Promise<PredOption[]> {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+  return sameBoardOtherGroupPredOptions(boardId, groupId, await visibleItemIdsForBoard(boardId, session));
 }
