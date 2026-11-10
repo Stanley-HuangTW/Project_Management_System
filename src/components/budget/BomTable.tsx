@@ -91,7 +91,8 @@ function blankRow(columns: BomColumnDef[]): Omit<BomRowInitial, "parentId"> {
     unitPrice: 0,
     currency: "TWD",
     fxRate: 1,
-    deliveryDate: text("delivery") || null,
+    // 交期的預設值是週數(數字),不是文字。
+    deliveryDate: typeof defaults.delivery === "number" ? String(defaults.delivery) : text("delivery") || null,
     note: text("note"),
     extra: defaults,
   };

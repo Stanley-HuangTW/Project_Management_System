@@ -10,7 +10,7 @@ import { logAudit } from "@/lib/activityLog";
 import { canEditBoardBudget } from "@/lib/boardBudgetRights";
 import { resyncBomMaterial } from "@/lib/bomMaterial";
 import { syncProtoUnits } from "@/lib/protoUnitsServer";
-import { MAX_PASTED_BOM_ROWS, type PastedBomRow } from "@/lib/bomPaste";
+import { MAX_PASTED_BOM_ROWS, leadTimeOf, type PastedBomRow } from "@/lib/bomPaste";
 import { getSystemSettings } from "@/lib/actions/systemSettings";
 import { asExtra, compactExtra, customDefaults, loadBomColumns } from "@/lib/bomColumnsServer";
 import { removeBomFiles } from "@/lib/bomFilesServer";
@@ -381,7 +381,7 @@ export type BomLineDraft = {
 };
 
 function isValidDeliveryDate(raw: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(new Date(raw).getTime());
+  return leadTimeOf(raw) !== undefined;
 }
 
 /** 從某個節點往上一路走到根,回傳沿途的 id(含自己)。找不到就在半路停下。 */
@@ -415,8 +415,8 @@ export async function upsertBomLine(
   const currency = draft.currency.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) return { error: "幣別請填三個英文字母,例如 USD" };
   if (!Number.isFinite(draft.fxRate) || draft.fxRate <= 0) return { error: "匯率必須大於 0" };
-  const deliveryDate = draft.deliveryDate?.trim() || null;
-  if (deliveryDate && !isValidDeliveryDate(deliveryDate)) return { error: "交期日期格式錯誤" };
+  const deliveryDate = draft.deliveryDate ? leadTimeOf(draft.deliveryDate) : null;
+  if (deliveryDate === undefined) return { error: "交期要填週數(例如 8)" };
 
   // 自訂欄位:只認這個看板現在有的欄位,值依類型檢查;沒送的欄位維持原本的值。
   const customColumns = (await loadBomColumns(boardId)).filter(isCustomColumn);

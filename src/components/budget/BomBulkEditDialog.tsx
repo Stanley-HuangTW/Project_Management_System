@@ -100,7 +100,7 @@ export function BomBulkEditDialog({
     const col = choice.column;
     if (col.id === "vendor" || col.id === "note") return { kind: col.id, value: clear ? "" : text };
     if (col.id === "delivery") {
-      if (!clear && text === "") return "請選一個日期(或勾選清空)";
+      if (!clear && text.trim() === "") return "請輸入週數(或勾選清空)";
       return { kind: "deliveryDate", value: clear ? null : text };
     }
     if (col.type === "CHECKBOX") return { kind: "custom", columnId: col.id, value: checked };
@@ -173,7 +173,9 @@ export function BomBulkEditDialog({
     const col = choice.column;
     const disabled = clear;
     let control: React.ReactNode;
-    if (col.id === "delivery" || col.type === "DATE") {
+    if (col.id === "delivery") {
+      control = <input data-bom-bulk-value value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} inputMode="decimal" placeholder="週數,例如 8" className={inputClass} />;
+    } else if (col.type === "DATE") {
       control = <input data-bom-bulk-value type="date" value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} className={inputClass} />;
     } else if (col.type === "SELECT") {
       control = (

@@ -13,6 +13,7 @@ import { asExtra, compactExtra, loadBomColumns } from "@/lib/bomColumnsServer";
 import { removeBomFiles } from "@/lib/bomFilesServer";
 import { isCustomColumn, normalizeCellValue } from "@/lib/bomColumns";
 import { validateProductName } from "@/lib/bom";
+import { leadTimeOf } from "@/lib/bomPaste";
 import type { BomMove } from "@/lib/bomLevel";
 import { planBomMove, selectionRoots, shiftBomLevels, type MovePosition } from "@/lib/bomBulk";
 import { loadFlatBom, priceNotices, type FlatBomRow } from "@/lib/bomFlatServer";
@@ -33,10 +34,6 @@ async function guard(boardId: string) {
     throw new UserError("權限不足:只有管理者、專案建立者與該分組的 Team Leader 可以編輯樣機 BOM");
   }
   return session;
-}
-
-function isValidDate(raw: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(raw) && new Date(`${raw}T00:00:00Z`).toISOString().slice(0, 10) === raw;
 }
 
 /** 勾選的列:要都屬於這份 BOM。 */
@@ -136,8 +133,9 @@ export async function bulkEditBomLines(
     }
     case "deliveryDate": {
       const value = field.value?.trim() || null;
-      if (value && !isValidDate(value)) return { error: "交期日期格式錯誤(要像 2026-11-30)" };
-      await prisma.bomLine.updateMany({ where, data: { deliveryDate: value } });
+      const weeks = value ? leadTimeOf(value) : null;
+      if (weeks === undefined) return { error: "交期要填週數(例如 8)" };
+      await prisma.bomLine.updateMany({ where, data: { deliveryDate: weeks } });
       changed = selected.length;
       label = "交期";
       break;

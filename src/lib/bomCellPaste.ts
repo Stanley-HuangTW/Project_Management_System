@@ -6,7 +6,7 @@
  * 貼上的欄對應的是表格上「看得到的資料欄」(名稱、廠商、型號/料號、數量、單價、幣別、匯率、交期、備註、自訂欄位),
  * 小計、BOM LEVEL、檔案附件不是資料格,不在對應的欄裡。
  */
-import { dateOf, numberOf } from "@/lib/bomPaste";
+import { leadTimeOf, numberOf } from "@/lib/bomPaste";
 import { importCellValue, isCustomColumn, type BomCellValue, type BomColumnDef, type ImportUser } from "@/lib/bomColumns";
 
 export const MAX_PASTE_ROWS = 300;
@@ -108,8 +108,8 @@ export function convertPastedCell(
     case "note":
       return raw.length > LIMITS[colKey] ? tooLong(LIMITS[colKey]) : { change: { field: colKey, value: raw } };
     case "delivery": {
-      const date = dateOf(raw);
-      return date === undefined ? { problem: `「${label}」的日期格式不對(要像 2026-11-30)` } : { change: { field: "deliveryDate", value: date } };
+      const weeks = leadTimeOf(raw);
+      return weeks === undefined ? { problem: `「${label}」要填週數(例如 8)` } : { change: { field: "deliveryDate", value: weeks } };
     }
     case "qty": {
       if (blank) return { skip: label };

@@ -93,6 +93,23 @@ export function dateOf(text: string): string | null | undefined {
   return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== iso ? undefined : iso;
 }
 
+export const MAX_LEAD_TIME_WEEKS = 520;
+
+/**
+ * 交期(lead time)以「週」為單位:"8"、"8週"、"8 weeks"、"8w" → "8";空白回 null;讀不懂回 undefined。
+ * 以前存的是日期,那些舊值(2026-11-30)原樣保留、不當錯誤——不然舊的列連存檔都會被擋下。
+ */
+export function leadTimeOf(text: string): string | null | undefined {
+  const t = text.trim();
+  if (t === "") return null;
+  const m = /^(\d+(?:\.\d+)?)\s*(?:週|周|w|wk|wks|week|weeks)?$/i.exec(t);
+  if (m) {
+    const n = Number(m[1]);
+    return n <= MAX_LEAD_TIME_WEEKS ? String(n) : undefined;
+  }
+  return dateOf(t) ?? undefined;
+}
+
 /** 名稱前面的縮排:空白(含全形、不換行空白)每兩個算一層。 */
 function indentOf(text: string): number {
   const m = /^[  　]*/.exec(text);
@@ -200,9 +217,9 @@ export function parseBomPaste(text: string, columns: BomColumnDef[] = []): Parse
       warnings.push(`${label}的${tooLong}太長了,略過。`);
       continue;
     }
-    let deliveryDate = dateOf(cell(raw, "deliveryDate"));
+    let deliveryDate = leadTimeOf(cell(raw, "deliveryDate"));
     if (deliveryDate === undefined) {
-      warnings.push(`${label}的交期日期格式不對(請用 2026-10-08),這一欄留空。`);
+      warnings.push(`${label}的交期格式不對(請填週數,例如 8),這一欄留空。`);
       deliveryDate = null;
     }
 

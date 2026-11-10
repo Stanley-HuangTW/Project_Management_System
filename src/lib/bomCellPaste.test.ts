@@ -97,10 +97,14 @@ describe("convertPastedCell", () => {
     expect(conv("note", "")).toEqual({ change: { field: "note", value: "" } });
   });
 
-  it("交期:日期格式都讀得懂,空白 = 清空,讀不懂說明", () => {
+  it("交期是週數:8、8週、8 weeks 都讀成 8,空白 = 清空,讀不懂說明;以前的日期原樣保留", () => {
+    expect(conv("delivery", "8")).toEqual({ change: { field: "deliveryDate", value: "8" } });
+    expect(conv("delivery", "12 週")).toEqual({ change: { field: "deliveryDate", value: "12" } });
+    expect(conv("delivery", "6 weeks")).toEqual({ change: { field: "deliveryDate", value: "6" } });
     expect(conv("delivery", "2026/11/5")).toEqual({ change: { field: "deliveryDate", value: "2026-11-05" } });
     expect(conv("delivery", "")).toEqual({ change: { field: "deliveryDate", value: null } });
-    expect(conv("delivery", "下週")).toEqual({ problem: expect.stringContaining("日期格式不對") });
+    expect(conv("delivery", "下週")).toEqual({ problem: expect.stringContaining("週數") });
+    expect(conv("delivery", "9999")).toEqual({ problem: expect.stringContaining("週數") });
   });
 
   it("數量與單價:讀得懂 1,250、NT$300;數量要大於 0、單價不能是負的;空白維持原樣", () => {

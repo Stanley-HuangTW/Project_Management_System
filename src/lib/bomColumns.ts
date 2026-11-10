@@ -56,7 +56,7 @@ export const BUILT_IN_FIELD: Record<BuiltInId, "vendor" | "partNumber" | "delive
   note: "note",
 };
 
-const BUILT_IN_TYPE: Record<BuiltInId, BomColumnType> = { vendor: "TEXT", partNumber: "TEXT", delivery: "DATE", note: "TEXT" };
+const BUILT_IN_TYPE: Record<BuiltInId, BomColumnType> = { vendor: "TEXT", partNumber: "TEXT", delivery: "NUMBER", note: "TEXT" };
 
 /** 算錢的那一塊,在設定清單裡佔一格:不能改名、隱藏、設必填。 */
 export const MONEY_BLOCK_NAME = "數量、單價、幣別、小計";
@@ -76,7 +76,7 @@ export const BUILT_IN_BOM_COLUMNS: BomColumnDef[] = [
   def("vendor", "廠商", "TEXT"),
   def("partNumber", "型號/料號", "TEXT"),
   def(MONEY_ID, MONEY_BLOCK_NAME, "TEXT"),
-  def("delivery", "交期", "DATE"),
+  def("delivery", "交期", "NUMBER"),
   def("note", "備註", "TEXT"),
 ];
 
@@ -219,7 +219,9 @@ export function validateBomColumns(raw: unknown): { error: string } | { value: B
     }
 
     let defaultValue: BomCellValue = null;
-    if (type !== "PERSON" && type !== "FILE" && r.defaultValue !== null && r.defaultValue !== undefined && r.defaultValue !== "") {
+    // 交期以前是日期:舊設定裡存的日期預設值已經不能用(現在是週數),當作沒有預設,不要讓整份設定讀不回來。
+    const legacyDeliveryDefault = builtIn === "delivery" && typeof r.defaultValue === "string" && !/^\d+(\.\d+)?$/.test(r.defaultValue.trim());
+    if (type !== "PERSON" && type !== "FILE" && !legacyDeliveryDefault && r.defaultValue !== null && r.defaultValue !== undefined && r.defaultValue !== "") {
       const normalized = normalizeCellValue({ name, type }, r.defaultValue);
       if ("error" in normalized) return { error: `預設值:${normalized.error}` };
       defaultValue = normalized.value;

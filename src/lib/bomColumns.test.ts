@@ -193,6 +193,15 @@ describe("defaults and required", () => {
     custom({ id: "c_hid00001", name: "隱藏的必填", type: "TEXT", options: [], required: true, visible: false })
   );
 
+  it("交期是週數(數字);以前存的日期預設值當作沒有預設,整份設定照樣讀得回來", () => {
+    expect(builtIn().find((c) => c.id === "delivery")?.type).toBe("NUMBER");
+    const old = builtIn().map((c) => (c.id === "delivery" ? { ...c, type: "DATE" as const, defaultValue: "2026-11-30" } : c));
+    const r = validateBomColumns(old);
+    expect("value" in r && r.value.find((c) => c.id === "delivery")).toMatchObject({ type: "NUMBER", defaultValue: null });
+    const weeks = validateBomColumns(builtIn().map((c) => (c.id === "delivery" ? { ...c, defaultValue: "8" } : c)));
+    expect("value" in weeks && weeks.value.find((c) => c.id === "delivery")?.defaultValue).toBe(8);
+  });
+
   it("initialColumnValues lists only the columns that have a default — the money block never does", () => {
     expect(initialColumnValues(cols)).toEqual({ c_abc12345: "未送樣", c_num00001: 0 });
     expect(initialColumnValues(builtIn())).toEqual({});

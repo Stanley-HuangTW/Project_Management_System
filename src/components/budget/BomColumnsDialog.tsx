@@ -297,10 +297,11 @@ function Editor({
                             value={d.defaultText}
                             onChange={(e) => patch(index, { defaultText: e.target.value })}
                             aria-label="預設值"
-                            placeholder="(沒有)"
+                            placeholder={d.id === "delivery" ? "(沒有)例如 8" : "(沒有)"}
                             className={`${fieldClass} min-w-0 flex-1`}
                           />
                         )}
+                        {d.id === "delivery" && <span className="shrink-0">週</span>}
                       </span>
                     )}
                     {!builtIn && (

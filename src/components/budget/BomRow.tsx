@@ -295,6 +295,7 @@ export function BomRow({
             onChange={(e) => setField(column.id, e.target.value)}
             onKeyDown={blurOnEnter}
             inputMode="decimal"
+            placeholder={column.id === "delivery" ? "週" : undefined}
             className={`${inputClass} text-right${flag}`}
           />
         );
