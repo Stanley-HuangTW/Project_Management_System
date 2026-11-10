@@ -654,6 +654,51 @@ describe("Markdown", () => {
     expect(md).toContain("**這週已完成(1)**");
   });
 
+  it("PMM(行銷 PM)獨立列出自己名下的工作項:逾期、這週完成、接下來幾天", () => {
+    const data = snapshot([]);
+    data.departments = [
+      {
+        userId: "u-shuyi",
+        userName: "SHUYI LIN",
+        role: "PMM",
+        discipline: "PMM 行銷 PM",
+        programName: "M3",
+        groupName: "M3",
+        boardName: "M3專案",
+        overdue: [item({ id: "o", name: "逾期的事", bucket: "overdue" })],
+        completedThisWeek: [item({ id: "c", name: "做完的事", bucket: "done" })],
+        upcoming: [item({ id: "u", name: "快到期的事", bucket: "upcoming" })],
+      },
+    ];
+    const md = renderWeeklyReportMarkdown(data, noDiff);
+    expect(md).toContain("#### PMM 行銷 PM");
+    expect(md).toContain("**[PMM] SHUYI LIN**");
+    expect(md).toContain("**逾期(1)**");
+    expect(md).toContain("**這週已完成(1)**");
+    expect(md).toContain("逾期的事");
+    expect(md).toContain("做完的事");
+    expect(md).toContain("快到期的事");
+  });
+
+  it("同一個專案群組的好幾個分組都有同一位 PMM:只列一份", () => {
+    const pmm = (groupName: string): PersonSection => ({
+      userId: "u-shuyi",
+      userName: "SHUYI LIN",
+      role: "PMM",
+      discipline: "PMM 行銷 PM",
+      programName: "M3",
+      groupName,
+      boardName: "M3專案",
+      overdue: [],
+      completedThisWeek: [],
+      upcoming: [],
+    });
+    const data = snapshot([]);
+    data.departments = [pmm("POC"), pmm("EVT"), pmm("DVT")];
+    const md = renderWeeklyReportMarkdown(data, noDiff);
+    expect(md.split("**[PMM] SHUYI LIN**").length - 1).toBe(1);
+  });
+
   describe("同一個人在同一個專案群組的好幾個分組都有角色", () => {
     const person = (over: Partial<PersonSection>): PersonSection => ({
       userId: "u-stanley",

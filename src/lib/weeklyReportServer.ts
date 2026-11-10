@@ -395,6 +395,14 @@ async function gatherPersonSections(
     out.push(personSection(tl.userId, tl.user.name, "TEAM_LEADER", "Team Leader", info));
   }
 
+  // PMM(行銷 PM)在權限上只是名冊,但週報一樣要看得到他名下的工作項(逾期、這週完成、接下來幾天)——
+  // 跟 Team Leader 一樣獨立列出、不掛在任何一個職能底下。
+  for (const pmm of roles.filter((r) => r.role === "PMM")) {
+    const info = groupInfo.get(pmm.groupId);
+    if (!info) continue;
+    out.push(personSection(pmm.userId, pmm.user.name, "PMM", "PMM 行銷 PM", info));
+  }
+
   return out.sort(
     (a, b) =>
       a.boardName.localeCompare(b.boardName) ||

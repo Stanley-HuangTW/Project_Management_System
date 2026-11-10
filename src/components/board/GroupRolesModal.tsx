@@ -287,7 +287,7 @@ export function GroupRolesModal({
               : "每個角色旁邊勾「沿用看板」,名單就跟看板設定的一樣、看板改了也跟著改;取消勾選才能在這個分組另外挑人。"}
             Team Leader 與 PMD(專案 PM)可調整分組任何項目的時程(拖曳甘特圖、改起訖日)。
             SW/EE/ME/QA DM 可在分組新增/指派項目、管理各自領域成員的進度,範圍僅限該分組。
-            PMM(行銷 PM)目前僅作花名冊,不授予額外權限。
+            PMM(行銷 PM)不授予額外權限,週報的「依職能的工作項」會獨立列出他名下的工作項。
             DM 的人選預設只列該部門的人,Team Leader / PMM / PMD 則是任一部門任一人。
           </p>
           <div className="space-y-2">

@@ -26,6 +26,7 @@ const ROLE_LABEL: Record<PersonSection["role"], string> = {
   TEAM_LEADER: "Team Leader",
   DM: "DM",
   MEMBER: "成員",
+  PMM: "PMM",
 };
 
 function money(value: number): string {

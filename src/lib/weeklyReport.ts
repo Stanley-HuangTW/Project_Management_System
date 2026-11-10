@@ -74,8 +74,8 @@ export type DelayLine = {
 export type PersonSection = {
   userId: string;
   userName: string;
-  role: "TEAM_LEADER" | "DM" | "MEMBER";
-  /** Team Leader 不屬於單一職能,這裡放「Team Leader」本身。 */
+  role: "TEAM_LEADER" | "DM" | "MEMBER" | "PMM";
+  /** Team Leader、PMM(行銷 PM)不屬於單一職能,這裡放角色本身的名稱。 */
   discipline: string;
   /** 所屬專案群組;沒有歸屬的看板是 null —— 跟 ReportItem.programName 同一個概念,
    *  渲染時要靠它把這個人歸進對的專案群組分頁。 */
@@ -816,6 +816,7 @@ const ROLE_LABEL: Record<PersonSection["role"], string> = {
   TEAM_LEADER: "Team Leader",
   DM: "DM",
   MEMBER: "成員",
+  PMM: "PMM",
 };
 
 /**
