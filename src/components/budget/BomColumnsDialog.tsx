@@ -190,11 +190,26 @@ function Editor({
   return (
     <div className="space-y-3" data-bom-columns-editor>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        {intro} 欄位由上到下就是表格由左到右的順序;「名稱」永遠是第一欄。<b>必填</b>只會把沒填的格子標成黃色、統計缺幾列,不會擋存檔。
+        {intro} 欄位由上到下就是表格由左到右的順序;「名稱」與「BOM LEVEL」固定在最前面。<b>必填</b>只會把沒填的格子標成黃色、統計缺幾列,不會擋存檔。
         <b>預設值</b>是新增一列時自動帶的值。
       </p>
 
       <ul className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+        {/* 名稱與 BOM LEVEL 永遠在最前面,不能改名、隱藏、刪除或換位置;列出來是讓人知道表格最前面是哪兩欄。 */}
+        {[
+          { key: "name", label: "名稱", note: "(固定在表格最前面,不能改名、隱藏或移動)" },
+          { key: "level", label: "BOM LEVEL", note: "(階層,固定在名稱後面,不能改名、隱藏或移動)" },
+        ].map((f) => (
+          <li key={f.key} data-bom-fixed-column={f.key} className="rounded-md border border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-700 dark:bg-neutral-800/50">
+            <div className="flex items-center gap-2">
+              <span className="w-[13px] shrink-0" />
+              <span className="min-w-0 flex-1 text-sm text-neutral-500 dark:text-neutral-400">
+                {f.label}
+                <span className="ml-2 text-xs text-neutral-400 dark:text-neutral-500">{f.note}</span>
+              </span>
+            </div>
+          </li>
+        ))}
         {drafts.map((d, index) => {
           const money = isMoneyBlock(d);
           const builtIn = isBuiltInColumn(d);
