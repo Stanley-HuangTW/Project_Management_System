@@ -2,6 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireStructureAccess } from "@/lib/permissions";
@@ -10,6 +11,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import type { ColumnType, StatusColumnOptions } from "@/types/column";
 import { DEFAULT_STATUSES, getStatusOptions } from "@/types/column";
 import { UserError } from "@/lib/userError";
+import { updateBucketLists, validateStatusOptions, type ReportBucketKey } from "@/lib/statusOptionsEdit";
 
 // The scheduling engine (predecessorLink.ts) only ever recognizes these 4
 // labels as a valid Pred relationship — a Link column whose options were
@@ -77,6 +79,80 @@ export async function updateStatusOptions(
     data: { options: { statuses } },
   });
   revalidatePath(`/boards/${boardId}`);
+}
+
+/**
+ * 系統設定的「狀態欄位」:新增、改名、改顏色、刪除一個狀態欄位的選項。
+ *
+ * 格子存的是選項 id,所以改名與改顏色不影響已經選了它的工作項;刪除則要沒有人在用才行(不然那些格子會變空白)。
+ * 這個欄位如果就是看板的「報表狀態」欄,報表分類也一併更新:刪掉的選項從分類拿掉,新增的選項放進
+ * placements 指定的分類(沒指定 = 進行中,跟報表設定的預設一樣)——週報、報表、儀表板才知道新狀態算哪一類。
+ */
+export async function saveStatusOptions(
+  boardId: string,
+  columnId: string,
+  statuses: StatusColumnOptions["statuses"],
+  placements: Record<string, ReportBucketKey> = {}
+) {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+  requireStructureAccess(session.role);
+
+  const column = await prisma.column.findUnique({ where: { id: columnId }, select: { boardId: true, type: true, name: true, options: true } });
+  if (!column || column.boardId !== boardId || column.type !== "STATUS") throw new UserError("找不到這個狀態欄位");
+  const checked = validateStatusOptions(statuses, getStatusOptions(column.options));
+  if ("error" in checked) throw new UserError(checked.error);
+
+  const labelOf = new Map(getStatusOptions(column.options).map((o) => [o.id, o.label]));
+  for (const id of checked.removedIds) {
+    const inUse = await prisma.cellValue.count({ where: { columnId, value: { equals: id } } });
+    if (inUse > 0) throw new UserError(`「${labelOf.get(id)}」還有 ${inUse} 個工作項在用,不能刪除;請先把它們改成別的狀態`);
+  }
+
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: {
+      reportStatusColumnId: true,
+      reportNotStartedOptionIds: true,
+      reportPlannedOptionIds: true,
+      reportPausedOptionIds: true,
+      reportStuckOptionIds: true,
+      reportDoneOptionIds: true,
+    },
+  });
+  const ops: Prisma.PrismaPromise<unknown>[] = [
+    prisma.column.update({ where: { id: columnId }, data: { options: { statuses: checked.value } } }),
+  ];
+  if (board?.reportStatusColumnId === columnId) {
+    const only = Object.fromEntries(Object.entries(placements).filter(([id]) => checked.addedIds.includes(id)));
+    const lists = updateBucketLists(
+      {
+        notStarted: board.reportNotStartedOptionIds,
+        planned: board.reportPlannedOptionIds,
+        paused: board.reportPausedOptionIds,
+        stuck: board.reportStuckOptionIds,
+        done: board.reportDoneOptionIds,
+      },
+      checked.removedIds,
+      only
+    );
+    ops.push(
+      prisma.board.update({
+        where: { id: boardId },
+        data: {
+          reportNotStartedOptionIds: lists.notStarted,
+          reportPlannedOptionIds: lists.planned,
+          reportPausedOptionIds: lists.paused,
+          reportStuckOptionIds: lists.stuck,
+          reportDoneOptionIds: lists.done,
+        },
+      })
+    );
+  }
+  await prisma.$transaction(ops);
+  await logAudit("SETTINGS", session.userId, `修改狀態欄位「${column.name}」的選項:${checked.value.map((o) => o.label).join("、")}`, boardId);
+  revalidatePath(`/boards/${boardId}`);
+  revalidatePath("/settings");
 }
 
 export async function reorderColumns(

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { Plus, RotateCcw, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { getStatusOptions, type StatusOption } from "@/types/column";
-import { updateStatusOptions } from "@/lib/actions/column";
+import { DEFAULT_STATUS_PALETTE, getStatusOptions, type StatusOption } from "@/types/column";
+import { saveStatusOptions } from "@/lib/actions/column";
+import { MAX_STATUS_LABEL, MAX_STATUS_OPTIONS, REPORT_BUCKETS, newStatusId, type ReportBucketKey } from "@/lib/statusOptionsEdit";
 import { defaultColorFor, DEFAULT_STATUS_COLORS } from "@/lib/statusDefaults";
 import { actionErrorMessage } from "@/lib/userError";
 
@@ -12,6 +13,8 @@ export type StatusColorBoard = {
   id: string;
   name: string;
   columns: { id: string; name: string; type: string; options: unknown }[];
+  /** 報表的狀態欄:新增的狀態要告訴報表算哪一類(尚未處理、暫停、已完成…)。 */
+  reportStatusColumnId: string | null;
 };
 
 /**
@@ -29,6 +32,9 @@ export function StatusColorCard({ boards }: { boards: StatusColorBoard[] }) {
   /** Unsaved edits, keyed by column id — so a slip of the colour picker is
    *  not a write to every board view at once. */
   const [drafts, setDrafts] = useState<Record<string, StatusOption[]>>({});
+  /** 新增的狀態(還沒存)算報表的哪一類,key 是 column id → option id。 */
+  const [placements, setPlacements] = useState<Record<string, Record<string, ReportBucketKey>>>({});
+  const [newLabel, setNewLabel] = useState<Record<string, string>>({});
 
   const board = boards.find((b) => b.id === boardId);
   const statusColumns = (board?.columns ?? []).filter((c) => c.type === "STATUS");
@@ -44,19 +50,42 @@ export function StatusColorCard({ boards }: { boards: StatusColorBoard[] }) {
     });
   }
 
+  function setLabel(columnId: string, optionId: string, label: string, current: StatusOption[]) {
+    setDrafts({ ...drafts, [columnId]: current.map((o) => (o.id === optionId ? { ...o, label } : o)) });
+  }
+
+  function removeOption(columnId: string, optionId: string, current: StatusOption[]) {
+    setDrafts({ ...drafts, [columnId]: current.filter((o) => o.id !== optionId) });
+  }
+
+  function addOption(columnId: string, current: StatusOption[]) {
+    const label = (newLabel[columnId] ?? "").trim();
+    if (!label) return;
+    const id = newStatusId();
+    const color = DEFAULT_STATUS_PALETTE[current.length % DEFAULT_STATUS_PALETTE.length];
+    setDrafts({ ...drafts, [columnId]: [...current, { id, label, color }] });
+    setPlacements({ ...placements, [columnId]: { ...placements[columnId], [id]: "inProgress" } });
+    setNewLabel({ ...newLabel, [columnId]: "" });
+  }
+
   async function save(columnId: string) {
     const next = drafts[columnId];
     if (!next || !board) return;
     setBusy(true);
     try {
-      await updateStatusOptions(board.id, columnId, next);
+      await saveStatusOptions(board.id, columnId, next, placements[columnId] ?? {});
       setDrafts((d) => {
         const rest = { ...d };
         delete rest[columnId];
         return rest;
       });
+      setPlacements((p) => {
+        const rest = { ...p };
+        delete rest[columnId];
+        return rest;
+      });
     } catch (e) {
-      await notify(actionErrorMessage(e, "儲存失敗"), { title: "無法儲存顏色" });
+      await notify(actionErrorMessage(e, "儲存失敗"), { title: "無法儲存狀態" });
     } finally {
       setBusy(false);
     }
@@ -80,10 +109,12 @@ export function StatusColorCard({ boards }: { boards: StatusColorBoard[] }) {
 
   return (
     <section className="rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4">
-      <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">狀態欄位顏色</h2>
+      <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">狀態欄位顏色與選項</h2>
       <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-        每個狀態欄位(Type / Priority / Status / Link 等)的每個選項顏色。改了之後表格、看板、
-        甘特圖與報表都會跟著變——這些欄位在畫面上是先看顏色才看字的。
+        每個狀態欄位(Type / Priority / Status / Link 等)的選項:可以<b>新增自己的狀態</b>、改名、改顏色、刪除。
+        改了之後表格、看板、甘特圖、篩選與報表都會跟著變。改名不影響已經選了它的工作項;還有工作項在用的狀態不能刪。
+        報表的狀態欄(通常是 Status)新增狀態時要選它在報表裡算哪一類。
+        預設的 Planned / In Progress / Completed 有些功能是用名字認的,建議不要改名。
       </p>
 
       {boards.length > 1 && (
@@ -139,6 +170,7 @@ export function StatusColorCard({ boards }: { boards: StatusColorBoard[] }) {
                 <div className="flex flex-wrap gap-2">
                   {options.map((option) => {
                     const fallback = defaultColorFor(column.name, option.label);
+                    const placement = placements[column.id]?.[option.id];
                     return (
                       <label
                         key={option.id}
@@ -152,15 +184,74 @@ export function StatusColorCard({ boards }: { boards: StatusColorBoard[] }) {
                           onChange={(e) => setColor(column.id, option.id, e.target.value, options)}
                           className="h-5 w-6 cursor-pointer rounded border-none bg-transparent p-0"
                         />
-                        <span
-                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
-                          style={{ backgroundColor: option.color }}
+                        <input
+                          value={option.label}
+                          disabled={busy}
+                          maxLength={MAX_STATUS_LABEL}
+                          aria-label="狀態名稱"
+                          onChange={(e) => setLabel(column.id, option.id, e.target.value, options)}
+                          style={{ backgroundColor: option.color, width: `${Math.max(4, option.label.length * 1.1 + 1)}em` }}
+                          className="rounded border-none px-1.5 py-0.5 text-[11px] font-medium text-white outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                        {placement !== undefined && board?.reportStatusColumnId === column.id && (
+                          <select
+                            value={placement}
+                            onChange={(e) =>
+                              setPlacements({ ...placements, [column.id]: { ...placements[column.id], [option.id]: e.target.value as ReportBucketKey } })
+                            }
+                            aria-label="在報表裡算哪一類"
+                            title="報表、週報、儀表板的進度統計把這個狀態算在哪一類"
+                            className="rounded border border-neutral-300 bg-white px-1 py-0.5 text-[11px] dark:border-neutral-600 dark:bg-neutral-900"
+                          >
+                            {REPORT_BUCKETS.map((b) => (
+                              <option key={b.key} value={b.key}>
+                                報表:{b.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          type="button"
+                          disabled={busy || options.length <= 1}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            removeOption(column.id, option.id, options);
+                          }}
+                          aria-label={`刪除狀態「${option.label}」`}
+                          title="刪除這個狀態(還有工作項在用的,存檔時會擋下來)"
+                          className="text-neutral-300 hover:text-red-600 disabled:opacity-30 dark:text-neutral-600"
                         >
-                          {option.label}
-                        </span>
+                          <X size={12} />
+                        </button>
                       </label>
                     );
                   })}
+                </div>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <input
+                    value={newLabel[column.id] ?? ""}
+                    maxLength={MAX_STATUS_LABEL}
+                    disabled={busy || options.length >= MAX_STATUS_OPTIONS}
+                    placeholder="新狀態的名稱,例如 Pending"
+                    aria-label="新狀態的名稱"
+                    onChange={(e) => setNewLabel({ ...newLabel, [column.id]: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addOption(column.id, options);
+                      }
+                    }}
+                    className="w-56 rounded-md border border-neutral-300 px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !(newLabel[column.id] ?? "").trim() || options.length >= MAX_STATUS_OPTIONS}
+                    onClick={() => addOption(column.id, options)}
+                    data-status-add
+                    className="flex items-center gap-1 rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    <Plus size={12} /> 新增狀態
+                  </button>
                 </div>
               </div>
             );

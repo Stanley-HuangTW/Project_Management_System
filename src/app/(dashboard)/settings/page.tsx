@@ -134,6 +134,7 @@ export default async function SettingsPage() {
           id: b.id,
           name: b.name,
           columns: b.columns.map((c) => ({ id: c.id, name: c.name, type: c.type, options: c.options })),
+          reportStatusColumnId: b.reportStatusColumnId,
         }))}
         sharingBoards={sharingBoards}
         users={users}
