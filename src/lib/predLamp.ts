@@ -2,6 +2,7 @@ import type { BoardWithData, ColumnData, ItemData } from "@/types/board";
 import { classifyItemStatus, resolveStatusColumn } from "@/lib/dashboard";
 import { getItemDateRange } from "@/lib/gantt";
 import { buildWbsIndexFromItems, resolvePredValues } from "@/lib/predecessorLink";
+import { lateFinishOf } from "@/lib/lateFinish";
 
 /**
  * What the predecessor's own state means for THIS item:
@@ -31,7 +32,9 @@ export function resolvePredLamp(
   groupItems: ItemData[],
   board: BoardWithData,
   statusColumn: ColumnData | null,
-  holidays: Set<string>
+  holidays: Set<string>,
+  /** 工作項 id → 切成完成的時間(ISO)。給了才會抓「前置實際完成得比預定晚、這個項目還排在它完成之前開始」。 */
+  completedAt?: Readonly<Record<string, string | undefined>>
 ): PredLamp | null {
   if (!board.predColumnId) return null;
   const predValue = item.cellValues.find((cv) => cv.columnId === board.predColumnId)?.value;
@@ -85,6 +88,29 @@ export function resolvePredLamp(
           : `前置${names}尚未完成,要等它完成才能開始`,
     };
   }
+  // 前置都完成了——但如果有前置是晚於預定才完成,而這個項目的排程還是在它實際完成之前就開始,
+  // 就不能說「可以開始」:要告訴 PM 這個項目的時程需要順延(原計畫在基準線,仍可比較)。
+  const rangeOf = (it: Pick<ItemData, "cellValues">) =>
+    board.ganttStartColumnId && board.ganttDurationColumnId
+      ? getItemDateRange(it, board.ganttStartColumnId, board.ganttDurationColumnId, board.ganttDurationMode, holidays)
+      : null;
+  const ownStart = rangeOf(item)?.start.toISOString().slice(0, 10) ?? null;
+  const lateDone = graded
+    .map((g) => {
+      const end = rangeOf(g.predecessor)?.end.toISOString().slice(0, 10) ?? null;
+      const late = lateFinishOf(end, completedAt?.[g.predecessor.id]);
+      return late && ownStart !== null && ownStart <= late.actualDate ? { predecessor: g.predecessor, late } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+  if (lateDone.length > 0) {
+    return {
+      state: "blocked",
+      color: board.predBlockedColor,
+      label: `前置${lateDone
+        .map((x) => `「${named(x.predecessor)}」預定 ${x.late.plannedEnd.slice(5)} 完成、實際 ${x.late.actualDate.slice(5)} 才完成(晚 ${x.late.daysLate} 天)`)
+        .join("、")},此項目目前排 ${ownStart!.slice(5)} 開始,需要順延`,
+    };
+  }
   return {
     state: "ready",
     color: board.predReadyColor,
@@ -96,12 +122,13 @@ export function resolvePredLamp(
 export function resolvePredLamps(
   groupItems: ItemData[],
   board: BoardWithData,
-  holidays: Set<string>
+  holidays: Set<string>,
+  completedAt?: Readonly<Record<string, string | undefined>>
 ): Map<string, PredLamp> {
   const statusColumn = resolveStatusColumn(board);
   const lamps = new Map<string, PredLamp>();
   for (const item of groupItems) {
-    const lamp = resolvePredLamp(item, groupItems, board, statusColumn, holidays);
+    const lamp = resolvePredLamp(item, groupItems, board, statusColumn, holidays, completedAt);
     if (lamp) lamps.set(item.id, lamp);
   }
   return lamps;

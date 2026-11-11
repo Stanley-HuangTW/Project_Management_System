@@ -339,6 +339,7 @@ export function BoardView({
             holidays={holidays}
             active={view === "gantt"}
             externalPreds={externalPreds}
+            completedAtByItem={completedAtByItem}
             ownerDefaultPct={ownerDefaultPct}
           />
         )}

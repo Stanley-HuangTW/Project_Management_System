@@ -97,6 +97,7 @@ import {
   type LinkEdge,
 } from "@/lib/ganttLink";
 import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
+import { describeCascade, describeConflicts } from "@/lib/cascadeText";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -233,6 +234,7 @@ export function BoardGantt({
   ownerDefaultPct,
   active = true,
   externalPreds,
+  completedAtByItem,
 }: {
   board: BoardWithData;
   users: UserOption[];
@@ -249,6 +251,8 @@ export function BoardGantt({
   /** 位在同群組其他看板上的前置。它們各佔一列唯讀的長條,跨看板那條
    *  藍色虛線才畫得出來 —— 箭頭要有兩端。 */
   externalPreds: ExternalPredecessor[];
+  /** 工作項 id → 切成完成的時間(ISO):前置實際完成晚於預定時,Pred 燈號要提醒後續工作項需要順延。 */
+  completedAtByItem?: Record<string, string>;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestDelete = useDeleteItem();
@@ -610,8 +614,8 @@ export function BoardGantt({
   // A lamp beside the Pred field in both modals, coloured by what the
   // PREDECESSOR's own state means for the item that depends on it.
   const predLamps = useMemo(
-    () => resolvePredLamps(board.items, board, new Set(holidays.map((h) => h.date))),
-    [board, holidays]
+    () => resolvePredLamps(board.items, board, new Set(holidays.map((h) => h.date)), completedAtByItem),
+    [board, holidays, completedAtByItem]
   );
 
   const dragLocks = useMemo(() => {
@@ -2247,40 +2251,6 @@ function describeScheduleChange(
     `結束日期:${toIsoDate(oldEnd)} → ${toIsoDate(newEnd)}`,
     `天數:${oldDays ?? "-"} → ${newDays ?? "-"}(${deltaLabel})`,
   ].join("\n");
-}
-
-/** Enough of the knock-on list to judge the blast radius without turning the
- *  dialog into a wall of text. */
-const MAX_CASCADE_LINES = 12;
-
-/** The "and these move with it" section of the drag confirmation. */
-function describeCascade(cascaded: CascadedItem[]): string[] {
-  if (cascaded.length === 0) return [];
-  const shown = cascaded.slice(0, MAX_CASCADE_LINES);
-  const lines = shown.map(
-    (c) => `・${c.wbsCode} ${c.name}:${c.oldStart}~${c.oldEnd} → ${c.newStart}~${c.newEnd}`
-  );
-  if (cascaded.length > shown.length) {
-    lines.push(`・…另外還有 ${cascaded.length - shown.length} 項`);
-  }
-  return ["", `依前置依賴連動,以下 ${cascaded.length} 個項目也會一起移動:`, ...lines];
-}
-
-/** The "this pushes a pinned item past its date" section of the same dialogs —
- *  a warning, not a block: the item stays on its 必須完成於 date, so the work
- *  would start before its predecessors are done. */
-function describeConflicts(conflicts: ConstraintConflict[]): string[] {
-  if (conflicts.length === 0) return [];
-  const shown = conflicts.slice(0, MAX_CASCADE_LINES);
-  const lines = shown.map((c) => `・${c.wbsCode} ${c.name}:${c.short}`);
-  if (conflicts.length > shown.length) {
-    lines.push(`・…另外還有 ${conflicts.length - shown.length} 項`);
-  }
-  return [
-    "",
-    `⚠ 套用後,以下 ${conflicts.length} 個項目的「必須完成於」會跟前置依賴衝突(仍照約束排,會在前置依賴做完前就開始):`,
-    ...lines,
-  ];
 }
 
 function GanttBar({

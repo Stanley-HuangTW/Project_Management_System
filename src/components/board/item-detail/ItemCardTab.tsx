@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
+import { resizeItemBar } from "@/lib/actions/ganttResize";
+import { describeCascade, describeConflicts } from "@/lib/cascadeText";
+import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
 import type { UserRole } from "@prisma/client";
 import { listTodoItems } from "@/lib/actions/todo";
 import { renameItem } from "@/lib/actions/item";
@@ -104,7 +109,8 @@ export function ItemCardTab({
     };
   }, [highlightField]);
   const [todoStats, setTodoStats] = useState<{ done: number; total: number } | null>(null);
-  const { notify } = useDialogs();
+  const { notify, confirm } = useDialogs();
+  const router = useRouter();
   const history = useEditHistory();
   const [name, setName] = useState(item.name);
   // Resync the local draft when a different item's name arrives (switching
@@ -164,6 +170,36 @@ export function ItemCardTab({
         endColumnId: ganttEndColumnId,
       })
     : [];
+
+  /** 實際完成比預定晚:把這個工作項的結束日改成實際完成日,依賴它的後續工作項由排程連動順延。
+   *  先預覽會動到誰、經 PM 確認才寫入;基準線(原計畫)不動,事後仍可比較。 */
+  async function shiftToActualFinish(actualDate: string) {
+    if (typeof currentStart !== "string" || typeof currentEnd !== "string") return;
+    let cascaded: CascadedItem[] = [];
+    let conflicts: ConstraintConflict[] = [];
+    try {
+      ({ cascaded, conflicts } = await previewDragCascade(boardId, item.id, currentStart.slice(0, 10), actualDate));
+    } catch {
+      // 預覽失敗不擋:只是少了連動清單。
+    }
+    const ok = await confirm(
+      [
+        `把「${item.name}」的結束日從 ${currentEnd.slice(0, 10)} 改成實際完成日 ${actualDate}。`,
+        ...describeCascade(cascaded),
+        ...describeConflicts(conflicts),
+        "",
+        "原計畫(基準線)不會變,之後仍可以跟原計畫比較。確定要順延嗎?",
+      ].join("\n"),
+      { title: "依實際完成日順延" }
+    );
+    if (!ok) return;
+    try {
+      await resizeItemBar(boardId, item.id, "end", actualDate);
+      router.refresh();
+    } catch (err) {
+      await notify(actionErrorMessage(err, "順延失敗"), { title: "無法順延" });
+    }
+  }
 
   function recordRename(before: string, after: string) {
     if (!history) return;
@@ -288,7 +324,17 @@ export function ItemCardTab({
               </span>
             </div>
             {/* 狀態欄下面:什麼時候切成進行中、什麼時候切成完成。 */}
-            {col.id === statusColumnId && <StatusTimes itemId={item.id} statusValue={valuesByColumn.get(col.id) ?? null} />}
+            {col.id === statusColumnId && (
+              <StatusTimes
+                itemId={item.id}
+                statusValue={valuesByColumn.get(col.id) ?? null}
+                late={{
+                  plannedEnd: typeof currentEnd === "string" ? currentEnd : null,
+                  dependentCount: dependents.length,
+                  onShift: canModifySchedule && !lock?.endLocked && !lock?.daysLocked ? shiftToActualFinish : undefined,
+                }}
+              />
+            )}
             {col.id === progressColumnId && childCount > 0 && (
               <p className="border-b border-neutral-100 px-4 py-1.5 text-[11px] text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
                 這個項目有 {childCount} 個子項目,進度是它們的平均(沒填的算 0%)。要改請到子項目填進度。

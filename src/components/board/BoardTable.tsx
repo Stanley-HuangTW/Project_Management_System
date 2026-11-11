@@ -270,12 +270,6 @@ export function BoardTable({
   // Task-name color by status — same rule and board-configured colors as
   // the Gantt view (BoardGantt.tsx's ganttStatusColor), via the shared
   // resolveItemNameColor helper.
-  // A lamp beside each Pred cell, coloured by what the PREDECESSOR's own
-  // state means for this item — done, still running, or already late.
-  const predLamps = useMemo(
-    () => resolvePredLamps(board.items, board, new Set(holidays.map((h) => h.date))),
-    [board, holidays]
-  );
 
   const nameColors = useMemo(() => {
     const map = new Map<string, string>();
@@ -461,6 +455,19 @@ export function BoardTable({
     }
     return out;
   }, [board.items, board.reportDoneOptionIds, statusColumn, eventSummaries]);
+
+  // A lamp beside each Pred cell, coloured by what the PREDECESSOR's own
+  // state means for this item — done, still running, or already late.
+  const predLamps = useMemo(
+    () =>
+      resolvePredLamps(
+        board.items,
+        board,
+        new Set(holidays.map((h) => h.date)),
+        Object.fromEntries(Object.entries(summaries).map(([id, s]) => [id, s.completedAt ?? undefined]))
+      ),
+    [board, holidays, summaries]
+  );
 
   function startNameColumnResize(e: React.PointerEvent) {
     e.preventDefault();
