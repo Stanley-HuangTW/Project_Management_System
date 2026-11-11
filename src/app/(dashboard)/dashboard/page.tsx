@@ -9,6 +9,8 @@ import { TodoDeadlinesSection } from "@/components/dashboard/TodoDeadlinesSectio
 import { OrderedSections } from "@/components/dashboard/OrderedSections";
 import { DashboardOrderButton } from "@/components/dashboard/DashboardOrderButton";
 import { DASHBOARD_SECTIONS, orderDashboardSections } from "@/lib/dashboardSections";
+import { resolveActiveTab, sanitizeDashboardTabs, visibleSectionIds } from "@/lib/dashboardTabs";
+import { DashboardTabsBar } from "@/components/dashboard/DashboardTabsBar";
 import { mergeTodoDeadlines, riskTodoDeadlineEntries, taipeiClock, todoDeadlineEntries } from "@/lib/todoDeadline";
 import { teamViewIdsOf } from "@/lib/orgChartServer";
 import { canManageStructure } from "@/lib/permissions";
@@ -59,10 +61,10 @@ import {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ board?: string | string[] }>;
+  searchParams: Promise<{ board?: string | string[]; tab?: string | string[] }>;
 }) {
   const session = await requireSession();
-  const { board: boardParam } = await searchParams;
+  const { board: boardParam, tab: tabParam } = await searchParams;
   const savedBoardIds = decodeBoardCookie(session.userId, (await cookies()).get(DASHBOARD_BOARD_COOKIE)?.value);
 
   const [allBoards, users, managedResources, holidayRows] = await Promise.all([
@@ -246,8 +248,11 @@ export default async function DashboardPage({
   );
 
   // 區塊的先後順序是每個人自己排的(存在帳號上);沒排過的照預設。只列這個人真的看得到的區塊。
-  const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { dashboardOrder: true } });
+  const me = await prisma.user.findUnique({ where: { id: session.userId }, select: { dashboardOrder: true, dashboardTabs: true } });
   const dashboardOrder = me?.dashboardOrder ?? [];
+  // 子類(分頁):每個人自己建、自己把區塊歸類;「全部」看到所有區塊。
+  const dashboardTabs = sanitizeDashboardTabs(me?.dashboardTabs);
+  const activeTab = resolveActiveTab(dashboardTabs, Array.isArray(tabParam) ? tabParam[0] : tabParam);
   const defaultSections = DASHBOARD_SECTIONS.filter(
     (section) =>
       (section.id !== "teamItems" || hasTeam) &&
@@ -267,6 +272,7 @@ export default async function DashboardPage({
           <DashboardOrderButton
             sections={orderedSectionRows}
             defaultSections={defaultSections}
+            tabs={dashboardTabs}
             readOnlyReason={session.impersonatorId ? "你正在代操作別人的帳號,不能改對方的儀表板順序。" : undefined}
           />
           <DashboardBoardFilter
@@ -277,9 +283,11 @@ export default async function DashboardPage({
         </div>
       </div>
 
+      <DashboardTabsBar tabs={dashboardTabs} activeId={activeTab?.id ?? null} />
+
       {disk && <DiskAlertCard level={disk.level} totalBytes={disk.totalBytes} freeBytes={disk.freeBytes} />}
 
-      <OrderedSections order={dashboardOrder}>
+      <OrderedSections order={dashboardOrder} only={visibleSectionIds(activeTab)}>
 
       {/* Above the workload cards on purpose: money that has already been
           committed is the one thing on this page nobody can undo later. */}

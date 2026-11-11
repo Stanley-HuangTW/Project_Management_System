@@ -85,6 +85,8 @@ model User {
   programOrder String[] @default([])
   /// 這個人自己排的儀表板區塊順序(區塊 id,由上到下)。沒在清單裡的區塊接在最後、照預設順序。
   dashboardOrder String[] @default([])
+  /// 儀表板的子類(分頁):[{ id, name, sections: [區塊 id] }]。沒設定 = 只有「全部」。
+  dashboardTabs Json?
 
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
