@@ -243,6 +243,8 @@ model Board {
   ganttOverdueColor    String @default("#e2445c")
   ganttCompletedColor  String @default("#9ca3af")
   ganttInProgressColor String @default("#00c875")
+  /// 暫停(報表分類裡歸在「暫停」的狀態)的項目名稱顏色;優先於逾期。
+  ganttPausedColor     String @default("#fdab3d")
 
   /// Pred lamp: predecessor done / still running / overdue.
   predReadyColor   String @default("#00c875")
@@ -1169,6 +1171,7 @@ model SystemSettings {
   ganttOverdueColor         String             @default("#e2445c")
   ganttCompletedColor       String             @default("#9ca3af")
   ganttInProgressColor      String             @default("#00c875")
+  ganttPausedColor          String             @default("#fdab3d")
   predReadyColor            String             @default("#00c875")
   predWaitingColor          String             @default("#fdab3d")
   predBlockedColor          String             @default("#e2445c")

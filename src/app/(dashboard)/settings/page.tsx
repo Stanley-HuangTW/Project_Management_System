@@ -85,6 +85,7 @@ export default async function SettingsPage() {
           overdue: settings.ganttOverdueColor,
           completed: settings.ganttCompletedColor,
           inProgress: settings.ganttInProgressColor,
+          paused: settings.ganttPausedColor,
         }}
         predLampColors={{
           ready: settings.predReadyColor,

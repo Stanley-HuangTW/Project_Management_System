@@ -29,6 +29,7 @@ export async function getSystemSettings() {
     ganttOverdueColor: "#e2445c",
     ganttCompletedColor: "#9ca3af",
     ganttInProgressColor: "#00c875",
+    ganttPausedColor: "#fdab3d",
     predReadyColor: "#00c875",
     predWaitingColor: "#fdab3d",
     predBlockedColor: "#e2445c",
@@ -406,13 +407,14 @@ export async function setGanttDurationMode(mode: GanttDurationMode) {
 /**
  * Colors for the Gantt task-name text, by status: 逾期 (overdue, past its
  * end date and not done), 完成 (done), 實作中 (in progress, started but not
- * yet overdue/done). 尚未處理 (not started) deliberately has no color here —
+ * yet overdue/done), 暫停 (paused, beats overdue). 尚未處理 (not started) deliberately has no color here —
  * it just gets the theme's normal text color.
  */
 export async function setGanttStatusColors(colors: {
   overdue: string;
   completed: string;
   inProgress: string;
+  paused: string;
 }) {
   const session = await requireSession();
   requireBoardAdmin(session.role);
@@ -421,6 +423,7 @@ export async function setGanttStatusColors(colors: {
     ganttOverdueColor: colors.overdue,
     ganttCompletedColor: colors.completed,
     ganttInProgressColor: colors.inProgress,
+    ganttPausedColor: colors.paused,
   };
 
   await prisma.$transaction([
@@ -434,7 +437,7 @@ export async function setGanttStatusColors(colors: {
   await logAudit(
     "SETTINGS",
     session.userId,
-    `甘特圖項目名稱顏色更新:逾期 ${colors.overdue}、完成 ${colors.completed}、實作中 ${colors.inProgress}`
+    `甘特圖項目名稱顏色更新:逾期 ${colors.overdue}、完成 ${colors.completed}、實作中 ${colors.inProgress}、暫停 ${colors.paused}`
   );
 
   revalidatePath("/settings");

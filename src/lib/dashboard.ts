@@ -362,13 +362,26 @@ export function classifyItemStatus(
  *  and the dashboard's personal-items lists so all three agree on the same
  *  rule and the same board-configured colors. 尚未處理 gets no override,
  *  just the theme's normal text color. */
+/** 這個項目的狀態是不是歸在報表分類的「暫停」(看板的報表設定),或名稱就是 Pending / On Hold / Paused / 暫停。 */
+function isItemPaused(item: ItemData, board: BoardWithData, statusColumn: ColumnData | null): boolean {
+  if (!statusColumn) return false;
+  const value = item.cellValues.find((cv) => cv.columnId === statusColumn.id)?.value;
+  if (typeof value !== "string") return false;
+  if (board.reportStatusColumnId === statusColumn.id && board.reportPausedOptionIds.includes(value)) return true;
+  const label = getStatusOptions(statusColumn.options).find((o) => o.id === value)?.label.trim().toLowerCase();
+  return label === "pending" || label === "on hold" || label === "paused" || label === "暫停";
+}
+
 export function resolveItemNameColor(
   item: ItemData,
   board: BoardWithData,
   statusColumn: ColumnData | null,
   range: { start: Date; end: Date } | null
 ): string | undefined {
-  switch (classifyItemStatus(item, board, statusColumn, range)) {
+  const kind = classifyItemStatus(item, board, statusColumn, range);
+  // 暫停:完成之後、逾期之前——被擱置的項目過了預定日期不是「逾期」,而是暫停。
+  if (kind !== "done" && isItemPaused(item, board, statusColumn)) return board.ganttPausedColor;
+  switch (kind) {
     case "done":
       return board.ganttCompletedColor;
     case "overdue":

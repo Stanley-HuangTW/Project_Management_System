@@ -53,6 +53,7 @@ export async function createBoard(name: string) {
       ganttOverdueColor: settings.ganttOverdueColor,
       ganttCompletedColor: settings.ganttCompletedColor,
       ganttInProgressColor: settings.ganttInProgressColor,
+      ganttPausedColor: settings.ganttPausedColor,
       predReadyColor: settings.predReadyColor,
       predWaitingColor: settings.predWaitingColor,
       predBlockedColor: settings.predBlockedColor,

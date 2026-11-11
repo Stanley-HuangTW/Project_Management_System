@@ -348,7 +348,7 @@ function LevelColorCard({ initial }: { initial: string[] }) {
 function GanttStatusColorCard({
   initial,
 }: {
-  initial: { overdue: string; completed: string; inProgress: string };
+  initial: { overdue: string; completed: string; inProgress: string; paused: string };
 }) {
   const [colors, setColors] = useState(initial);
   const [saving, setSaving] = useState(false);
@@ -373,13 +373,14 @@ function GanttStatusColorCard({
     { key: "overdue", label: "逾期" },
     { key: "completed", label: "完成" },
     { key: "inProgress", label: "實作中" },
+    { key: "paused", label: "暫停" },
   ];
 
   return (
     <div className="max-w-xl rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-4 py-3">
       <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">甘特圖項目名稱顏色</p>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-        套用到所有看板的甘特圖:依項目狀態為項目名稱上色。優先順序為完成 &gt; 逾期 &gt; 實作中;尚未處理(未開始且未逾期)不特別上色,維持預設文字顏色。
+        套用到所有看板的甘特圖:依項目狀態為項目名稱上色。優先順序為完成 &gt; 暫停 &gt; 逾期 &gt; 實作中;「暫停」是報表設定裡歸在「暫停」的狀態(例如 Pending);尚未處理(未開始且未逾期)不特別上色,維持預設文字顏色。
       </p>
       <div className="mb-3 space-y-2">
         {fields.map(({ key, label }) => (
@@ -556,7 +557,7 @@ export function SystemSettingsForm({
   approvalLevels: { leave: number; timesheet: number };
   budgetViewOrgNodeIds: string[];
   levelColors: string[];
-  ganttStatusColors: { overdue: string; completed: string; inProgress: string };
+  ganttStatusColors: { overdue: string; completed: string; inProgress: string; paused: string };
   predLampColors: { ready: string; waiting: string; blocked: string };
   holidays: Holiday[];
   workloadThreshold: WorkloadThresholdSettings;
