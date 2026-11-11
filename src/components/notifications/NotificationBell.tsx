@@ -75,6 +75,12 @@ export function NotificationBell() {
       router.push(`/chat?c=${n.conversationId}`);
       return;
     }
+    // 簽核類的通知(請假、工時、閘門、變更單)沒有工作項也沒有風險,帶著要去的站內路徑。
+    if (n.link && !n.item && !n.riskId) {
+      router.push(n.link);
+      router.refresh();
+      return;
+    }
     // highlightAt changes on every click, even re-clicking the same
     // notification twice — the board page's "open the item card" logic keys
     // off it rather than just the item id, since the id alone is identical
@@ -169,8 +175,12 @@ export function NotificationBell() {
                   </span>
                   <span className="min-w-0 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
                     {n.boardName}
-                    <span className="mx-1">›</span>
-                    {n.groupName}
+                    {n.groupName && (
+                      <>
+                        <span className="mx-1">›</span>
+                        {n.groupName}
+                      </>
+                    )}
                   </span>
                 </span>
 

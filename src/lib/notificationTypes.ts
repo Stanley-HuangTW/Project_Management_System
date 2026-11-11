@@ -11,6 +11,7 @@ export const ALL_NOTIFICATION_TYPES: NotificationType[] = [
   "DELETED",
   "DEADLINE",
   "CHAT",
+  "APPROVAL",
 ];
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
@@ -22,6 +23,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   DELETED: "刪除項目",
   DEADLINE: "待辦事項期限提醒",
   CHAT: "對話(被提到、私訊與群組新訊息)",
+  APPROVAL: "簽核(等你簽核、簽核結果)",
 };
 
 /**
@@ -43,4 +45,6 @@ export const DEFAULT_NOTIFICATION_PREFERENCE: Record<
   DEADLINE: { inApp: true, email: true },
   // 被 @ 到、收到私訊,是有人在等你回的;同一段未讀只通知第一次,不會一則一封。
   CHAT: { inApp: true, email: true },
+  // 等你簽、或送出的簽核有結果了:都是有人在等的事,email 預設也寄。
+  APPROVAL: { inApp: true, email: true },
 };

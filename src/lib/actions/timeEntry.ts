@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { ApprovalStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { notifyTimeApprovalNeeded } from "@/lib/approvalNotify";
 import { requireItemBoardAccess } from "@/lib/boardAccess";
 import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import { validateStartMinute } from "@/lib/timeOfDay";
@@ -99,6 +100,7 @@ export async function logTime(
   }
   // 管理者設定「工時免審核」的人,登記就生效,並留下「免審核」的註記。
   const exempt = await isTimesheetExempt(targetUserId);
+  const groupId = exempt ? null : (await prisma.item.findUnique({ where: { id: itemId }, select: { groupId: true } }))?.groupId;
   await prisma.timeEntry.create({
     data: {
       itemId,
@@ -112,6 +114,8 @@ export async function logTime(
       ...(exempt ? { status: "APPROVED" as const, decidedAt: new Date(), decisionNote: EXEMPT_DECISION_NOTE } : {}),
     },
   });
+  // 要簽核的(沒有免審核)通知簽核人。
+  if (groupId) await notifyTimeApprovalNeeded(targetUserId, [groupId]);
 
   revalidatePath(`/boards/${boardId}`);
   return {};
@@ -168,6 +172,10 @@ export async function updateTimeEntry(
     },
   });
   revalidatePath(`/boards/${boardId}`);
+  if (resubmit && !exempt) {
+    const item = await prisma.item.findUnique({ where: { id: input.itemId }, select: { groupId: true } });
+    if (item) await notifyTimeApprovalNeeded(entry.userId, [item.groupId]);
+  }
   revalidatePath("/timesheet");
   revalidatePath("/approvals");
   return {};

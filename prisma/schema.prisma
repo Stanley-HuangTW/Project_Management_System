@@ -718,6 +718,8 @@ enum NotificationType {
   DEADLINE
   /// 對話:被 @ 提到、收到私訊或群組新訊息。
   CHAT
+  /// 簽核:有東西等你簽(請假、工時、閘門、變更單、風險 / 議題結案),或你送出的簽核有結果了。
+  APPROVAL
 }
 
 model AutomationRule {
@@ -760,6 +762,8 @@ model Notification {
   conversationId String?
   conversation   ChatConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   message   String
+  /// 沒有工作項 / 風險 / 對話可指的通知(例如待簽核的請假)點下去要去的站內路徑。
+  link      String?
   read      Boolean          @default(false)
   createdAt DateTime         @default(now())
 
@@ -1165,7 +1169,7 @@ model SystemSettings {
   emailNotificationsEnabled Boolean            @default(false)
   /// 這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼選,
   /// 那個類型的通知(站內與 email)都不會產生。
-  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE, CHAT])
+  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE, CHAT, APPROVAL])
   levelColors               String[]           @default([])
   ganttDurationMode         GanttDurationMode  @default(BUSINESS)
   ganttOverdueColor         String             @default("#e2445c")

@@ -86,7 +86,7 @@ export function BoardView({
   protoUnits?: ProtoUnitsData;
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">(
-    () => (initialView === "risks" || (initialView === "issues" && hasMantis) ? initialView : "table")
+    () => (initialView === "risks" || initialView === "gates" || initialView === "changes" || (initialView === "issues" && hasMantis) ? initialView : "table")
   );
   // 看板欄的「本週完成」以實際切成完成的時間為準。
   const completedAtByItem = useMemo(

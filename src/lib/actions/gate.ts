@@ -10,6 +10,7 @@ import { assessGate, findGateBreaches, type GateBreach, type GatePhaseItem } fro
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
 import { UserError } from "@/lib/userError";
+import { notifyGateApprovalNeeded, notifyGateDecided, notifyGateSigned } from "@/lib/approvalNotify";
 
 export type GateCriterionRow = {
   id: string;
@@ -300,7 +301,7 @@ export async function setApprovers(gateId: string, userIds: string[]): Promise<{
 
 /** 送審 — from DRAFT (or back from FAILED) into PENDING. */
 export async function submitGate(gateId: string): Promise<{ error?: string }> {
-  const { boardId } = await requireGateOwner(gateId);
+  const { session, boardId } = await requireGateOwner(gateId);
   const gate = await prisma.gate.findUnique({
     where: { id: gateId },
     select: { approvers: { select: { id: true } } },
@@ -311,6 +312,7 @@ export async function submitGate(gateId: string): Promise<{ error?: string }> {
     where: { id: gateId },
     data: { status: "PENDING", decidedAt: null, decidedById: null, decisionNote: null },
   });
+  await notifyGateApprovalNeeded(gateId, session.userId);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }
@@ -318,7 +320,7 @@ export async function submitGate(gateId: string): Promise<{ error?: string }> {
 /** Sending a decided gate back for another look — the signatures are cleared,
  *  because they were about the state it was in. */
 export async function reopenGate(gateId: string): Promise<{ error?: string }> {
-  const { boardId } = await requireGateOwner(gateId);
+  const { session, boardId } = await requireGateOwner(gateId);
   await prisma.$transaction([
     prisma.gateApprover.updateMany({
       where: { gateId },
@@ -329,6 +331,7 @@ export async function reopenGate(gateId: string): Promise<{ error?: string }> {
       data: { status: "PENDING", decidedAt: null, decidedById: null, decisionNote: null },
     }),
   ]);
+  await notifyGateApprovalNeeded(gateId, session.userId);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }
@@ -360,6 +363,7 @@ export async function signGate(
     where: { gateId_userId: { gateId, userId: session.userId } },
     data: { decision, decidedAt: new Date(), comment: comment.trim() || null },
   });
+  await notifyGateSigned(gateId, session.userId, decision === "APPROVED", comment.trim() || null);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }
@@ -412,6 +416,7 @@ export async function decideGate(
     `閘門「${gate.name}」${status === "PASSED" ? "放行" : status === "WAIVED" ? "有條件放行" : "不通過"}${trimmedNote ? `:${trimmedNote}` : ""}`,
     boardId
   );
+  await notifyGateDecided(gateId, session.userId, status === "PASSED" ? "放行" : status === "WAIVED" ? "有條件放行" : "不通過", trimmedNote || null);
   revalidatePath(`/boards/${boardId}`);
   return {};
 }

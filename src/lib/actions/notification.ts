@@ -65,7 +65,7 @@ export async function listNotifications() {
 
   return notifications.map((n) => ({
     ...n,
-    boardName: n.item?.board.name ?? n.risk?.board.name ?? (n.conversation ? CHAT_KIND_LABEL[n.conversation.kind] : ""),
+    boardName: n.item?.board.name ?? n.risk?.board.name ?? (n.conversation ? CHAT_KIND_LABEL[n.conversation.kind] : n.link ? "簽核" : ""),
     // 風險/議題的通知沒有分組,這個位置寫它是什麼(風險 / 議題 / Mantis #編號)。
     groupName: n.item?.group.name ?? (n.risk ? riskLinkTag(n.risk) : (n.conversation?.board?.name ?? n.conversation?.title ?? "")),
     actorName: n.actorId ? (actorName.get(n.actorId) ?? null) : null,

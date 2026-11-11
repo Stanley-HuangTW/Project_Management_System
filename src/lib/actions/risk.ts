@@ -9,7 +9,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { clampLevel, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
-import { notifyRiskAssigned, notifyRiskReviewRequested } from "@/lib/notify";
+import { notifyRiskAssigned, notifyRiskReviewRequested, notifyRiskReviewResult } from "@/lib/notify";
 import { attributeAudit } from "@/lib/impersonation";
 import { descriptionWasTruncated, splitMantisDescription } from "@/lib/mantis";
 import { parseMapping, type WriteField } from "@/lib/mantisMapping";
@@ -804,7 +804,23 @@ export async function reviewRiskClosure(
       }),
     ]);
   }
-  if (!result.error) revalidatePath(`/boards/${peek.boardId}`);
+  if (!result.error) {
+    // 處理結果通知負責人:退回(附原因)、全部同意而結案、或還在等其他審核人。
+    if (decision === "REJECT") {
+      await notifyRiskReviewResult(riskId, session.userId, { kind: "rejected", reason });
+    } else {
+      const after = await prisma.riskEntry.findUnique({ where: { id: riskId }, select: { status: true, reviewers: { select: { approvedAt: true } } } });
+      if (after?.status === "CLOSED") await notifyRiskReviewResult(riskId, session.userId, { kind: "closed" });
+      else if (after) {
+        await notifyRiskReviewResult(riskId, session.userId, {
+          kind: "approved",
+          approved: after.reviewers.filter((r) => r.approvedAt !== null).length,
+          total: after.reviewers.length,
+        });
+      }
+    }
+    revalidatePath(`/boards/${peek.boardId}`);
+  }
   return { error: result.error };
 }
 

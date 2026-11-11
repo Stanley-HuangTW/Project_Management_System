@@ -185,38 +185,92 @@ export async function notifyItemAssignees(
 }
 
 /**
- * 負責人申請結案:通知每一位審核人「等你審核」(畫面上風險列那顆紅色標籤,通知裡也要有)。
- * 沿用「指派」這一種通知(站內通知照每個人的指派偏好,Email 照每個人的設定),
- * 內容寫清楚是誰申請哪一筆,不用點進去才知道。申請的人自己不收。
+ * 簽核類的通知(「簽核」這一種類型):有東西等你簽、或你送出的簽核有結果了,都走這裡。
+ *
+ * link 是點下去要去的站內路徑(信裡也附完整網址);riskId 讓風險 / 議題的通知照原本的方式標在那一筆上。
+ * 操作的人自己不收;dedupeUnread 給「同一種待簽事項一直進來」的情況(例如每填一筆工時就多一筆待簽):
+ * 這個人已經有一則同樣內容、還沒讀的通知,就不再多發一則。通知失敗不影響簽核本身,呼叫端不用 try/catch。
  */
+export async function notifyApproval(params: {
+  userIds: string[];
+  actorId: string | null;
+  message: string;
+  link: string;
+  riskId?: string;
+  dedupeUnread?: boolean;
+}) {
+  const { actorId, message, link, riskId } = params;
+  try {
+    let userIds = [...new Set(params.userIds)].filter((id) => id !== actorId);
+    if (userIds.length === 0) return;
+    if (params.dedupeUnread) {
+      const already = await prisma.notification.findMany({
+        where: { userId: { in: userIds }, type: "APPROVAL", read: false, link, message },
+        select: { userId: true },
+      });
+      const skip = new Set(already.map((n) => n.userId));
+      userIds = userIds.filter((id) => !skip.has(id));
+      if (userIds.length === 0) return;
+    }
+    const inApp = await filterInAppRecipients(prisma, "APPROVAL", userIds);
+    if (inApp.length > 0) {
+      await prisma.notification.createMany({
+        data: inApp.map((userId) => ({ userId, actorId, type: "APPROVAL" as const, riskId: riskId ?? null, link, message })),
+      });
+    }
+    for (const userId of userIds) {
+      try {
+        await notifyEmailIfNeeded(userId, "APPROVAL", message, link);
+      } catch {
+        // 寄信失敗不影響簽核本身。
+      }
+    }
+  } catch {
+    // 通知寫不進去不能讓簽核失敗。
+  }
+}
+
+/** 負責人申請結案:通知每一位審核人「等你審核」(畫面上風險列那顆紅色標籤,通知裡也要有)。 */
 export async function notifyRiskReviewRequested(
   riskId: string,
   actorId: string,
   risk: { title: string; kindLabel: string },
   reviewerIds: string[]
 ) {
-  const userIds = reviewerIds.filter((id) => id !== actorId);
-  if (userIds.length === 0) return;
-
-  const [actor, riskBoardId] = await Promise.all([
+  const [actor, row] = await Promise.all([
     prisma.user.findUnique({ where: { id: actorId }, select: { name: true } }),
-    prisma.riskEntry.findUnique({ where: { id: riskId }, select: { boardId: true } }).then((r) => r?.boardId),
+    prisma.riskEntry.findUnique({ where: { id: riskId }, select: { boardId: true } }),
   ]);
-  const message = `${actor?.name ?? "負責人"}申請結案${risk.kindLabel}「${risk.title}」,等你審核`;
+  if (!row) return;
+  await notifyApproval({
+    userIds: reviewerIds,
+    actorId,
+    riskId,
+    link: riskLink(row.boardId, riskId),
+    message: `${actor?.name ?? "負責人"}申請結案${risk.kindLabel}「${risk.title}」,等你審核`,
+  });
+}
 
-  const inApp = await filterInAppRecipients(prisma, "ASSIGNED", userIds);
-  if (inApp.length > 0) {
-    await prisma.notification.createMany({
-      data: inApp.map((userId) => ({ userId, actorId, type: "ASSIGNED" as const, riskId, message })),
-    });
-  }
-  for (const userId of userIds) {
-    try {
-      await notifyEmailIfNeeded(userId, "ASSIGNED", message, riskBoardId ? riskLink(riskBoardId, riskId) : undefined);
-    } catch {
-      // 寄信失敗不影響申請結案本身。
-    }
-  }
+/** 審核人處理了結案申請:通知負責人(退回要附原因;全部同意 = 已結案;還沒到全部同意就告訴他進度)。 */
+export async function notifyRiskReviewResult(
+  riskId: string,
+  reviewerId: string,
+  result: { kind: "rejected"; reason: string } | { kind: "approved"; approved: number; total: number } | { kind: "closed" }
+) {
+  const [reviewer, risk] = await Promise.all([
+    prisma.user.findUnique({ where: { id: reviewerId }, select: { name: true } }),
+    prisma.riskEntry.findUnique({ where: { id: riskId }, select: { boardId: true, ownerId: true, title: true, kind: true } }),
+  ]);
+  if (!risk?.ownerId) return;
+  const kindLabel = risk.kind === "ISSUE" ? "議題" : "風險";
+  const who = reviewer?.name ?? "審核人";
+  const message =
+    result.kind === "rejected"
+      ? `${who}退回了${kindLabel}「${risk.title}」的結案申請:${result.reason}`
+      : result.kind === "closed"
+        ? `${kindLabel}「${risk.title}」的結案申請已通過(全部審核人都同意),已結案`
+        : `${who}同意了${kindLabel}「${risk.title}」的結案申請(${result.approved}/${result.total})`;
+  await notifyApproval({ userIds: [risk.ownerId], actorId: reviewerId, riskId, link: riskLink(risk.boardId, riskId), message });
 }
 
 /**

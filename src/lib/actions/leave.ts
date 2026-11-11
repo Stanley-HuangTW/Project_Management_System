@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { ApprovalStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { notifyLeaveApprovalNeeded } from "@/lib/approvalNotify";
 
 export type LeaveRow = {
   id: string;
@@ -67,6 +68,7 @@ export async function createLeave(
   await prisma.leave.create({
     data: { userId, startDate, endDate, reason: reason.trim() || null },
   });
+  await notifyLeaveApprovalNeeded(userId, startDate, endDate);
   revalidatePath("/users");
   revalidatePath("/dashboard");
   return {};

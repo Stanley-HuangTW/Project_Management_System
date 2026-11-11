@@ -8,6 +8,7 @@ import { requireBoardAccess } from "@/lib/boardAccess";
 import { requireStructureAccess } from "@/lib/permissions";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
+import { notifyChangeApprovalNeeded, notifyChangeDecided } from "@/lib/approvalNotify";
 
 export type ChangeRequestInput = {
   title: string;
@@ -187,6 +188,7 @@ export async function submitChangeRequest(requestId: string): Promise<{ error?: 
   if (loaded.request.status !== "DRAFT") return { error: "這張單子不是草稿狀態" };
 
   await prisma.changeRequest.update({ where: { id: requestId }, data: { status: "SUBMITTED" } });
+  await notifyChangeApprovalNeeded(requestId, loaded.session.userId);
   revalidatePath(`/boards/${loaded.request.boardId}`);
   return {};
 }
@@ -240,6 +242,7 @@ export async function decideChangeRequest(
     `CR-${String(row?.number ?? 0).padStart(3, "0")}「${row?.title ?? ""}」${status === "APPROVED" ? "核准" : "駁回"}${trimmed ? `:${trimmed}` : ""}`,
     request.boardId
   );
+  await notifyChangeDecided(requestId, session.userId, status === "APPROVED", trimmed || null);
   revalidatePath(`/boards/${request.boardId}`);
   return {};
 }

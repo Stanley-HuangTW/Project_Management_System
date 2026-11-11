@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { ApprovalStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { notifyActivityApprovalNeeded } from "@/lib/approvalNotify";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import type { SessionPayload } from "@/lib/jwt";
 import { weekRangeOf } from "@/lib/weeklyReport";
@@ -338,6 +339,7 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
       ...(input.boardId && exempt ? { decidedAt: new Date(), decisionNote: EXEMPT_DECISION_NOTE } : {}),
     },
   });
+  if (input.boardId && !exempt) await notifyActivityApprovalNeeded(session.userId, input.boardId);
   revalidatePath("/timesheet");
   revalidatePath("/approvals");
   return {};
@@ -397,6 +399,7 @@ export async function updateActivityTime(
           : {}),
     },
   });
+  if (boardId && resubmit && !exempt) await notifyActivityApprovalNeeded(entry.userId, boardId);
   revalidatePath("/timesheet");
   revalidatePath("/approvals");
   return {};

@@ -18,6 +18,7 @@ import {
   recordSupervisorApproval,
 } from "@/lib/approvalLevelsServer";
 import { UserError } from "@/lib/userError";
+import { notifyApprovalDecided } from "@/lib/approvalNotify";
 
 export type PendingTimeEntry = {
   id: string;
@@ -352,6 +353,13 @@ export async function decideTimeEntry(
     )}h（${entry.item.name}）${trimmed ? `:${trimmed}` : ""}`,
     entry.item.boardId
   );
+  await notifyApprovalDecided({
+    requesterId: entry.userId,
+    deciderId: session.userId,
+    what: `${entry.date} 的工時 ${Number(entry.hours)}h(${entry.item.name})`,
+    approved: status === "APPROVED",
+    note: trimmed,
+  });
   revalidatePath("/approvals");
   revalidatePath("/timesheet");
   revalidatePath(`/boards/${entry.item.boardId}`);
@@ -409,6 +417,13 @@ export async function decideActivityTime(
     )}h(${entry.category.name})${trimmed ? `:${trimmed}` : ""}`,
     entry.boardId
   );
+  await notifyApprovalDecided({
+    requesterId: entry.userId,
+    deciderId: session.userId,
+    what: `${entry.date} 的工時 ${Number(entry.hours)}h(${entry.category.name})`,
+    approved: status === "APPROVED",
+    note: trimmed,
+  });
   revalidatePath("/approvals");
   revalidatePath("/timesheet");
   revalidatePath(`/boards/${entry.boardId}`);
@@ -476,6 +491,13 @@ export async function decideLeave(
       leave.endDate
     }${trimmed ? `:${trimmed}` : ""}`
   );
+  await notifyApprovalDecided({
+    requesterId: leave.userId,
+    deciderId: session.userId,
+    what: `請假(${leave.startDate}~${leave.endDate})`,
+    approved: status === "APPROVED",
+    note: trimmed,
+  });
   revalidatePath("/approvals");
   revalidatePath("/dashboard");
   revalidatePath("/users");
