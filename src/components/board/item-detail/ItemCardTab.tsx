@@ -331,7 +331,9 @@ export function ItemCardTab({
                 late={{
                   plannedEnd: typeof currentEnd === "string" ? currentEnd : null,
                   dependentCount: dependents.length,
-                  onShift: canModifySchedule && !lock?.endLocked && !lock?.daysLocked ? shiftToActualFinish : undefined,
+                  // 這裡的 lock 在「一律自動計算」的看板上是每一欄都鎖(輸出欄),不能拿來擋:
+                  // 真正不能改的情況(結束日由前置、子項目、里程碑算出來)由伺服器擋下並說明原因。
+                  onShift: canModifySchedule ? shiftToActualFinish : undefined,
                 }}
               />
             )}
