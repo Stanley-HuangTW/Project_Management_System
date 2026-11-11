@@ -20,7 +20,7 @@ export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> 
 
   const board = await prisma.board.findUnique({
     where: { id: boardId },
-    select: { programId: true },
+    select: { programId: true, baselineCapturedAt: true },
   });
 
   const networkIds = board?.programId
@@ -42,7 +42,10 @@ export async function getDelayAnalysis(boardId: string): Promise<DelayAnalysis> 
     )
   );
   const scope = new Set([...ownIds].filter((id) => visibleIds.has(id)));
-  return analyzeDelays(inputs, scope);
+  const analysis = analyzeDelays(inputs, scope);
+  return analysis.noBaseline && board?.baselineCapturedAt
+    ? { ...analysis, staleBaselineAt: board.baselineCapturedAt.toISOString().slice(0, 10) }
+    : analysis;
 }
 
 /**

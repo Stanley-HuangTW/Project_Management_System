@@ -58,6 +58,9 @@ export type DelayAnalysis = {
   culprits: DelayCulprit[];
   /** True when nothing carries a baseline — there is nothing to compare. */
   noBaseline: boolean;
+  /** 看板記得有一版基準線(建立日 yyyy-MM-dd),但現在的工作項沒有任何一個帶著它的日期——
+   *  例如基準線建立之後工作項被重新匯入或重建過,基準線指到的工作項已經不在了。 */
+  staleBaselineAt?: string;
 };
 
 function dayDelta(from: Date | null, to: Date | null): number {

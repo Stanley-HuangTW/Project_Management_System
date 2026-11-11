@@ -45,7 +45,9 @@ export function DelayReport({ boardId, programId }: { boardId?: string; programI
   if (analysis.noBaseline) {
     return (
       <p className="text-sm text-neutral-400 dark:text-neutral-500">
-        尚未建立基準線,沒有計畫可以比對。請至「系統設定」的基準線建立一版。
+        {analysis.staleBaselineAt
+          ? `這個看板有一版基準線(${analysis.staleBaselineAt} 建立),但現在的工作項都沒有帶到它的日期——基準線建立之後,工作項可能被重新匯入或重建過。請至「系統設定」的基準線重新建立一版。`
+          : "尚未建立基準線,沒有計畫可以比對。請至「系統設定」的基準線建立一版。"}
       </p>
     );
   }
