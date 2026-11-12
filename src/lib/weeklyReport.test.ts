@@ -654,6 +654,24 @@ describe("Markdown", () => {
     expect(md).toContain("**這週已完成(1)**");
   });
 
+  it("里程碑的列帶著狀態(Planned / In Progress / Completed);不是里程碑的不加,沒有狀態的也不留空括號", () => {
+    const data = snapshot([
+      item({ id: "ms1", name: "里程碑甲", isMilestone: true, status: "In Progress", bucket: "upcoming" }),
+      item({ id: "ms2", name: "里程碑乙", isMilestone: true, status: "Planned", bucket: "upcoming" }),
+      item({ id: "ms3", name: "里程碑丙", isMilestone: true, status: "Completed", bucket: "overdue" }),
+      item({ id: "ms4", name: "里程碑丁", isMilestone: true, status: null, bucket: "upcoming" }),
+      item({ id: "t1", name: "一般任務", isMilestone: false, status: "In Progress", bucket: "upcoming" }),
+    ]);
+    const md = renderWeeklyReportMarkdown(data, noDiff);
+    const lineOf = (name: string) => md.split("\n").find((l) => l.includes(name)) ?? "";
+    expect(lineOf("里程碑甲")).toContain("🚩里程碑[In Progress]");
+    expect(lineOf("里程碑乙")).toContain("🚩里程碑[Planned]");
+    expect(lineOf("里程碑丙")).toContain("🚩里程碑[Completed]");
+    expect(lineOf("里程碑丁")).toContain("🚩里程碑");
+    expect(lineOf("里程碑丁")).not.toContain("[");
+    expect(lineOf("一般任務")).not.toContain("[In Progress]");
+  });
+
   it("PMM(行銷 PM)獨立列出自己名下的工作項:逾期、這週完成、接下來幾天", () => {
     const data = snapshot([]);
     data.departments = [

@@ -47,6 +47,26 @@ function PriorityBadge({ priority }: { priority: string | null }) {
   );
 }
 
+/** 狀態欄的選項標籤:完成綠、進行中橘、其他(Planned 等)灰。標籤是各看板自己設的字,認不得就用灰。 */
+function statusColor(status: string): string {
+  if (/complet|done|完成|已結案/i.test(status)) return "#00a35c";
+  if (/progress|進行|實作/i.test(status)) return "#d97706";
+  return "#737373";
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const color = statusColor(status);
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ color, backgroundColor: `${color}1a` }}
+      title="狀態"
+    >
+      {status}
+    </span>
+  );
+}
+
 function ItemRow({ item, updates }: { item: ReportItem; updates?: ItemUpdateLine[] }) {
   return (
     <li className="flex flex-wrap items-center gap-1.5 py-1 text-sm text-neutral-700 dark:text-neutral-100">
@@ -64,6 +84,7 @@ function ItemRow({ item, updates }: { item: ReportItem; updates?: ItemUpdateLine
         <span className="text-xs text-neutral-400 dark:text-neutral-500">{item.ownerNames.join("、")}</span>
       )}
       {item.isMilestone && <span title="里程碑">🚩</span>}
+      {item.isMilestone && item.status && <StatusBadge status={item.status} />}
       {item.isCritical && <span title="要徑">⚡</span>}
       <PriorityBadge priority={item.priority} />
       {updates && updates.length > 0 && (

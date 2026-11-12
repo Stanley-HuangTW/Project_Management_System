@@ -697,7 +697,9 @@ export function weeklyReportSubject(programName: string | null, weekStart: strin
 
 function itemLine(i: ReportItem): string {
   const priorityTag = i.priority === "CRITICAL" ? "🔴CRITICAL" : i.priority === "HIGH" ? "🟣HIGH" : "";
-  const tags = [i.isMilestone ? "🚩里程碑" : "", i.isCritical ? "⚡要徑" : "", priorityTag]
+  // 里程碑要看得出現在是 Planned / In Progress / Completed(狀態欄的選項標籤),不用點進看板才知道。
+  const milestoneTag = i.isMilestone ? `🚩里程碑${i.status ? `[${i.status}]` : ""}` : "";
+  const tags = [milestoneTag, i.isCritical ? "⚡要徑" : "", priorityTag]
     .filter(Boolean)
     .join(" ");
   const owner = i.ownerNames.length > 0 ? `・${i.ownerNames.join("、")}` : "";
