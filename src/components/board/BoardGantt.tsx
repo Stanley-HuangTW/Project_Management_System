@@ -57,6 +57,7 @@ import {
   type DateRange,
 } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays } from "@/lib/workday";
+import { withWeekday } from "@/lib/weekdayLabel";
 import {
   resolveLockedScheduleFields,
   buildWbsIndexFromItems,
@@ -2004,7 +2005,7 @@ export function BoardGantt({
                       {from >= 0 && to >= 0 ? (
                         <div
                           data-gantt-bar
-                          title={`${pred.start} ~ ${pred.end}`}
+                          title={`${pred.start ? withWeekday(pred.start) : "-"} ~ ${pred.end ? withWeekday(pred.end) : "-"}`}
                           className="absolute top-1.5 h-4 rounded border-2 border-dashed border-blue-400 bg-blue-100/60 dark:bg-blue-950/50"
                           style={{ left: from * dayWidth, width: (to - from + 1) * dayWidth }}
                         />
@@ -2247,8 +2248,8 @@ function describeScheduleChange(
   const delta = (newDays ?? 0) - (oldDays ?? 0);
   const deltaLabel = delta === 0 ? "天數不變" : delta > 0 ? `增加 ${delta} 天` : `減少 ${Math.abs(delta)} 天`;
   return [
-    `開始日期:${toIsoDate(oldStart)} → ${toIsoDate(newStart)}`,
-    `結束日期:${toIsoDate(oldEnd)} → ${toIsoDate(newEnd)}`,
+    `開始日期:${withWeekday(toIsoDate(oldStart))} → ${withWeekday(toIsoDate(newStart))}`,
+    `結束日期:${withWeekday(toIsoDate(oldEnd))} → ${withWeekday(toIsoDate(newEnd))}`,
     `天數:${oldDays ?? "-"} → ${newDays ?? "-"}(${deltaLabel})`,
   ].join("\n");
 }
@@ -2564,14 +2565,14 @@ function GanttBar({
         }}
         title={[
           isMilestone
-            ? `里程碑:${toIsoDate(range.start)}`
+            ? `里程碑:${withWeekday(toIsoDate(range.start))}`
             : item.assignments.map((a) => `${a.user.name} ${a.allocationPct}%`).join(", "),
           // 里程碑那一行已經是日期了,不再重複。
           ...(isMilestone
             ? []
             : [
-                `開始日期:${toIsoDate(range.start)}`,
-                `結束日期:${toIsoDate(range.end)}`,
+                `開始日期:${withWeekday(toIsoDate(range.start))}`,
+                `結束日期:${withWeekday(toIsoDate(range.end))}`,
                 `${durationMode === "BUSINESS" ? "工作天數" : "天數"}:${fixedDurationDays} 天`,
               ]),
           scheduleFloat ? describeFloat(scheduleFloat) : "",
@@ -2673,7 +2674,7 @@ function BaselineBar({
         width: Math.max((endIndex - startIndex + 1) * dayWidth, 2),
         height: 4,
       }}
-      title={`基準線:${item.baselineStart} ~ ${item.baselineEnd}${
+      title={`基準線:${withWeekday(String(item.baselineStart))} ~ ${withWeekday(String(item.baselineEnd))}${
         variance ? `(${item.baselineDays ?? "-"} 天)` : ""
       }`}
     />
@@ -2794,14 +2795,14 @@ function LinkMenu({
 /** The float line on a bar's hover, in the words a schedule is read in. */
 function describeFloat(scheduleFloat: ScheduleFloat): string {
   if (scheduleFloat.totalFloat < 0) {
-    return `要徑・已落後 ${Math.abs(scheduleFloat.totalFloat)} 天(最晚需完成於 ${toIsoDate(
-      scheduleFloat.lateFinish
+    return `要徑・已落後 ${Math.abs(scheduleFloat.totalFloat)} 天(最晚需完成於 ${withWeekday(
+      toIsoDate(scheduleFloat.lateFinish)
     )})`;
   }
   if (scheduleFloat.totalFloat === 0) {
     return "要徑・總浮時 0 天,延一天整個專案就延一天";
   }
-  return `總浮時 ${scheduleFloat.totalFloat} 天(最晚可完成於 ${toIsoDate(scheduleFloat.lateFinish)})`;
+  return `總浮時 ${scheduleFloat.totalFloat} 天(最晚可完成於 ${withWeekday(toIsoDate(scheduleFloat.lateFinish))})`;
 }
 
 /** Whether two measurement passes found every bar in the same place. */

@@ -23,6 +23,7 @@ import type { PredLamp } from "@/lib/predLamp";
 import { getStatusOptions } from "@/types/column";
 import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
 import { compareNumericText, computeWbsCodes } from "@/lib/wbs";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 export function AssignmentModal({
   boardId,
@@ -246,10 +247,10 @@ export function AssignmentModal({
                     <div>
                       <span className="text-xs text-neutral-500 dark:text-neutral-400">Start</span>
                       <p className="text-neutral-800 dark:text-neutral-100">
-                        {startValue ?? "未設定"}
+                        {startValue ? withWeekday(startValue) : "未設定"}
                         {pendingChange && pendingChange.preview.start !== startValue && (
                           <span className="ml-1 font-medium text-blue-600">
-                            → {pendingChange.preview.start}
+                            → {withWeekday(pendingChange.preview.start)}
                           </span>
                         )}
                       </p>
@@ -259,10 +260,10 @@ export function AssignmentModal({
                     <div>
                       <span className="text-xs text-neutral-500 dark:text-neutral-400">Finish</span>
                       <p className="text-neutral-800 dark:text-neutral-100">
-                        {endValue ?? "未設定"}
+                        {endValue ? withWeekday(endValue) : "未設定"}
                         {pendingChange && pendingChange.preview.end !== endValue && (
                           <span className="ml-1 font-medium text-blue-600">
-                            → {pendingChange.preview.end}
+                            → {withWeekday(pendingChange.preview.end)}
                           </span>
                         )}
                       </p>
