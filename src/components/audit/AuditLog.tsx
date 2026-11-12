@@ -4,6 +4,7 @@ import { UserSelect } from "@/components/ui/UserSelect";
 import { useCallback, useEffect, useState } from "react";
 import type { AuditCategory } from "@prisma/client";
 import { listAuditLog, type AuditRow } from "@/lib/actions/audit";
+import { AuditDecisions } from "./AuditDecisions";
 
 const PAGE = 100;
 
@@ -51,6 +52,8 @@ export function AuditLog({
   boards: { id: string; name: string }[];
   actors: { id: string; name: string }[];
 }) {
+  // 「稽核紀錄」是誰改了什麼的流水帳;「審核結果」是所有人核准 / 退回過的簽核,可以在那裡修訂。
+  const [view, setView] = useState<"log" | "decisions">("log");
   // Item edits are by far the most numerous and the least often asked about,
   // so the page opens on everything else.
   const [category, setCategory] = useState<AuditCategory | "ALL" | "NON_ITEM">("NON_ITEM");
@@ -91,6 +94,8 @@ export function AuditLog({
   );
 
   useEffect(() => {
+    // 在「審核結果」那一頁不用讀流水帳;切回來時這裡會重讀。
+    if (view !== "log") return;
     let cancelled = false;
     (async () => {
       const result = await listAuditLog({
@@ -111,27 +116,51 @@ export function AuditLog({
     return () => {
       cancelled = true;
     };
-  }, [category, boardId, actorId, from, to]);
+  }, [view, category, boardId, actorId, from, to]);
 
   const fieldClass =
     "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-xs outline-none focus:border-blue-500";
 
   return (
     <div className="space-y-3">
+      <nav className="flex gap-1 border-b border-neutral-200 dark:border-neutral-700" data-audit-tabs>
+        {(
+          [
+            ["log", "稽核紀錄"],
+            ["decisions", "審核結果"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setView(id)}
+            data-audit-tab={id}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+              view === id
+                ? "border-blue-600 font-medium text-blue-600 dark:text-blue-400"
+                : "border-transparent text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value as AuditCategory | "ALL" | "NON_ITEM")}
-          className={fieldClass}
-        >
-          <option value="NON_ITEM">管理操作(不含工作項編輯)</option>
-          <option value="ALL">全部</option>
-          {(Object.keys(CATEGORY_LABELS) as AuditCategory[]).map((key) => (
-            <option key={key} value={key}>
-              {CATEGORY_LABELS[key]}
-            </option>
-          ))}
-        </select>
+        {view === "log" && (
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as AuditCategory | "ALL" | "NON_ITEM")}
+            className={fieldClass}
+          >
+            <option value="NON_ITEM">管理操作(不含工作項編輯)</option>
+            <option value="ALL">全部</option>
+            {(Object.keys(CATEGORY_LABELS) as AuditCategory[]).map((key) => (
+              <option key={key} value={key}>
+                {CATEGORY_LABELS[key]}
+              </option>
+            ))}
+          </select>
+        )}
         <select value={boardId} onChange={(e) => setBoardId(e.target.value)} className={fieldClass}>
           <option value="">全部看板</option>
           {boards.map((board) => (
@@ -140,13 +169,21 @@ export function AuditLog({
             </option>
           ))}
         </select>
-        <UserSelect users={actors} value={actorId} onChange={setActorId} emptyLabel="全部人員" className={fieldClass} />
+        <UserSelect
+          users={actors}
+          value={actorId}
+          onChange={setActorId}
+          emptyLabel={view === "log" ? "全部人員" : "全部處理人"}
+          className={fieldClass}
+        />
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={fieldClass} />
         <span className="text-xs text-neutral-400 dark:text-neutral-500">~</span>
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={fieldClass} />
       </div>
 
-      {rows.length === 0 && !loading ? (
+      {view === "decisions" ? (
+        <AuditDecisions boardId={boardId} actorId={actorId} from={from} to={to} />
+      ) : rows.length === 0 && !loading ? (
         <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-12 text-center text-sm text-neutral-400 dark:text-neutral-500">
           這個條件下沒有紀錄。
         </p>
@@ -175,8 +212,8 @@ export function AuditLog({
       )}
 
       <div className="flex items-center gap-2">
-        {loading && <span className="text-xs text-neutral-400 dark:text-neutral-500">載入中...</span>}
-        {hasMore && !loading && (
+        {view === "log" && loading && <span className="text-xs text-neutral-400 dark:text-neutral-500">載入中...</span>}
+        {view === "log" && hasMore && !loading && (
           <button
             type="button"
             onClick={() => {

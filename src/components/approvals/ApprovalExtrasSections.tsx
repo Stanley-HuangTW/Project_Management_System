@@ -225,7 +225,18 @@ const KIND_LABEL: Record<ApprovalHistoryRow["kind"], string> = {
  * 「已處理」:我核准、退回、同意、不同意過的,最近的在前面,可以回溯;還能改判的(工時、請假、
  * 還沒放行的閘門與條件)可以按「改成退回 / 改成核准」——改判一定要寫原因,會留下稽核紀錄、並通知對方。
  */
-export function ApprovalHistory({ rows, busy, run }: { rows: ApprovalHistoryRow[]; busy: boolean; run: Run }) {
+export function ApprovalHistory({
+  rows,
+  busy,
+  run,
+  showDecider = false,
+}: {
+  rows: ApprovalHistoryRow[];
+  busy: boolean;
+  run: Run;
+  /** 稽核軌跡的「審核結果」看的是所有人的:每一列要寫是誰處理的。 */
+  showDecider?: boolean;
+}) {
   const { prompt } = useDialogs();
 
   async function revise(row: ApprovalHistoryRow) {
@@ -262,7 +273,9 @@ export function ApprovalHistory({ rows, busy, run }: { rows: ApprovalHistoryRow[
   return (
     <div data-approval-history>
       <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
-        你處理過的簽核,最近 {rows.length} 筆。還能改判的會有「改成…」按鈕;已經放行的閘門、已結案的風險、已核准的變更單不能改判。
+        {showDecider
+          ? `所有人處理過的簽核,最近 ${rows.length} 筆。工時與請假不管誰處理的,都能按「改成…」改判;閘門與出口條件只有簽核人本人能改,別人的只能看;已經放行的閘門、已結案的風險、已核准的變更單不能改判。`
+          : `你處理過的簽核,最近 ${rows.length} 筆。還能改判的會有「改成…」按鈕;已經放行的閘門、已結案的風險、已核准的變更單不能改判。`}
       </p>
       <ul className={listClass}>
         {rows.map((row) => (
@@ -285,6 +298,11 @@ export function ApprovalHistory({ rows, busy, run }: { rows: ApprovalHistoryRow[
             ) : (
               <span className="flex shrink-0 items-center gap-0.5 text-red-600">
                 <X size={12} /> 退回 / 不同意
+              </span>
+            )}
+            {showDecider && (
+              <span className="shrink-0 text-neutral-500 dark:text-neutral-400" data-approval-decider>
+                {row.deciderName ?? "(已刪除的帳號)"}
               </span>
             )}
             <span className="shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">{row.decidedAt.slice(0, 16).replace("T", " ")}</span>

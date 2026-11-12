@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
+import { UserError } from "@/lib/userError";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { canManageStructure } from "@/lib/permissions";
 import { listApprovalQueue } from "@/lib/actions/approval";
@@ -178,59 +179,116 @@ export type ApprovalHistoryRow = {
   canRevise: boolean;
   /** 改判之後要去哪個看板(給「到看板」連結);沒有就是 null。 */
   boardId: string | null;
+  /** 誰處理的(稽核軌跡的「審核結果」看所有人的時候要顯示)。 */
+  deciderId: string | null;
+  deciderName: string | null;
 };
 
 const HISTORY_LIMIT = 80;
+const ALL_DECISIONS_LIMIT = 200;
 
-/** 我處理過的簽核(核准、退回、同意、不同意),最近的在前面,可以回溯,有的還能改判。 */
-export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
-  const session = await requireSession();
-  const me = session.userId;
+type DecisionScope = {
+  /** 限定哪個人處理的;null = 不限。 */
+  deciderId: string | null;
+  boardId: string | null;
+  /** "YYYY-MM-DD",含當天。 */
+  from: string | null;
+  to: string | null;
+  limit: number;
+};
+
+/**
+ * 核准、退回、同意、不同意過的簽核,最近的在前面。
+ * viewerId 是現在操作的人:閘門與出口條件的簽核只有簽核人本人能改,所以別人處理的那幾列不能改判。
+ */
+async function loadDecisions(scope: DecisionScope, viewerId: string): Promise<ApprovalHistoryRow[]> {
+  const take = scope.limit;
+  const by = scope.deciderId ?? { not: null };
+  const range =
+    scope.from || scope.to
+      ? {
+          ...(scope.from ? { gte: new Date(`${scope.from}T00:00:00.000Z`) } : {}),
+          ...(scope.to ? { lte: new Date(`${scope.to}T23:59:59.999Z`) } : {}),
+        }
+      : null;
+  const decidedAt = range ? { decidedAt: range } : {};
+  const board = scope.boardId;
 
   const [leaves, times, activities, criteria, gates, risks, changes] = await Promise.all([
     prisma.leave.findMany({
-      where: { decidedById: me, status: { in: ["APPROVED", "REJECTED"] } },
+      // 請假不屬於任何看板:篩了看板就不該有請假。
+      where: { decidedById: by, status: { in: ["APPROVED", "REJECTED"] }, ...decidedAt, ...(board ? { id: { in: [] } } : {}) },
       orderBy: { decidedAt: "desc" },
-      take: HISTORY_LIMIT,
+      take,
       include: { user: { select: { name: true } } },
     }),
     prisma.timeEntry.findMany({
-      where: { decidedById: me, status: { in: ["APPROVED", "REJECTED"] } },
+      where: { decidedById: by, status: { in: ["APPROVED", "REJECTED"] }, ...decidedAt, ...(board ? { item: { boardId: board } } : {}) },
       orderBy: { decidedAt: "desc" },
-      take: HISTORY_LIMIT,
+      take,
       include: { user: { select: { name: true } }, item: { select: { name: true, boardId: true } } },
     }),
     prisma.activityTimeEntry.findMany({
-      where: { decidedById: me, status: { in: ["APPROVED", "REJECTED"] } },
+      where: { decidedById: by, status: { in: ["APPROVED", "REJECTED"] }, ...decidedAt, ...(board ? { boardId: board } : {}) },
       orderBy: { decidedAt: "desc" },
-      take: HISTORY_LIMIT,
+      take,
       include: { user: { select: { name: true } }, category: { select: { name: true } } },
     }),
     prisma.gateCriterionApprover.findMany({
-      where: { userId: me, decision: { not: null } },
+      where: {
+        ...(scope.deciderId ? { userId: scope.deciderId } : {}),
+        decision: { not: null },
+        ...decidedAt,
+        ...(board ? { criterion: { gate: { boardId: board } } } : {}),
+      },
       orderBy: { decidedAt: "desc" },
-      take: HISTORY_LIMIT,
-      include: { criterion: { select: { id: true, text: true, gate: { select: { name: true, status: true, boardId: true } } } } },
+      take,
+      include: {
+        user: { select: { name: true } },
+        criterion: { select: { id: true, text: true, gate: { select: { name: true, status: true, boardId: true } } } },
+      },
     }),
     prisma.gateApprover.findMany({
-      where: { userId: me, decision: { not: null } },
+      where: {
+        ...(scope.deciderId ? { userId: scope.deciderId } : {}),
+        decision: { not: null },
+        ...decidedAt,
+        ...(board ? { gate: { boardId: board } } : {}),
+      },
       orderBy: { decidedAt: "desc" },
-      take: HISTORY_LIMIT,
-      include: { gate: { select: { id: true, name: true, status: true, boardId: true } } },
+      take,
+      include: { user: { select: { name: true } }, gate: { select: { id: true, name: true, status: true, boardId: true } } },
     }),
     prisma.riskReviewer.findMany({
-      where: { userId: me, approvedAt: { not: null } },
+      where: {
+        ...(scope.deciderId ? { userId: scope.deciderId } : {}),
+        approvedAt: { not: null, ...(range ?? {}) },
+        ...(board ? { risk: { boardId: board } } : {}),
+      },
       orderBy: { approvedAt: "desc" },
-      take: HISTORY_LIMIT,
-      include: { risk: { select: { id: true, title: true, kind: true, status: true, boardId: true } } },
+      take,
+      include: { user: { select: { name: true } }, risk: { select: { id: true, title: true, kind: true, status: true, boardId: true } } },
     }),
     prisma.changeRequest.findMany({
-      where: { decidedById: me, status: { in: ["APPROVED", "REJECTED", "IMPLEMENTED"] } },
+      where: { decidedById: by, status: { in: ["APPROVED", "REJECTED", "IMPLEMENTED"] }, ...decidedAt, ...(board ? { boardId: board } : {}) },
       orderBy: { decidedAt: "desc" },
-      take: HISTORY_LIMIT,
-      select: { id: true, number: true, title: true, status: true, decidedAt: true, decisionNote: true, boardId: true },
+      take,
+      select: { id: true, number: true, title: true, status: true, decidedAt: true, decisionNote: true, boardId: true, decidedById: true },
     }),
   ]);
+
+  // 請假、工時、變更單的處理人只存了 id:一次查回名字。
+  const deciderIds = [
+    ...new Set(
+      [...leaves, ...times, ...activities, ...changes].map((r) => r.decidedById).filter((id): id is string => !!id)
+    ),
+  ];
+  const deciderNames = new Map(
+    (deciderIds.length > 0 ? await prisma.user.findMany({ where: { id: { in: deciderIds } }, select: { id: true, name: true } }) : []).map(
+      (u) => [u.id, u.name]
+    )
+  );
+  const decider = (id: string | null) => ({ deciderId: id, deciderName: id ? (deciderNames.get(id) ?? null) : null });
 
   const rows: ApprovalHistoryRow[] = [];
   for (const l of leaves) {
@@ -244,6 +302,7 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       note: l.decisionNote,
       canRevise: true,
       boardId: null,
+      ...decider(l.decidedById),
     });
   }
   for (const t of times) {
@@ -257,6 +316,7 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       note: t.decisionNote,
       canRevise: true,
       boardId: t.item.boardId,
+      ...decider(t.decidedById),
     });
   }
   for (const a of activities) {
@@ -270,6 +330,7 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       note: a.decisionNote,
       canRevise: true,
       boardId: a.boardId,
+      ...decider(a.decidedById),
     });
   }
   for (const c of criteria) {
@@ -281,8 +342,11 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       decision: c.decision === "APPROVED" ? "APPROVED" : "REJECTED",
       decidedAt: (c.decidedAt ?? new Date(0)).toISOString(),
       note: c.comment,
-      canRevise: c.criterion.gate.status !== "PASSED" && c.criterion.gate.status !== "WAIVED",
+      // 簽核只有簽核人本人能改(signCriterion 檢查的是「現在操作的人」是不是確認人)。
+      canRevise: c.userId === viewerId && c.criterion.gate.status !== "PASSED" && c.criterion.gate.status !== "WAIVED",
       boardId: c.criterion.gate.boardId,
+      deciderId: c.userId,
+      deciderName: c.user.name,
     });
   }
   for (const g of gates) {
@@ -294,8 +358,10 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       decision: g.decision === "APPROVED" ? "APPROVED" : "REJECTED",
       decidedAt: (g.decidedAt ?? new Date(0)).toISOString(),
       note: g.comment,
-      canRevise: g.gate.status === "PENDING",
+      canRevise: g.userId === viewerId && g.gate.status === "PENDING",
       boardId: g.gate.boardId,
+      deciderId: g.userId,
+      deciderName: g.user.name,
     });
   }
   for (const r of risks) {
@@ -309,6 +375,8 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       note: null,
       canRevise: false,
       boardId: r.risk.boardId,
+      deciderId: r.userId,
+      deciderName: r.user.name,
     });
   }
   for (const c of changes) {
@@ -322,8 +390,39 @@ export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
       note: c.decisionNote,
       canRevise: false,
       boardId: c.boardId,
+      ...decider(c.decidedById),
     });
   }
 
-  return rows.sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)).slice(0, HISTORY_LIMIT);
+  return rows.sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)).slice(0, scope.limit);
+}
+
+/** 我處理過的簽核(核准、退回、同意、不同意),最近的在前面,可以回溯,有的還能改判。 */
+export async function listApprovalHistory(): Promise<ApprovalHistoryRow[]> {
+  const session = await requireSession();
+  return loadDecisions({ deciderId: session.userId, boardId: null, from: null, to: null, limit: HISTORY_LIMIT }, session.userId);
+}
+
+/**
+ * 稽核軌跡頁的「審核結果」:管理者看所有人的審核結果(可以篩看板、處理的人、日期),
+ * 工時與請假不管誰處理的,管理者都能改判;閘門與出口條件只有簽核人本人能改,別人的只能看。
+ */
+export async function listAllApprovalDecisions(filter: {
+  boardId?: string | null;
+  deciderId?: string | null;
+  from?: string | null;
+  to?: string | null;
+}): Promise<ApprovalHistoryRow[]> {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") throw new UserError("權限不足:僅管理者可以檢視所有人的審核結果");
+  return loadDecisions(
+    {
+      deciderId: filter.deciderId || null,
+      boardId: filter.boardId || null,
+      from: filter.from || null,
+      to: filter.to || null,
+      limit: ALL_DECISIONS_LIMIT,
+    },
+    session.userId
+  );
 }
