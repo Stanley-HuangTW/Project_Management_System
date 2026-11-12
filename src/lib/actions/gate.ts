@@ -10,7 +10,14 @@ import { assessGate, findGateBreaches, type GateBreach, type GatePhaseItem } fro
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
 import { UserError } from "@/lib/userError";
-import { notifyGateApprovalNeeded, notifyGateDecided, notifyGateSigned } from "@/lib/approvalNotify";
+import {
+  notifyCriterionInvited,
+  notifyCriterionSigned,
+  notifyGateApprovalNeeded,
+  notifyGateDecided,
+  notifyGateSigned,
+} from "@/lib/approvalNotify";
+import { MAX_CRITERION_APPROVERS, metFromDecisions } from "@/lib/gateCriterion";
 
 export type GateCriterionRow = {
   id: string;
@@ -19,6 +26,10 @@ export type GateCriterionRow = {
   met: boolean;
   itemId: string | null;
   itemName: string | null;
+  /** 負責確認這一條的人(沒有 = 手動勾選)。有的話「達成」由他們表態決定。 */
+  approvers: GateApproverRow[];
+  /** 現在登入的人是不是這一條的確認人、而且閘門還沒放行(還能表態)。 */
+  canSign: boolean;
 };
 
 export type GateApproverRow = {
@@ -62,7 +73,10 @@ export async function listGates(boardId: string): Promise<GateBoardView> {
       where: { boardId },
       orderBy: [{ plannedDate: "asc" }, { createdAt: "asc" }],
       include: {
-        criteria: { orderBy: { order: "asc" } },
+        criteria: {
+          orderBy: { order: "asc" },
+          include: { approvers: { include: { user: { select: { name: true } } }, orderBy: { id: "asc" } } },
+        },
         approvers: { include: { user: { select: { name: true } } } },
         decidedBy: { select: { name: true } },
       },
@@ -143,6 +157,15 @@ export async function listGates(boardId: string): Promise<GateBoardView> {
           met: c.met,
           itemId: c.itemId,
           itemName: c.itemId ? (itemNameById.get(c.itemId) ?? null) : null,
+          approvers: c.approvers.map((a) => ({
+            userId: a.userId,
+            userName: a.user.name,
+            decision: a.decision,
+            decidedAt: a.decidedAt?.toISOString() ?? null,
+            comment: a.comment,
+          })),
+          canSign:
+            gate.status !== "PASSED" && gate.status !== "WAIVED" && c.approvers.some((a) => a.userId === session.userId),
         })),
         approvers: gate.approvers.map((a) => ({
           userId: a.userId,
@@ -250,10 +273,11 @@ export async function setCriterionMet(
   const session = await requireSession();
   const criterion = await prisma.gateCriterion.findUnique({
     where: { id: criterionId },
-    select: { gate: { select: { boardId: true, status: true } } },
+    select: { gate: { select: { boardId: true, status: true } }, _count: { select: { approvers: true } } },
   });
   if (!criterion) return { error: "找不到這個條件" };
   await requireBoardAccess(criterion.gate.boardId, session);
+  if (criterion._count.approvers > 0) return { error: "這一條有指定確認人,是否達成由他們表態決定,不能手動勾選。" };
   // A decided gate is a record of what was true at the time. Re-ticking its
   // boxes afterwards would quietly rewrite the basis of somebody's signature.
   if (criterion.gate.status === "PASSED" || criterion.gate.status === "WAIVED") {
@@ -262,6 +286,99 @@ export async function setCriterionMet(
 
   await prisma.gateCriterion.update({ where: { id: criterionId }, data: { met } });
   revalidatePath(`/boards/${criterion.gate.boardId}`);
+  return {};
+}
+
+/**
+ * 指定(或更換)某一條出口條件的確認人,可以多位。新加的人會收到邀請通知;拿掉的人的表態一併清掉。
+ * 這是設定閘門的結構性動作,跟新增條件同一個權限。確認人變了,「達成」就依新的名單重新判斷。
+ */
+export async function setCriterionApprovers(criterionId: string, userIds: string[]): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const criterion = await prisma.gateCriterion.findUnique({
+    where: { id: criterionId },
+    select: {
+      text: true,
+      gate: { select: { name: true, boardId: true, status: true } },
+      approvers: { select: { userId: true, decision: true } },
+    },
+  });
+  if (!criterion) return { error: "找不到這個條件" };
+  await requireBoardAccess(criterion.gate.boardId, session);
+  requireStructureAccess(session.role);
+  if (criterion.gate.status === "PASSED" || criterion.gate.status === "WAIVED") {
+    return { error: "這個閘門已經放行,條件不能再改。要重新審查請先退回待審。" };
+  }
+  const wanted = [...new Set(userIds)];
+  if (wanted.length > MAX_CRITERION_APPROVERS) return { error: `一條最多 ${MAX_CRITERION_APPROVERS} 位確認人` };
+  if (wanted.length > 0) {
+    const found = await prisma.user.count({ where: { id: { in: wanted } } });
+    if (found !== wanted.length) return { error: "找不到其中的確認人" };
+  }
+
+  const existing = new Set(criterion.approvers.map((a) => a.userId));
+  const added = wanted.filter((id) => !existing.has(id));
+  const kept = criterion.approvers.filter((a) => wanted.includes(a.userId));
+  const met = metFromDecisions([...kept.map((a) => a.decision), ...added.map(() => null)]);
+  await prisma.$transaction([
+    prisma.gateCriterionApprover.deleteMany({ where: { criterionId, userId: { notIn: wanted } } }),
+    ...added.map((userId) => prisma.gateCriterionApprover.create({ data: { criterionId, userId } })),
+    // 沒有確認人了就回到手動勾選(維持原本勾的狀態);有確認人就依表態重新判斷。
+    ...(met === null ? [] : [prisma.gateCriterion.update({ where: { id: criterionId }, data: { met } })]),
+  ]);
+  await logAudit(
+    "GATE",
+    session.userId,
+    `閘門「${criterion.gate.name}」的條件「${criterion.text}」指定確認人 ${wanted.length} 位`,
+    criterion.gate.boardId
+  );
+  await notifyCriterionInvited(criterionId, session.userId, added);
+  revalidatePath(`/boards/${criterion.gate.boardId}`);
+  revalidatePath("/approvals");
+  return {};
+}
+
+/**
+ * 確認人對某一條出口條件表態(同意 / 不同意),可以寫備註;不同意一定要寫原因。
+ * 只有被指定的人能表態,各簽各的;全部同意時這一條自動達成,有人不同意就是未達成。可以改。
+ */
+export async function signCriterion(
+  criterionId: string,
+  decision: GateDecision,
+  comment: string
+): Promise<{ error?: string }> {
+  const session = await requireSession();
+  const criterion = await prisma.gateCriterion.findUnique({
+    where: { id: criterionId },
+    select: { gate: { select: { boardId: true, status: true } } },
+  });
+  if (!criterion) return { error: "找不到這個條件" };
+  await requireBoardAccess(criterion.gate.boardId, session);
+  if (criterion.gate.status === "PASSED" || criterion.gate.status === "WAIVED") {
+    return { error: "這個閘門已經放行,條件不能再改。要重新審查請先退回待審。" };
+  }
+  const mine = await prisma.gateCriterionApprover.findUnique({
+    where: { criterionId_userId: { criterionId, userId: session.userId } },
+  });
+  if (!mine) return { error: "你不是這一條的確認人" };
+  const note = comment.trim();
+  if (decision === "REJECTED" && !note) return { error: "不同意要寫原因,負責的人才知道要補什麼" };
+  if (note.length > 2000) return { error: "備註太長了(上限 2000 字)" };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.gateCriterionApprover.update({
+      where: { criterionId_userId: { criterionId, userId: session.userId } },
+      data: { decision, decidedAt: new Date(), comment: note || null },
+    });
+    const all = await tx.gateCriterionApprover.findMany({ where: { criterionId }, select: { decision: true } });
+    await tx.gateCriterion.update({
+      where: { id: criterionId },
+      data: { met: metFromDecisions(all.map((a) => a.decision)) === true },
+    });
+  });
+  await notifyCriterionSigned(criterionId, session.userId, decision === "APPROVED", note || null);
+  revalidatePath(`/boards/${criterion.gate.boardId}`);
+  revalidatePath("/approvals");
   return {};
 }
 

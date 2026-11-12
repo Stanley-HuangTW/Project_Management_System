@@ -23,6 +23,13 @@ import {
   type SelectableRow,
 } from "@/lib/approvalSelection";
 import { actionErrorMessage } from "@/lib/userError";
+import {
+  listApprovalExtras,
+  listApprovalHistory,
+  type ApprovalExtras,
+  type ApprovalHistoryRow,
+} from "@/lib/actions/approvalExtras";
+import { ApprovalExtrasSections, ApprovalHistory, hasExtras } from "./ApprovalExtrasSections";
 
 /** 下拉選單裡一個人的字樣:全選的前面 ✓、選了一部分的前面 ◐,後面是筆數。 */
 function personOptionLabel(person: PersonGroup, picked: ReadonlySet<string>): string {
@@ -73,14 +80,26 @@ export function ApprovalQueue() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
-  const reload = useCallback(async () => setQueue(await listApprovalQueue()), []);
+  const [extras, setExtras] = useState<ApprovalExtras | null>(null);
+  const [history, setHistory] = useState<ApprovalHistoryRow[]>([]);
+  const [tab, setTab] = useState<"pending" | "history">("pending");
+
+  /** 處理完一筆之後三份一起重讀:待辦少一筆、「已處理」多一筆。 */
+  const reload = useCallback(async () => {
+    const [q, e, h] = await Promise.all([listApprovalQueue(), listApprovalExtras(), listApprovalHistory()]);
+    setQueue(q);
+    setExtras(e);
+    setHistory(h);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const result = await listApprovalQueue();
+      const [result, e, h] = await Promise.all([listApprovalQueue(), listApprovalExtras(), listApprovalHistory()]);
       if (!cancelled) {
         setQueue(result);
+        setExtras(e);
+        setHistory(h);
         setLoading(false);
       }
     })();
@@ -125,11 +144,49 @@ export function ApprovalQueue() {
   if (loading) return <p className="text-sm text-neutral-400 dark:text-neutral-500">載入中...</p>;
   if (!queue) return null;
 
-  if (!queue.isApprover) {
+  const pendingExtras = hasExtras(extras);
+  const tabBar = (
+    <nav className="flex gap-1 border-b border-neutral-200 dark:border-neutral-700" data-approval-tabs>
+      {(
+        [
+          ["pending", "待處理"],
+          ["history", `已處理 (${history.length})`],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setTab(id)}
+          data-approval-tab={id}
+          className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+            tab === id
+              ? "border-blue-600 font-medium text-blue-600 dark:text-blue-400"
+              : "border-transparent text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+
+  if (tab === "history") {
     return (
-      <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-12 text-center text-sm text-neutral-400 dark:text-neutral-500">
-        沒有人以你為主管,所以沒有東西需要你審核。
-      </p>
+      <div className="space-y-4">
+        {tabBar}
+        <ApprovalHistory rows={history} busy={busy} run={run} />
+      </div>
+    );
+  }
+
+  if (!queue.isApprover && !pendingExtras) {
+    return (
+      <div className="space-y-4">
+        {tabBar}
+        <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-12 text-center text-sm text-neutral-400 dark:text-neutral-500">
+          目前沒有東西需要你審核。
+        </p>
+      </div>
     );
   }
 
@@ -187,7 +244,9 @@ export function ApprovalQueue() {
 
   return (
     <div className="space-y-5">
-      {total === 0 && (
+      {tabBar}
+      {extras && <ApprovalExtrasSections extras={extras} busy={busy} run={run} />}
+      {total === 0 && !pendingExtras && (
         <p className="rounded-md border border-dashed border-neutral-200 dark:border-neutral-700 py-12 text-center text-sm text-neutral-400 dark:text-neutral-500">
           目前沒有待審的項目。
         </p>

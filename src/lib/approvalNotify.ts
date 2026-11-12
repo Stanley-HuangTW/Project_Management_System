@@ -134,6 +134,45 @@ export async function notifyGateSigned(gateId: string, signerId: string, approve
   }
 }
 
+/** 出口條件指定了確認人:通知新加的人「邀請你確認」。 */
+export async function notifyCriterionInvited(criterionId: string, actorId: string, userIds: string[]) {
+  if (userIds.length === 0) return;
+  try {
+    const c = await prisma.gateCriterion.findUnique({
+      where: { id: criterionId },
+      select: { text: true, gate: { select: { name: true } } },
+    });
+    if (!c) return;
+    await notifyApproval({
+      userIds,
+      actorId,
+      link: APPROVALS_LINK,
+      message: `${await nameOf(actorId)}邀請你確認閘門「${c.gate.name}」的出口條件「${c.text}」(同意 / 不同意,可寫備註)`,
+    });
+  } catch {
+    // 通知不能讓指定失敗。
+  }
+}
+
+/** 確認人對出口條件表態:通知看板擁有者;全部同意讓這一條達成時一併說明。 */
+export async function notifyCriterionSigned(criterionId: string, signerId: string, approved: boolean, comment: string | null) {
+  try {
+    const c = await prisma.gateCriterion.findUnique({
+      where: { id: criterionId },
+      select: { text: true, met: true, gate: { select: { name: true, boardId: true, board: { select: { ownerId: true } } } } },
+    });
+    if (!c) return;
+    await notifyApproval({
+      userIds: [c.gate.board.ownerId],
+      actorId: signerId,
+      link: `/boards/${c.gate.boardId}?view=gates`,
+      message: `${await nameOf(signerId)}${approved ? "同意" : "不同意"}閘門「${c.gate.name}」的出口條件「${c.text}」${comment ? `:${comment}` : ""}${c.met ? "(全部確認人都同意,這一條已達成)" : ""}`,
+    });
+  } catch {
+    // 通知不能讓表態失敗。
+  }
+}
+
 /** 閘門最後的結論(放行 / 有條件放行 / 不通過):通知簽核人與送審的人(操作的人除外)。 */
 export async function notifyGateDecided(gateId: string, deciderId: string, outcome: "放行" | "有條件放行" | "不通過", note: string | null) {
   try {

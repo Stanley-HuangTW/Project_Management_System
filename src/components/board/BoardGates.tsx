@@ -17,6 +17,8 @@ import {
   addCriterion,
   setCriterionMet,
   deleteCriterion,
+  setCriterionApprovers,
+  signCriterion,
   setApprovers,
   submitGate,
   reopenGate,
@@ -24,6 +26,7 @@ import {
   decideGate,
   type GateBoardView,
   type GateRow,
+  type GateCriterionRow,
 } from "@/lib/actions/gate";
 
 const STATUS_LABELS: Record<GateStatus, string> = {
@@ -243,6 +246,112 @@ export function BoardGates({
   );
 }
 
+/**
+ * 一條出口條件的確認人:列出每個人同意 / 不同意與備註;被指定的人(canSign)可以在這裡表態並寫備註;
+ * 有設定權限的人可以加人、拿掉人。有確認人時,這一條「達成」由大家表態決定(全部同意才算)。
+ */
+function CriterionApprovers({
+  criterion,
+  staff,
+  canManage,
+  busy,
+  run,
+}: {
+  criterion: GateCriterionRow;
+  staff: UserOption[];
+  canManage: boolean;
+  busy: boolean;
+  run: (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
+}) {
+  const [comment, setComment] = useState("");
+  const ids = criterion.approvers.map((a) => a.userId);
+  if (criterion.approvers.length === 0 && !canManage) return null;
+
+  return (
+    <div className="ml-6 w-full space-y-1" data-criterion-approvers={criterion.id}>
+      {criterion.approvers.map((a) => (
+        <div key={a.userId} className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="w-24 shrink-0 truncate text-neutral-600 dark:text-neutral-300">{a.userName}</span>
+          {a.decision === "APPROVED" ? (
+            <span className="flex items-center gap-0.5 text-green-600">
+              <Check size={11} /> 同意
+            </span>
+          ) : a.decision === "REJECTED" ? (
+            <span className="flex items-center gap-0.5 text-red-600">
+              <X size={11} /> 不同意
+            </span>
+          ) : (
+            <span className="text-neutral-400 dark:text-neutral-500">未表態</span>
+          )}
+          {a.decidedAt && <span className="tabular-nums text-neutral-400 dark:text-neutral-500">{a.decidedAt.slice(0, 10)}</span>}
+          {a.comment && <span className="min-w-0 flex-1 truncate text-neutral-500 dark:text-neutral-400">{a.comment}</span>}
+          {canManage && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                run(() => setCriterionApprovers(criterion.id, ids.filter((id) => id !== a.userId)), "無法移除確認人")
+              }
+              className="text-neutral-300 hover:text-red-600 dark:text-neutral-600"
+              aria-label={`移除確認人 ${a.userName}`}
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      ))}
+
+      {criterion.canSign && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-blue-200 bg-blue-50 p-1.5 dark:border-blue-900 dark:bg-blue-950/40">
+          <span className="text-[11px] font-medium text-blue-900 dark:text-blue-200">你是這一條的確認人</span>
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="備註(不同意要寫原因)"
+            className="min-w-0 flex-1 rounded-md border border-neutral-300 px-2 py-0.5 text-[11px] outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+          />
+          <button
+            type="button"
+            disabled={busy}
+            data-criterion-approve
+            onClick={async () => {
+              if (await run(() => signCriterion(criterion.id, "APPROVED", comment), "無法表態")) setComment("");
+            }}
+            className="rounded bg-green-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-green-700 disabled:opacity-40"
+          >
+            同意
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            data-criterion-reject
+            onClick={async () => {
+              if (await run(() => signCriterion(criterion.id, "REJECTED", comment), "無法表態")) setComment("");
+            }}
+            className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-red-700 disabled:opacity-40"
+          >
+            不同意
+          </button>
+        </div>
+      )}
+
+      {canManage && (
+        <UserSelect
+          users={staff.filter((u) => !ids.includes(u.id))}
+          value=""
+          disabled={busy}
+          placeholder={criterion.approvers.length === 0 ? "指定確認人(可多位)…" : "再加一位確認人…"}
+          onChange={(userId) => {
+            if (!userId) return;
+            run(() => setCriterionApprovers(criterion.id, [...ids, userId]), "無法指定確認人");
+          }}
+          className="w-56 rounded-md border border-neutral-300 px-2 py-0.5 text-[11px] outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
+        />
+      )}
+    </div>
+  );
+}
+
 function GateCard({
   gate,
   staff,
@@ -415,11 +524,12 @@ function GateCard({
             ) : (
               <ul className="space-y-1">
                 {gate.criteria.map((criterion) => (
-                  <li key={criterion.id} className="flex items-center gap-2 text-xs">
+                  <li key={criterion.id} className="flex flex-wrap items-center gap-2 text-xs">
                     <input
                       type="checkbox"
                       checked={criterion.met}
-                      disabled={busy || gate.status === "PASSED" || gate.status === "WAIVED"}
+                      title={criterion.approvers.length > 0 ? "有指定確認人:是否達成由他們表態決定" : undefined}
+                      disabled={busy || gate.status === "PASSED" || gate.status === "WAIVED" || criterion.approvers.length > 0}
                       onChange={(e) =>
                         run(() => setCriterionMet(criterion.id, e.target.checked), "無法更新條件")
                       }
@@ -451,6 +561,13 @@ function GateCard({
                         <X size={12} />
                       </button>
                     )}
+                    <CriterionApprovers
+                      criterion={criterion}
+                      staff={staff}
+                      canManage={canManage && !decided}
+                      busy={busy}
+                      run={run}
+                    />
                   </li>
                 ))}
               </ul>

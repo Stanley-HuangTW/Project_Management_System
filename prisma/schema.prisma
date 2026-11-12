@@ -160,6 +160,7 @@ model User {
   groupRoleAssignments    GroupRoleAssignment[]    @relation("GroupRoleAssignments")
   groupMemberships        GroupMember[]            @relation("GroupMembers")
   gateApprovals           GateApprover[]
+  gateCriterionApprovals  GateCriterionApprover[] @relation("GateCriterionApprover")
   requestedChanges        ChangeRequest[]          @relation("ChangeRequester")
   decidedChanges          ChangeRequest[]          @relation("ChangeDecider")
   decidedTimeEntries      TimeEntry[]              @relation("TimeEntryDecider")
@@ -1859,8 +1860,27 @@ model GateCriterion {
   /// 佐證的工作項,有的話。同樣存純 id。
   itemId   String?
   order    Int     @default(0)
+  /// 負責確認這一條的人(可以多位)。有人時,「達成」由他們表態決定:全部同意才算達成。
+  approvers GateCriterionApprover[]
 
   @@index([gateId])
+}
+
+/// 出口條件的一位確認人:同意 / 不同意,可以寫備註。
+model GateCriterionApprover {
+  id          String        @id @default(cuid())
+  criterionId String
+  criterion   GateCriterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation("GateCriterionApprover", fields: [userId], references: [id], onDelete: Cascade)
+  /// null = 還沒表態。
+  decision    GateDecision?
+  decidedAt   DateTime?
+  comment     String?
+
+  @@unique([criterionId, userId])
+  @@index([criterionId])
+  @@index([userId])
 }
 
 /// 一位簽核人。每個人各自表態,缺一個就還沒過。
