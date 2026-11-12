@@ -53,6 +53,7 @@ import { applyStoredOrder } from "@/lib/sidebarOrder";
 import { SortableList } from "@/components/ui/SortableList";
 import { logout } from "@/lib/actions/auth";
 import { knownErrorMessage } from "@/lib/userError";
+import { PendingApprovalsPill } from "@/components/approvals/PendingApprovalsPill";
 
 type Board = { id: string; name: string; ownerId: string };
 /** A 專案群組 and how many of its boards this person can open — a group whose
@@ -462,6 +463,7 @@ export function BoardSidebar({
           >
             <ClipboardCheck size={14} className="shrink-0" />
             待我審核
+            <PendingApprovalsPill />
           </Link>
         )}
         <Link

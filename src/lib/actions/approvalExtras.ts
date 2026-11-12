@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { canManageStructure } from "@/lib/permissions";
+import { listApprovalQueue } from "@/lib/actions/approval";
 
 /**
  * 「待我審核」除了工時與請假,還有:出口條件要我確認、閘門要我簽核、風險 / 議題要我審核結案、變更單等我核准。
@@ -142,6 +143,23 @@ export async function listApprovalExtras(): Promise<ApprovalExtras> {
       requestedByName: c.requestedBy?.name ?? null,
     })),
   };
+}
+
+/**
+ * 等你審核的件數(工時、請假,加上出口條件、閘門、風險議題、變更單):側邊欄「待我審核」旁與鈴鐺上的提示用。
+ * 跟待我審核頁列的是同一份,所以兩邊數字一致。
+ */
+export async function getPendingApprovalCount(): Promise<number> {
+  const [queue, extras] = await Promise.all([listApprovalQueue(), listApprovalExtras()]);
+  return (
+    queue.timeEntries.length +
+    queue.activityEntries.length +
+    queue.leaves.length +
+    extras.criteria.length +
+    extras.gates.length +
+    extras.risks.length +
+    extras.changes.length
+  );
 }
 
 export type ApprovalHistoryKind = "leave" | "time" | "activity" | "criterion" | "gate" | "risk" | "change";

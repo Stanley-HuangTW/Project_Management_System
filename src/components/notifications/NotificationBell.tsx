@@ -10,6 +10,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from "@/lib/actions/notification";
+import { usePendingApprovalCount } from "@/components/approvals/usePendingApprovalCount";
 import { NotificationPreferencesModal } from "./NotificationPreferencesModal";
 import { NOTIFICATION_TYPE_STYLES as NOTIFICATION_TYPE } from "./typeStyles";
 
@@ -34,6 +35,7 @@ function nonce(): string {
 
 export function NotificationBell() {
   const router = useRouter();
+  const pendingApprovals = usePendingApprovalCount();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<
     Awaited<ReturnType<typeof listNotifications>>
@@ -112,6 +114,16 @@ export function NotificationBell() {
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
+          {/* 右下角橘色:有幾件事項等你審核(出口條件、閘門、風險議題、變更單、工時、請假)。 */}
+          {pendingApprovals > 0 && (
+            <span
+              data-pending-approvals-badge
+              title={`${pendingApprovals} 件事項等你審核`}
+              className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium text-white"
+            >
+              {pendingApprovals > 9 ? "9+" : pendingApprovals}
+            </span>
+          )}
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -123,6 +135,17 @@ export function NotificationBell() {
             e.currentTarget.scrollTop += e.deltaY;
           }}
         >
+          {/* 等你審核的事項(跟「待我審核」頁同一份件數):就算通知已經讀過,只要還沒處理,這裡一直在。 */}
+          {pendingApprovals > 0 && (
+            <DropdownMenu.Item
+              data-pending-approvals
+              onSelect={() => router.push("/approvals")}
+              className="mb-1 flex cursor-pointer items-center justify-between gap-2 rounded bg-amber-50 px-2 py-1.5 text-sm text-amber-800 outline-none hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+            >
+              <span>有 {pendingApprovals} 件事項等你審核</span>
+              <span className="text-xs">前往「待我審核」→</span>
+            </DropdownMenu.Item>
+          )}
           <div className="flex items-center justify-between px-2 py-1">
             <span className="text-xs text-neutral-400 dark:text-neutral-500">通知</span>
             <span className="flex items-center gap-2">

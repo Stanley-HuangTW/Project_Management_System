@@ -30,6 +30,7 @@ import {
   type ApprovalHistoryRow,
 } from "@/lib/actions/approvalExtras";
 import { ApprovalExtrasSections, ApprovalHistory, hasExtras } from "./ApprovalExtrasSections";
+import { APPROVALS_CHANGED_EVENT } from "./usePendingApprovalCount";
 
 /** 下拉選單裡一個人的字樣:全選的前面 ✓、選了一部分的前面 ◐,後面是筆數。 */
 function personOptionLabel(person: PersonGroup, picked: ReadonlySet<string>): string {
@@ -90,6 +91,8 @@ export function ApprovalQueue() {
     setQueue(q);
     setExtras(e);
     setHistory(h);
+    // 側邊欄與鈴鐺上的件數跟著更新,不用等下一次輪詢。
+    window.dispatchEvent(new Event(APPROVALS_CHANGED_EVENT));
   }, []);
 
   useEffect(() => {

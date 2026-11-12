@@ -547,10 +547,14 @@ export async function decideBatch(
 export async function hasApprovalRole(): Promise<boolean> {
   const session = await requireSession();
   if (session.role === "ADMIN") return true;
-  const [reports, roles, deputyRoles] = await Promise.all([
+  const [reports, roles, deputyRoles, criterionSigner, gateSigner, riskReviewer] = await Promise.all([
     prisma.user.count({ where: { supervisorId: session.userId } }),
     prisma.groupRoleAssignment.count({ where: { userId: session.userId, role: { in: [...APPROVER_ROLES] } } }),
     prisma.orgRole.count({ where: { userId: session.userId, canApprove: true } }),
+    // 被指定為出口條件確認人、閘門簽核人、風險 / 議題審核人的人,沒有部屬也要看得到「待我審核」。
+    prisma.gateCriterionApprover.count({ where: { userId: session.userId } }),
+    prisma.gateApprover.count({ where: { userId: session.userId } }),
+    prisma.riskReviewer.count({ where: { userId: session.userId } }),
   ]);
-  return reports > 0 || roles > 0 || deputyRoles > 0;
+  return reports > 0 || roles > 0 || deputyRoles > 0 || criterionSigner > 0 || gateSigner > 0 || riskReviewer > 0;
 }
