@@ -1,4 +1,4 @@
-import type { GanttDurationMode, ItemConstraintType } from "@prisma/client";
+import type { GanttDurationMode, ItemConstraintRefEdge, ItemConstraintType } from "@prisma/client";
 import type { DateRange } from "@/lib/gantt";
 import { shiftDate } from "@/lib/workday";
 
@@ -156,4 +156,57 @@ export function pinnedScheduleReason(constraint: ItemConstraint): string | null 
 export function describeConstraint(constraint: ItemConstraint): string | null {
   if (!constraint.type || !constraint.date) return null;
   return `${CONSTRAINT_LABELS[constraint.type]} ${constraint.date}`;
+}
+
+/** 約束日期跟著前置任務的哪一端。 */
+export type ConstraintRefEdge = ItemConstraintRefEdge;
+
+export const CONSTRAINT_REF_EDGE_LABELS: Record<ConstraintRefEdge, string> = {
+  START: "開始日",
+  FINISH: "完成日",
+};
+
+/** 設定約束時的日期來源:固定日期,或這個項目某個前置任務的開始日 / 完成日(日期跟著它走)。 */
+export type ConstraintSourceInput =
+  | { kind: "FIXED"; date: string }
+  | { kind: "PRED"; predItemId: string; edge: ConstraintRefEdge };
+
+/** 約束日期取自前置任務時,項目身上存的那兩個欄位 + 存下來的日期。 */
+export type StoredConstraint = {
+  constraintType: ItemConstraintType | null;
+  constraintDate: string | null;
+  constraintRefItemId?: string | null;
+  constraintRefEdge?: ConstraintRefEdge | null;
+};
+
+/**
+ * 項目現在實際生效的約束。
+ *
+ * 約束日期可以是固定的,也可以跟著這個項目的某個前置任務的開始日或完成日走。跟著走的時候,日期取自
+ * 前置任務**現在**的起訖(readRange),前置任務一動,約束就跟著動;排程引擎把算出來的日期存回
+ * constraintDate,所以只讀 constraintDate 的地方(畫面、匯出、複製)永遠看得到一個日期。
+ *
+ * 跟著走的前提是:前置任務還在這個項目的 Pred 裡。不在了(被拿掉、被刪、搬到別處)就沿用存下來的日期當固定日期,
+ * refDropped 回 true,讓引擎把「跟著前置任務」這件事清掉——不會因為前置任務消失就讓約束消失,也不會
+ * 悄悄跟著一個已經沒有關係的項目走。前置任務還沒有日期(算不出來)時,同樣沿用存下來的日期、不清掉。
+ */
+export function resolveConstraint(
+  item: StoredConstraint,
+  predecessorIds: readonly string[],
+  readRange: (itemId: string) => DateRange | null
+): { constraint: ItemConstraint; followsPred: boolean; refDropped: boolean } {
+  const stored: ItemConstraint = { type: item.constraintType, date: item.constraintDate };
+  const refId = item.constraintRefItemId ?? null;
+  const edge = item.constraintRefEdge ?? null;
+  if (!item.constraintType || !refId || !edge) return { constraint: stored, followsPred: false, refDropped: false };
+  if (!predecessorIds.includes(refId)) return { constraint: stored, followsPred: false, refDropped: true };
+  const range = readRange(refId);
+  if (!range) return { constraint: stored, followsPred: true, refDropped: false };
+  const date = (edge === "START" ? range.start : range.end).toISOString().slice(0, 10);
+  return { constraint: { type: item.constraintType, date }, followsPred: true, refDropped: false };
+}
+
+/** 約束日期的來源,給畫面與稽核紀錄用的一句話:「前置任務 1.2 xxx 的完成日」。 */
+export function describeConstraintSource(refLabel: string, edge: ConstraintRefEdge): string {
+  return `前置任務 ${refLabel} 的${CONSTRAINT_REF_EDGE_LABELS[edge]}`;
 }

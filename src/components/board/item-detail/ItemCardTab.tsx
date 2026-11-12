@@ -367,6 +367,8 @@ export function ItemCardTab({
                 itemId={item.id}
                 type={item.constraintType}
                 date={item.constraintDate}
+                refItemId={item.constraintRefItemId}
+                refEdge={item.constraintRefEdge}
                 canEdit={canModifySchedule}
                 currentEnd={typeof currentEnd === "string" ? currentEnd : null}
                 durationDays={

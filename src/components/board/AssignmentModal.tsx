@@ -417,6 +417,8 @@ export function AssignmentModal({
             itemId={item.id}
             type={item.constraintType}
             date={item.constraintDate}
+            refItemId={item.constraintRefItemId}
+            refEdge={item.constraintRefEdge}
             canEdit={canEditSchedule}
             currentEnd={typeof endValueForConstraint === "string" ? endValueForConstraint : null}
             durationDays={typeof durationValueForConstraint === "number" ? durationValueForConstraint : null}

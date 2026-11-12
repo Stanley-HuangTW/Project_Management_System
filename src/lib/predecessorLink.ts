@@ -4,7 +4,7 @@ import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays, shiftDate } from "@/lib/workday";
-import { applyConstraint, constraintConflictDetail, pinnedRange, pinsFinish } from "@/lib/constraints";
+import { applyConstraint, constraintConflictDetail, pinnedRange, pinsFinish, resolveConstraint } from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -558,6 +558,8 @@ async function buildScheduleContext(
         boardId: true,
         constraintType: true,
         constraintDate: true,
+        constraintRefItemId: true,
+        constraintRefEdge: true,
       },
     }),
     listHolidays(),
@@ -704,12 +706,35 @@ async function buildScheduleContext(
     return { myDays, baseRange, scheduled };
   }
 
+  /** 項目現在實際生效的約束:日期可能跟著前置任務的開始日 / 完成日走(見 resolveConstraint)。 */
+  function constraintResolved(item: (typeof items)[number]) {
+    return resolveConstraint(item, predecessorsOf(item.id), readRange);
+  }
+
+  /**
+   * 跟著前置任務走的約束:把這次算出來的日期存回 constraintDate(畫面、匯出、複製讀到的才是同一個日期);
+   * 前置任務已經不在 Pred 裡,就把「跟著前置任務」清掉、日期留作固定日期。預覽(dryRun)只改記憶體。
+   */
+  async function syncConstraintRef(item: (typeof items)[number], resolved: ReturnType<typeof constraintResolved>) {
+    const data: { constraintDate?: string; constraintRefItemId?: null; constraintRefEdge?: null } = {};
+    if (resolved.refDropped) {
+      data.constraintRefItemId = null;
+      data.constraintRefEdge = null;
+    } else if (resolved.followsPred && resolved.constraint.date && resolved.constraint.date !== item.constraintDate) {
+      data.constraintDate = resolved.constraint.date;
+    }
+    if (Object.keys(data).length === 0) return;
+    Object.assign(item, data);
+    if (dryRun) return;
+    await prisma.item.update({ where: { id: item.id }, data });
+  }
+
   /** Does this item's 必須完成於 fight its predecessors? Null when it doesn't
    *  (or there is nothing pinned). Reads the predecessors' stored dates. */
   function constraintConflictOf(id: string): { message: string; short: string } | null {
     const item = itemsById.get(id);
     if (!item) return null;
-    const constraint = { type: item.constraintType, date: item.constraintDate };
+    const constraint = constraintResolved(item).constraint;
     if (!pinsFinish(constraint)) return null; // nothing pinned: skip the predecessor walk
     const { myDays, scheduled } = chainOf(item);
     return constraintConflictDetail(scheduled, myDays, constraint, cfgOf(item).mode, holidays);
@@ -836,7 +861,8 @@ async function buildScheduleContext(
         await writeRolledUp(item, rollUp);
       } else {
         const { myDays, baseRange, scheduled } = chainOf(item);
-        const constraint = { type: item.constraintType, date: item.constraintDate };
+        const resolved = constraintResolved(item);
+        const constraint = resolved.constraint;
         // A finish date that is pinned needs no predecessor and no start(set):
         // the length alone counts the start back from it. Not for a summary that
         // follows its children — its dates are their span, not a length of its own.
@@ -851,6 +877,7 @@ async function buildScheduleContext(
           ? applyConstraint(computed, myDays, constraint, cfg.mode, holidays).range
           : null;
         if (effective) await writeRange(id, effective, myDays);
+        await syncConstraintRef(item, resolved);
       }
     }
 
@@ -1100,6 +1127,48 @@ export type ConstraintConflict = {
   short: string;
 };
 
+/** 這個項目 Pred 裡的前置任務:「約束日期跟著前置任務」的選單用——代號、名稱、現在的起訖。 */
+export type ItemPredecessor = {
+  itemId: string;
+  /** 在它自己分組裡的 WBS 代號。 */
+  wbsCode: string;
+  name: string;
+  /** 跟這個項目不同看板時才有。 */
+  boardName: string | null;
+  /** "YYYY-MM-DD",還沒有日期是 null。 */
+  start: string | null;
+  end: string | null;
+};
+
+export async function listItemPredecessors(boardId: string, itemId: string): Promise<ItemPredecessor[]> {
+  const ctx = await buildScheduleContext(boardId, true);
+  if (!ctx) return [];
+  const own = ctx.itemsById.get(itemId);
+  if (!own) return [];
+  const ids = [...new Set(ctx.predecessorsOf(itemId))];
+  const otherBoardIds = [...new Set(ids.map((id) => ctx.itemsById.get(id)?.boardId).filter((b): b is string => !!b && b !== own.boardId))];
+  const boardNames = new Map(
+    otherBoardIds.length > 0
+      ? (await prisma.board.findMany({ where: { id: { in: otherBoardIds } }, select: { id: true, name: true } })).map((b) => [b.id, b.name] as const)
+      : []
+  );
+  return ids.flatMap((id) => {
+    const pred = ctx.itemsById.get(id);
+    if (!pred) return [];
+    const range = ctx.readRange(id);
+    return [
+      {
+        itemId: id,
+        wbsCode: ctx.wbsByItemId.get(id) ?? "",
+        name: pred.name,
+        boardName: pred.boardId !== own.boardId ? (boardNames.get(pred.boardId) ?? null) : null,
+        start: range ? isoDate(range.start) : null,
+        end: range ? isoDate(range.end) : null,
+      },
+    ];
+  });
+}
+
 /**
  * 「必須完成於」跟前置依賴打架的項目:這個項目自己,加上(downstream)它後面接著排的所有項目——
  * 改了一個項目的日期,後面某個被釘住的項目可能就被推到約束之外,改的人要知道。
@@ -1225,6 +1294,8 @@ export async function previewScheduleChange(
         groupId: true,
         constraintType: true,
         constraintDate: true,
+        constraintRefItemId: true,
+        constraintRefEdge: true,
       },
     }),
     listHolidays(),
@@ -1268,7 +1339,15 @@ export async function previewScheduleChange(
   if (!scheduled && alwaysComputed && baseRange) {
     scheduled = baseRange;
   }
-  const constraint = { type: item.constraintType, date: item.constraintDate };
+  // 約束日期跟著前置任務時,取這個(預覽中的)Pred 裡那個前置任務現在的日期。
+  const constraint = resolveConstraint(
+    item,
+    predEntries.map((entry) => entry.itemId),
+    (predItemId) => {
+      const predItem = itemsById.get(predItemId);
+      return predItem ? getItemDateRange(predItem, startId, durId, mode, holidays) : null;
+    }
+  ).constraint;
   if (!scheduled) scheduled = pinnedRange(myDays, constraint, mode, holidays);
   if (!scheduled) return null;
   // Same constraint the real recompute applies, so the preview shows the dates

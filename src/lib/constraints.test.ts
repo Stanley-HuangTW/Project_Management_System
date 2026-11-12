@@ -6,6 +6,7 @@ import {
   pinnedRange,
   pinnedScheduleReason,
   pinsFinish,
+  resolveConstraint,
 } from "./constraints";
 
 const range = (start: string, end: string) => ({ start: new Date(start), end: new Date(end) });
@@ -189,5 +190,38 @@ describe("pinnedScheduleReason", () => {
   it("is null when the finish is not pinned", () => {
     expect(pinnedScheduleReason({ type: "FINISH_NO_LATER_THAN", date: "2026-11-03" })).toBeNull();
     expect(pinnedScheduleReason({ type: null, date: null })).toBeNull();
+  });
+});
+
+describe("resolveConstraint:約束日期跟著前置任務", () => {
+  const ranges: Record<string, ReturnType<typeof range>> = { A: range("2026-11-02", "2026-11-06") };
+  const read = (id: string) => ranges[id] ?? null;
+  const base = { constraintType: "MUST_FINISH_ON" as const, constraintDate: "2026-01-01", constraintRefItemId: "A", constraintRefEdge: "FINISH" as const };
+
+  it("跟著完成日 / 開始日:日期取自前置任務現在的起訖", () => {
+    expect(resolveConstraint(base, ["A"], read)).toEqual({ constraint: { type: "MUST_FINISH_ON", date: "2026-11-06" }, followsPred: true, refDropped: false });
+    expect(resolveConstraint({ ...base, constraintRefEdge: "START" }, ["A"], read).constraint.date).toBe("2026-11-02");
+  });
+
+  it("沒有跟著誰(固定日期)、或沒有約束類型:原樣回傳存著的", () => {
+    expect(resolveConstraint({ constraintType: "MUST_FINISH_ON", constraintDate: "2026-11-03" }, ["A"], read)).toEqual({
+      constraint: { type: "MUST_FINISH_ON", date: "2026-11-03" },
+      followsPred: false,
+      refDropped: false,
+    });
+    expect(resolveConstraint({ ...base, constraintType: null }, ["A"], read).constraint).toEqual({ type: null, date: "2026-01-01" });
+  });
+
+  it("前置任務已經不在 Pred 裡:用存著的日期,並標示要把「跟著前置任務」清掉", () => {
+    expect(resolveConstraint(base, ["X"], read)).toEqual({ constraint: { type: "MUST_FINISH_ON", date: "2026-01-01" }, followsPred: false, refDropped: true });
+    expect(resolveConstraint(base, [], read).refDropped).toBe(true);
+  });
+
+  it("前置任務還沒有日期:沿用存著的日期,不清掉(它排好之後就會跟上)", () => {
+    expect(resolveConstraint({ ...base, constraintRefItemId: "A" }, ["A"], () => null)).toEqual({
+      constraint: { type: "MUST_FINISH_ON", date: "2026-01-01" },
+      followsPred: true,
+      refDropped: false,
+    });
   });
 });

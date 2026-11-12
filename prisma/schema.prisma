@@ -42,6 +42,12 @@ enum ItemConstraintType {
   MUST_FINISH_ON
 }
 
+/// 約束日期跟著前置任務的哪一端:開始日或完成日。
+enum ItemConstraintRefEdge {
+  START
+  FINISH
+}
+
 enum GanttDurationMode {
   CALENDAR
   BUSINESS
@@ -488,7 +494,13 @@ model Item {
 
   constraintType ItemConstraintType?
   /// "YYYY-MM-DD", meaningless without a constraintType.
+  /// 有 constraintRefItemId 時,這是排程引擎每次重算存下來的「前置任務那一端的日期」(讀 constraintDate 的人
+  /// 不必知道它是固定的還是跟著前置任務走的);沒有時是使用者自己選的固定日期。
   constraintDate String?
+  /// 約束日期跟著這個前置任務(必須是這個項目 Pred 裡的其中一個)的開始日或完成日。
+  /// 存純 id、不建外鍵:前置任務被刪除或從 Pred 拿掉時,引擎把它轉成固定日期,不讓項目連帶消失。
+  constraintRefItemId String?
+  constraintRefEdge   ItemConstraintRefEdge?
 
   /// The saved plan this item is measured against — copied from its current
   /// Start/Finish/Days when the board's baseline is captured, then left alone
