@@ -8,6 +8,8 @@ import { PersonPicker } from "@/components/ui/PersonPicker";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData, UserOption } from "@/types/board";
 import { computeWbsCodes } from "@/lib/wbs";
+import { withWeekday } from "@/lib/weekdayLabel";
+import { describeDueAgainstItem } from "@/lib/riskDueWindow";
 import { ItemTreePicker } from "./ItemTreePicker";
 import {
   riskScore,
@@ -219,6 +221,19 @@ export function BoardRisks({
   }, [board]);
 
   const liveRow = editing?.id ? (risks.find((r) => r.id === editing.id) ?? null) : null;
+
+  // 選了相關工作項:列出它的起訖,並跟對策到期日比,讓人一眼看出設的期限有沒有落在那個工作項的時間內。
+  const linkedItem = editing?.input.itemId ? board.items.find((i) => i.id === editing.input.itemId) : undefined;
+  const linkedItemWindow = (() => {
+    if (!linkedItem) return null;
+    const read = (columnId: string | null) => {
+      const value = columnId ? linkedItem.cellValues.find((cv) => cv.columnId === columnId)?.value : null;
+      return typeof value === "string" ? value : null;
+    };
+    const start = read(board.ganttStartColumnId);
+    const end = read(board.ganttEndColumnId);
+    return { start, end, note: describeDueAgainstItem(editing?.input.dueDate ?? null, start, end) };
+  })();
   // 新增時自己就是建立者;既有的看 server 算出來的權限。
   const canEditContent = !editing?.id || !!liveRow?.permissions.canEditContent;
   // Mantis 同步來的列:這一類欄位有沒有開寫回(沒開的唯讀,要到 Mantis 改);一般的風險 / 議題每個欄位都可以改。
@@ -759,6 +774,33 @@ export function BoardRisks({
                 </div>
               </label>
             </div>
+
+            {linkedItemWindow && (
+              <div
+                data-risk-item-window
+                className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs dark:border-neutral-700 dark:bg-neutral-800"
+              >
+                <p className="text-neutral-600 dark:text-neutral-300">
+                  工作項的時間:
+                  <span className="tabular-nums">
+                    {linkedItemWindow.start ? withWeekday(linkedItemWindow.start) : "未設定"} ~{" "}
+                    {linkedItemWindow.end ? withWeekday(linkedItemWindow.end) : "未設定"}
+                  </span>
+                </p>
+                <p
+                  className={
+                    linkedItemWindow.note.tone === "warn"
+                      ? "mt-0.5 text-amber-700 dark:text-amber-300"
+                      : linkedItemWindow.note.tone === "ok"
+                        ? "mt-0.5 text-green-700 dark:text-green-400"
+                        : "mt-0.5 text-neutral-500 dark:text-neutral-400"
+                  }
+                >
+                  {linkedItemWindow.note.tone === "warn" ? "⚠ " : linkedItemWindow.note.tone === "ok" ? "✓ " : ""}
+                  {linkedItemWindow.note.text}
+                </p>
+              </div>
+            )}
 
             <div>
               <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">

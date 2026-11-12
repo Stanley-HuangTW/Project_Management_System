@@ -42,10 +42,11 @@ enum ItemConstraintType {
   MUST_FINISH_ON
 }
 
-/// 約束日期跟著前置任務的哪一端:開始日或完成日。
+/// 約束日期跟著前置任務的哪個位置:開始日、完成日,或它期間內的第 N 天(DAY,N 存在 constraintRefDay)。
 enum ItemConstraintRefEdge {
   START
   FINISH
+  DAY
 }
 
 enum GanttDurationMode {
@@ -501,6 +502,9 @@ model Item {
   /// 存純 id、不建外鍵:前置任務被刪除或從 Pred 拿掉時,引擎把它轉成固定日期,不讓項目連帶消失。
   constraintRefItemId String?
   constraintRefEdge   ItemConstraintRefEdge?
+  /// constraintRefEdge 為 DAY 時:前置任務期間的第幾天(從 1 算起,依前置任務自己看板的工作天 / 日曆天);
+  /// 期間縮短到不足 N 天就取最後一天。其他位置不看這個欄位。
+  constraintRefDay    Int?
 
   /// The saved plan this item is measured against — copied from its current
   /// Start/Finish/Days when the board's baseline is captured, then left alone

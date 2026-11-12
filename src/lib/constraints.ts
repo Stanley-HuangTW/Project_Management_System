@@ -158,25 +158,41 @@ export function describeConstraint(constraint: ItemConstraint): string | null {
   return `${CONSTRAINT_LABELS[constraint.type]} ${constraint.date}`;
 }
 
-/** 約束日期跟著前置任務的哪一端。 */
+/** 約束日期跟著前置任務的哪個位置:開始日、完成日,或它期間內的第 N 天。 */
 export type ConstraintRefEdge = ItemConstraintRefEdge;
 
 export const CONSTRAINT_REF_EDGE_LABELS: Record<ConstraintRefEdge, string> = {
-  START: "開始日",
-  FINISH: "完成日",
+  START: "起始時間",
+  FINISH: "結束時間",
+  DAY: "期間內的某一天",
 };
 
-/** 設定約束時的日期來源:固定日期,或這個項目某個前置任務的開始日 / 完成日(日期跟著它走)。 */
+/** 設定約束時的日期來源:固定日期,或這個項目某個前置任務的起始 / 結束 / 期間內第 N 天(日期跟著它走)。 */
 export type ConstraintSourceInput =
   | { kind: "FIXED"; date: string }
-  | { kind: "PRED"; predItemId: string; edge: ConstraintRefEdge };
+  | {
+      kind: "PRED";
+      predItemId: string;
+      edge: ConstraintRefEdge;
+      /** edge 為 DAY 時:前置任務期間的第幾天(從 1 算起)。 */
+      day?: number;
+    };
 
-/** 約束日期取自前置任務時,項目身上存的那兩個欄位 + 存下來的日期。 */
+/** 約束日期取自前置任務時,項目身上存的那幾個欄位 + 存下來的日期。 */
 export type StoredConstraint = {
   constraintType: ItemConstraintType | null;
   constraintDate: string | null;
   constraintRefItemId?: string | null;
   constraintRefEdge?: ConstraintRefEdge | null;
+  constraintRefDay?: number | null;
+};
+
+/** 前置任務期間的第 n 天(從 1 算起);期間不夠 n 天就取最後一天。refItemId 讓呼叫端依前置任務自己的工作天 / 日曆天算。 */
+export type NthDayOf = (refItemId: string, range: DateRange, n: number) => Date;
+
+const calendarNthDay: NthDayOf = (_refItemId, range, n) => {
+  const day = new Date(range.start.getTime() + Math.max(n - 1, 0) * 86_400_000);
+  return day.getTime() > range.end.getTime() ? range.end : day;
 };
 
 /**
@@ -193,7 +209,8 @@ export type StoredConstraint = {
 export function resolveConstraint(
   item: StoredConstraint,
   predecessorIds: readonly string[],
-  readRange: (itemId: string) => DateRange | null
+  readRange: (itemId: string) => DateRange | null,
+  nthDayOf: NthDayOf = calendarNthDay
 ): { constraint: ItemConstraint; followsPred: boolean; refDropped: boolean } {
   const stored: ItemConstraint = { type: item.constraintType, date: item.constraintDate };
   const refId = item.constraintRefItemId ?? null;
@@ -202,11 +219,13 @@ export function resolveConstraint(
   if (!predecessorIds.includes(refId)) return { constraint: stored, followsPred: false, refDropped: true };
   const range = readRange(refId);
   if (!range) return { constraint: stored, followsPred: true, refDropped: false };
-  const date = (edge === "START" ? range.start : range.end).toISOString().slice(0, 10);
-  return { constraint: { type: item.constraintType, date }, followsPred: true, refDropped: false };
+  const day = edge === "START" ? range.start : edge === "FINISH" ? range.end : nthDayOf(refId, range, item.constraintRefDay ?? 1);
+  return { constraint: { type: item.constraintType, date: day.toISOString().slice(0, 10) }, followsPred: true, refDropped: false };
 }
 
-/** 約束日期的來源,給畫面與稽核紀錄用的一句話:「前置任務 1.2 xxx 的完成日」。 */
-export function describeConstraintSource(refLabel: string, edge: ConstraintRefEdge): string {
-  return `前置任務 ${refLabel} 的${CONSTRAINT_REF_EDGE_LABELS[edge]}`;
+/** 約束日期的來源,給畫面與稽核紀錄用的一句話:「前置任務 1.2 xxx 的結束時間」「…期間的第 3 天」。 */
+export function describeConstraintSource(refLabel: string, edge: ConstraintRefEdge, day?: number | null): string {
+  return edge === "DAY"
+    ? `前置任務 ${refLabel} 期間的第 ${day ?? 1} 天`
+    : `前置任務 ${refLabel} 的${CONSTRAINT_REF_EDGE_LABELS[edge]}`;
 }

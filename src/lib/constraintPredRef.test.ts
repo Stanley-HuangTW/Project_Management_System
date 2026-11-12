@@ -34,7 +34,8 @@ type FakeItem = {
   constraintType: string | null;
   constraintDate: string | null;
   constraintRefItemId: string | null;
-  constraintRefEdge: "START" | "FINISH" | null;
+  constraintRefEdge: "START" | "FINISH" | "DAY" | null;
+  constraintRefDay: number | null;
   cellValues: Cell[];
 };
 
@@ -122,7 +123,7 @@ function setupBoard() {
 function addItem(
   id: string,
   cells: Partial<Record<keyof typeof COLS, unknown>>,
-  extra: Partial<Pick<FakeItem, "constraintType" | "constraintDate" | "constraintRefItemId" | "constraintRefEdge">> = {}
+  extra: Partial<Pick<FakeItem, "constraintType" | "constraintDate" | "constraintRefItemId" | "constraintRefEdge" | "constraintRefDay">> = {}
 ) {
   db.items.push({
     id,
@@ -135,6 +136,7 @@ function addItem(
     constraintDate: extra.constraintDate ?? null,
     constraintRefItemId: extra.constraintRefItemId ?? null,
     constraintRefEdge: extra.constraintRefEdge ?? null,
+    constraintRefDay: extra.constraintRefDay ?? null,
     cellValues: Object.entries(cells).map(([key, value]) => ({ itemId: id, columnId: COLS[key as keyof typeof COLS], value })),
   });
 }
@@ -221,6 +223,60 @@ describe("約束日期跟著前置任務的開始日", () => {
   });
 });
 
+describe("約束日期跟著前置任務期間內的第 N 天", () => {
+  // A 11/02 起 5 天 → 11/02 ~ 11/06。T 必須完成於「A 期間的第 3 天」= 11/04,3 天 → 11/02 ~ 11/04。
+  const followDay3 = { constraintType: "MUST_FINISH_ON", constraintDate: "2026-01-01", constraintRefItemId: "A", constraintRefEdge: "DAY", constraintRefDay: 3 } as const;
+
+  it("T 的完成日釘在 A 期間的第 3 天", async () => {
+    addItem("A", { start: "2026-11-02", days: 5 });
+    addItem("T", { days: 3, pred: "A", link: "fs" }, followDay3);
+
+    await recomputeAllSchedules("B");
+
+    expect(cell("T", "finish")).toBe("2026-11-04");
+    expect(item("T").constraintDate).toBe("2026-11-04");
+    expect(item("T").constraintRefDay).toBe(3);
+  });
+
+  it("A 往後挪:還是 A 期間的第 3 天,T 跟著動", async () => {
+    addItem("A", { start: "2026-11-02", days: 5 });
+    addItem("T", { days: 3, pred: "A", link: "fs" }, followDay3);
+    await recomputeAllSchedules("B");
+
+    setCell("A", "start", "2026-11-09");
+    setCell("A", "finish", "2026-11-13");
+    await recomputeAllSchedules("B");
+
+    expect(cell("T", "finish")).toBe("2026-11-11");
+    expect(item("T").constraintDate).toBe("2026-11-11");
+  });
+
+  it("A 的期間縮短到不足 3 天:取 A 的最後一天", async () => {
+    addItem("A", { start: "2026-11-02", days: 5 });
+    addItem("T", { days: 3, pred: "A", link: "fs" }, followDay3);
+    await recomputeAllSchedules("B");
+
+    setCell("A", "days", 2); // A 只剩 11/02 ~ 11/03 兩天(完成日由開始日 + 天數重算)
+    await recomputeAllSchedules("B");
+
+    expect(item("T").constraintDate).toBe("2026-11-03");
+  });
+
+  it("拿掉前置任務:轉成固定日期,連「第 N 天」一起清掉", async () => {
+    addItem("A", { start: "2026-11-02", days: 5 });
+    addItem("T", { days: 3, pred: "A", link: "fs" }, followDay3);
+    await recomputeAllSchedules("B");
+
+    setCell("T", "pred", null);
+    await recomputeAllSchedules("B");
+
+    expect(item("T").constraintRefItemId).toBeNull();
+    expect(item("T").constraintRefEdge).toBeNull();
+    expect(item("T").constraintRefDay).toBeNull();
+    expect(item("T").constraintDate).toBe("2026-11-04");
+  });
+});
+
 describe("前置任務不在 Pred 裡了:轉成固定日期", () => {
   const follow = { constraintType: "MUST_FINISH_ON", constraintDate: "2026-11-06", constraintRefItemId: "A", constraintRefEdge: "FINISH" } as const;
 
@@ -283,6 +339,8 @@ describe("listItemPredecessors:給約束日期選單用的前置任務", () => {
     expect(list.map((p) => p.itemId).sort()).toEqual(["A", "C"]);
     const a = list.find((p) => p.itemId === "A")!;
     expect(a).toMatchObject({ name: "任務A", start: "2026-11-02", end: "2026-11-06", boardName: null });
+    expect(a.days).toEqual(["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"]);
+    expect(list.find((p) => p.itemId === "C")!.days).toEqual(["2026-11-10", "2026-11-11"]);
   });
 
   it("沒有前置任務、或前置任務還沒有日期:空清單 / 日期是 null", async () => {
@@ -291,7 +349,7 @@ describe("listItemPredecessors:給約束日期選單用的前置任務", () => {
     addItem("U", { days: 3 });
 
     expect(await listItemPredecessors("B", "U")).toEqual([]);
-    expect((await listItemPredecessors("B", "T"))[0]).toMatchObject({ itemId: "A", start: null, end: null });
+    expect((await listItemPredecessors("B", "T"))[0]).toMatchObject({ itemId: "A", start: null, end: null, days: [] });
   });
 });
 

@@ -217,6 +217,25 @@ describe("resolveConstraint:約束日期跟著前置任務", () => {
     expect(resolveConstraint(base, [], read).refDropped).toBe(true);
   });
 
+  it("期間內的第 N 天:從前置任務的開始日往後數(預設日曆天),超過期間就取最後一天", () => {
+    const day = (n: number | null) => ({ ...base, constraintRefEdge: "DAY" as const, constraintRefDay: n });
+    expect(resolveConstraint(day(1), ["A"], read).constraint.date).toBe("2026-11-02");
+    expect(resolveConstraint(day(3), ["A"], read).constraint.date).toBe("2026-11-04");
+    expect(resolveConstraint(day(5), ["A"], read).constraint.date).toBe("2026-11-06");
+    expect(resolveConstraint(day(99), ["A"], read).constraint.date).toBe("2026-11-06");
+    expect(resolveConstraint(day(null), ["A"], read).constraint.date).toBe("2026-11-02"); // 沒存天數 = 第 1 天
+  });
+
+  it("第 N 天交給呼叫端算(依前置任務自己的工作天 / 日曆天),給的是哪個前置任務與第幾天", () => {
+    const calls: [string, number][] = [];
+    const out = resolveConstraint({ ...base, constraintRefEdge: "DAY", constraintRefDay: 2 }, ["A"], read, (id, _range, n) => {
+      calls.push([id, n]);
+      return new Date("2026-11-03");
+    });
+    expect(calls).toEqual([["A", 2]]);
+    expect(out.constraint.date).toBe("2026-11-03");
+  });
+
   it("前置任務還沒有日期:沿用存著的日期,不清掉(它排好之後就會跟上)", () => {
     expect(resolveConstraint({ ...base, constraintRefItemId: "A" }, ["A"], () => null)).toEqual({
       constraint: { type: "MUST_FINISH_ON", date: "2026-01-01" },

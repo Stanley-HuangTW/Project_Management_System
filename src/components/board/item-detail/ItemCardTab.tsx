@@ -24,6 +24,10 @@ import { resolveBaselineVariance, describeBaselineDelta } from "@/lib/baseline";
 import type { PredLamp } from "@/lib/predLamp";
 import type { ScheduleFloat } from "@/lib/criticalPath";
 import { CellEditor } from "../cell-editors/CellEditor";
+import { cellFieldClass } from "../cell-editors/cellFieldClass";
+import { useRecordedCellSave } from "../cell-editors/useCellSave";
+import { DurationEditor } from "../DurationEditor";
+import { useDurationInputColumnId } from "../useDurationInputColumn";
 import { useCrossGroupPredOptions } from "../cell-editors/useCrossGroupPredOptions";
 import { RollupProgress } from "../RollupProgress";
 import { computeItemProgress } from "@/lib/progress";
@@ -136,6 +140,9 @@ export function ItemCardTab({
   const valuesByColumn = new Map(
     item.cellValues.map((cv) => [cv.columnId, cv.value as string | number | null])
   );
+  // 改天數的那一欄(一般看板是 Days、一律自動計算的看板是手動天數):打字時在同一欄即時預覽 Start / Finish。
+  const durationInputColumnId = useDurationInputColumnId(boardId);
+  const runSave = useRecordedCellSave();
   const canEditStructure = canManageStructure(userRole);
   const canModifySchedule = canModifyItemSchedule(userRole, item.createdById, currentUserId);
   const personColumnIds = columns.filter((c) => c.type === "PERSON").map((c) => c.id);
@@ -306,6 +313,20 @@ export function ItemCardTab({
               <span className="w-40 text-sm text-neutral-800 dark:text-neutral-100">
                 {col.id === progressColumnId && childCount > 0 && groupItems ? (
                   <RollupProgress value={computeItemProgress(item, groupItems, col.id)} childCount={childCount} />
+                ) : col.id === durationInputColumnId && canEdit ? (
+                  <DurationEditor
+                    boardId={boardId}
+                    itemId={item.id}
+                    columnId={col.id}
+                    value={typeof valuesByColumn.get(col.id) === "number" ? (valuesByColumn.get(col.id) as number) : null}
+                    currentStart={ganttStartColumnId && typeof valuesByColumn.get(ganttStartColumnId) === "string" ? (valuesByColumn.get(ganttStartColumnId) as string) : null}
+                    currentEnd={ganttEndColumnId && typeof valuesByColumn.get(ganttEndColumnId) === "string" ? (valuesByColumn.get(ganttEndColumnId) as string) : null}
+                    inputClassName={cellFieldClass(true)}
+                    onSave={(next) => {
+                      const before = valuesByColumn.get(col.id) ?? null;
+                      runSave({ boardId, itemId: item.id, columnId: col.id, before, after: next });
+                    }}
+                  />
                 ) : (
                   <CellEditor
                     boardId={boardId}
@@ -369,6 +390,7 @@ export function ItemCardTab({
                 date={item.constraintDate}
                 refItemId={item.constraintRefItemId}
                 refEdge={item.constraintRefEdge}
+                refDay={item.constraintRefDay}
                 canEdit={canModifySchedule}
                 currentEnd={typeof currentEnd === "string" ? currentEnd : null}
                 durationDays={

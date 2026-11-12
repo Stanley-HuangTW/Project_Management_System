@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess, requireItemBoardAccess } from "@/lib/boardAccess";
 import { requireStructureAccess } from "@/lib/permissions";
@@ -55,4 +56,19 @@ export async function previewDragCascade(
   const end = new Date(endIso);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { cascaded: [], conflicts: [] };
   return previewScheduleCascade(boardId, itemId, { start, end });
+}
+
+/**
+ * 這個看板上「改天數」的輸入欄:一律自動計算的看板是手動天數欄,一般看板是 Days 欄。
+ * 項目卡片靠它知道哪一欄要在打字時即時預覽 Start / Finish(卡片的欄位不認得看板的排程設定)。唯讀。
+ */
+export async function getDurationInputColumnId(boardId: string): Promise<string | null> {
+  const session = await requireSession();
+  await requireBoardAccess(boardId, session);
+  const board = await prisma.board.findUnique({
+    where: { id: boardId },
+    select: { manualStartColumnId: true, manualDurationColumnId: true, ganttDurationColumnId: true },
+  });
+  if (!board) return null;
+  return board.manualStartColumnId && board.manualDurationColumnId ? board.manualDurationColumnId : board.ganttDurationColumnId;
 }

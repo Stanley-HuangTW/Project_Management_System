@@ -24,6 +24,7 @@ import { getStatusOptions } from "@/types/column";
 import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
 import { compareNumericText, computeWbsCodes } from "@/lib/wbs";
 import { withWeekday } from "@/lib/weekdayLabel";
+import { DurationEditor } from "./DurationEditor";
 
 export function AssignmentModal({
   boardId,
@@ -180,6 +181,9 @@ export function AssignmentModal({
   const endValueForConstraint = ganttEndColumnId
     ? item.cellValues.find((cv) => cv.columnId === ganttEndColumnId)?.value
     : null;
+  // 這個項目現在的 Start / Finish(改天數的即時預覽面板「原來」那一欄)。
+  const startValueNow = ganttStartColumnId ? item.cellValues.find((cv) => cv.columnId === ganttStartColumnId)?.value : null;
+  const endValueNow = ganttEndColumnId ? item.cellValues.find((cv) => cv.columnId === ganttEndColumnId)?.value : null;
   const durationValueForConstraint = durationColumnId
     ? item.cellValues.find((cv) => cv.columnId === durationColumnId)?.value
     : null;
@@ -345,6 +349,25 @@ export function AssignmentModal({
                         </option>
                       ))}
                     </select>
+                  ) : col.id === durationColumnId && col.type === "NUMBER" ? (
+                    // 改天數:打字時在這一欄即時預覽 Start day / Finish day(原來 → 更改後,含星期幾),確認了才儲存。
+                    <DurationEditor
+                      boardId={boardId}
+                      itemId={item.id}
+                      columnId={col.id}
+                      value={typeof rawValue === "number" ? rawValue : null}
+                      currentStart={typeof startValueNow === "string" ? startValueNow : null}
+                      currentEnd={typeof endValueNow === "string" ? endValueNow : null}
+                      disabled={fieldDisabled}
+                      inputClassName="w-full rounded border-none bg-transparent px-2 py-1 text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                      onSave={async (next) => {
+                        const result = await upsertCellValue(boardId, item.id, col.id, next);
+                        if (result && typeof result === "object" && "error" in result && typeof result.error === "string") return result.error;
+                        router.refresh();
+                        onScheduleApplied?.();
+                        return null;
+                      }}
+                    />
                   ) : col.type === "NUMBER" ? (
                     <input
                       type="number"
@@ -419,6 +442,7 @@ export function AssignmentModal({
             date={item.constraintDate}
             refItemId={item.constraintRefItemId}
             refEdge={item.constraintRefEdge}
+            refDay={item.constraintRefDay}
             canEdit={canEditSchedule}
             currentEnd={typeof endValueForConstraint === "string" ? endValueForConstraint : null}
             durationDays={typeof durationValueForConstraint === "number" ? durationValueForConstraint : null}

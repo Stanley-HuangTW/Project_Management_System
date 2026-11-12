@@ -560,6 +560,7 @@ async function buildScheduleContext(
         constraintDate: true,
         constraintRefItemId: true,
         constraintRefEdge: true,
+        constraintRefDay: true,
       },
     }),
     listHolidays(),
@@ -706,9 +707,31 @@ async function buildScheduleContext(
     return { myDays, baseRange, scheduled };
   }
 
-  /** 項目現在實際生效的約束:日期可能跟著前置任務的開始日 / 完成日走(見 resolveConstraint)。 */
+  /** 前置任務期間的第 n 天(從 1 算起):依前置任務自己看板的工作天 / 日曆天數;期間不夠 n 天就取最後一天。 */
+  function nthDayOf(refId: string, range: DateRange, n: number): Date {
+    const ref = itemsById.get(refId);
+    const day = shiftDate(range.start, Math.max(n - 1, 0), ref ? cfgOf(ref).mode : "CALENDAR", holidays);
+    return day.getTime() > range.end.getTime() ? range.end : day;
+  }
+
+  /** 前置任務期間的每一天("YYYY-MM-DD"),給約束日期「期間內的某一天」的選單用。最多 400 天,算不出期間是空的。 */
+  function periodDays(id: string): string[] {
+    const range = readRange(id);
+    const item = itemsById.get(id);
+    if (!range || !item) return [];
+    const mode = cfgOf(item).mode;
+    const days: string[] = [];
+    for (let i = 0; i < 400; i++) {
+      const day = shiftDate(range.start, i, mode, holidays);
+      if (day.getTime() > range.end.getTime()) break;
+      days.push(isoDate(day));
+    }
+    return days;
+  }
+
+  /** 項目現在實際生效的約束:日期可能跟著前置任務的起始 / 結束 / 期間內第 N 天走(見 resolveConstraint)。 */
   function constraintResolved(item: (typeof items)[number]) {
-    return resolveConstraint(item, predecessorsOf(item.id), readRange);
+    return resolveConstraint(item, predecessorsOf(item.id), readRange, nthDayOf);
   }
 
   /**
@@ -716,10 +739,11 @@ async function buildScheduleContext(
    * 前置任務已經不在 Pred 裡,就把「跟著前置任務」清掉、日期留作固定日期。預覽(dryRun)只改記憶體。
    */
   async function syncConstraintRef(item: (typeof items)[number], resolved: ReturnType<typeof constraintResolved>) {
-    const data: { constraintDate?: string; constraintRefItemId?: null; constraintRefEdge?: null } = {};
+    const data: { constraintDate?: string; constraintRefItemId?: null; constraintRefEdge?: null; constraintRefDay?: null } = {};
     if (resolved.refDropped) {
       data.constraintRefItemId = null;
       data.constraintRefEdge = null;
+      data.constraintRefDay = null;
     } else if (resolved.followsPred && resolved.constraint.date && resolved.constraint.date !== item.constraintDate) {
       data.constraintDate = resolved.constraint.date;
     }
@@ -908,6 +932,7 @@ async function buildScheduleContext(
     /** Every board in this network — the caller has to refresh all of them. */
     boardIds,
     readRange,
+    periodDays,
     predecessorsOf,
     dependentsOf,
     recompute,
@@ -1138,6 +1163,8 @@ export type ItemPredecessor = {
   /** "YYYY-MM-DD",還沒有日期是 null。 */
   start: string | null;
   end: string | null;
+  /** 它期間的每一天(依它自己看板的工作天 / 日曆天),「期間內的某一天」的選單用;還沒有日期是空的。 */
+  days: string[];
 };
 
 export async function listItemPredecessors(boardId: string, itemId: string): Promise<ItemPredecessor[]> {
@@ -1164,6 +1191,7 @@ export async function listItemPredecessors(boardId: string, itemId: string): Pro
         boardName: pred.boardId !== own.boardId ? (boardNames.get(pred.boardId) ?? null) : null,
         start: range ? isoDate(range.start) : null,
         end: range ? isoDate(range.end) : null,
+        days: ctx.periodDays(id),
       },
     ];
   });
@@ -1296,6 +1324,7 @@ export async function previewScheduleChange(
         constraintDate: true,
         constraintRefItemId: true,
         constraintRefEdge: true,
+        constraintRefDay: true,
       },
     }),
     listHolidays(),
@@ -1346,6 +1375,10 @@ export async function previewScheduleChange(
     (predItemId) => {
       const predItem = itemsById.get(predItemId);
       return predItem ? getItemDateRange(predItem, startId, durId, mode, holidays) : null;
+    },
+    (_refId, range, n) => {
+      const day = shiftDate(range.start, Math.max(n - 1, 0), mode, holidays);
+      return day.getTime() > range.end.getTime() ? range.end : day;
     }
   ).constraint;
   if (!scheduled) scheduled = pinnedRange(myDays, constraint, mode, holidays);

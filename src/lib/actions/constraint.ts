@@ -49,6 +49,7 @@ export async function setItemConstraint(
       constraintDate: true,
       constraintRefItemId: true,
       constraintRefEdge: true,
+      constraintRefDay: true,
     },
   });
   if (!item) return { error: "找不到項目" };
@@ -64,6 +65,7 @@ export async function setItemConstraint(
   let date: string | null = null;
   let refItemId: string | null = null;
   let refEdge: ConstraintRefEdge | null = null;
+  let refDay: number | null = null;
   let predecessor: ItemPredecessor | null = null;
   if (type && source) {
     if (source.kind === "FIXED") {
@@ -72,8 +74,18 @@ export async function setItemConstraint(
     } else {
       predecessor = (await listItemPredecessors(boardId, itemId)).find((p) => p.itemId === source.predItemId) ?? null;
       if (!predecessor) return { error: "那個項目不是這個項目的前置任務,請先在 Pred 欄設定它" };
-      date = source.edge === "START" ? predecessor.start : predecessor.end;
-      if (!date) return { error: `前置任務「${predecessor.name}」還沒有${CONSTRAINT_REF_EDGE_LABELS[source.edge]},先排好它的日期` };
+      if (source.edge === "DAY") {
+        // 期間內的第 N 天:N 要落在前置任務現在的期間裡。
+        const total = predecessor.days.length;
+        if (total === 0) return { error: `前置任務「${predecessor.name}」還沒有日期,先排好它的日期` };
+        const day = Math.floor(Number(source.day ?? 1));
+        if (!Number.isFinite(day) || day < 1 || day > total) return { error: `前置任務「${predecessor.name}」的期間現在只有 ${total} 天,請選第 1 ~ ${total} 天` };
+        date = predecessor.days[day - 1];
+        refDay = day;
+      } else {
+        date = source.edge === "START" ? predecessor.start : predecessor.end;
+        if (!date) return { error: `前置任務「${predecessor.name}」還沒有${CONSTRAINT_REF_EDGE_LABELS[source.edge]},先排好它的日期` };
+      }
       refItemId = predecessor.itemId;
       refEdge = source.edge;
     }
@@ -86,14 +98,15 @@ export async function setItemConstraint(
       constraintDate: type ? date : null,
       constraintRefItemId: type ? refItemId : null,
       constraintRefEdge: type ? refEdge : null,
+      constraintRefDay: type ? refDay : null,
     },
   });
 
   const oldLabel = item.constraintType
-    ? `${CONSTRAINT_LABELS[item.constraintType]} ${item.constraintDate}${item.constraintRefEdge ? `(跟著前置任務的${CONSTRAINT_REF_EDGE_LABELS[item.constraintRefEdge]})` : ""}`
+    ? `${CONSTRAINT_LABELS[item.constraintType]} ${item.constraintDate}${item.constraintRefEdge ? `(跟著前置任務${item.constraintRefEdge === "DAY" ? `期間的第 ${item.constraintRefDay ?? 1} 天` : `的${CONSTRAINT_REF_EDGE_LABELS[item.constraintRefEdge]}`})` : ""}`
     : "無";
   const newLabel = type
-    ? `${CONSTRAINT_LABELS[type]} ${date}${predecessor && refEdge ? `(${describeConstraintSource(`${predecessor.wbsCode} ${predecessor.name}`.trim(), refEdge)})` : ""}`
+    ? `${CONSTRAINT_LABELS[type]} ${date}${predecessor && refEdge ? `(${describeConstraintSource(`${predecessor.wbsCode} ${predecessor.name}`.trim(), refEdge, refDay)})` : ""}`
     : "無";
   if (oldLabel !== newLabel) {
     await logActivity(itemId, session.userId, `日期約束已更新:${oldLabel} → ${newLabel}`);

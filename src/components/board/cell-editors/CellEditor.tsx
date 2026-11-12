@@ -6,17 +6,21 @@ import { PersonCell } from "./PersonCell";
 import { DateCell } from "./DateCell";
 import { NumberCell } from "./NumberCell";
 import { PredCell } from "./PredCell";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 function ReadOnlyCell({
   column,
   value,
   users,
   isProgressColumn,
+  showWeekday = false,
 }: {
   column: ColumnData;
   value: string | number | null;
   users: UserOption[];
   isProgressColumn: boolean;
+  /** 項目卡片裡日期後面接星期幾(表格裡格子很窄,不加)。 */
+  showWeekday?: boolean;
 }) {
   if (column.type === "STATUS") {
     const option = getStatusOptions(column.options).find((o) => o.id === value);
@@ -37,6 +41,8 @@ function ReadOnlyCell({
     display = users.find((u) => u.id === value)?.name ?? "";
   } else if (isProgressColumn && column.type === "NUMBER" && typeof value === "number") {
     display = `${Math.round(value * 100)}%`;
+  } else if (showWeekday && column.type === "DATE" && typeof value === "string") {
+    display = withWeekday(value);
   } else if (value !== null) {
     display = String(value);
   }
@@ -81,7 +87,7 @@ export function CellEditor({
   wbsCodes?: Map<string, string>;
 }) {
   if (!canEdit) {
-    return <ReadOnlyCell column={column} value={value} users={users} isProgressColumn={isProgressColumn} />;
+    return <ReadOnlyCell column={column} value={value} users={users} isProgressColumn={isProgressColumn} showWeekday={bordered} />;
   }
 
   if (column.id === predColumnId && groupItems) {
