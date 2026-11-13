@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { listActivityLog } from "@/lib/actions/activityLog";
 import { formatEventDateTime } from "@/lib/itemEvents";
+import { localeDateTimeWithWeekday } from "@/lib/weekdayLabel";
 
 /** dispatcher / dispatchedAt:任務派遣人(建立這個項目的人)與派遣時間,寫在最上面,沒有任何紀錄時也看得到。 */
 export function ActivityLogTab({
@@ -53,7 +54,7 @@ export function ActivityLogTab({
           <Avatar name={e.actor?.name ?? "系統"} avatarUrl={e.actor?.avatarUrl} size={24} title={e.actor?.name ?? "系統"} />
           <span className="min-w-0 flex-1 text-neutral-700 dark:text-neutral-100">{e.message}</span>
           <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-            {new Date(e.createdAt).toLocaleString("zh-TW")}
+            {localeDateTimeWithWeekday(e.createdAt)}
           </span>
         </div>
       ))}

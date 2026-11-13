@@ -6,6 +6,7 @@ import { RotateCcw, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { listTrashedItems, restoreItem, purgeItem, type TrashedItem } from "@/lib/actions/trash";
+import { localeDateTimeWithWeekday } from "@/lib/weekdayLabel";
 
 /** 已刪除的工作項:還原(連同一起刪掉的子項目、被改寫的前置依賴)或永久刪除。 */
 export function TrashModal({
@@ -105,7 +106,7 @@ export function TrashModal({
                 )}
               </p>
               <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
-                {item.groupName}・{new Date(item.deletedAt).toLocaleString("zh-TW")}
+                {item.groupName}・{localeDateTimeWithWeekday(item.deletedAt)}
                 {item.deletedBy ? `・由 ${item.deletedBy} 刪除` : ""}
               </p>
             </div>

@@ -6,6 +6,8 @@ import type { Holiday } from "@prisma/client";
 import { Modal } from "@/components/ui/Modal";
 import { addHoliday, removeHoliday } from "@/lib/actions/holiday";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -78,7 +80,7 @@ export function HolidaySettingsModal({
               key={h.id}
               className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 dark:border-neutral-700 px-2 py-1.5 text-sm"
             >
-              <span className="text-neutral-500 dark:text-neutral-400">{h.date}</span>
+              <span className="text-neutral-500 dark:text-neutral-400">{withWeekday(h.date)}</span>
               <span className="flex-1 truncate">{h.name}</span>
               <button
                 type="button"
@@ -101,6 +103,7 @@ export function HolidaySettingsModal({
             onChange={(e) => handleStartChange(e.target.value)}
             className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
           />
+          <DateWeekdayHint value={date} className="shrink-0" />
           <span className="shrink-0 text-neutral-400 dark:text-neutral-500">~</span>
           <input
             type="date"
@@ -113,6 +116,7 @@ export function HolidaySettingsModal({
             title="結束日期——連續好幾天的假期(例如春節)不用一天一天新增"
             className="min-w-0 flex-1 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
           />
+          <DateWeekdayHint value={endDate} className="shrink-0" />
         </div>
         <div className="flex items-center gap-2">
           <input

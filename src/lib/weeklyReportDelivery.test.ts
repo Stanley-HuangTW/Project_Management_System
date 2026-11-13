@@ -50,9 +50,9 @@ describe("週報寄信:一個專案一封", () => {
     expect(sendMailChecked).toHaveBeenCalledTimes(3);
     expect(sendMailChecked.mock.calls.map((c) => c[0])).toEqual(Array(3).fill("henry@example.com"));
     expect(sendMailChecked.mock.calls.map((c) => c[1])).toEqual([
-      "AMR BOX週報 W41 (2026-10-05 ~ 2026-10-11)",
-      "AMR Platform週報 W41 (2026-10-05 ~ 2026-10-11)",
-      "M3週報 W41 (2026-10-05 ~ 2026-10-11)",
+      "AMR BOX週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))",
+      "AMR Platform週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))",
+      "M3週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))",
     ]);
     expect(result.mail.ok).toBe(true);
     expect(result.mail.messages.map((m) => m.programName)).toEqual(["AMR BOX", "AMR Platform", "M3"]);
@@ -110,7 +110,7 @@ describe("週報寄信:一個專案一封", () => {
   it("沒有歸屬專案群組的看板用「未歸屬專案群組」當名字", async () => {
     const data = snapshot([program(null, "孤立看板")]);
     await deliverWeeklyReport(session, data, diffWeeks(data, null), "full");
-    expect(sendMailChecked.mock.calls[0][1]).toBe("未歸屬專案群組週報 W41 (2026-10-05 ~ 2026-10-11)");
+    expect(sendMailChecked.mock.calls[0][1]).toBe("未歸屬專案群組週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))");
   });
 
   it("帳號沒有 email 就不寄", async () => {

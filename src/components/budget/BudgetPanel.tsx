@@ -30,6 +30,8 @@ import {
 } from "@/lib/actions/budget";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { actionErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * 預算管控 — 核准多少、花掉多少、承諾出去多少、還剩多少。
@@ -430,8 +432,8 @@ function ReservePanel({
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
             {view.draws.map((d) => (
               <li key={d.id} className="flex flex-wrap items-baseline gap-2 px-3 py-2 text-xs">
-                <span className="w-20 shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">
-                  {d.createdAt.slice(0, 10)}
+                <span className="w-28 shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">
+                  {withWeekday(d.createdAt.slice(0, 10))}
                 </span>
                 <span className="shrink-0 text-neutral-600 dark:text-neutral-300">
                   {RESERVE_LABELS[d.kind]}
@@ -1076,6 +1078,7 @@ function CommitmentTable({
             title="預計到貨／入帳日"
             className={fieldClass}
           />
+          <DateWeekdayHint value={expectedDate} />
           <button
             type="button"
             disabled={busy || !amount.trim() || !itemId}
@@ -1117,7 +1120,7 @@ function CommitmentTable({
                 {c.poNumber}
               </span>
               <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
-                {c.expectedDate ?? ""}
+                {withWeekday(c.expectedDate ?? "")}
               </span>
               <span className="shrink-0 truncate text-neutral-400 dark:text-neutral-500">{c.itemName}</span>
               <span className="basis-full" />
@@ -1273,6 +1276,7 @@ function ExpenseTable({
             amount={amount}
           />
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={fieldClass} />
+          <DateWeekdayHint value={date} />
           <input
             value={vendor}
             onChange={(e) => setVendor(e.target.value)}
@@ -1326,8 +1330,8 @@ function ExpenseTable({
         <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900">
           {view.expenses.map((e) => (
             <li key={e.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
-              <span className="w-20 shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
-                {e.date}
+              <span className="w-28 shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
+                {withWeekday(e.date)}
               </span>
               <span className="w-16 shrink-0">{CATEGORY_LABELS[e.category]}</span>
               <span className="w-24 shrink-0 text-right tabular-nums font-medium">

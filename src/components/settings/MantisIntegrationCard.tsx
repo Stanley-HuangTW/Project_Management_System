@@ -17,6 +17,7 @@ import { WRITE_FIELD_LABELS } from "@/lib/mantisMapping";
 import { MantisMappingEditor } from "./MantisMappingEditor";
 import type { SyncSummary } from "@/lib/mantisSync";
 import { actionErrorMessage } from "@/lib/userError";
+import { localeDateTimeWithWeekday } from "@/lib/weekdayLabel";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -225,7 +226,7 @@ export function MantisIntegrationCard() {
               <p className="mt-1 break-all text-xs text-neutral-400 dark:text-neutral-500">{c.baseUrl}</p>
               <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">
                 問題 {c.issueCount} 筆(未結案 {c.openCount} 筆)
-                {c.lastSyncAt && <>・上次同步 {new Date(c.lastSyncAt).toLocaleString("zh-TW")}</>}
+                {c.lastSyncAt && <>・上次同步 {localeDateTimeWithWeekday(c.lastSyncAt)}</>}
                 {!c.enabled && "・已停用"}
               </p>
               {c.writeBack.enabled && (

@@ -1,5 +1,6 @@
 import type { BoardWithData } from "@/types/board";
 import { getPersonIds } from "@/types/column";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * 待辦事項的期限:算「到期前一天 / 當天 / 逾期」是哪一階段、怎麼說、儀表板要列哪些。
@@ -65,9 +66,9 @@ export function reminderMessage(
   args: { itemName: string; todoText: string; dueDate: string; subject?: string }
 ): string {
   const what = `${args.subject ?? "工作項目"}「${args.itemName}」的待辦事項「${args.todoText}」`;
-  if (stage === 1) return `${what}明天(${args.dueDate})到期`;
-  if (stage === 2) return `${what}今天(${args.dueDate})到期`;
-  return `${what}已經逾期(期限 ${args.dueDate}),還沒完成`;
+  if (stage === 1) return `${what}明天 ${withWeekday(args.dueDate)} 到期`;
+  if (stage === 2) return `${what}今天 ${withWeekday(args.dueDate)} 到期`;
+  return `${what}已經逾期(期限 ${withWeekday(args.dueDate)}),還沒完成`;
 }
 
 /**

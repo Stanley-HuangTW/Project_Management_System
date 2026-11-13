@@ -1,4 +1,5 @@
 import { isoWeekLabel, lastCompletedReportRange, weekRangeOf, type ReportRangeConfig } from "@/lib/weeklyReport";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * 週報排程前的提醒信:週報某個時刻自動產生,產生前 N 小時先寄信請各單位同仁更新工作事項。
@@ -89,8 +90,8 @@ export function buildReminderMail(args: {
     "各位同仁好:",
     "",
     names
-      ? `你所屬的專案:${names}。這些專案的週報將於 ${when} 自動產生,並寄給專案的收件人;內容涵蓋 ${covered.weekStart} ~ ${covered.weekEnd} 這段期間的工作狀況。`
-      : `專案週報將於 ${when} 自動產生,並寄給各專案的收件人;內容涵蓋 ${covered.weekStart} ~ ${covered.weekEnd} 這段期間的工作狀況。`,
+      ? `你所屬的專案:${names}。這些專案的週報將於 ${when} 自動產生,並寄給專案的收件人;內容涵蓋 ${withWeekday(covered.weekStart)} ~ ${withWeekday(covered.weekEnd)} 這段期間的工作狀況。`
+      : `專案週報將於 ${when} 自動產生,並寄給各專案的收件人;內容涵蓋 ${withWeekday(covered.weekStart)} ~ ${withWeekday(covered.weekEnd)} 這段期間的工作狀況。`,
     "",
     "請在這個時間之前,到系統更新你負責的工作事項:",
     "・狀態與進度(做完的請切成「完成」)",

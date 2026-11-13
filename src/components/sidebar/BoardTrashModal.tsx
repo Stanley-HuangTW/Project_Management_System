@@ -13,6 +13,7 @@ import {
   type TrashedBoard,
 } from "@/lib/actions/board";
 import { actionErrorMessage } from "@/lib/userError";
+import { localeDateTimeWithWeekday } from "@/lib/weekdayLabel";
 
 /** 已刪除的看板:還原(連同工作項、預算、基準線與所屬專案群組)或永久刪除。 */
 export function BoardTrashModal({
@@ -108,7 +109,7 @@ export function BoardTrashModal({
               </p>
               <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
                 {board.programName ? `${board.programName}・` : ""}
-                {new Date(board.deletedAt).toLocaleString("zh-TW")}
+                {localeDateTimeWithWeekday(board.deletedAt)}
                 {board.deletedBy ? `・由 ${board.deletedBy} 刪除` : ""}
               </p>
             </div>

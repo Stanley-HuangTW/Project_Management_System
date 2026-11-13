@@ -302,7 +302,7 @@ describe("委託開發", () => {
     const moved = commissioned({ phaseId: null, startDate: "2026-11-01", endDate: "2027-01-31" });
     expect(sameNreContent(moved, before)).toBe(false);
     expect(describeNreChange(before, moved, (id) => (id === null ? "整個專案" : "POC"))).toBe(
-      "範圍 POC → 整個專案、時間範圍 2026-10-01 ~ 2026-12-31 → 2026-11-01 ~ 2027-01-31"
+      "範圍 POC → 整個專案、時間範圍 2026-10-01(週四) ~ 2026-12-31(週四) → 2026-11-01(週日) ~ 2027-01-31(週日)"
     );
   });
 });

@@ -17,6 +17,7 @@ import {
   type BomColumnType,
 } from "@/lib/bomColumns";
 import { actionErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 /** 編輯中的一個欄位:選項與預設值先當文字、勾選先當布林,存檔時才整理回正式的樣子。 */
 type Draft = {
@@ -301,6 +302,7 @@ function Editor({
                             className={`${fieldClass} min-w-0 flex-1`}
                           />
                         )}
+                        {d.type === "DATE" && <DateWeekdayHint value={d.defaultText} className="shrink-0" />}
                         {d.id === "delivery" && <span className="shrink-0">週</span>}
                       </span>
                     )}

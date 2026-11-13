@@ -13,6 +13,7 @@ import {
 } from "@/lib/constraints";
 import type { ItemPredecessor } from "@/lib/predecessorLink";
 import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 import { useDialogs } from "@/components/ui/DialogProvider";
 
 const NONE = "__none__";
@@ -295,15 +296,18 @@ export function ConstraintRow({
           )}
 
           {draftType && !followsPred && (
-            <input
-              type="date"
-              value={date ?? ""}
-              disabled={disabled}
-              onChange={(e) =>
-                e.target.value ? save(draftType, { kind: "FIXED", date: e.target.value }) : save(null, null)
-              }
-              className={selectClass}
-            />
+            <>
+              <input
+                type="date"
+                value={date ?? ""}
+                disabled={disabled}
+                onChange={(e) =>
+                  e.target.value ? save(draftType, { kind: "FIXED", date: e.target.value }) : save(null, null)
+                }
+                className={selectClass}
+              />
+              <DateWeekdayHint value={date} />
+            </>
           )}
         </div>
       </div>

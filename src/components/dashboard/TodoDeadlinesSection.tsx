@@ -8,6 +8,7 @@ import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { describeDeadline, formatDueShort, reminderLink, type DeadlineTone, type TodoDeadlineEntry } from "@/lib/todoDeadline";
 import type { UserOption } from "@/types/board";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 import { actionErrorMessage } from "@/lib/userError";
 
 const TONE_CLASS: Record<DeadlineTone, string> = {
@@ -79,7 +80,7 @@ export function TodoDeadlinesSection({
             const content = (
               <>
                 <span className={`w-28 shrink-0 whitespace-nowrap text-xs tabular-nums ${TONE_CLASS[due.tone]}`}>
-                  <span className="font-medium">{formatDueShort(entry.dueDate)}</span>・{due.text}
+                  <span className="font-medium">{shortWithWeekday(formatDueShort(entry.dueDate), entry.dueDate)}</span>・{due.text}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-neutral-800 dark:text-neutral-100">
                   {entry.kind === "risk" && (

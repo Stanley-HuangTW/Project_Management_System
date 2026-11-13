@@ -17,6 +17,7 @@ import {
 } from "@/lib/weeklyReport";
 import { RISK_KIND_LABELS, RISK_STATUS_LABELS, riskLinkTag, riskScore } from "@/lib/riskRegister";
 import { PRIORITY_OPTIONS } from "@/lib/statusDefaults";
+import { shortWithWeekday, withWeekday } from "@/lib/weekdayLabel";
 
 const PRIORITY_COLOR: Record<string, string> = Object.fromEntries(
   PRIORITY_OPTIONS.map((o) => [o.label, o.color])
@@ -79,7 +80,7 @@ function ItemRow({ item, updates }: { item: ReportItem; updates?: ItemUpdateLine
         )}
         {item.name}
       </span>
-      {item.end && <span className="text-xs text-neutral-400 dark:text-neutral-500">({item.end})</span>}
+      {item.end && <span className="text-xs text-neutral-400 dark:text-neutral-500">({withWeekday(item.end)})</span>}
       {item.ownerNames.length > 0 && (
         <span className="text-xs text-neutral-400 dark:text-neutral-500">{item.ownerNames.join("、")}</span>
       )}
@@ -133,7 +134,7 @@ function UpdateRows({ updates }: { updates: ItemUpdateLine[] }) {
           <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
             <span title={ITEM_UPDATE_LABELS[u.kind]}>{UPDATE_ICON[u.kind]}</span>
             <span className="text-neutral-400 dark:text-neutral-500">
-              {u.authorName} {u.date.slice(5)}
+              {u.authorName} {shortWithWeekday(u.date.slice(5), u.date)}
             </span>
             {href ? (
               <a
@@ -195,7 +196,7 @@ function ChannelMessageList({ messages }: { messages: ChannelMessageLine[] }) {
               <li key={idx} className="flex flex-wrap items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-300">
                 <span title="看板頻道對話">💬</span>
                 <span className="text-neutral-400 dark:text-neutral-500">
-                  {m.authorName} {m.date.slice(5)} {m.time}
+                  {m.authorName} {shortWithWeekday(m.date.slice(5), m.date)} {m.time}
                 </span>
                 <span className="break-words">{m.text}</span>
                 {m.attachments.length > 0 && (
@@ -280,7 +281,7 @@ function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; week
               </span>
               <span className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">分數 {riskScore(r.probability, r.impact)}</span>
               {r.ownerName && <span className="text-xs text-neutral-400 dark:text-neutral-500">負責:{r.ownerName}</span>}
-              {r.dueDate && <span className="text-xs text-neutral-400 dark:text-neutral-500">到期 {r.dueDate}</span>}
+              {r.dueDate && <span className="text-xs text-neutral-400 dark:text-neutral-500">到期 {withWeekday(r.dueDate)}</span>}
             </p>
             <ul className="mt-0.5 space-y-0.5 pl-3 text-xs text-neutral-600 dark:text-neutral-300">
               {r.boardName && <li className="text-neutral-400 dark:text-neutral-500">看板:{r.boardName}</li>}
@@ -297,7 +298,7 @@ function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; week
                 <li key={idx} className="flex flex-wrap items-baseline gap-1">
                   <span title="這週的進度更新">💬</span>
                   <span className="text-neutral-400 dark:text-neutral-500">
-                    {u.authorName} {u.date.slice(5)}
+                    {u.authorName} {shortWithWeekday(u.date.slice(5), u.date)}
                   </span>
                   <span className="break-words">{u.text}</span>
                 </li>
@@ -306,7 +307,7 @@ function RiskDetailList({ risks, weekStart, weekEnd }: { risks: RiskLine[]; week
                 <li className="flex flex-wrap items-baseline gap-1">
                   <span title="最近一次進度更新(不是這一週)">💬</span>
                   <span className="text-neutral-400 dark:text-neutral-500">
-                    最近一次更新 {r.latestUpdate.authorName} {r.latestUpdate.date.slice(5)}
+                    最近一次更新 {r.latestUpdate.authorName} {shortWithWeekday(r.latestUpdate.date.slice(5), r.latestUpdate.date)}
                   </span>
                   <span className="break-words">{r.latestUpdate.text}</span>
                 </li>

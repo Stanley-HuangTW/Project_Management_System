@@ -12,6 +12,7 @@ import type { BoardWithData } from "@/types/board";
 import { BulkRenameDialog } from "./BulkRenameDialog";
 import { BulkTargetDialog, type BulkTarget } from "./BulkTargetDialog";
 import { knownErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 const MAX_LISTED = 12;
 const MAX_NAMED = 5;
@@ -150,7 +151,7 @@ export function BulkStructureActions({
         if (!ok) return;
       } else {
         const listed = [...dependents.values()].slice(0, MAX_LISTED).map(
-          (d) => `・${d.wbsCode} ${d.name}${d.start ? `(${d.start}~${d.end})` : ""}`
+          (d) => `・${d.wbsCode} ${d.name}${d.start ? `(${withWeekday(d.start)}~${d.end && withWeekday(d.end)})` : ""}`
         );
         if (dependents.size > listed.length) listed.push(`・…另外還有 ${dependents.size - listed.length} 項`);
         const message = [

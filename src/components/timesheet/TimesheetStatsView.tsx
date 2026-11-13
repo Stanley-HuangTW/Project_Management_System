@@ -14,6 +14,7 @@ import {
   type TimesheetStats,
 } from "@/lib/timesheet";
 import { weekRangeOf } from "@/lib/weeklyReport";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 import { TimesheetPeopleSelect, type StatsPerson, type StatsUnit } from "./TimesheetPeopleSelect";
 
 function fmt(hours: number): string {
@@ -121,8 +122,10 @@ export function TimesheetStatsView({ today }: { today: string }) {
             </button>
           ))}
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
+          <DateWeekdayHint value={from} />
           <span className="text-sm text-neutral-400">~</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputClass} />
+          <DateWeekdayHint value={to} />
           {showPeoplePicker && (
             <TimesheetPeopleSelect people={users!} units={units} value={selectedIds} onChange={setSelectedIds} />
           )}

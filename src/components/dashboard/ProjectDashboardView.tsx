@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 import type { LeaderBoardOverview, LeaderEntry, LeaderPerson, LeaderPersonItem } from "@/lib/leaderOverview";
 
-/** 2026-10-07 → 10/7 */
+/** 2026-10-07 → 10/7(週三) */
 function md(date: string | null): string {
   if (!date) return "—";
   const [, m, d] = date.split("-");
-  return `${Number(m)}/${Number(d)}`;
+  return shortWithWeekday(`${Number(m)}/${Number(d)}`, date);
 }
 
 const TONES = {
@@ -41,7 +42,7 @@ function EntryList({ id, boardId, title, tone, entries, emptyText }: { id: strin
                 href={`/boards/${boardId}?highlight=${e.itemId}`}
                 className="flex items-baseline gap-2 px-3 py-1.5 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-800"
               >
-                <span className="w-9 shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">{md(e.date)}</span>
+                <span className="w-16 shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">{md(e.date)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="text-neutral-800 dark:text-neutral-100">
                     {e.wbsCode && <span className="mr-1 text-neutral-400 dark:text-neutral-500">{e.wbsCode}</span>}

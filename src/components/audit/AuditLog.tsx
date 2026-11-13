@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AuditCategory } from "@prisma/client";
 import { listAuditLog, type AuditRow } from "@/lib/actions/audit";
 import { AuditDecisions } from "./AuditDecisions";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const PAGE = 100;
 
@@ -177,8 +178,10 @@ export function AuditLog({
           className={fieldClass}
         />
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={fieldClass} />
+        <DateWeekdayHint value={from} />
         <span className="text-xs text-neutral-400 dark:text-neutral-500">~</span>
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={fieldClass} />
+        <DateWeekdayHint value={to} />
       </div>
 
       {view === "decisions" ? (

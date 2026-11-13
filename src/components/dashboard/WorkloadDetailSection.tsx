@@ -26,6 +26,8 @@ import type { UserRole } from "@prisma/client";
 import { findTreeNode, firstTreeItemId, type ParentTreeNode } from "@/lib/parentTaskTree";
 import { ParentTaskPicker } from "./ParentTaskPicker";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const DEFAULT_LABEL_WIDTH = 140;
 const MIN_LABEL_WIDTH = 90;
@@ -604,7 +606,7 @@ export function WorkloadDetailSection({
                                 )}
                                 {(formMinDate || formMaxDate) && (
                                   <p className="mb-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-                                    時程需介於父任務的 {formMinDate ?? "…"} ~ {formMaxDate ?? "…"} 之間
+                                    時程需介於父任務的 {formMinDate ? withWeekday(formMinDate) : "…"} ~ {formMaxDate ? withWeekday(formMaxDate) : "…"} 之間
                                   </p>
                                 )}
                                 {projectedMax > 100 && (
@@ -638,6 +640,7 @@ export function WorkloadDetailSection({
                                       onChange={(e) => setFormStartDate(e.target.value)}
                                       className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
                                     />
+                                    <DateWeekdayHint value={formStartDate} />
                                   </label>
                                   <label className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
                                     結束
@@ -649,6 +652,7 @@ export function WorkloadDetailSection({
                                       onChange={(e) => handleEndDateChange(e.target.value)}
                                       className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-xs outline-none focus:border-blue-500"
                                     />
+                                    <DateWeekdayHint value={formEndDate} />
                                   </label>
                                   <label className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
                                     天數

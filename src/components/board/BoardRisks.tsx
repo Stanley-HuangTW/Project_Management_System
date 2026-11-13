@@ -9,6 +9,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData, UserOption } from "@/types/board";
 import { computeWbsCodes } from "@/lib/wbs";
 import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 import { describeDueAgainstItem } from "@/lib/riskDueWindow";
 import { ItemTreePicker } from "./ItemTreePicker";
 import {
@@ -405,7 +406,7 @@ export function BoardRisks({
                       {risk.mitigation || <span className="text-neutral-300 dark:text-neutral-600">—</span>}
                     </td>
                     <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.ownerName ?? "—"}</td>
-                    <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.dueDate ?? "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-300">{risk.dueDate ? withWeekday(risk.dueDate) : "—"}</td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       {risk.permissions.canSetWorkingStatus ? (
                         <select
@@ -758,6 +759,7 @@ export function BoardRisks({
                   }
                   className={fieldClass}
                 />
+                <DateWeekdayHint value={editing.input.dueDate} />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">相關工作項</span>

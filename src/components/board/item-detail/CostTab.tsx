@@ -11,6 +11,8 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import type { UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
 import { formatMoney } from "@/lib/cost";
+import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 import {
   listTimeEntries,
   getItemDirectCosts,
@@ -98,7 +100,7 @@ export function CostTab({
   }
 
   async function handleDelete(entry: TimeEntryRow) {
-    const ok = await confirm(`刪除 ${entry.date} 的 ${entry.hours} 小時?`, {
+    const ok = await confirm(`刪除 ${withWeekday(entry.date)} 的 ${entry.hours} 小時?`, {
       title: "刪除工時",
       confirmLabel: "刪除",
       danger: true,
@@ -199,6 +201,7 @@ export function CostTab({
             onChange={(e) => setDate(e.target.value)}
             className={fieldClass}
           />
+          <DateWeekdayHint value={date} />
           <input
             type="number"
             min={0}
@@ -246,7 +249,7 @@ export function CostTab({
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-md border border-neutral-200 dark:border-neutral-700">
             {entries.map((entry) => (
               <li key={entry.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="w-24 shrink-0 text-neutral-500 dark:text-neutral-400">{entry.date}</span>
+                <span className="w-32 shrink-0 text-neutral-500 dark:text-neutral-400">{withWeekday(entry.date)}</span>
                 <span className="w-24 shrink-0 truncate text-neutral-700 dark:text-neutral-100">
                   {entry.userName}
                 </span>

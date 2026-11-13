@@ -23,6 +23,7 @@ import {
   type SelectableRow,
 } from "@/lib/approvalSelection";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 import {
   listApprovalExtras,
   listApprovalHistory,
@@ -322,8 +323,8 @@ export function ApprovalQueue() {
                 <span className="w-20 shrink-0 truncate font-medium text-neutral-800 dark:text-neutral-100">
                   {entry.userName}
                 </span>
-                <span className="w-20 shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
-                  {entry.date}
+                <span className="w-28 shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
+                  {withWeekday(entry.date)}
                 </span>
                 <span className="w-12 shrink-0 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100">
                   {entry.hours}h
@@ -392,8 +393,8 @@ export function ApprovalQueue() {
                 <span className="w-20 shrink-0 truncate font-medium text-neutral-800 dark:text-neutral-100">
                   {entry.userName}
                 </span>
-                <span className="w-20 shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
-                  {entry.date}
+                <span className="w-28 shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
+                  {withWeekday(entry.date)}
                 </span>
                 <span className="w-12 shrink-0 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100">
                   {entry.hours}h
@@ -465,7 +466,7 @@ export function ApprovalQueue() {
                   {leave.userName}
                 </span>
                 <span className="shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
-                  {leave.startDate} ~ {leave.endDate}
+                  {withWeekday(leave.startDate)} ~ {withWeekday(leave.endDate)}
                 </span>
                 <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{leave.days} 天</span>
                 <span className="min-w-0 flex-1 truncate text-neutral-500 dark:text-neutral-400">

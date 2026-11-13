@@ -12,6 +12,7 @@
 
 import { RISK_KIND_LABELS, RISK_STATUS_LABELS, riskLinkTag, riskScore } from "@/lib/riskRegister";
 import { taipeiDateOf } from "@/lib/itemEvents";
+import { shortWithWeekday, withWeekday } from "@/lib/weekdayLabel";
 
 /** 一個工作項在快照裡的樣子。存得下整份名單,差異才算得出來。 */
 export type ReportItem = {
@@ -378,7 +379,7 @@ export function risksToList(risks: RiskLine[], weekStart: string, weekEnd: strin
 /** 一筆風險/議題的標題列:類型標記(風險 / 議題 / Mantis #編號)、名稱、狀態、負責人、到期日。 */
 export function riskHeadline(r: RiskLine): string {
   const owner = r.ownerName ? `・負責:${r.ownerName}` : "";
-  const due = r.dueDate ? `・到期 ${r.dueDate}` : "";
+  const due = r.dueDate ? `・到期 ${withWeekday(r.dueDate)}` : "";
   return `[${riskLinkTag({ kind: r.kind, mantisId: r.mantisId ?? null })}] ${r.title} — ${RISK_STATUS_LABELS[r.status]}(分數 ${riskScore(r.probability, r.impact)})${owner}${due}`;
 }
 
@@ -391,9 +392,9 @@ export function riskDetailLines(r: RiskLine): string[] {
   if (r.mantisUrl) out.push(`Mantis:<${r.mantisUrl}>`);
   const updates = r.updates ?? [];
   if (updates.length > 0) {
-    for (const u of updates) out.push(`💬 更新(${u.authorName} ${u.date.slice(5)}):${u.text}`);
+    for (const u of updates) out.push(`💬 更新(${u.authorName} ${shortWithWeekday(u.date.slice(5), u.date)}):${u.text}`);
   } else if (r.latestUpdate) {
-    out.push(`最近一次更新(${r.latestUpdate.authorName} ${r.latestUpdate.date.slice(5)}):${r.latestUpdate.text}`);
+    out.push(`最近一次更新(${r.latestUpdate.authorName} ${shortWithWeekday(r.latestUpdate.date.slice(5), r.latestUpdate.date)}):${r.latestUpdate.text}`);
   }
   return out;
 }
@@ -630,14 +631,14 @@ export function groupChannelMessages(messages: ChannelMessageLine[]): { boardNam
 /** 一則頻道發言的一行:誰、幾月幾日幾點、說了什麼(有附檔案就把檔名接在後面)。 */
 export function channelMessageLine(m: ChannelMessageLine): string {
   const files = m.attachments.length > 0 ? ` 📎${m.attachments.join("、")}` : "";
-  return `${m.authorName} ${m.date.slice(5)} ${m.time}:${m.text}${files}`;
+  return `${m.authorName} ${shortWithWeekday(m.date.slice(5), m.date)} ${m.time}:${m.text}${files}`;
 }
 
 const UPDATE_ICON: Record<ItemUpdateKind, string> = { COMMENT: "💬", LINK: "🔗", ATTACHMENT: "📎", TODO: "☑️", STATUS: "🔄", FIELD: "✏️" };
 
 /** 網址用 <…> 包起來:Markdown 與純文字信件都會把它當成可以點的連結。 */
 function updateLine(u: ItemUpdateLine): string {
-  const who = `${u.authorName} ${u.date.slice(5)}`;
+  const who = `${u.authorName} ${shortWithWeekday(u.date.slice(5), u.date)}`;
   const detail = u.url ? (u.text && u.text !== u.url ? `${u.text} <${u.url}>` : `<${u.url}>`) : u.text;
   return `  - ${UPDATE_ICON[u.kind]} ${ITEM_UPDATE_LABELS[u.kind]}(${who}):${detail}`;
 }
@@ -689,10 +690,10 @@ export function programSubset(
   };
 }
 
-/** 分專案寄的週報信件標題,例如「AMR BOX週報 W41 (2026-10-05 ~ 2026-10-11)」。 */
+/** 分專案寄的週報信件標題,例如「AMR BOX週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))」。 */
 export function weeklyReportSubject(programName: string | null, weekStart: string, weekEnd: string): string {
   const week = reportWeekLabel(weekEnd).split(" ")[1];
-  return `${programName ?? "未歸屬專案群組"}週報 ${week} (${weekStart} ~ ${weekEnd})`;
+  return `${programName ?? "未歸屬專案群組"}週報 ${week} (${withWeekday(weekStart)} ~ ${withWeekday(weekEnd)})`;
 }
 
 function itemLine(i: ReportItem): string {
@@ -703,7 +704,7 @@ function itemLine(i: ReportItem): string {
     .filter(Boolean)
     .join(" ");
   const owner = i.ownerNames.length > 0 ? `・${i.ownerNames.join("、")}` : "";
-  const due = i.end ? `(${i.end})` : "";
+  const due = i.end ? `(${withWeekday(i.end)})` : "";
   return `- ${i.boardName} / ${i.groupName} · ${i.wbsCode} ${i.name}${due}${owner}${tags ? ` ${tags}` : ""}`;
 }
 
@@ -759,7 +760,7 @@ export function renderWeeklyReportMarkdown(
   const out: string[] = [];
   const label = reportWeekLabel(data.weekEnd);
 
-  out.push(`# ${title} ${label}(${data.weekStart} ~ ${data.weekEnd})`);
+  out.push(`# ${title} ${label}(${withWeekday(data.weekStart)} ~ ${withWeekday(data.weekEnd)})`);
   out.push("");
   out.push(`視角:${data.viewerName}・產出時間:${data.generatedAt}`);
   out.push("");

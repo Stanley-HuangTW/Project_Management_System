@@ -1,6 +1,7 @@
 "use client";
 
 import type { DependentSummary } from "@/lib/predecessorLink";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * The "相關項目" list: who is scheduled off THIS item. The Pred field only
@@ -31,7 +32,7 @@ export function DependentItemsRow({
                 </span>
                 <span className="ml-2 whitespace-nowrap text-xs text-neutral-500 dark:text-neutral-400">
                   {d.link ?? "未設 Link"}
-                  {d.start && d.end ? `・${d.start} → ${d.end}` : ""}
+                  {d.start && d.end ? `・${withWeekday(d.start)} → ${withWeekday(d.end)}` : ""}
                 </span>
               </li>
             ))}

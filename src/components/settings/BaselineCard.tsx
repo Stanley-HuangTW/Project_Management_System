@@ -14,6 +14,7 @@ import {
 } from "@/lib/actions/baseline";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 export type BaselineBoard = {
   id: string;
@@ -23,7 +24,7 @@ export type BaselineBoard = {
 
 function formatCapturedAt(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+  return `${withWeekday(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`)} ${pad(
     date.getHours()
   )}:${pad(date.getMinutes())}`;
 }

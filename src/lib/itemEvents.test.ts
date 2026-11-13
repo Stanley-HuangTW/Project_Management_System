@@ -42,8 +42,8 @@ describe("completedAtOf", () => {
 describe("台灣時間", () => {
   it("UTC 晚上換成台灣已經是隔天;顯示成 月/日 時:分", () => {
     expect(taipeiDateOf("2026-10-11T17:30:00.000Z")).toBe("2026-10-12");
-    expect(formatEventTime("2026-10-12T01:12:57.000Z")).toBe("10/12 09:12");
-    expect(formatEventTime("2026-10-11T17:05:00.000Z")).toBe("10/12 01:05");
+    expect(formatEventTime("2026-10-12T01:12:57.000Z")).toBe("10/12(週一) 09:12");
+    expect(formatEventTime("2026-10-11T17:05:00.000Z")).toBe("10/12(週一) 01:05");
   });
 });
 
@@ -168,10 +168,10 @@ describe("pickStatusTimes", () => {
 
 describe("formatEventDateTime", () => {
   it("台灣時間,含年份", () => {
-    expect(formatEventDateTime("2026-10-12T01:12:57.000Z")).toBe("2026/10/12 09:12");
+    expect(formatEventDateTime("2026-10-12T01:12:57.000Z")).toBe("2026/10/12(週一) 09:12");
   });
 
   it("跨日、跨年:UTC 的晚上是台灣的隔天", () => {
-    expect(formatEventDateTime(new Date("2026-12-31T17:05:00.000Z"))).toBe("2027/1/1 01:05");
+    expect(formatEventDateTime(new Date("2026-12-31T17:05:00.000Z"))).toBe("2027/1/1(週五) 01:05");
   });
 });

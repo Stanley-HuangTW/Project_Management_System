@@ -16,6 +16,7 @@ import { EntryStatusBadge } from "./EntryStatusBadge";
 import { useNoteSuggestions } from "./useNoteSuggestions";
 import type { CalendarEvent } from "./timesheetEvents";
 import { actionErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -326,6 +327,7 @@ function EntryForm({
             }}
             className={`${inputClass} mt-1 block`}
           />
+          <DateWeekdayHint value={date} />
         </label>
         <label className="text-xs text-neutral-500 dark:text-neutral-400">
           開始時間
@@ -415,6 +417,7 @@ function EntryForm({
               <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                 重複到
                 <input type="date" value={until} min={date} onChange={(e) => setUntil(e.target.value)} className={inputClass + " py-1"} />
+                <DateWeekdayHint value={until} />
               </label>
               <p className={"text-xs " + (repeatError ? "text-red-600 dark:text-red-400" : "text-neutral-500 dark:text-neutral-400")}>
                 {repeatError ??

@@ -10,6 +10,8 @@ import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/ite
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const DAY_MS = 86_400_000;
 /** 工作 loading 門檻的預設值 — 超過這個百分比才算過度配置。 */
@@ -145,9 +147,10 @@ export function OverAllocationCard({
   }, [tasksByUser, users, window, threshold, floatByItemId, leaveDays]);
 
   const rangeLabel = window
-    ? `${toIso(window.start).slice(5)} ~ ${toIso(
-        new Date(window.start.getTime() + (window.days - 1) * DAY_MS)
-      ).slice(5)}`
+    ? `${shortWithWeekday(toIso(window.start).slice(5), toIso(window.start))} ~ ${shortWithWeekday(
+        toIso(new Date(window.start.getTime() + (window.days - 1) * DAY_MS)).slice(5),
+        toIso(new Date(window.start.getTime() + (window.days - 1) * DAY_MS))
+      )}`
     : "";
 
   function applyThreshold() {
@@ -224,6 +227,7 @@ export function OverAllocationCard({
                 onChange={(e) => setCustomFrom(e.target.value)}
                 className={fieldClass}
               />
+              <DateWeekdayHint value={customFrom} />
               <span className="text-xs text-neutral-400 dark:text-neutral-500">~</span>
               <input
                 type="date"
@@ -231,6 +235,7 @@ export function OverAllocationCard({
                 onChange={(e) => setCustomTo(e.target.value)}
                 className={fieldClass}
               />
+              <DateWeekdayHint value={customTo} />
               <button
                 type="button"
                 onClick={applyCustom}
@@ -286,7 +291,7 @@ export function OverAllocationCard({
                         dates buries the names the row exists to show. */}
                     {overload.days
                       .slice(0, 10)
-                      .map((d) => `${d.date.slice(5)}${d.onLeave ? "(休假)" : ""}`)
+                      .map((d) => `${shortWithWeekday(d.date.slice(5), d.date)}${d.onLeave ? "(休假)" : ""}`)
                       .join("、")}
                     {overload.days.length > 10 && `…等 ${overload.days.length} 天`})
                   </span>

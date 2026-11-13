@@ -465,7 +465,7 @@ describe("Markdown", () => {
 
   it("標題帶週數與起訖", () => {
     const md = renderWeeklyReportMarkdown(snapshot([]), noDiff);
-    expect(md.startsWith("# 週報 2026 W38(2026-09-14 ~ 2026-09-20)")).toBe(true);
+    expect(md.startsWith("# 週報 2026 W38(2026-09-14(週一) ~ 2026-09-20(週日))")).toBe(true);
   });
 
   it("第一份會說清楚沒得比,而不是留一排 0", () => {
@@ -912,8 +912,8 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
     expect(md).toContain("### 工作項資訊更新(1)");
     expect(md).toContain("1.4 韌體開發");
-    expect(md).toContain("🔗 連結(Henry 09-16):設計文件 <https://example.com/doc>");
-    expect(md).toContain("💬 更新(Henry 09-16):已更新到 v2");
+    expect(md).toContain("🔗 連結(Henry 09-16(週三)):設計文件 <https://example.com/doc>");
+    expect(md).toContain("💬 更新(Henry 09-16(週三)):已更新到 v2");
   });
 
   it("欄位修改(進度、改名、指派…)跟「更新記錄」頁同一批,列在「工作項資訊更新」裡", () => {
@@ -924,8 +924,8 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     ];
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
     expect(md).toContain("### 工作項資訊更新(1)");
-    expect(md).toContain("✏️ 修改(Frank Chuang 11-02):「% Done」:0 → 1");
-    expect(md).toContain("🔄 狀態(Stanley Huang 11-02):「Status」已更新:Planned → Completed");
+    expect(md).toContain("✏️ 修改(Frank Chuang 11-02(週一)):「% Done」:0 → 1");
+    expect(md).toContain("🔄 狀態(Stanley Huang 11-02(週一)):「Status」已更新:Planned → Completed");
   });
 
   it("同一天裡先列狀態、再列欄位修改、再列留言", () => {
@@ -945,7 +945,7 @@ describe("工作項資訊更新(留言、連結、附件)", () => {
     const data = snapshot([]);
     data.programs[0].itemUpdates = [update({ itemId: "a", kind: "LINK", text: "https://e.com/x", url: "https://e.com/x" })];
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
-    expect(md).toContain("連結(Henry 09-16):<https://e.com/x>");
+    expect(md).toContain("連結(Henry 09-16(週三)):<https://e.com/x>");
     expect(md).not.toContain("https://e.com/x <");
   });
 
@@ -1009,8 +1009,8 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
     const md = renderWeeklyReportMarkdown(now, diff);
     const done = md.slice(md.indexOf("**完成(1)**"), md.indexOf("### 工作項資訊更新"));
     expect(done).toContain("ME 3D 出圖");
-    expect(done).toContain("💬 更新(Henry 09-16):已更新圖紙");
-    expect(done).toContain("🔗 連結(Henry 09-16):3D 圖檔 <https://example.com/3d>");
+    expect(done).toContain("💬 更新(Henry 09-16(週三)):已更新圖紙");
+    expect(done).toContain("🔗 連結(Henry 09-16(週三)):3D 圖檔 <https://example.com/3d>");
     expect(done).not.toContain("還在等廠商");
   });
 
@@ -1032,7 +1032,7 @@ describe("這週已完成的工作項附上它的資訊更新", () => {
     ];
     const md = renderWeeklyReportMarkdown(now, diff);
     const person = md.slice(md.indexOf("**這週已完成(1)**"), md.indexOf("### 目前逾期"));
-    expect(person).toContain("💬 更新(Henry 09-16):已更新圖紙");
+    expect(person).toContain("💬 更新(Henry 09-16(週三)):已更新圖紙");
     expect(person).toContain("<https://example.com/3d>");
     // 逾期的不附(只有「這週已完成」附)。
     expect(person).not.toContain("還在等廠商");
@@ -1100,9 +1100,9 @@ describe("風險與議題明細", () => {
       risk({ id: "r2", title: "這週沒更新的", latestUpdate: { authorName: "陳小美", date: "2026-08-30", text: "等客戶回覆" } }),
       risk({ id: "r3", title: "從來沒更新的" }),
     ]);
-    expect(out).toContain("💬 更新(王小明 09-16):已跟供應商確認");
-    expect(out).toContain("💬 更新(李小華 09-18):第二家報價回來了");
-    expect(out).toContain("最近一次更新(陳小美 08-30):等客戶回覆");
+    expect(out).toContain("💬 更新(王小明 09-16(週三)):已跟供應商確認");
+    expect(out).toContain("💬 更新(李小華 09-18(週五)):第二家報價回來了");
+    expect(out).toContain("最近一次更新(陳小美 08-30(週日)):等客戶回覆");
     // 只看「從來沒更新的」那一筆自己的區塊(標題列加上縮排的子行),不要把後面別筆的更新算進來。
     const block = out.match(/- \[風險\] 從來沒更新的[^\n]*\n(?:  - [^\n]*\n?)*/)?.[0] ?? "";
     expect(block).toContain("從來沒更新的");
@@ -1198,7 +1198,7 @@ describe("分專案寄信", () => {
     const sub = programSubset(now, diff, "AMR BOX");
     expect(sub.diff.completed.map((i) => i.id)).toEqual(["a1"]);
     const md = renderWeeklyReportMarkdown(sub.data, sub.diff, { title: "AMR BOX週報" });
-    expect(md.startsWith("# AMR BOX週報 2026 W38(2026-09-14 ~ 2026-09-20)")).toBe(true);
+    expect(md.startsWith("# AMR BOX週報 2026 W38(2026-09-14(週一) ~ 2026-09-20(週日))")).toBe(true);
     expect(md).toContain("完成 1・");
     expect(md).not.toContain("## 專案:M3");
   });
@@ -1210,8 +1210,8 @@ describe("分專案寄信", () => {
   });
 
   it("標題:專案名稱 + 週報 + 週數 + 起訖", () => {
-    expect(weeklyReportSubject("AMR BOX", "2026-10-05", "2026-10-11")).toBe("AMR BOX週報 W41 (2026-10-05 ~ 2026-10-11)");
-    expect(weeklyReportSubject(null, "2026-10-05", "2026-10-11")).toBe("未歸屬專案群組週報 W41 (2026-10-05 ~ 2026-10-11)");
+    expect(weeklyReportSubject("AMR BOX", "2026-10-05", "2026-10-11")).toBe("AMR BOX週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))");
+    expect(weeklyReportSubject(null, "2026-10-05", "2026-10-11")).toBe("未歸屬專案群組週報 W41 (2026-10-05(週一) ~ 2026-10-11(週日))");
   });
 });
 
@@ -1282,11 +1282,11 @@ describe("週報涵蓋的範圍(從星期幾到星期幾)", () => {
   });
 
   it("標題與信件標題用最後一天的週數,範圍橫跨兩個日曆週也不亂", () => {
-    expect(weeklyReportSubject("M3", "2026-09-30", "2026-10-06")).toBe("M3週報 W41 (2026-09-30 ~ 2026-10-06)");
+    expect(weeklyReportSubject("M3", "2026-09-30", "2026-10-06")).toBe("M3週報 W41 (2026-09-30(週三) ~ 2026-10-06(週二))");
     const data = snapshot([]);
     data.weekStart = "2026-09-30";
     data.weekEnd = "2026-10-06";
-    expect(renderWeeklyReportMarkdown(data, diffWeeks(data, null)).startsWith("# 週報 2026 W41(2026-09-30 ~ 2026-10-06)")).toBe(true);
+    expect(renderWeeklyReportMarkdown(data, diffWeeks(data, null)).startsWith("# 週報 2026 W41(2026-09-30(週三) ~ 2026-10-06(週二))")).toBe(true);
   });
 });
 
@@ -1371,8 +1371,8 @@ describe("工作項資訊更新:待辦事項與狀態變化", () => {
       ],
     };
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
-    expect(md).toContain("🔄 狀態(Schumi Su 09-16):「Status」已更新:In Progress → Completed");
-    expect(md).toContain("☑️ 待辦事項(Schumi Su 09-16):完成待辦事項:「驗收」");
+    expect(md).toContain("🔄 狀態(Schumi Su 09-16(週三)):「Status」已更新:In Progress → Completed");
+    expect(md).toContain("☑️ 待辦事項(Schumi Su 09-16(週三)):完成待辦事項:「驗收」");
   });
 });
 
@@ -1407,7 +1407,7 @@ describe("第一份週報:有實際完成時間的項目照樣列出這週完成
     expect(md).toContain("這週完成 1 項(以實際切成完成的時間為準)");
     expect(md).toContain("**完成(1)**");
     expect(md).toContain("VCU選用");
-    expect(md).toContain("🔄 狀態(Schumi Su 09-16)");
+    expect(md).toContain("🔄 狀態(Schumi Su 09-16(週三))");
   });
 
   it("沒有實際完成時間的第一份週報:跟以前一樣不宣稱任何完成", () => {
@@ -1499,8 +1499,8 @@ describe("看板頻道對話", () => {
   });
 
   it("一行:誰、月日時間、內容;有附檔就接在後面", () => {
-    expect(channelMessageLine(msg())).toBe("Henry 09-16 10:05:外殼打樣確認");
-    expect(channelMessageLine(msg({ attachments: ["a.pdf", "b.png"] }))).toBe("Henry 09-16 10:05:外殼打樣確認 📎a.pdf、b.png");
+    expect(channelMessageLine(msg())).toBe("Henry 09-16(週三) 10:05:外殼打樣確認");
+    expect(channelMessageLine(msg({ attachments: ["a.pdf", "b.png"] }))).toBe("Henry 09-16(週三) 10:05:外殼打樣確認 📎a.pdf、b.png");
   });
 
   it("Markdown 有「看板頻道對話」一段,依看板列出", () => {
@@ -1509,8 +1509,8 @@ describe("看板頻道對話", () => {
     const md = renderWeeklyReportMarkdown(data, diffWeeks(data, null));
     expect(md).toContain("### 看板頻道對話(2 則)");
     expect(md).toContain("- M3專案(2 則)");
-    expect(md).toContain("  - 💬 Henry 09-16 10:05:外殼打樣確認");
-    expect(md).toContain("  - 💬 Amy 09-16 11:00:收到");
+    expect(md).toContain("  - 💬 Henry 09-16(週三) 10:05:外殼打樣確認");
+    expect(md).toContain("  - 💬 Amy 09-16(週三) 11:00:收到");
   });
 
   it("這週頻道沒有對話時說清楚;舊版快照(沒有這個欄位)不顯示這一段", () => {

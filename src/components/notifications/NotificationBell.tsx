@@ -13,6 +13,7 @@ import {
 import { usePendingApprovalCount } from "@/components/approvals/usePendingApprovalCount";
 import { NotificationPreferencesModal } from "./NotificationPreferencesModal";
 import { NOTIFICATION_TYPE_STYLES as NOTIFICATION_TYPE } from "./typeStyles";
+import { localeDateWithWeekday } from "@/lib/weekdayLabel";
 
 function formatWhen(value: Date | string): string {
   const date = new Date(value);
@@ -20,7 +21,7 @@ function formatWhen(value: Date | string): string {
   if (minutes < 1) return "剛剛";
   if (minutes < 60) return `${minutes} 分鐘前`;
   if (minutes < 60 * 24) return `${Math.floor(minutes / 60)} 小時前`;
-  return date.toLocaleDateString("zh-TW");
+  return localeDateWithWeekday(date);
 }
 
 const POLL_INTERVAL_MS = 30000;

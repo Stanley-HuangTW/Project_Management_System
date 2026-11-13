@@ -10,6 +10,7 @@ import {
   type WeeklyReportDiff,
 } from "@/lib/weeklyReport";
 import type { WeeklyReportSnapshot } from "@/lib/weeklyReportServer";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * 把產好的週報送出去:落一份檔案,再寄一封信。
@@ -121,7 +122,7 @@ export async function deliverProgramReport(
   const base = `${snapshot.weekStart}_${label}_${safeName(programName)}`;
   const file = await writeReportFiles(base, snapshot, markdown);
 
-  const subject = `【${programName}】週報 ${reportWeekLabel(snapshot.weekEnd)}(${snapshot.weekStart} ~ ${snapshot.weekEnd})`;
+  const subject = `【${programName}】週報 ${reportWeekLabel(snapshot.weekEnd)}(${withWeekday(snapshot.weekStart)} ~ ${withWeekday(snapshot.weekEnd)})`;
   const mail: ProgramDeliveryResult["mail"] = [];
   for (const to of recipientEmails) {
     const result = await sendMailChecked(to, subject, markdown);

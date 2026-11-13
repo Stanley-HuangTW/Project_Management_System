@@ -9,6 +9,7 @@ import { ProgramGantt } from "./ProgramGantt";
 import { CostReport } from "@/components/board/CostReport";
 import { DelayReport } from "@/components/board/DelayReport";
 import { BudgetPanel } from "@/components/budget/BudgetPanel";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 type Tab = "gantt" | "budget" | "cost" | "delay";
 
@@ -70,10 +71,10 @@ export function ProgramView({
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryTile label="整體開始" value={view.startDate ?? "—"} />
+        <SummaryTile label="整體開始" value={view.startDate ? withWeekday(view.startDate) : "—"} />
         <SummaryTile
           label="整體完工"
-          value={view.finishDate ?? "—"}
+          value={view.finishDate ? withWeekday(view.finishDate) : "—"}
           hint="整個群組最後一項工作結束的日子"
           emphasis
         />

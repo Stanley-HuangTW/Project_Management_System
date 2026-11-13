@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { BOM_COLUMN_TYPE_LABELS, isCustomColumn, isMoneyBlock, type BomColumnDef } from "@/lib/bomColumns";
 import type { BulkEditField } from "@/lib/actions/bomBulk";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 type FixedKind = "rename" | "qty" | "unitPrice" | "currency";
 // 每一種固定欄位各自一個型別,kind 才能一個一個縮小範圍。
@@ -176,7 +177,12 @@ export function BomBulkEditDialog({
     if (col.id === "delivery") {
       control = <input data-bom-bulk-value value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} inputMode="decimal" placeholder="週數,例如 8" className={inputClass} />;
     } else if (col.type === "DATE") {
-      control = <input data-bom-bulk-value type="date" value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} className={inputClass} />;
+      control = (
+        <>
+          <input data-bom-bulk-value type="date" value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} className={inputClass} />
+          <DateWeekdayHint value={text} />
+        </>
+      );
     } else if (col.type === "SELECT") {
       control = (
         <select data-bom-bulk-value value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} className={inputClass}>

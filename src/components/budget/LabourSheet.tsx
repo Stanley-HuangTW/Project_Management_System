@@ -37,6 +37,7 @@ import {
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { LabourExcelButtons } from "./LabourExcelButtons";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 const MONTH_WIDTH = 46;
 const LABEL_WIDTH = 150;
@@ -565,7 +566,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                       type="button"
                       disabled={!canEditSchedule || busy}
                       onClick={() => editPhase(phase)}
-                      title={`${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEditSchedule ? "(點選修改)" : ""}`}
+                      title={`${entry.name}:${withWeekday(entry.startDate)} ~ ${withWeekday(entry.endDate)}${canEditSchedule ? "(點選修改)" : ""}`}
                       className="absolute top-1 flex h-5 items-center justify-center overflow-hidden rounded-sm px-1 text-[10px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
                       style={{
                         left: box.left + 1,
@@ -622,7 +623,7 @@ export function LabourSheet({ boardId }: { boardId: string }) {
                         type="button"
                         disabled={!canEditSchedule || busy}
                         onClick={() => editMilestone(milestone)}
-                        title={`${type.name}・${entry.name}:${entry.startDate} ~ ${entry.endDate}${canEditSchedule ? "(點選修改)" : ""}`}
+                        title={`${type.name}・${entry.name}:${withWeekday(entry.startDate)} ~ ${withWeekday(entry.endDate)}${canEditSchedule ? "(點選修改)" : ""}`}
                         className="absolute top-1 flex h-4 items-center justify-center overflow-hidden rounded-sm px-1 text-[9px] font-medium text-white hover:ring-1 hover:ring-neutral-500 disabled:cursor-default"
                         style={{
                           left: box.left + 1,

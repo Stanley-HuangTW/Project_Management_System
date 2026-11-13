@@ -11,6 +11,8 @@ import {
 } from "@/lib/actions/estimateImport";
 import { MAX_CALENDAR_RANGE_DAYS, calendarScopeRange, validateCalendarRange, type CalendarScope } from "@/lib/googleCalendar";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const WEEKDAY_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const inputClass =
@@ -178,12 +180,14 @@ export function EstimateImportDialog({
           {scope === "range" ? (
             <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
               <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className={inputClass} aria-label="開始日期" />
+              <DateWeekdayHint value={customFrom} />
               <span>~</span>
               <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className={inputClass} aria-label="結束日期" />
+              <DateWeekdayHint value={customTo} />
             </div>
           ) : (
             <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">
-              {range.from} ~ {range.to}
+              {withWeekday(range.from)} ~ {withWeekday(range.to)}
             </span>
           )}
         </div>

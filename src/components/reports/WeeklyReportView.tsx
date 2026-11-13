@@ -6,6 +6,7 @@ import { Download, Maximize2, Minimize2, RefreshCw } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { DEFAULT_WEEKLY_INFO, reportWeekLabel, type WeeklyInfoOptions, type WeeklyReportData, type WeeklyReportDiff } from "@/lib/weeklyReport";
 import { WeeklyProgramPanel } from "@/components/reports/WeeklyProgramPanel";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 export type WeeklyReportRow = {
   weekStart: string;
@@ -81,7 +82,7 @@ export function WeeklyReportView({ reports, today }: { reports: WeeklyReportRow[
       const file = body.delivery?.file?.ok
         ? "已存檔"
         : `沒有存檔(${body.delivery?.file?.reason ?? "未知原因"})`;
-      await notify(`${body.weekStart} ~ ${body.weekEnd} 的週報已產生。${mail};${file}。`, {
+      await notify(`${withWeekday(body.weekStart)} ~ ${withWeekday(body.weekEnd)} 的週報已產生。${mail};${file}。`, {
         title: "週報已產生",
       });
       setSelected(body.weekStart);
@@ -154,7 +155,7 @@ export function WeeklyReportView({ reports, today }: { reports: WeeklyReportRow[
           >
             {reports.map((r) => (
               <option key={r.weekStart} value={r.weekStart}>
-                {reportWeekLabel(r.weekEnd)}({r.weekStart} ~ {r.weekEnd})
+                {reportWeekLabel(r.weekEnd)}({withWeekday(r.weekStart)} ~ {withWeekday(r.weekEnd)})
               </option>
             ))}
           </select>
@@ -180,7 +181,7 @@ export function WeeklyReportView({ reports, today }: { reports: WeeklyReportRow[
             {/* 週報是產生當下的快照:範圍的最後一天在產生之後才到、而且產生之後已經過了好幾天,中間的更新(切成完成、留言…)不在裡面。 */}
             {current.createdAt.slice(0, 10) < current.weekEnd && current.createdAt.slice(0, 10) < today && (
               <p data-stale-snapshot className="mb-3 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                這份是 {current.createdAt} 產生的快照,{current.createdAt.slice(0, 10)} 之後的更新不在裡面(這份的範圍到 {current.weekEnd})。要看最新的,按上面的「產生這一週(到目前為止)」重新產生,會再寄一封信給你。
+                這份是 {current.createdAt} 產生的快照,{withWeekday(current.createdAt.slice(0, 10))} 之後的更新不在裡面(這份的範圍到 {withWeekday(current.weekEnd)})。要看最新的,按上面的「產生這一週(到目前為止)」重新產生,會再寄一封信給你。
               </p>
             )}
             {current.data && current.diff ? (

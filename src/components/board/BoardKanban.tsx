@@ -31,6 +31,7 @@ import { useRecordedCellSave } from "./cell-editors/useCellSave";
 import { teamViewIds } from "@/lib/orgChart";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 
 // 逾期 first, then 未處理, then 實作中, then 已完成 last — same status
 // precedence as the Gantt/table/dashboard name-color rule, repurposed as a
@@ -70,7 +71,7 @@ const DUE_LANES: {
 const OTHER_BUCKET = 4;
 
 function formatDueDate(date: Date) {
-  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+  return shortWithWeekday(`${date.getUTCMonth() + 1}/${date.getUTCDate()}`, date.toISOString().slice(0, 10));
 }
 
 function DueCard({

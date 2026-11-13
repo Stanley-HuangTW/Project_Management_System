@@ -17,6 +17,7 @@ import { snapHours } from "@/lib/calendarLayout";
 import { formatMinute, parseMinute } from "@/lib/timeOfDay";
 import { WEEKDAY_NAMES, describeApplyResult, formatWeekdays, type TemplateKind } from "@/lib/timeTemplates";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 const inputClass =
   "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -151,7 +152,7 @@ export function TemplateDialog({
                 disabled={busyId !== null}
                 onClick={() => apply(t)}
                 className="shrink-0 rounded-md border border-blue-300 px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950"
-                title={`在${weekLabel}(${weekStart} 起)的 ${formatWeekdays(t.weekdays)} 各建立一筆`}
+                title={`在${weekLabel}(${withWeekday(weekStart)} 起)的 ${formatWeekdays(t.weekdays)} 各建立一筆`}
               >
                 套用到這週
               </button>

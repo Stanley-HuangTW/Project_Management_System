@@ -8,6 +8,7 @@ import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/ite
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { UserOption } from "@/types/board";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 import type { UserRole } from "@prisma/client";
 import { actionErrorMessage } from "@/lib/userError";
 
@@ -29,7 +30,7 @@ function loadStoredView(): StoredView | null {
 }
 
 function formatDate(date: Date) {
-  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+  return shortWithWeekday(`${date.getUTCMonth() + 1}/${date.getUTCDate()}`, date.toISOString().slice(0, 10));
 }
 
 /**

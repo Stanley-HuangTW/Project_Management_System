@@ -28,6 +28,8 @@ import {
   type GateRow,
   type GateCriterionRow,
 } from "@/lib/actions/gate";
+import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const STATUS_LABELS: Record<GateStatus, string> = {
   DRAFT: "準備中",
@@ -201,6 +203,7 @@ export function BoardGates({
             title="預計審查日"
             className={fieldClass}
           />
+          <DateWeekdayHint value={newDate} />
           <button
             type="button"
             disabled={busy || !newName.trim()}
@@ -283,7 +286,7 @@ function CriterionApprovers({
           ) : (
             <span className="text-neutral-400 dark:text-neutral-500">未表態</span>
           )}
-          {a.decidedAt && <span className="tabular-nums text-neutral-400 dark:text-neutral-500">{a.decidedAt.slice(0, 10)}</span>}
+          {a.decidedAt && <span className="tabular-nums text-neutral-400 dark:text-neutral-500">{withWeekday(a.decidedAt.slice(0, 10))}</span>}
           {a.comment && <span className="min-w-0 flex-1 truncate text-neutral-500 dark:text-neutral-400">{a.comment}</span>}
           {canManage && (
             <button
@@ -426,7 +429,7 @@ function GateCard({
         )}
         {gate.plannedDate && (
           <span className="text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
-            預計 {gate.plannedDate}
+            預計 {withWeekday(gate.plannedDate)}
           </span>
         )}
         <span className="text-xs text-neutral-500 dark:text-neutral-400">
@@ -509,7 +512,7 @@ function GateCard({
       {gate.decisionNote && (
         <p className="border-t border-neutral-100 dark:border-neutral-800 px-3 py-2 text-xs text-neutral-600 dark:text-neutral-300">
           <span className="font-medium">
-            {gate.decidedByName} 於 {gate.decidedAt?.slice(0, 10)}：
+            {gate.decidedByName} 於 {gate.decidedAt && withWeekday(gate.decidedAt.slice(0, 10))}：
           </span>{" "}
           {gate.decisionNote}
         </p>
@@ -626,7 +629,7 @@ function GateCard({
                     )}
                     {approver.decidedAt && (
                       <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
-                        {approver.decidedAt.slice(0, 10)}
+                        {withWeekday(approver.decidedAt.slice(0, 10))}
                       </span>
                     )}
                     {approver.comment && (

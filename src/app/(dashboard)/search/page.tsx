@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileText, MessageSquare, Paperclip, ShieldAlert } from "lucide-react";
 import { searchEverything, type SearchHit } from "@/lib/actions/search";
 import { SearchBox } from "@/components/search/SearchBox";
+import { localeDateWithWeekday } from "@/lib/weekdayLabel";
 
 const KIND_META: Record<SearchHit["kind"], { label: string; Icon: typeof FileText }> = {
   item: { label: "工作項", Icon: FileText },
@@ -55,7 +56,7 @@ export default async function SearchPage({
                         </span>
                       )}
                       <span className="mt-0.5 block text-xs text-neutral-400 dark:text-neutral-500">
-                        {label}・{hit.boardName}・{new Date(hit.at).toLocaleDateString("zh-TW")}
+                        {label}・{hit.boardName}・{localeDateWithWeekday(hit.at)}
                       </span>
                     </span>
                   </Link>

@@ -27,6 +27,7 @@ import {
   type NreLineInput,
 } from "@/lib/nre";
 import { knownErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const fieldClass =
   "w-full rounded-md border border-neutral-300 px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900";
@@ -160,9 +161,11 @@ function FieldCells({
         <>
           <td className="px-1.5 py-1">
             <input type="date" value={fields.startDate} onChange={set("startDate")} disabled={disabled} max={fields.endDate || undefined} className={`${fieldClass} w-[7.75rem]`} aria-label="開始日" />
+            <DateWeekdayHint value={fields.startDate} />
           </td>
           <td className="px-1.5 py-1">
             <input type="date" value={fields.endDate} onChange={set("endDate")} disabled={disabled} min={fields.startDate || undefined} className={`${fieldClass} w-[7.75rem]`} aria-label="結束日" />
+            <DateWeekdayHint value={fields.endDate} />
           </td>
           <td className="px-1.5 py-1">
             <select value={fields.scope} onChange={(e) => onChange({ ...fields, scope: e.target.value })} disabled={disabled} className={`${fieldClass} min-w-[7rem]`} aria-label="範圍">

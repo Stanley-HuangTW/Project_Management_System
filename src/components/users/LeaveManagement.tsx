@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { createLeave, deleteLeave, listLeaves, type LeaveRow } from "@/lib/actions/leave";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -51,7 +53,7 @@ export function LeaveManagement({
   }
 
   async function handleDelete(leave: LeaveRow) {
-    const ok = await confirm(`刪除 ${leave.userName} 的休假(${leave.startDate} ~ ${leave.endDate})?`, {
+    const ok = await confirm(`刪除 ${leave.userName} 的休假(${withWeekday(leave.startDate)} ~ ${withWeekday(leave.endDate)})?`, {
       title: "刪除休假",
       confirmLabel: "刪除",
       danger: true,
@@ -100,6 +102,7 @@ export function LeaveManagement({
           }}
           className={fieldClass}
         />
+        <DateWeekdayHint value={startDate} />
         <span className="text-sm text-neutral-400 dark:text-neutral-500">~</span>
         <input
           type="date"
@@ -108,6 +111,7 @@ export function LeaveManagement({
           onChange={(e) => setEndDate(e.target.value)}
           className={fieldClass}
         />
+        <DateWeekdayHint value={endDate} />
         <input
           value={reason}
           disabled={busy}
@@ -137,7 +141,7 @@ export function LeaveManagement({
                 {leave.userName}
               </span>
               <span className="shrink-0 tabular-nums text-neutral-600 dark:text-neutral-300">
-                {leave.startDate} ~ {leave.endDate}
+                {withWeekday(leave.startDate)} ~ {withWeekday(leave.endDate)}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-neutral-400 dark:text-neutral-500">
                 {leave.reason}

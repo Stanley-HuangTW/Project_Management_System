@@ -13,6 +13,8 @@ import {
   deleteProjectTemplate,
   type ProjectTemplateSummary,
 } from "@/lib/actions/projectTemplate";
+import { localeDateWithWeekday, withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -81,7 +83,7 @@ export function ProjectTemplateModal({
     if (!template || !group) return;
     const ok = await confirm(
       `將範本「${template.name}」的 ${template.itemCount} 個工作項建立到分組「${group.name}」,` +
-        `起始日期 ${startDate}?後續日期會依範本裡的天數與前置關係自動算出。`,
+        `起始日期 ${withWeekday(startDate)}?後續日期會依範本裡的天數與前置關係自動算出。`,
       { title: "套用範本", confirmLabel: "建立" }
     );
     if (!ok) return;
@@ -158,7 +160,7 @@ export function ProjectTemplateModal({
                       <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">
                         {template.description ? `${template.description}・` : ""}
                         {template.createdBy ? `${template.createdBy}・` : ""}
-                        {new Date(template.createdAt).toLocaleDateString("zh-TW")}
+                        {localeDateWithWeekday(template.createdAt)}
                       </span>
                     </span>
                   </label>
@@ -197,6 +199,7 @@ export function ProjectTemplateModal({
                 onChange={(e) => setStartDate(e.target.value)}
                 className={fieldClass}
               />
+              <DateWeekdayHint value={startDate} />
               <button
                 type="button"
                 disabled={busy || !templateId || !targetGroupId}

@@ -67,9 +67,9 @@ describe("formatDueShort / reminderMessage", () => {
 
   it("names the work item, the todo and the date for each stage", () => {
     const args = { itemName: "vision box ID 新設計", todoText: "送樣確認", dueDate: "2026-10-28" };
-    expect(reminderMessage(1, args)).toBe("工作項目「vision box ID 新設計」的待辦事項「送樣確認」明天(2026-10-28)到期");
-    expect(reminderMessage(2, args)).toContain("今天(2026-10-28)到期");
-    expect(reminderMessage(3, args)).toContain("已經逾期(期限 2026-10-28)");
+    expect(reminderMessage(1, args)).toBe("工作項目「vision box ID 新設計」的待辦事項「送樣確認」明天 2026-10-28(週三) 到期");
+    expect(reminderMessage(2, args)).toContain("今天 2026-10-28(週三) 到期");
+    expect(reminderMessage(3, args)).toContain("已經逾期(期限 2026-10-28(週三))");
   });
 });
 

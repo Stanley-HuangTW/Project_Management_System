@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { withWeekday } from "./weekdayLabel";
+import { localeDateTimeWithWeekday, localeDateWithWeekday, shortWithWeekday, weekdayOf, withWeekday } from "./weekdayLabel";
 
 describe("withWeekday", () => {
   it("日期後面接星期幾(使用者回報的那個對話框:Start 2026-11-12 是週四、Finish 2026-11-20 是週五)", () => {
@@ -37,5 +37,28 @@ describe("withWeekday", () => {
       const iso = d.toISOString().slice(0, 10);
       expect(withWeekday(iso)).toBe(`${iso}(${names[d.getUTCDay()]})`);
     }
+  });
+});
+
+describe("weekdayOf / shortWithWeekday", () => {
+  it("只給星期幾;不是日期給空字串", () => {
+    expect(weekdayOf("2026-11-13")).toBe("週五");
+    expect(weekdayOf("2026-02-30")).toBe("");
+    expect(weekdayOf("")).toBe("");
+  });
+  it("短格式日期接星期幾,壞日期原樣", () => {
+    expect(shortWithWeekday("11/13", "2026-11-13")).toBe("11/13(週五)");
+    expect(shortWithWeekday("—", "bad")).toBe("—");
+  });
+});
+
+describe("localeDateWithWeekday / localeDateTimeWithWeekday", () => {
+  it("用執行環境的時區,星期跟日期對得起來", () => {
+    const d = new Date(2026, 10, 13, 8, 46, 0);
+    expect(localeDateWithWeekday(d)).toBe(`${d.toLocaleDateString("zh-TW")}(週五)`);
+    expect(localeDateTimeWithWeekday(d.toISOString())).toBe(`${d.toLocaleDateString("zh-TW")}(週五) ${d.toLocaleTimeString("zh-TW")}`);
+  });
+  it("不是時間給空字串", () => {
+    expect(localeDateWithWeekday("nope")).toBe("");
   });
 });

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 import { daysBetween, endFromDays, type DurationMode } from "@/lib/rangeDuration";
 
 export type RangeDraft = {
@@ -222,6 +223,7 @@ export function PhaseRangeDialog({
               onChange={(e) => changeStart(e.target.value)}
               className={field}
             />
+            <DateWeekdayHint value={startDate} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">結束日</span>
@@ -232,6 +234,7 @@ export function PhaseRangeDialog({
               onChange={(e) => changeEnd(e.target.value)}
               className={field}
             />
+            <DateWeekdayHint value={endDate} />
           </label>
         </div>
 

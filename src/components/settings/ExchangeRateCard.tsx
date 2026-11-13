@@ -10,6 +10,7 @@ import {
   deleteExchangeRate,
   type RateRow,
 } from "@/lib/actions/exchangeRate";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * 匯率。
@@ -76,7 +77,7 @@ export function ExchangeRateCard() {
                 {row.rate}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-neutral-400 dark:text-neutral-500">
-                更新於 {row.updatedAt.slice(0, 10)}
+                更新於 {withWeekday(row.updatedAt.slice(0, 10))}
               </span>
               <button
                 type="button"

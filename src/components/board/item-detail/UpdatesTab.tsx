@@ -10,6 +10,7 @@ import type { UserRole } from "@prisma/client";
 import { activeMentionQuery } from "@/lib/mentions";
 import { MentionText } from "./MentionText";
 import { useChat } from "@/components/chat/ChatProvider";
+import { localeDateTimeWithWeekday } from "@/lib/weekdayLabel";
 
 export function UpdatesTab({
   boardId,
@@ -219,7 +220,7 @@ export function UpdatesTab({
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{c.author.name}</span>
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">
-                  {new Date(c.createdAt).toLocaleString("zh-TW")}
+                  {localeDateTimeWithWeekday(c.createdAt)}
                 </span>
                 <span className="ml-auto">
                   <label

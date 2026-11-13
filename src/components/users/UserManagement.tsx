@@ -47,6 +47,7 @@ import { fileToAvatarDataUrl } from "@/lib/avatarImage";
 import { HScrollPane } from "@/components/ui/HScrollPane";
 import { HandoverDialog } from "./HandoverDialog";
 import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
+import { localeDateWithWeekday } from "@/lib/weekdayLabel";
 
 type UserRow = Awaited<ReturnType<typeof listUsers>>[number];
 
@@ -235,7 +236,7 @@ function SortableUserRow({
         )}
       </span>
       <span className="text-neutral-400 dark:text-neutral-500">
-        {new Date(user.createdAt).toLocaleDateString("zh-TW")}
+        {localeDateWithWeekday(user.createdAt)}
       </span>
       <div className="flex min-w-0 items-center gap-1" data-user-unit={user.id}>
         <select

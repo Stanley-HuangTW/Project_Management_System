@@ -20,6 +20,8 @@ import { TodoTitle } from "./TodoTitle";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { SortableList } from "@/components/ui/SortableList";
 import { describeDeadline, formatDueShort, taipeiClock, type DeadlineTone } from "@/lib/todoDeadline";
+import { shortWithWeekday, withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const TONE_CLASS: Record<DeadlineTone, string> = {
   overdue: "text-red-600",
@@ -160,6 +162,7 @@ export function RiskTodosPanel({ riskId }: { riskId: string }) {
                   onBlur={() => setEditingDueId(null)}
                   className="rounded border border-neutral-300 px-1 py-0.5 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
                 />
+                <DateWeekdayHint value={t.dueDate} />
                 {t.dueDate && (
                   <button
                     type="button"
@@ -180,12 +183,12 @@ export function RiskTodosPanel({ riskId }: { riskId: string }) {
               <button
                 type="button"
                 onClick={() => setEditingDueId(t.id)}
-                title={`期限 ${t.dueDate}(點一下修改)`}
+                title={`期限 ${withWeekday(t.dueDate)}(點一下修改)`}
                 className={`shrink-0 whitespace-nowrap rounded px-1 text-xs tabular-nums hover:bg-neutral-100 dark:hover:bg-neutral-700 ${
                   t.done ? "text-neutral-400 dark:text-neutral-500" : TONE_CLASS[describeDeadline(today, t.dueDate).tone]
                 }`}
               >
-                {formatDueShort(t.dueDate)}
+                {shortWithWeekday(formatDueShort(t.dueDate), t.dueDate)}
                 {!t.done && `・${describeDeadline(today, t.dueDate).text}`}
               </button>
             ) : (
@@ -227,6 +230,7 @@ export function RiskTodosPanel({ riskId }: { riskId: string }) {
             onChange={(e) => setDueText(e.target.value)}
             className="rounded border border-neutral-300 px-1 py-0.5 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900"
           />
+          <DateWeekdayHint value={dueText} />
         </label>
         <label className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-300" title={reasonText(assignee.reason) ?? "處理者:這個待辦事項由誰完成"}>
           處理者

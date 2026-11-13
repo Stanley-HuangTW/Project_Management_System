@@ -11,8 +11,10 @@ import { splitPredEntry } from "@/lib/predecessorLink";
 import type { BudgetScopeExport, DelayExport } from "@/lib/export/exportData";
 
 const BASE_DETAIL_COL_COUNT = BASE_DETAIL_HEADERS.length; // 21 — the fixed template columns
-const COLUMN_WIDTHS = [6, 12, 40, 12, 10, 12, 24, 10, 8, 8, 30, 12, 12, 8, 8, 12, 10, 16, 14, 8, 8];
+const COLUMN_WIDTHS = [6, 12, 40, 12, 10, 12, 24, 10, 8, 8, 30, 16, 16, 8, 8, 16, 10, 16, 16, 8, 8];
 const DEFAULT_EXTRA_COLUMN_WIDTH = 16;
+// [$-404] pins the Traditional Chinese locale so "aaa" renders 週五 in any Excel; the cell stays a real date.
+const DATE_NUMFMT = "[$-404]yyyy-mm-dd(aaa)";
 
 // Hidden helper columns, placed exactly where the reference template puts
 // them: right after the visible detail area (fixed columns + any selected
@@ -645,17 +647,17 @@ function writeDetailRow(
   row.getCell(11).value = m.comment;
   if (m.startSet) {
     row.getCell(12).value = m.startSet;
-    row.getCell(12).numFmt = "yyyy-mm-dd";
+    row.getCell(12).numFmt = DATE_NUMFMT;
   }
   const baseCol = colLetter(detailColCount + 6);
   row.getCell(13).value = m.startOverride ?? { formula: startFormula(rowIndex, `$${baseCol}`) };
-  row.getCell(13).numFmt = "yyyy-mm-dd";
+  row.getCell(13).numFmt = DATE_NUMFMT;
   if (m.dur !== null) {
     row.getCell(14).value = m.dur;
   }
   row.getCell(15).value = { formula: daysFormula(rowIndex) };
   row.getCell(16).value = m.finishOverride ?? { formula: finishFormula(rowIndex, lastDataRow) };
-  row.getCell(16).numFmt = "yyyy-mm-dd";
+  row.getCell(16).numFmt = DATE_NUMFMT;
   if (m.pctDone !== null) {
     row.getCell(17).value = m.pctDone;
     row.getCell(17).numFmt = "0%";
@@ -663,7 +665,7 @@ function writeDetailRow(
   row.getCell(18).value = m.constraint;
   if (m.constraintDate) {
     row.getCell(19).value = m.constraintDate;
-    row.getCell(19).numFmt = "yyyy-mm-dd";
+    row.getCell(19).numFmt = DATE_NUMFMT;
   }
   if (m.totalFloat !== null) row.getCell(20).value = m.totalFloat;
   // A mark rather than TRUE/FALSE: the column is read at a glance, and the
@@ -675,7 +677,7 @@ function writeDetailRow(
     if (value === null || value === undefined) return;
     const cell = row.getCell(BASE_DETAIL_COL_COUNT + 1 + i);
     cell.value = value;
-    if (value instanceof Date) cell.numFmt = "yyyy-mm-dd";
+    if (value instanceof Date) cell.numFmt = DATE_NUMFMT;
   });
 
   row.getCell(detailColCount + 1).value = { formula: typeCodeFormula(rowIndex) };
@@ -686,7 +688,7 @@ function writeDetailRow(
   row.getCell(detailColCount + 6).value = {
     formula: baseStartFormula(rowIndex, lastDataRow, m.predCodes),
   };
-  row.getCell(detailColCount + 6).numFmt = "yyyy-mm-dd";
+  row.getCell(detailColCount + 6).numFmt = DATE_NUMFMT;
 }
 
 function writeMirrorRow(
@@ -702,12 +704,12 @@ function writeMirrorRow(
       formula: `IF(INDEX('Gantt (Day)'!$${c}:$${c},ROW())="","",INDEX('Gantt (Day)'!$${c}:$${c},ROW()))`,
     };
   }
-  row.getCell(13).numFmt = "yyyy-mm-dd";
-  row.getCell(16).numFmt = "yyyy-mm-dd";
+  row.getCell(13).numFmt = DATE_NUMFMT;
+  row.getCell(16).numFmt = DATE_NUMFMT;
   row.getCell(17).numFmt = "0%";
-  row.getCell(19).numFmt = "yyyy-mm-dd";
+  row.getCell(19).numFmt = DATE_NUMFMT;
   extraColumns.forEach((col, i) => {
-    if (col.type === "DATE") row.getCell(BASE_DETAIL_COL_COUNT + 1 + i).numFmt = "yyyy-mm-dd";
+    if (col.type === "DATE") row.getCell(BASE_DETAIL_COL_COUNT + 1 + i).numFmt = DATE_NUMFMT;
   });
 }
 
@@ -1068,7 +1070,7 @@ function buildListsSheet(workbook: ExcelJS.Workbook, rows: RowMeta[], users: Use
  *  those formulas live. */
 function buildHolidaysSheet(workbook: ExcelJS.Workbook, holidays: { date: string; name: string }[]) {
   const sheet = workbook.addWorksheet("Holidays");
-  sheet.getColumn(1).width = 14;
+  sheet.getColumn(1).width = 16;
   sheet.getColumn(2).width = 24;
   sheet.getCell("A1").value = "國定假日 (Holidays)";
   sheet.getCell("A1").font = { bold: true, size: 14 };
@@ -1084,7 +1086,7 @@ function buildHolidaysSheet(workbook: ExcelJS.Workbook, holidays: { date: string
     const date = parseDate(h.date);
     const cell = sheet.getCell(row, 1);
     cell.value = date ?? h.date;
-    if (date) cell.numFmt = "yyyy-mm-dd";
+    if (date) cell.numFmt = DATE_NUMFMT;
     sheet.getCell(row, 2).value = h.name;
   });
 }
@@ -1210,7 +1212,7 @@ type BudgetLine = BudgetScopeExport["total"];
  */
 function buildBurndownSheet(workbook: ExcelJS.Workbook, scopes: BudgetScopeExport[]) {
   const sheet = workbook.addWorksheet("燃盡圖 (Burn-down)");
-  [14, 16, 16, 16, 16, 30].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
+  [16, 16, 16, 16, 16, 30].forEach((w, i) => (sheet.getColumn(i + 1).width = w));
 
   sheet.getCell("A1").value = "預算燃盡";
   sheet.getCell("A1").font = { bold: true, size: 14 };
@@ -1241,7 +1243,7 @@ function buildBurndownSheet(workbook: ExcelJS.Workbook, scopes: BudgetScopeExpor
     const budget = scope.total.budget;
     for (const point of scope.points) {
       sheet.getCell(row, 1).value = new Date(point.iso);
-      sheet.getCell(row, 1).numFmt = "yyyy-mm-dd";
+      sheet.getCell(row, 1).numFmt = DATE_NUMFMT;
       const values: (number | null)[] = [
         point.planned === null ? null : Math.round(point.planned),
         point.actual === null ? null : Math.round(point.actual),

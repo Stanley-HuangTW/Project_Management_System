@@ -39,6 +39,7 @@ import { useEditHistory } from "../EditHistoryProvider";
 import type { UndoResult } from "@/lib/editHistory";
 import type { ColumnData, ItemData, UserOption, PredOption } from "@/types/board";
 import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 export function ItemCardTab({
   boardId,
@@ -191,7 +192,7 @@ export function ItemCardTab({
     }
     const ok = await confirm(
       [
-        `把「${item.name}」的結束日從 ${currentEnd.slice(0, 10)} 改成實際完成日 ${actualDate}。`,
+        `把「${item.name}」的結束日從 ${withWeekday(currentEnd.slice(0, 10))} 改成實際完成日 ${withWeekday(actualDate)}。`,
         ...describeCascade(cascaded),
         ...describeConflicts(conflicts),
         "",
@@ -418,7 +419,7 @@ export function ItemCardTab({
                     </span>
                   )}
                   <span className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
-                    最晚 {scheduleFloat.lateFinish.toISOString().slice(0, 10)}
+                    最晚 {withWeekday(scheduleFloat.lateFinish.toISOString().slice(0, 10))}
                   </span>
                 </span>
               </div>
@@ -427,7 +428,7 @@ export function ItemCardTab({
               <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5">
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">基準線</span>
                 <span className="text-right text-sm text-neutral-800 dark:text-neutral-100">
-                  {item.baselineStart} ~ {item.baselineEnd}
+                  {withWeekday(item.baselineStart ?? "")} ~ {withWeekday(item.baselineEnd ?? "")}
                   <span
                     className={`ml-2 text-xs font-medium ${
                       baseline.status === "late"

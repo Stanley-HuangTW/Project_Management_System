@@ -140,7 +140,7 @@ describe("sendTodoDeadlineReminders", () => {
     expect(out).toMatchObject({ ran: true, todos: 1, notified: 3 });
     expect(state.notifications.map((n) => n.userId).sort()).toEqual(["u1", "u2", "u3"]);
     expect(state.notifications[0]).toMatchObject({ type: "DEADLINE", itemId: "i1", actorId: null });
-    expect(state.notifications[0].message).toContain("明天(2026-10-22)到期");
+    expect(state.notifications[0].message).toContain("明天 2026-10-22(週四) 到期");
     expect(state.notifications[0].message).toContain("待辦事項「待辦 t1」");
     expect(state.emails.map((e) => e.userId).sort()).toEqual(["u1", "u2", "u3"]);
     expect(state.claims).toEqual([{ id: "t1", stage: 1 }]);
@@ -150,8 +150,8 @@ describe("sendTodoDeadlineReminders", () => {
     state.todos = [todo("today", "2026-10-21"), todo("late", "2026-10-18")];
     await sendTodoDeadlineReminders(MORNING);
     const messages = state.notifications.map((n) => n.message);
-    expect(messages.some((m) => m.includes("待辦 today") && m.includes("今天(2026-10-21)到期"))).toBe(true);
-    expect(messages.some((m) => m.includes("待辦 late") && m.includes("已經逾期(期限 2026-10-18)"))).toBe(true);
+    expect(messages.some((m) => m.includes("待辦 today") && m.includes("今天 2026-10-21(週三) 到期"))).toBe(true);
+    expect(messages.some((m) => m.includes("待辦 late") && m.includes("已經逾期(期限 2026-10-18(週日))"))).toBe(true);
     expect(state.claims).toEqual([
       { id: "today", stage: 2 },
       { id: "late", stage: 3 },
@@ -235,7 +235,7 @@ describe("風險 / 議題的待辦事項", () => {
     expect(state.notifications.map((n) => n.userId).sort()).toEqual(["u1", "u3"]);
     expect(state.notifications[0]).toMatchObject({ type: "DEADLINE", riskId: "r1", actorId: null });
     expect(state.notifications[0].message).toContain("風險 / 議題「供應商交期延遲」的待辦事項「風險待辦 rt1」");
-    expect(state.notifications[0].message).toContain("明天(2026-10-22)到期");
+    expect(state.notifications[0].message).toContain("明天 2026-10-22(週四) 到期");
     expect(state.riskClaims).toEqual([{ id: "rt1", stage: 1 }]);
   });
 

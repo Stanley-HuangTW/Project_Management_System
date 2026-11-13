@@ -177,7 +177,7 @@ describe("day and clock labels (Taipei time)", () => {
     const now = new Date("2026-10-22T04:00:00.000Z");
     expect(dayLabel("2026-10-22T01:00:00.000Z", now)).toBe("今天");
     expect(dayLabel("2026-10-21T08:00:00.000Z", now)).toBe("昨天");
-    expect(dayLabel("2026-10-05T08:00:00.000Z", now)).toBe("10/5");
+    expect(dayLabel("2026-10-05T08:00:00.000Z", now)).toBe("10/5(週一)");
     expect(dayLabel("2025-12-31T08:00:00.000Z", now)).toBe("2025/12/31");
   });
 });

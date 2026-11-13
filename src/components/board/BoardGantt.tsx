@@ -1102,7 +1102,7 @@ export function BoardGantt({
     if (own || (preview?.cascade.length ?? 0) > 0 || conflicts.length > 0 || opts.confirmAlways) {
       const lines = [opts.headline, ""];
       if (!own && (preview?.cascade.length ?? 0) === 0) lines.push("日期都不會有變動。");
-      if (own) lines.push(`「${succ.name}」的日期會從 ${own.before.start}~${own.before.end} 改為 ${own.after.start}~${own.after.end}`);
+      if (own) lines.push(`「${succ.name}」的日期會從 ${withWeekday(own.before.start)}~${withWeekday(own.before.end)} 改為 ${withWeekday(own.after.start)}~${withWeekday(own.after.end)}`);
       lines.push(...describeCascade(preview?.cascade ?? []));
       lines.push(...describeConflicts(conflicts));
       const predRange = opts.keep ? ranges.get(opts.keep.predId) : undefined;

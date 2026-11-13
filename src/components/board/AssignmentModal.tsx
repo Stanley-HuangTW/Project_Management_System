@@ -24,6 +24,7 @@ import { getStatusOptions } from "@/types/column";
 import { defaultNewPredRelationship } from "@/lib/predEdgeSummary";
 import { compareNumericText, computeWbsCodes } from "@/lib/wbs";
 import { withWeekday } from "@/lib/weekdayLabel";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 import { DurationEditor } from "./DurationEditor";
 
 export function AssignmentModal({
@@ -387,13 +388,16 @@ export function AssignmentModal({
                       className="w-full rounded border-none bg-transparent px-2 py-1 text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
                     />
                   ) : col.type === "DATE" ? (
-                    <input
-                      type="date"
-                      value={typeof displayValue === "string" ? displayValue : ""}
-                      disabled={fieldDisabled}
-                      onChange={(e) => handleScheduleFieldChange(col.id, e.target.value || null)}
-                      className="w-full rounded border-none bg-transparent px-2 py-1 text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
-                    />
+                    <>
+                      <input
+                        type="date"
+                        value={typeof displayValue === "string" ? displayValue : ""}
+                        disabled={fieldDisabled}
+                        onChange={(e) => handleScheduleFieldChange(col.id, e.target.value || null)}
+                        className="w-full rounded border-none bg-transparent px-2 py-1 text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                      />
+                      <DateWeekdayHint value={typeof displayValue === "string" ? displayValue : null} />
+                    </>
                   ) : (
                     <CellEditor
                       boardId={boardId}

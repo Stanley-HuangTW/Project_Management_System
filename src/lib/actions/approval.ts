@@ -19,6 +19,7 @@ import {
 } from "@/lib/approvalLevelsServer";
 import { UserError } from "@/lib/userError";
 import { notifyApprovalDecided } from "@/lib/approvalNotify";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 export type PendingTimeEntry = {
   id: string;
@@ -356,7 +357,7 @@ export async function decideTimeEntry(
   await notifyApprovalDecided({
     requesterId: entry.userId,
     deciderId: session.userId,
-    what: `${entry.date} 的工時 ${Number(entry.hours)}h(${entry.item.name})`,
+    what: `${withWeekday(entry.date)} 的工時 ${Number(entry.hours)}h(${entry.item.name})`,
     approved: status === "APPROVED",
     note: trimmed,
   });
@@ -420,7 +421,7 @@ export async function decideActivityTime(
   await notifyApprovalDecided({
     requesterId: entry.userId,
     deciderId: session.userId,
-    what: `${entry.date} 的工時 ${Number(entry.hours)}h(${entry.category.name})`,
+    what: `${withWeekday(entry.date)} 的工時 ${Number(entry.hours)}h(${entry.category.name})`,
     approved: status === "APPROVED",
     note: trimmed,
   });
@@ -494,7 +495,7 @@ export async function decideLeave(
   await notifyApprovalDecided({
     requesterId: leave.userId,
     deciderId: session.userId,
-    what: `請假(${leave.startDate}~${leave.endDate})`,
+    what: `請假(${withWeekday(leave.startDate)}~${withWeekday(leave.endDate)})`,
     approved: status === "APPROVED",
     note: trimmed,
   });

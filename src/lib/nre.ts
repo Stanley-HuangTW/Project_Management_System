@@ -1,5 +1,6 @@
 import type { CostCategory } from "@prisma/client";
 import { isValidIsoDate } from "@/lib/timesheet";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * NRE(一次性工程費用)報價單 — 純邏輯。
@@ -113,9 +114,9 @@ export const NRE_CATEGORY_GUIDE: Record<
 /** 「涵蓋整個專案」在範圍欄位裡的名字(存的是 phaseId = null)。 */
 export const WHOLE_PROJECT_LABEL = "整個專案";
 
-/** 時間範圍的顯示:"2026-10-08 ~ 2026-12-31";沒填是空字串。 */
+/** 時間範圍的顯示:"2026-10-08(週四) ~ 2026-12-31(週四)";沒填是空字串。 */
 export function formatDateRange(start: string | null, end: string | null): string {
-  return start && end ? `${start} ~ ${end}` : "";
+  return start && end ? `${withWeekday(start)} ~ ${withWeekday(end)}` : "";
 }
 
 export type NreLineInput = {

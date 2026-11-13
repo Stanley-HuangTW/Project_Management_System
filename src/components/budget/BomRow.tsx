@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/cost";
 import type { BomLineDraft } from "@/lib/actions/bom";
 import { isCustomColumn, isEmptyCellValue, isMoneyBlock, isStoredCustomColumn, type BomColumnDef } from "@/lib/bomColumns";
 import { BomFileCell, type BomFileRef } from "./BomFileCell";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 const inputClass = cellFieldClass(false);
 const cellPad = "px-1 py-1";
@@ -305,6 +306,7 @@ export function BomRow({
             {...common}
             type="date"
             value={String(value ?? "")}
+            title={withWeekday(String(value ?? ""))}
             onChange={(e) => setField(column.id, e.target.value)}
             className={`${inputClass}${flag}`}
           />

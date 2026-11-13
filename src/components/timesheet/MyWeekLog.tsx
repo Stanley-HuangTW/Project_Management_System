@@ -29,6 +29,7 @@ import { getMyEstimates } from "@/lib/actions/timesheetEstimate";
 import type { EstimateWeek } from "@/lib/timesheetEstimate";
 import { dayTotalHours, eventsOfWeek, moveEventInWeek, type CalendarEvent } from "./timesheetEvents";
 import { actionErrorMessage, knownErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 function fmt(hours: number): string {
   return String(Number(hours.toFixed(2)));
@@ -276,7 +277,7 @@ export function MyWeekLog({ today }: { today: string }) {
 
   async function copyLastWeek() {
     const ok = await confirm(
-      `把上一週(${addDaysIso(weekStart, -7)} 起)的工時複製到這週?同一個星期、同一個時間,已經有一樣的會略過。專案工時與對應專案的會議複製後要重新核准。`,
+      `把上一週(${withWeekday(addDaysIso(weekStart, -7))} 起)的工時複製到這週?同一個星期、同一個時間,已經有一樣的會略過。專案工時與對應專案的會議複製後要重新核准。`,
       { title: "複製上週", confirmLabel: "複製" }
     );
     if (!ok) return;
@@ -352,7 +353,7 @@ export function MyWeekLog({ today }: { today: string }) {
         <div className="min-w-[11rem] text-center">
           <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{isoWeekLabel(weekStart)}</div>
           <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
-            {weekStart} ~ {weekEnd}
+            {withWeekday(weekStart)} ~ {withWeekday(weekEnd)}
           </div>
         </div>
         <button

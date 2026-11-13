@@ -100,7 +100,7 @@ describe("buildReminderMail", () => {
 
   it("says which period the report covers — the one the schedule will really report", () => {
     // 週二到週一的範圍,週一 16:00 報的是已經結束的上一個範圍
-    expect(mail.text).toContain("2026-10-13 ~ 2026-10-19");
+    expect(mail.text).toContain("2026-10-13(週二) ~ 2026-10-19(週一)");
   });
 
   it("asks people to update their work items and links to the system", () => {
@@ -117,7 +117,7 @@ describe("buildReminderMail with project names", () => {
     const mail = buildReminderMail({ ...base, programNames: ["M3", "PS30"] });
     expect(mail.subject).toContain("M3、PS30");
     expect(mail.text).toContain("你所屬的專案:M3、PS30");
-    expect(mail.text).toContain("2026-10-13 ~ 2026-10-19");
+    expect(mail.text).toContain("2026-10-13(週二) ~ 2026-10-19(週一)");
     expect(mail.text).toContain("更新你負責的工作事項");
   });
 

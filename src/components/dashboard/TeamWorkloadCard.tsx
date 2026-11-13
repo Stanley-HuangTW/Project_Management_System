@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { TeamWorkloadEntry, WorkloadPeriod, MemberItemWorkloadEntry } from "@/lib/dashboard";
 import { getCustomWorkload } from "@/lib/actions/workload";
 import { actionErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const PERIOD_LABELS: Record<WorkloadPeriod, string> = {
   day: "本日",
@@ -217,6 +218,7 @@ export function TeamWorkloadCard({
             onChange={(e) => setCustomFrom(e.target.value)}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           />
+          <DateWeekdayHint value={customFrom} />
           <span className="text-neutral-400 dark:text-neutral-500">~</span>
           <input
             type="date"
@@ -224,6 +226,7 @@ export function TeamWorkloadCard({
             onChange={(e) => setCustomTo(e.target.value)}
             className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 outline-none focus:border-blue-500"
           />
+          <DateWeekdayHint value={customTo} />
           <button
             type="button"
             disabled={customLoading || !customFrom || !customTo}

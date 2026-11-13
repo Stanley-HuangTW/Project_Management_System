@@ -13,6 +13,7 @@ import type { ChatMessageDto } from "@/lib/chatTypes";
 import { AssigneeSelect, reasonText, useAssignableUsers, useSuggestedAssignee } from "@/components/board/AssigneeSelect";
 import { BoardRefPicker, REF_KIND_LABELS, type BoardRef, type RefKind } from "./BoardRefPicker";
 import { knownErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-900 outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100";
@@ -223,6 +224,7 @@ export function ConvertMessageDialog({
             <label className="block">
               <span className="mb-1 block text-neutral-600 dark:text-neutral-300">期限(選填)</span>
               <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={inputClass} data-convert-due />
+              <DateWeekdayHint value={due} />
             </label>
             <label className="block">
               <span className="mb-1 block text-neutral-600 dark:text-neutral-300">處理者</span>

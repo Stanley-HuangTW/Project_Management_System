@@ -20,6 +20,7 @@ import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/ite
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 9, month: 3 };
@@ -791,7 +792,7 @@ function TaskRow({
               backgroundColor: task.isMilestone ? "transparent" : color,
               opacity: task.isSummary ? 0.45 : 1,
             }}
-            title={`${task.name}\n${task.start} ~ ${task.end}${
+            title={`${task.name}\n${withWeekday(task.start ?? "")} ~ ${withWeekday(task.end ?? "")}${
               task.assigneeNames.length ? `\n${task.assigneeNames.join(", ")}` : ""
             }`}
           >

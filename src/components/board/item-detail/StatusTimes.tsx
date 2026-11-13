@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getItemStatusTimes, type ItemStatusTimes } from "@/lib/actions/itemStatusTimes";
 import { formatEventTime, type StatusSwitch } from "@/lib/itemEvents";
 import { lateFinishOf } from "@/lib/lateFinish";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 
 const sw = (s: StatusSwitch) => `${formatEventTime(s.at)}${s.by ? `・${s.by}` : ""}`;
 
@@ -60,7 +61,7 @@ export function StatusTimes({
       </span>
       {lateInfo && late && (
         <span data-late-finish className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-red-600 dark:text-red-400">
-          ⚠ 預定 {lateInfo.plannedEnd.slice(5)} 完成,實際 {lateInfo.actualDate.slice(5)} 才完成(晚 {lateInfo.daysLate} 天)
+          ⚠ 預定 {shortWithWeekday(lateInfo.plannedEnd.slice(5), lateInfo.plannedEnd)} 完成,實際 {shortWithWeekday(lateInfo.actualDate.slice(5), lateInfo.actualDate)} 才完成(晚 {lateInfo.daysLate} 天)
           {late.dependentCount > 0 ? `;有 ${late.dependentCount} 個後續工作項依賴它,可能需要順延` : ""}。原計畫(基準線)不受影響,可隨時比較。
           {late.onShift && (
             <button

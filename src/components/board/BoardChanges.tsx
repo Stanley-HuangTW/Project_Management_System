@@ -22,6 +22,7 @@ import {
   type ChangeRequestRow,
   type ChangeRequestInput,
 } from "@/lib/actions/changeRequest";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 const STATUS_LABELS: Record<ChangeStatus, string> = {
   DRAFT: "草稿",
@@ -350,10 +351,10 @@ ${options || "(這個看板還沒有基準線)"}`,
                 </p>
               )}
               <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-400 dark:text-neutral-500">
-                <span>{row.requestedByName} 提出 · {row.createdAt.slice(0, 10)}</span>
+                <span>{row.requestedByName} 提出 · {withWeekday(row.createdAt.slice(0, 10))}</span>
                 {row.decidedByName && (
                   <span>
-                    {STATUS_LABELS[row.status]}:{row.decidedByName} · {row.decidedAt?.slice(0, 10)}
+                    {STATUS_LABELS[row.status]}:{row.decidedByName} · {row.decidedAt && withWeekday(row.decidedAt.slice(0, 10))}
                     {row.decisionNote && `（${row.decisionNote}）`}
                   </span>
                 )}

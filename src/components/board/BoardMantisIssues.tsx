@@ -21,11 +21,12 @@ import {
 import { RISK_STATUS_LABELS } from "@/lib/riskRegister";
 import { STATUS_CHIP_CLASS } from "./RiskWorkflow";
 import { actionErrorMessage } from "@/lib/userError";
+import { localeDateTimeWithWeekday, localeDateWithWeekday, withWeekday } from "@/lib/weekdayLabel";
 
 const selectClass =
   "rounded border border-neutral-300 bg-white px-2 py-1 text-xs outline-none focus:border-blue-500 dark:border-neutral-600 dark:bg-neutral-900";
 
-const formatDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("zh-TW") : "—");
+const formatDay = (iso: string | null) => (iso ? localeDateWithWeekday(iso) : "—");
 
 /**
  * 看板的「問題」分頁:同步自 MantisBT 的問題。兩種看法——清單(每筆的 Mantis 資訊),
@@ -129,7 +130,7 @@ export function BoardMantisIssues({
               </a>
             </span>
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
-              {connection.lastSyncAt ? `上次同步 ${new Date(connection.lastSyncAt).toLocaleString("zh-TW")}` : "還沒同步過"}
+              {connection.lastSyncAt ? `上次同步 ${localeDateTimeWithWeekday(connection.lastSyncAt)}` : "還沒同步過"}
               {!connection.enabled && "・已停用"}
             </span>
             {connection.lastSyncError && (
@@ -268,14 +269,14 @@ export function BoardMantisIssues({
                         </td>
                         <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{r.reporter ?? "—"}</td>
                         <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">{r.category ?? "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-300">{r.dueDate ?? "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-300">{r.dueDate ? withWeekday(r.dueDate) : "—"}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-neutral-500 dark:text-neutral-400">{formatDay(r.updatedAt)}</td>
                       </tr>
                       {openRow === r.riskId && (
                         <tr className="bg-neutral-50 dark:bg-neutral-800/60">
                           <td colSpan={10} className="px-4 py-3 text-xs text-neutral-600 dark:text-neutral-300">
                             <p className="mb-1 text-neutral-400 dark:text-neutral-500">
-                              建立於 {formatDay(r.createdAt)}・Mantis 上更新於 {r.updatedAt ? new Date(r.updatedAt).toLocaleString("zh-TW") : "—"}
+                              建立於 {formatDay(r.createdAt)}・Mantis 上更新於 {r.updatedAt ? localeDateTimeWithWeekday(r.updatedAt) : "—"}
                             </p>
                             <p className="whitespace-pre-wrap break-words">{r.descriptionPreview || "(沒有說明)"}</p>
                             {r.descriptionPreview.length >= 400 && <p className="mt-1 text-neutral-400">……完整內容請在 Mantis 查看。</p>}

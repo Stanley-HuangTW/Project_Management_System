@@ -7,6 +7,7 @@ import { PercentInput } from "@/components/ui/PercentInput";
 import { createSubtaskFromDashboard } from "@/lib/actions/teamTask";
 import type { UserOption } from "@/types/board";
 import { actionErrorMessage } from "@/lib/userError";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 const DAY_MS = 86_400_000;
 
@@ -138,6 +139,7 @@ export function AddSubtaskModal({
               onChange={(e) => setStartDate(e.target.value)}
               className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-sm outline-none focus:border-blue-500"
             />
+            <DateWeekdayHint value={startDate} />
           </label>
           <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             結束
@@ -149,6 +151,7 @@ export function AddSubtaskModal({
               onChange={(e) => handleEndDateChange(e.target.value)}
               className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-1.5 py-1 text-sm outline-none focus:border-blue-500"
             />
+            <DateWeekdayHint value={endDate} />
           </label>
           <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             天數

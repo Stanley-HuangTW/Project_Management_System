@@ -1,4 +1,5 @@
 import type { ChatKind } from "@prisma/client";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 
 export const MAX_MESSAGE_LENGTH = 4000;
 export const MAX_GROUP_TITLE_LENGTH = 40;
@@ -92,14 +93,14 @@ export function dayKey(iso: string): string {
   return new Date(new Date(iso).getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-/** 日期分隔線上的字:今天、昨天,其他寫月/日(跨年才寫年)。 */
+/** 日期分隔線上的字:今天、昨天,其他寫月/日(星期幾)(跨年才寫年)。 */
 export function dayLabel(iso: string, now: Date): string {
   const key = dayKey(iso);
   const today = dayKey(now.toISOString());
   if (key === today) return "今天";
   if (key === dayKey(new Date(now.getTime() - 24 * 3600 * 1000).toISOString())) return "昨天";
   const [y, m, d] = key.split("-").map(Number);
-  return y === Number(today.slice(0, 4)) ? `${m}/${d}` : `${y}/${m}/${d}`;
+  return y === Number(today.slice(0, 4)) ? shortWithWeekday(`${m}/${d}`, key) : `${y}/${m}/${d}`;
 }
 
 /** 訊息旁的時間:台北時間 24 小時制 HH:mm。 */

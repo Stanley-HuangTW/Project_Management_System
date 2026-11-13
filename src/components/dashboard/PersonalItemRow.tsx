@@ -8,12 +8,13 @@ import { useDeleteItem } from "@/components/board/useDeleteItem";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { AssignmentModal } from "@/components/board/AssignmentModal";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 import { AddSubtaskModal } from "./AddSubtaskModal";
 import type { PersonalItemEntry } from "@/lib/dashboard";
 import type { UserOption } from "@/types/board";
 
 function formatDate(date: Date) {
-  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+  return shortWithWeekday(`${date.getUTCMonth() + 1}/${date.getUTCDate()}`, date.toISOString().slice(0, 10));
 }
 
 export function PersonalItemRow({

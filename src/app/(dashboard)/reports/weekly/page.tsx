@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { diffWeeks, previousReportWeekStart, type WeeklyReportData } from "@/lib/weeklyReport";
 import { WeeklyReportView } from "@/components/reports/WeeklyReportView";
 import { taipeiTodayIso } from "@/lib/timesheet";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /** 存的時候沒有驗證過型別(Json 欄位),讀回來時當舊版格式一律當「沒有資料」,
  *  不假裝畫得出分頁籤。 */
@@ -43,7 +44,10 @@ export default async function WeeklyReportPage() {
             weekEnd: r.weekEnd,
             markdown: r.markdown,
             // 台北時間(資料庫存的是 UTC,直接截字串會晚 8 小時顯示)。
-            createdAt: new Date(r.createdAt.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).replace("T", " "),
+            // 日期後面帶星期幾;前 10 個字還是 YYYY-MM-DD,WeeklyReportView 拿來比日期。
+            createdAt: (([date, time]) => `${withWeekday(date)} ${time}`)(
+              new Date(r.createdAt.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16).split("T")
+            ),
             data,
             diff: data
               ? diffWeeks(

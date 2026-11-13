@@ -18,6 +18,7 @@ import {
 } from "@/lib/actions/risk";
 import type { UserOption } from "@/types/board";
 import { knownErrorMessage } from "@/lib/userError";
+import { localeDateTimeWithWeekday } from "@/lib/weekdayLabel";
 
 export const STATUS_CHIP_CLASS: Record<RiskStatus, string> = {
   OPEN: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
@@ -26,7 +27,7 @@ export const STATUS_CHIP_CLASS: Record<RiskStatus, string> = {
   CLOSED: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200",
 };
 
-const formatTime = (iso: string) => new Date(iso).toLocaleString("zh-TW");
+const formatTime = (iso: string) => localeDateTimeWithWeekday(iso);
 
 const buttonBase = "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50";
 const primaryButton = `${buttonBase} bg-blue-600 text-white hover:bg-blue-700`;

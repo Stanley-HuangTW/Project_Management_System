@@ -6,6 +6,7 @@ import { UserError } from "@/lib/userError";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
 import { canManageStructure } from "@/lib/permissions";
 import { listApprovalQueue } from "@/lib/actions/approval";
+import { withWeekday } from "@/lib/weekdayLabel";
 
 /**
  * 「待我審核」除了工時與請假,還有:出口條件要我確認、閘門要我簽核、風險 / 議題要我審核結案、變更單等我核准。
@@ -295,7 +296,7 @@ async function loadDecisions(scope: DecisionScope, viewerId: string): Promise<Ap
     rows.push({
       kind: "leave",
       id: l.id,
-      title: `${l.user.name} 請假 ${l.startDate}~${l.endDate}`,
+      title: `${l.user.name} 請假 ${withWeekday(l.startDate)}~${withWeekday(l.endDate)}`,
       detail: l.reason ?? "",
       decision: l.status === "APPROVED" ? "APPROVED" : "REJECTED",
       decidedAt: (l.decidedAt ?? l.createdAt).toISOString(),
@@ -309,7 +310,7 @@ async function loadDecisions(scope: DecisionScope, viewerId: string): Promise<Ap
     rows.push({
       kind: "time",
       id: t.id,
-      title: `${t.user.name} ${t.date} 工時 ${Number(t.hours)}h`,
+      title: `${t.user.name} ${withWeekday(t.date)} 工時 ${Number(t.hours)}h`,
       detail: t.item.name,
       decision: t.status === "APPROVED" ? "APPROVED" : "REJECTED",
       decidedAt: (t.decidedAt ?? t.createdAt).toISOString(),
@@ -323,7 +324,7 @@ async function loadDecisions(scope: DecisionScope, viewerId: string): Promise<Ap
     rows.push({
       kind: "activity",
       id: a.id,
-      title: `${a.user.name} ${a.date} 工時 ${Number(a.hours)}h`,
+      title: `${a.user.name} ${withWeekday(a.date)} 工時 ${Number(a.hours)}h`,
       detail: a.category.name,
       decision: a.status === "APPROVED" ? "APPROVED" : "REJECTED",
       decidedAt: (a.decidedAt ?? a.createdAt).toISOString(),

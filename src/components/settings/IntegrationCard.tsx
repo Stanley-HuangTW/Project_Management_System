@@ -18,6 +18,7 @@ import {
   type WebhookRow,
   type OAuthGrantRow,
 } from "@/lib/actions/integration";
+import { localeDateTimeWithWeekday, localeDateWithWeekday } from "@/lib/weekdayLabel";
 
 /**
  * API 金鑰與 Webhook — the two halves of "對外整合": pull the data out, or
@@ -200,7 +201,7 @@ export function IntegrationCard({ boards }: { boards: { id: string; name: string
                   <span className="block truncate text-neutral-800 dark:text-neutral-100">{key.name}</span>
                   <span className="block text-xs text-neutral-400 dark:text-neutral-500">
                     {key.prefix}…・{key.ownerName}・
-                    {key.lastUsedAt ? `最後使用 ${new Date(key.lastUsedAt).toLocaleDateString("zh-TW")}` : "尚未使用"}
+                    {key.lastUsedAt ? `最後使用 ${localeDateWithWeekday(key.lastUsedAt)}` : "尚未使用"}
                   </span>
                 </span>
                 <button
@@ -273,7 +274,7 @@ export function IntegrationCard({ boards }: { boards: { id: string; name: string
                     {hook.events.map((e) => WEBHOOK_EVENT_LABELS[e as WebhookEvent] ?? e).join("、")}
                     {hook.lastAttemptAt && (
                       <>
-                        ・最後傳送 {new Date(hook.lastAttemptAt).toLocaleString("zh-TW")}
+                        ・最後傳送 {localeDateTimeWithWeekday(hook.lastAttemptAt)}
                         <span className={hook.lastError ? "text-red-600" : "text-green-600"}>
                           {" "}
                           {hook.lastError ?? `HTTP ${hook.lastStatus}`}
@@ -352,7 +353,7 @@ function OAuthGrants({
               <span className="block text-xs text-neutral-400 dark:text-neutral-500">
                 {grant.activeTokens} 張有效權杖・
                 {grant.lastUsedAt
-                  ? `最後使用 ${new Date(grant.lastUsedAt).toLocaleDateString("zh-TW")}`
+                  ? `最後使用 ${localeDateWithWeekday(grant.lastUsedAt)}`
                   : "尚未使用"}
               </span>
             </span>

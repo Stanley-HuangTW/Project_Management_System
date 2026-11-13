@@ -22,6 +22,7 @@ import { CostReport } from "./CostReport";
 import { DelayReport } from "./DelayReport";
 import { computeWbsCodes } from "@/lib/wbs";
 import { teamViewIds } from "@/lib/orgChart";
+import { shortWithWeekday } from "@/lib/weekdayLabel";
 
 /** WBS code for every item on the board, computed per group (codes are
  *  group-scoped, same rule as the table's own WBS badges). */
@@ -386,7 +387,7 @@ export function BoardReport({
                   {e.itemName}
                 </Link>
                 <span className="shrink-0 text-xs text-red-600">
-                  {e.end.getUTCMonth() + 1}/{e.end.getUTCDate()}
+                  {shortWithWeekday(`${e.end.getUTCMonth() + 1}/${e.end.getUTCDate()}`, e.end.toISOString().slice(0, 10))}
                 </span>
               </li>
             ))}

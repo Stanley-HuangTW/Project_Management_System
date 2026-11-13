@@ -13,6 +13,7 @@ import {
   type ActiveFilter,
   type FilterValue,
 } from "@/lib/filter";
+import { DateWeekdayHint } from "@/components/ui/DateWeekdayHint";
 
 /** 跟 GroupRolesModal 同一套對外說法——HW 這個列舉值一律叫 EE。 */
 const DISCIPLINE_LABEL: Record<string, string> = { SW: "SW", HW: "EE", ME: "ME", QA: "QA", PM: "PM" };
@@ -294,6 +295,7 @@ function DateBound({
         onChange={(e) => onChange(e.target.value || null)}
         className="w-32 rounded border border-neutral-200 dark:border-neutral-700 dark:bg-neutral-900 px-1 py-0.5 text-xs outline-none focus:border-blue-500"
       />
+      <DateWeekdayHint value={bound} />
       <button
         type="button"
         onClick={() => onChange(TODAY_FILTER_VALUE)}

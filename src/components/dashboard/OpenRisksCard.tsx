@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 import { relatedToUsers, summariseOpenRisks, type OpenRiskRow } from "@/lib/dashboardRisks";
+import { withWeekday } from "@/lib/weekdayLabel";
 import { riskBand, riskLinkTag, RISK_STATUS_LABELS } from "@/lib/riskRegister";
 
 const COLLAPSED_COUNT = 8;
@@ -99,7 +100,7 @@ export function OpenRisksCard({
                     {r.boardName}・{RISK_STATUS_LABELS[r.status]}・負責人 {r.ownerName ?? "未指定"}
                     {r.dueDate && (
                       <span className={r.overdue ? "ml-1 font-medium text-red-600 dark:text-red-400" : "ml-1"}>
-                        ・到期 {r.dueDate}
+                        ・到期 {withWeekday(r.dueDate)}
                         {r.overdue && "(逾期)"}
                       </span>
                     )}
