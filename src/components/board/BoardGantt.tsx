@@ -34,7 +34,9 @@ import {
   GitFork,
   X,
   CornerDownRight,
+  Box,
 } from "lucide-react";
+import { useItemProtoUnits } from "./ItemProtoUnitsContext";
 import NextLink from "next/link";
 import type { BoardWithData, ItemData, UserOption, ExternalPredecessor, PredOption } from "@/types/board";
 import type { GanttDurationMode, Holiday, UserRole } from "@prisma/client";
@@ -263,6 +265,12 @@ export function BoardGantt({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const requestDelete = useDeleteItem();
   const { notify, confirm, choose } = useDialogs();
+  // 「使用樣機」的資料(看板頁一次撈好放在 context);名稱旁的樣機標籤用。
+  const protoUnits = useItemProtoUnits();
+  const protoLabelById = useMemo(
+    () => new Map((protoUnits?.options ?? []).map((o) => [o.id, o.label])),
+    [protoUnits]
+  );
   const [assignmentItem, setAssignmentItem] = useState<ItemData | null>(null);
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<"updates" | "card">("updates");
@@ -1556,6 +1564,17 @@ export function BoardGantt({
               </span>
             )}
             <ConstraintBadge item={item} />
+            {(protoUnits?.byItem[item.id]?.length ?? 0) > 0 && (
+              // 用了哪幾台樣機(樣機計畫 → 「使用樣機」選的):標籤只寫台數,滑過看是哪幾台。
+              <span
+                data-proto-badge={item.id}
+                title={`使用樣機:\n${protoUnits!.byItem[item.id].map((id) => protoLabelById.get(id) ?? "(已移除的樣機)").join("\n")}`}
+                className="flex shrink-0 items-center gap-0.5 rounded bg-violet-100 px-1 text-[10px] font-medium leading-4 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+              >
+                <Box size={10} />
+                {protoUnits!.byItem[item.id].length}
+              </span>
+            )}
             <LevelButtons
               canIndent={!!indent}
               canOutdent={!!outdent}
