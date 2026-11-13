@@ -119,7 +119,7 @@ import { BulkStructureBar } from "./BulkStructureActions";
 import { loadDependencyChain, type DependencyChainResult } from "@/lib/actions/dependencyChain";
 import { knownErrorMessage } from "@/lib/userError";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
-import { classifyDropZone, indentTarget, outdentTarget, previewDrop, type DragOverState } from "@/lib/dragReorder";
+import { classifyDropZone, indentTarget, moveDownTarget, moveUpTarget, outdentTarget, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
 import { UndoRedoButtons } from "./UndoRedoButtons";
 import { useEditHistory } from "./EditHistoryProvider";
@@ -1473,6 +1473,8 @@ export function BoardGantt({
       const levelItems = !flat && canEditItemStructure(item) ? (itemsByGroup.get(item.groupId) ?? []) : null;
       const indent = levelItems ? indentTarget(levelItems, item.id) : null;
       const outdent = levelItems ? outdentTarget(levelItems, item.id) : null;
+      const moveUp = levelItems ? moveUpTarget(levelItems, item.id) : null;
+      const moveDown = levelItems ? moveDownTarget(levelItems, item.id) : null;
 
       const row = (
         <div
@@ -1558,6 +1560,10 @@ export function BoardGantt({
               canOutdent={!!outdent}
               onIndent={() => void runLevel(item, "indent")}
               onOutdent={() => void runLevel(item, "outdent")}
+              canMoveUp={!!moveUp}
+              canMoveDown={!!moveDown}
+              onMoveUp={() => void runLevel(item, "up")}
+              onMoveDown={() => void runLevel(item, "down")}
               size={12}
             />
             <button

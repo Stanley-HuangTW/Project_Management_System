@@ -46,7 +46,7 @@ import { ItemProtoUnitCell } from "./ItemProtoUnitCell";
 import { ItemEventLogModal } from "./ItemEventLogModal";
 import { useItemEvents } from "./ItemEventsContext";
 import type { ItemDetailTab } from "@/lib/itemEvents";
-import { indentTarget, outdentTarget, type DragOverState } from "@/lib/dragReorder";
+import { indentTarget, moveDownTarget, moveUpTarget, outdentTarget, type DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
 import { actionErrorMessage } from "@/lib/userError";
 
@@ -168,6 +168,8 @@ export function ItemRow({
   const canLevel = pane === "frozen" && canEditStructure;
   const indent = useMemo(() => (canLevel ? indentTarget(allGroupItems, item.id) : null), [canLevel, allGroupItems, item.id]);
   const outdent = useMemo(() => (canLevel ? outdentTarget(allGroupItems, item.id) : null), [canLevel, allGroupItems, item.id]);
+  const moveUp = useMemo(() => (canLevel ? moveUpTarget(allGroupItems, item.id) : null), [canLevel, allGroupItems, item.id]);
+  const moveDown = useMemo(() => (canLevel ? moveDownTarget(allGroupItems, item.id) : null), [canLevel, allGroupItems, item.id]);
   const runLevel = (direction: LevelDirection, refocus = false) =>
     changeLevel(direction, { id: item.id, groupId }, allGroupItems, {
       expandParent: (parentId) => {
@@ -424,6 +426,10 @@ export function ItemRow({
               canOutdent={!!outdent}
               onIndent={() => void runLevel("indent")}
               onOutdent={() => void runLevel("outdent")}
+              canMoveUp={!!moveUp}
+              canMoveDown={!!moveDown}
+              onMoveUp={() => void runLevel("up")}
+              onMoveDown={() => void runLevel("down")}
             />
             <button
               type="button"

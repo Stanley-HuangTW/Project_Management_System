@@ -5,6 +5,8 @@ import {
   computeLvlDelta,
   countAdoptedBy,
   indentTarget,
+  moveDownTarget,
+  moveUpTarget,
   outdentTarget,
   parentAfterMove,
   previewDrop,
@@ -331,6 +333,30 @@ describe("升階 / 降階", () => {
     const i = items.find((x) => x.id === id)!;
     return { parentId: i.parentId, order: i.order };
   };
+
+  it("上移 / 下移:跟同層的前一個 / 後一個對調,子樹跟著走,階層不變", () => {
+    expect(moveUpTarget(tree, "b")).toEqual({ targetId: "a", zone: "before" });
+    const up = move(tree, "b", moveUpTarget(tree, "b"));
+    expect(pos(up, "b")).toEqual({ parentId: "root", order: 0 });
+    expect(pos(up, "a")).toEqual({ parentId: "root", order: 1 });
+    expect(pos(up, "a1")).toEqual({ parentId: "a", order: 0 });
+
+    expect(moveDownTarget(tree, "a")).toEqual({ targetId: "b", zone: "after" });
+    const down = move(tree, "a", moveDownTarget(tree, "a"));
+    expect(pos(down, "b")).toEqual({ parentId: "root", order: 0 });
+    expect(pos(down, "a")).toEqual({ parentId: "root", order: 1 });
+    expect(pos(down, "c")).toEqual({ parentId: "root", order: 2 });
+    expect(pos(down, "a1")).toEqual({ parentId: "a", order: 0 });
+  });
+
+  it("同層第一個不能上移、最後一個不能下移;獨生子兩個都不行", () => {
+    expect(moveUpTarget(tree, "a")).toBeNull();
+    expect(moveDownTarget(tree, "c")).toBeNull();
+    expect(moveUpTarget(tree, "a1")).toBeNull();
+    expect(moveDownTarget(tree, "a1")).toBeNull();
+    expect(moveUpTarget(tree, "other")).toEqual({ targetId: "root", zone: "before" });
+    expect(moveDownTarget(tree, "nope")).toBeNull();
+  });
 
   it("降階:變成前一個同層項目的最後一個子項", () => {
     expect(indentTarget(tree, "b")).toEqual({ targetId: "a", zone: "child" });

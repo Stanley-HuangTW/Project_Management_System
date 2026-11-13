@@ -105,7 +105,7 @@ export function resolveItemMove(
     newParentId = target.parentId;
     insertAfterId = targetId;
   } else if (zone === "before") {
-    // 畫面上的拖曳不會產生這個區域,只給「還原搬移」用:放在目標前面,也就是排在
+    // 畫面上的拖曳不會產生這個區域,給「還原搬移」與「上移」用:放在目標前面,也就是排在
     // 目標前一個兄弟(扣掉被拖項目本身)的後面;目標是第一個就排在最前面。
     newParentId = target.parentId;
     const targetSiblings = items
@@ -231,6 +231,27 @@ export function indentTarget(items: MoveItemLike[], itemId: string): { targetId:
 export function outdentTarget(items: MoveItemLike[], itemId: string): { targetId: string; zone: DropZone } | null {
   const item = items.find((i) => i.id === itemId);
   return item?.parentId ? { targetId: item.parentId, zone: "afterAdopt" } : null;
+}
+
+/**
+ * 上移 / 下移:跟同一層的前一個(後一個)項目對調位置,整棵子樹跟著走、階層不變。
+ * 已經是同層第一個(最後一個)就不能再移,回傳 null。用的是跟拖曳同一個搬移("before" / "after")。
+ */
+export function moveUpTarget(items: MoveItemLike[], itemId: string): { targetId: string; zone: DropZone } | null {
+  const { siblings, index } = siblingsOf(items, itemId);
+  return index > 0 ? { targetId: siblings[index - 1].id, zone: "before" } : null;
+}
+
+export function moveDownTarget(items: MoveItemLike[], itemId: string): { targetId: string; zone: DropZone } | null {
+  const { siblings, index } = siblingsOf(items, itemId);
+  return index >= 0 && index < siblings.length - 1 ? { targetId: siblings[index + 1].id, zone: "after" } : null;
+}
+
+function siblingsOf(items: MoveItemLike[], itemId: string) {
+  const item = items.find((i) => i.id === itemId);
+  if (!item) return { siblings: [] as MoveItemLike[], index: -1 };
+  const siblings = items.filter((i) => i.parentId === item.parentId).sort((a, b) => a.order - b.order);
+  return { siblings, index: siblings.findIndex((i) => i.id === itemId) };
 }
 
 /**

@@ -3,11 +3,15 @@
 import type { KeyboardEvent } from "react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError } from "@/lib/staleBuild";
-import { indentTarget, outdentTarget, type MoveItemLike } from "@/lib/dragReorder";
+import { indentTarget, moveDownTarget, moveUpTarget, outdentTarget, type MoveItemLike } from "@/lib/dragReorder";
 import { useRecordedItemMove } from "./useRecordedItemMove";
 import { actionErrorMessage } from "@/lib/userError";
 
-export type LevelDirection = "indent" | "outdent";
+/** 降階 / 升階 / 同層上移 / 同層下移。 */
+export type LevelDirection = "indent" | "outdent" | "up" | "down";
+
+const TARGETS = { indent: indentTarget, outdent: outdentTarget, up: moveUpTarget, down: moveDownTarget };
+const FAIL_TITLES = { indent: "無法降階", outdent: "無法升階", up: "無法上移", down: "無法下移" };
 
 /** Tab 降階、Shift+Tab 升階;帶著 Ctrl/Alt/Meta 的是別的快捷鍵,不攔。 */
 export function levelDirectionOfKey(e: Pick<KeyboardEvent, "key" | "shiftKey" | "ctrlKey" | "altKey" | "metaKey">): LevelDirection | null {
@@ -25,7 +29,7 @@ function refocusNameButton(itemId: string) {
 }
 
 /**
- * 升階 / 降階(表格與甘特圖共用):用跟拖曳同一個搬移(moveRecorded),所以 Lvl、Summary 連動、
+ * 升階 / 降階 / 上移 / 下移(表格與甘特圖共用):用跟拖曳同一個搬移(moveRecorded),所以 Lvl、Summary 連動、
  * WBS 編號、上一步 / 下一步都跟著走。可以搬回傳 true;不能搬(沒有前一個同層、已經最上層)或失敗回 false,
  * 失敗會顯示原因。
  */
@@ -44,7 +48,7 @@ export function useChangeLevel(boardId: string) {
       refocus?: boolean;
     } = {}
   ): Promise<boolean> {
-    const move = direction === "indent" ? indentTarget(groupItems, item.id) : outdentTarget(groupItems, item.id);
+    const move = TARGETS[direction](groupItems, item.id);
     if (!move) return false;
     if (direction === "indent") options.expandParent?.(move.targetId);
     try {
@@ -61,7 +65,7 @@ export function useChangeLevel(boardId: string) {
     } catch (err) {
       await notify(
         actionErrorMessage(err, "搬移失敗"),
-        { title: isStaleBuildError(err) ? "需要重新整理" : direction === "indent" ? "無法降階" : "無法升階" }
+        { title: isStaleBuildError(err) ? "需要重新整理" : FAIL_TITLES[direction] }
       );
       return false;
     }
