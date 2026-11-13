@@ -33,6 +33,7 @@ import {
   Search,
   GitFork,
   X,
+  CornerDownRight,
 } from "lucide-react";
 import NextLink from "next/link";
 import type { BoardWithData, ItemData, UserOption, ExternalPredecessor, PredOption } from "@/types/board";
@@ -1590,6 +1591,28 @@ export function BoardGantt({
                 <UserPlus size={12} />
                 {item.assignments.length > 0 && <span>{item.assignments.length}</span>}
               </button>
+            )}
+            {canEditItemStructure(item) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleAddSubitem(item)}
+                  title="新增子項目"
+                  aria-label="新增子項目"
+                  className="flex shrink-0 items-center rounded px-1 py-0.5 text-xs text-neutral-300 dark:text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-400"
+                >
+                  <CornerDownRight size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleInsert(item, "after")}
+                  title="下方插入項目(同一層)"
+                  aria-label="下方插入項目"
+                  className="flex shrink-0 items-center rounded px-1 py-0.5 text-xs text-neutral-300 dark:text-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-600 dark:hover:text-neutral-400"
+                >
+                  <ArrowDownToLine size={12} />
+                </button>
+              </>
             )}
             {(canEditItemStructure(item) || canEditItemSchedule(item)) && (
               // Same actions as the table row's "…", hung off the "+" the row
