@@ -15,6 +15,7 @@ import {
   Plus,
   Trash2,
   UserPlus,
+  CornerDownRight,
 } from "lucide-react";
 import type { ItemData, ColumnData, UserOption } from "@/types/board";
 import type { UserRole } from "@prisma/client";
@@ -467,6 +468,28 @@ export function ItemRow({
                 <UserPlus size={14} />
                 {item.assignments.length > 0 && <span>{item.assignments.length}</span>}
               </button>
+            )}
+            {canEditStructure && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleAddSubitem()}
+                  title="新增子項目"
+                  aria-label="新增子項目"
+                  className="flex shrink-0 items-center rounded px-1 py-0.5 text-xs text-neutral-300 hover:bg-neutral-100 hover:text-neutral-600 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-400"
+                >
+                  <CornerDownRight size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleInsert("after")}
+                  title="下方插入項目(同一層)"
+                  aria-label="下方插入項目"
+                  className="flex shrink-0 items-center rounded px-1 py-0.5 text-xs text-neutral-300 hover:bg-neutral-100 hover:text-neutral-600 dark:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-400"
+                >
+                  <ArrowDownToLine size={14} />
+                </button>
+              </>
             )}
             {canEditStructure && (
               <RowMenu>
