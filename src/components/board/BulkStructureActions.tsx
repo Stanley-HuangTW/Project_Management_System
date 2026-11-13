@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, FolderInput, Replace, Trash2, X } from "lucide-react";
+import { Copy, FolderInput, GitFork, Replace, Trash2, X } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { bulkCopyItems, bulkMoveItems, bulkReplaceItemNames } from "@/lib/actions/bulkStructure";
 import { bulkCopyItemsAcross, bulkMoveItemsAcross } from "@/lib/actions/bulkCrossBoard";
@@ -260,12 +260,17 @@ export function BulkStructureBar({
   canCopyMove,
   canDelete,
   onClear,
+  onShowDependencies,
+  dependencyLoading = false,
 }: {
   board: BoardWithData;
   selectedIds: Set<string>;
   canCopyMove: boolean;
   canDelete: boolean;
   onClear: () => void;
+  /** 甘特圖的「相依檢視」:把勾選項目的前置與後續排在上下。 */
+  onShowDependencies?: () => void;
+  dependencyLoading?: boolean;
 }) {
   const { rootIds, totalCount } = useSelectionRoots(board, selectedIds);
   if (rootIds.length === 0) return null;
@@ -274,6 +279,18 @@ export function BulkStructureBar({
       <span className="font-medium text-blue-800 dark:text-blue-200">
         已選 {rootIds.length} 項{totalCount > rootIds.length ? `(含子項目共 ${totalCount} 項)` : ""}
       </span>
+      {onShowDependencies && (
+        <button
+          type="button"
+          disabled={dependencyLoading}
+          onClick={onShowDependencies}
+          data-show-dependencies
+          title="把勾選項目的整條前置任務與後續任務排在它的上下(含日期約束來源、同群組其他看板的項目)"
+          className={neutralButton}
+        >
+          <GitFork size={13} /> {dependencyLoading ? "讀取中…" : "相依檢視"}
+        </button>
+      )}
       <BulkStructureActions
         board={board}
         selectedIds={selectedIds}

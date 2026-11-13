@@ -3,7 +3,7 @@ import { getItemDateRange } from "@/lib/gantt";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import { computeWbsCodes } from "@/lib/wbs";
 import { boardWithDataArgs } from "@/types/board";
-import type { ExternalPredecessor } from "@/types/board";
+import type { BoardWithData, ExternalPredecessor } from "@/types/board";
 
 /**
  * 這個看板的工作項所指到的、位在同群組其他看板上的前置。
@@ -46,44 +46,54 @@ export async function externalPredecessors(boardId: string): Promise<ExternalPre
 
   const holidays = toHolidaySet(await listHolidays());
   const found: ExternalPredecessor[] = [];
-
   for (const sibling of siblings) {
-    const mine = sibling.items.filter((item) => referenced.has(item.id));
-    if (mine.length === 0) continue;
+    found.push(...externalRowsOf(sibling, (item) => referenced.has(item.id), holidays));
+  }
+  return found;
+}
 
-    const groupName = new Map(sibling.groups.map((g) => [g.id, g.name]));
-    // WBS 是項目在它自己分組樹裡的位置,所以一個分組算一次。
-    const wbs = new Map<string, string>();
-    for (const group of sibling.groups) {
-      for (const [id, code] of computeWbsCodes(sibling.items.filter((i) => i.groupId === group.id))) {
-        wbs.set(id, code);
-      }
-    }
+/** 別的看板上這幾個項目,整理成甘特圖唯讀列要的樣子(看板、分組、WBS、日期)。 */
+export function externalRowsOf(
+  sibling: BoardWithData,
+  pick: (item: BoardWithData["items"][number]) => boolean,
+  holidays: Set<string>
+): ExternalPredecessor[] {
+  const found: ExternalPredecessor[] = [];
+  const mine = sibling.items.filter(pick);
+  if (mine.length === 0) return found;
 
-    for (const item of mine) {
-      const range =
-        sibling.ganttStartColumnId && sibling.ganttDurationColumnId
-          ? getItemDateRange(
-              item,
-              sibling.ganttStartColumnId,
-              sibling.ganttDurationColumnId,
-              sibling.ganttDurationMode,
-              holidays
-            )
-          : null;
-      found.push({
-        id: item.id,
-        name: item.name,
-        boardId: sibling.id,
-        boardName: sibling.name,
-        groupName: groupName.get(item.groupId) ?? "",
-        wbsCode: wbs.get(item.id) ?? "",
-        // 沒有日期就畫不出長條,但那一列仍然要在 —— 「有這條相依,只是對面
-        // 還沒排日期」跟「沒有這條相依」是兩回事。
-        start: range ? range.start.toISOString().slice(0, 10) : null,
-        end: range ? range.end.toISOString().slice(0, 10) : null,
-      });
+  const groupName = new Map(sibling.groups.map((g) => [g.id, g.name]));
+  // WBS 是項目在它自己分組樹裡的位置,所以一個分組算一次。
+  const wbs = new Map<string, string>();
+  for (const group of sibling.groups) {
+    for (const [id, code] of computeWbsCodes(sibling.items.filter((i) => i.groupId === group.id))) {
+      wbs.set(id, code);
     }
+  }
+
+  for (const item of mine) {
+    const range =
+      sibling.ganttStartColumnId && sibling.ganttDurationColumnId
+        ? getItemDateRange(
+            item,
+            sibling.ganttStartColumnId,
+            sibling.ganttDurationColumnId,
+            sibling.ganttDurationMode,
+            holidays
+          )
+        : null;
+    found.push({
+      id: item.id,
+      name: item.name,
+      boardId: sibling.id,
+      boardName: sibling.name,
+      groupName: groupName.get(item.groupId) ?? "",
+      wbsCode: wbs.get(item.id) ?? "",
+      // 沒有日期就畫不出長條,但那一列仍然要在 —— 「有這條相依,只是對面
+      // 還沒排日期」跟「沒有這條相依」是兩回事。
+      start: range ? range.start.toISOString().slice(0, 10) : null,
+      end: range ? range.end.toISOString().slice(0, 10) : null,
+    });
   }
 
   return found;

@@ -31,6 +31,8 @@ import {
   Maximize2,
   Minimize2,
   Search,
+  GitFork,
+  X,
 } from "lucide-react";
 import NextLink from "next/link";
 import type { BoardWithData, ItemData, UserOption, ExternalPredecessor, PredOption } from "@/types/board";
@@ -114,6 +116,8 @@ import { useRecordedItemMove } from "./useRecordedItemMove";
 import { useChangeLevel, levelDirectionOfKey, type LevelDirection } from "./useChangeLevel";
 import { LevelButtons } from "./LevelButtons";
 import { BulkStructureBar } from "./BulkStructureActions";
+import { loadDependencyChain, type DependencyChainResult } from "@/lib/actions/dependencyChain";
+import { knownErrorMessage } from "@/lib/userError";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import { classifyDropZone, indentTarget, outdentTarget, previewDrop, type DragOverState } from "@/lib/dragReorder";
 import { DropIndicator } from "./DropIndicator";
@@ -385,6 +389,33 @@ export function BoardGantt({
     const existing = new Set(board.items.map((i) => i.id));
     return new Set([...selectedIds].filter((id) => existing.has(id)));
   }, [selectedIds, board.items]);
+
+  // 相依檢視:勾選項目的整條前置鏈與後續鏈,前置在上、後續在下(含同群組其他看板)。
+  // 只是換個看法,不動資料;改了東西 router.refresh 後重新撈,畫面跟著更新。
+  const [dependencyView, setDependencyView] = useState<(DependencyChainResult & { seedIds: string[] }) | null>(null);
+  const [dependencyLoading, setDependencyLoading] = useState(false);
+  const showDependencies = useCallback(
+    async (seedIds: string[]) => {
+      setDependencyLoading(true);
+      try {
+        const result = await loadDependencyChain(board.id, seedIds);
+        setDependencyView({ ...result, seedIds });
+      } catch (err) {
+        await notify(knownErrorMessage(err, "讀不到相依資料,請重新整理後再試一次。"), { title: "無法顯示相依" });
+      } finally {
+        setDependencyLoading(false);
+      }
+    },
+    [board.id, notify]
+  );
+  const dependencySeedsRef = useRef<string[] | null>(null);
+  useEffect(() => {
+    dependencySeedsRef.current = dependencyView?.seedIds ?? null;
+  }, [dependencyView]);
+  useEffect(() => {
+    const seeds = dependencySeedsRef.current;
+    if (seeds) void showDependencies(seeds);
+  }, [board.items, showDependencies]);
 
   function handleItemDragStart(event: DragStartEvent) {
     const activator = event.activatorEvent as PointerEvent;
@@ -974,6 +1005,33 @@ export function BoardGantt({
     if (!showArrows || !predColumnId || !linkColumnId) return [];
     const links: Parameters<typeof buildDependencyArrows>[0] = [];
     const crossBoardKeys = new Set<string>();
+    if (dependencyView) {
+      // 相依檢視:伺服器已經把整條鏈(含跨看板的前置與後續)的箭頭算好了。
+      const externalOf = new Map(dependencyView.external.map((x) => [x.id, x]));
+      const labelOf = (id: string) => {
+        const ext = externalOf.get(id);
+        if (ext) return `${ext.boardName} · ${ext.wbsCode} ${ext.name}`;
+        return `${wbsCodes.get(id) ?? ""} ${itemById.get(id)?.name ?? ""}`;
+      };
+      for (const edge of dependencyView.edges) {
+        if (edge.kind !== "pred" || !edge.relationship) continue;
+        const crossBoard = externalOf.has(edge.predId) || externalOf.has(edge.succId);
+        links.push({
+          predId: edge.predId,
+          succId: edge.succId,
+          relationship: edge.relationship,
+          critical:
+            (scheduleFloats.get(edge.predId)?.isCritical ?? false) &&
+            (scheduleFloats.get(edge.succId)?.isCritical ?? false),
+          title: `${labelOf(edge.predId)} → ${labelOf(edge.succId)}(${edge.relationship}${crossBoard ? ",跨看板" : ""})`,
+        });
+        if (crossBoard) crossBoardKeys.add(`${edge.predId}->${edge.succId}`);
+      }
+      return buildDependencyArrows(links, barBoxes).map((arrow) => ({
+        ...arrow,
+        crossBoard: crossBoardKeys.has(arrow.key),
+      }));
+    }
     for (const item of board.items) {
       const fallback = linkRelationship(item);
       const predValue = item.cellValues.find((cv) => cv.columnId === predColumnId)?.value;
@@ -1008,7 +1066,7 @@ export function BoardGantt({
       crossBoard: crossBoardKeys.has(arrow.key),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArrows, board.items, predColumnId, linkColumnId, linkOptions, arrowWbsIndex, itemById, externalById, wbsCodes, scheduleFloats, barBoxes]);
+  }, [showArrows, board.items, predColumnId, linkColumnId, linkOptions, arrowWbsIndex, itemById, externalById, wbsCodes, scheduleFloats, barBoxes, dependencyView]);
 
   // ── 在甘特圖上建立 / 編輯前置連結:拖曳長條兩端的圓點、「建立連結」模式(點兩下)、點箭頭 ──
   // 改的是「後續任務」那一格 Pred;權限與伺服器端一樣(管理者、主管)。
@@ -1397,10 +1455,11 @@ export function BoardGantt({
     return null;
   }
 
-  function renderRows(parentId: string | null, depth: number, siblings?: ItemData[]): ReactNode[] {
+  /** flat:相依檢視用,只畫這幾列本身(不展開子項目),順序照給的。 */
+  function renderRows(parentId: string | null, depth: number, siblings?: ItemData[], flat = false): ReactNode[] {
     const children = siblings ?? itemsByParent.get(parentId) ?? [];
     return children.flatMap((item) => {
-      const hasChildren = (itemsByParent.get(item.id)?.length ?? 0) > 0;
+      const hasChildren = !flat && (itemsByParent.get(item.id)?.length ?? 0) > 0;
       // 搜尋中不管收合:符合的項目可能藏在收合著的上層底下,收著就看不到了。
       const isCollapsed = collapsed.has(item.id) && !searching;
       const range = ranges.get(item.id);
@@ -1410,17 +1469,24 @@ export function BoardGantt({
       const previewCode =
         dragOverTarget?.draggedId === item.id ? (dragOverTarget.preview?.newCode ?? null) : null;
       // 升階 / 降階:有這個分組的結構權限才給;做不到的方向(沒有前一項、已經最上層)是 null。
-      const levelItems = canEditItemStructure(item) ? (itemsByGroup.get(item.groupId) ?? []) : null;
+      // 相依檢視時列的順序不是結構順序,拖曳搬移與升降階都先關掉。
+      const levelItems = !flat && canEditItemStructure(item) ? (itemsByGroup.get(item.groupId) ?? []) : null;
       const indent = levelItems ? indentTarget(levelItems, item.id) : null;
       const outdent = levelItems ? outdentTarget(levelItems, item.id) : null;
 
       const row = (
-        <div key={item.id} className="flex items-stretch border-b border-neutral-100 dark:border-neutral-700">
+        <div
+          key={item.id}
+          data-dependency-seed={flat && dependencyView?.seedIds.includes(item.id) ? "" : undefined}
+          className={`flex items-stretch border-b border-neutral-100 dark:border-neutral-700 ${
+            flat && dependencyView?.seedIds.includes(item.id) ? "bg-amber-50 dark:bg-amber-950/40" : ""
+          }`}
+        >
           <GanttDraggableLabel
             itemId={item.id}
             groupId={item.groupId}
             depth={depth}
-            disabled={!canEditItemStructure(item)}
+            disabled={flat || !canEditItemStructure(item)}
             dragOverTarget={dragOverTarget}
             labelWidth={labelWidth}
             selected={selectedIds.has(item.id)}
@@ -1625,6 +1691,54 @@ export function BoardGantt({
     });
   }
 
+  /** 同群組其他看板上的項目:唯讀的一列,點名稱跳到那個看板。 */
+  function renderExternalRow(pred: ExternalPredecessor) {
+    const from = pred.start ? indexForDate(new Date(pred.start)) : -1;
+    const to = pred.end ? indexForDate(new Date(pred.end)) : -1;
+    return (
+      <div
+        key={pred.id}
+        data-gantt-row={pred.id}
+        className="flex items-stretch border-b border-neutral-100 dark:border-neutral-800"
+      >
+        <div
+          className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 bg-white px-2 py-1.5 text-sm dark:bg-neutral-900"
+          style={{ width: labelWidth }}
+        >
+          <span className="shrink-0 text-[10px] text-blue-500 dark:text-blue-400">
+            {pred.boardName}
+          </span>
+          <NextLink
+            href={`/boards/${pred.boardId}?highlight=${pred.id}`}
+            title={`${pred.boardName} · ${pred.groupName} · ${pred.wbsCode} ${pred.name}`}
+            className="min-w-0 truncate text-neutral-600 hover:text-blue-600 dark:text-neutral-300"
+          >
+            {pred.wbsCode && (
+              <span className="mr-1 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
+                {pred.wbsCode}
+              </span>
+            )}
+            {pred.name}
+          </NextLink>
+        </div>
+        <div className="relative shrink-0" style={{ width: days.length * dayWidth }}>
+          {from >= 0 && to >= 0 ? (
+            <div
+              data-gantt-bar
+              title={`${pred.start ? withWeekday(pred.start) : "-"} ~ ${pred.end ? withWeekday(pred.end) : "-"}`}
+              className="absolute top-1.5 h-4 rounded border-2 border-dashed border-blue-400 bg-blue-100/60 dark:bg-blue-950/50"
+              style={{ left: from * dayWidth, width: (to - from + 1) * dayWidth }}
+            />
+          ) : (
+            <span className="absolute left-1 top-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">
+              對面尚未排定日期
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={
@@ -1809,7 +1923,37 @@ export function BoardGantt({
             }
             canDelete={canManageStructure(userRole)}
             onClear={clearSelection}
+            dependencyLoading={dependencyLoading}
+            onShowDependencies={() => void showDependencies([...liveSelectedIds])}
           />
+        </div>
+      )}
+      {dependencyView && (
+        <div
+          data-dependency-banner
+          className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+        >
+          <GitFork size={13} />
+          <span className="font-medium">
+            相依檢視:
+            {dependencyView.seedIds
+              .slice(0, 2)
+              .map((id) => `「${itemById.get(id)?.name ?? ""}」`)
+              .join("、")}
+            {dependencyView.seedIds.length > 2 ? ` 等 ${dependencyView.seedIds.length} 項` : ""}
+            的前置與後續,共 {dependencyView.order.length} 項
+          </span>
+          <span className="text-amber-700/80 dark:text-amber-300/80">
+            前置在上、後續在下;含 Pred、日期約束來源與同群組其他看板的項目
+            {dependencyView.external.length > 0 ? `(其他看板 ${dependencyView.external.length} 項)` : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDependencyView(null)}
+            className="ml-auto flex items-center gap-1 rounded px-1.5 py-1 hover:bg-amber-100 dark:hover:bg-amber-900"
+          >
+            <X size={13} /> 結束相依檢視
+          </button>
         </div>
       )}
 
@@ -1941,7 +2085,14 @@ export function BoardGantt({
               onDragEnd={handleItemDragEnd}
               onDragCancel={handleItemDragCancel}
             >
-              {groupSections.flatMap(({ group, roots, visibleCount }) => [
+              {dependencyView
+                ? dependencyView.order.flatMap((id): ReactNode[] => {
+                    const item = itemById.get(id);
+                    if (item) return renderRows(null, 0, [item], true);
+                    const ext = dependencyView.external.find((x) => x.id === id);
+                    return ext ? [renderExternalRow(ext)] : [];
+                  })
+                : groupSections.flatMap(({ group, roots, visibleCount }) => [
                 <div
                   key={`group:${group.id}`}
                   className="flex items-stretch border-b border-neutral-200 dark:border-neutral-700"
@@ -1964,7 +2115,7 @@ export function BoardGantt({
               ])}
             </DndContext>
 
-          {externalPreds.length > 0 && (
+          {!dependencyView && externalPreds.length > 0 && (
             <div>
               <div className="flex border-t-2 border-blue-200 bg-blue-50/60 px-2 py-1.5 text-xs font-medium text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
                 跨看板前置 {externalPreds.length} 項
@@ -1972,52 +2123,7 @@ export function BoardGantt({
                   同群組其他看板上的項目,唯讀
                 </span>
               </div>
-              {externalPreds.map((pred) => {
-                const from = pred.start ? indexForDate(new Date(pred.start)) : -1;
-                const to = pred.end ? indexForDate(new Date(pred.end)) : -1;
-                return (
-                  <div
-                    key={pred.id}
-                    data-gantt-row={pred.id}
-                    className="flex items-stretch border-b border-neutral-100 dark:border-neutral-800"
-                  >
-                    <div
-                      className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 bg-white px-2 py-1.5 text-sm dark:bg-neutral-900"
-                      style={{ width: labelWidth }}
-                    >
-                      <span className="shrink-0 text-[10px] text-blue-500 dark:text-blue-400">
-                        {pred.boardName}
-                      </span>
-                      <NextLink
-                        href={`/boards/${pred.boardId}?highlight=${pred.id}`}
-                        title={`${pred.boardName} · ${pred.groupName} · ${pred.wbsCode} ${pred.name}`}
-                        className="min-w-0 truncate text-neutral-600 hover:text-blue-600 dark:text-neutral-300"
-                      >
-                        {pred.wbsCode && (
-                          <span className="mr-1 text-xs tabular-nums text-neutral-400 dark:text-neutral-500">
-                            {pred.wbsCode}
-                          </span>
-                        )}
-                        {pred.name}
-                      </NextLink>
-                    </div>
-                    <div className="relative shrink-0" style={{ width: days.length * dayWidth }}>
-                      {from >= 0 && to >= 0 ? (
-                        <div
-                          data-gantt-bar
-                          title={`${pred.start ? withWeekday(pred.start) : "-"} ~ ${pred.end ? withWeekday(pred.end) : "-"}`}
-                          className="absolute top-1.5 h-4 rounded border-2 border-dashed border-blue-400 bg-blue-100/60 dark:bg-blue-950/50"
-                          style={{ left: from * dayWidth, width: (to - from + 1) * dayWidth }}
-                        />
-                      ) : (
-                        <span className="absolute left-1 top-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">
-                          對面尚未排定日期
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {externalPreds.map(renderExternalRow)}
             </div>
           )}
 
