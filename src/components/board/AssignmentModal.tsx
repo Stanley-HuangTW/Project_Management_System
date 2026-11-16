@@ -11,6 +11,8 @@ import { upsertCellValue } from "@/lib/actions/cell";
 import { previewSchedule } from "@/lib/actions/predecessorSchedule";
 import { listDependentItems, listPredecessorItems, type SchedulePreview } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "./DependentItemsRow";
+import { ScheduleReasonLine } from "./ScheduleReasonLine";
+import { useScheduleExplanation } from "./useScheduleExplanation";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { ItemProtoUnitsField } from "./ItemProtoUnitsField";
 import { CellEditor } from "./cell-editors/CellEditor";
@@ -148,6 +150,10 @@ export function AssignmentModal({
         : [],
     [item, groupItems, columns, predColumnId, linkColumnId, ganttStartColumnId, ganttEndColumnId]
   );
+
+  // 開始日 / 完成日是被什麼決定的,以及前置的 Lag、哪個前置決定了日期(伺服器依排程引擎算,含跨分組 / 跨看板的前置)。
+  const explanation = useScheduleExplanation(boardId, item);
+  const shownPredecessors = explanation?.predecessors ?? predecessors;
 
   if (!item) return null;
 
@@ -313,7 +319,7 @@ export function AssignmentModal({
             </div>
           )}
 
-          <DependentItemsRow dependents={dependents} predecessors={predecessors} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
+          <DependentItemsRow dependents={dependents} predecessors={shownPredecessors} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
 
           {scheduleColumns.map((col) => {
             const rawValue = item.cellValues.find((cv) => cv.columnId === col.id)?.value as
@@ -327,7 +333,8 @@ export function AssignmentModal({
             const selectClass =
               "w-full rounded border-none bg-transparent px-2 py-1 text-sm outline-none hover:bg-neutral-50 dark:hover:bg-neutral-800 focus:bg-white dark:focus:bg-neutral-900 focus:ring-1 focus:ring-blue-400 disabled:opacity-50";
             return (
-              <div key={col.id} className="flex items-center justify-between gap-3">
+              <div key={col.id}>
+              <div className="flex items-center justify-between gap-3">
                 <span className="flex shrink-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                   {col.id === predColumnId && <PredLampDot lamp={predLamp} />}
                   {col.name}
@@ -419,6 +426,9 @@ export function AssignmentModal({
                     />
                   )}
                 </div>
+              </div>
+              {col.id === ganttStartColumnId && <ScheduleReasonLine reason={explanation?.start} field="start" className="pt-1" />}
+              {col.id === ganttEndColumnId && <ScheduleReasonLine reason={explanation?.finish} field="finish" className="pt-1" />}
               </div>
             );
           })}

@@ -4,7 +4,14 @@ import { getStatusOptions } from "@/types/column";
 import type { ItemData } from "@/types/board";
 import { getItemDateRange, hasOwnScheduleRule, type DateRange } from "@/lib/gantt";
 import { countDaysInRange, endFromStartAndDays, shiftDate } from "@/lib/workday";
-import { applyConstraint, constraintConflictDetail, pinnedRange, pinsFinish, resolveConstraint } from "@/lib/constraints";
+import {
+  applyConstraint,
+  constraintConflictDetail,
+  describeConstraintSource,
+  pinnedRange,
+  pinsFinish,
+  resolveConstraint,
+} from "@/lib/constraints";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 
 export type RelationshipType = "FS" | "FF" | "SS" | "SF";
@@ -913,6 +920,82 @@ async function buildScheduleContext(
     if (item && cfgOf(item).alwaysComputed) await rollUpAncestors(id, visited);
   }
 
+  /**
+   * 「為什麼這個項目的開始日 / 完成日是這一天」要用的資料(見 scheduleExplain.ts):
+   * 跟 chainOf / recompute 讀同一份,所以說明一定跟排程實際做的一致。只讀、不寫。
+   */
+  function explainInputOf(id: string, names: { manualStartName: string; manualDurationName: string }) {
+    const item = itemsById.get(id);
+    if (!item) return null;
+    const cfg = cfgOf(item);
+    const linkValue = cfg.linkColumnId ? item.cellValues.find((cv) => cv.columnId === cfg.linkColumnId)?.value : null;
+    const fallbackRelationship = cfg.linkOptions.find((o) => o.id === linkValue)?.label ?? null;
+    const lagValue = cfg.lagColumnId ? item.cellValues.find((cv) => cv.columnId === cfg.lagColumnId)?.value : null;
+    const fallbackLag = typeof lagValue === "number" ? lagValue : 0;
+    const labelOf = (itemId: string) => `${wbsByItemId.get(itemId) ?? ""} ${itemsById.get(itemId)?.name ?? ""}`.trim();
+
+    const entries = predEntriesOf(id).map((entry) => ({
+      itemId: entry.itemId,
+      label: labelOf(entry.itemId),
+      relationship: entry.relationship ?? fallbackRelationship,
+      lag: entry.lag ?? fallbackLag,
+      range: readRange(entry.itemId),
+    }));
+    const { myDays, baseRange } = myDaysAndBase(item);
+    const hasChildren = childrenByParent.has(id);
+    const ownRule = hasOwnScheduleRule(item, { predColumnId: cfg.predColumnId });
+    const rollUp =
+      hasChildren && !ownRule
+        ? (childrenByParent.get(id) ?? []).flatMap((childId) => {
+            const range = readRange(childId);
+            return range ? [{ label: labelOf(childId), range }] : [];
+          })
+        : null;
+    const resolved = constraintResolved(item);
+    const refId = item.constraintRefItemId ?? null;
+    const constraintSource =
+      resolved.followsPred && refId && item.constraintRefEdge
+        ? {
+            predItemId: refId,
+            text: describeConstraintSource(labelOf(refId), item.constraintRefEdge, item.constraintRefDay),
+          }
+        : null;
+
+    return {
+      input: {
+        mode: cfg.mode,
+        holidays,
+        myDays,
+        alwaysComputed: cfg.alwaysComputed,
+        manualStartName: names.manualStartName,
+        manualDurationName: names.manualDurationName,
+        rollUp,
+        entries,
+        baseRange,
+        constraint: resolved.constraint,
+        constraintSource,
+        followsChildren: hasChildren && !ownRule,
+      },
+      preds: entries.map((entry) => {
+        const pred = itemsById.get(entry.itemId);
+        const range = entry.range;
+        return {
+          itemId: entry.itemId,
+          wbsCode: wbsByItemId.get(entry.itemId) ?? "",
+          name: pred?.name ?? "",
+          boardId: pred?.boardId ?? "",
+          link: entry.relationship,
+          lag: entry.lag,
+          start: range ? range.start.toISOString().slice(0, 10) : null,
+          end: range ? range.end.toISOString().slice(0, 10) : null,
+        };
+      }),
+      boardId: item.boardId,
+      manualStartColumnId: cfg.manualStartColumnId,
+      manualDurationColumnId: cfg.manualDurationColumnId,
+    };
+  }
+
   // Triggers are matched against a column the user edited, which is always on
   // the board the edit came from.
   const ownTriggers = (
@@ -935,6 +1018,7 @@ async function buildScheduleContext(
     periodDays,
     predecessorsOf,
     dependentsOf,
+    explainInputOf,
     recompute,
     constraintConflictOf,
     snapshotConflicts,
@@ -956,6 +1040,33 @@ export type CascadedItem = {
 };
 
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
+
+/**
+ * 這個項目的開始日 / 完成日「為什麼是這一天」要用的資料(讀排程引擎同一份網路、只讀),
+ * 給 explainSchedule(scheduleExplain.ts)用。項目所在看板排不出日期(沒設好欄位)回 null。
+ */
+export async function loadScheduleExplainInput(boardId: string, itemId: string) {
+  const ctx = await buildScheduleContext(boardId, true);
+  if (!ctx) return null;
+  const item = ctx.itemsById.get(itemId);
+  if (!item) return null;
+  // 畫面上寫的是欄位名稱(例如 start(set)、duration),不是「手動開始日」這種自己取的名字。
+  const boardColumns = await prisma.board.findUnique({
+    where: { id: item.boardId },
+    select: { manualStartColumnId: true, manualDurationColumnId: true },
+  });
+  const ids = [boardColumns?.manualStartColumnId, boardColumns?.manualDurationColumnId].filter((x): x is string => !!x);
+  const columns = ids.length > 0 ? await prisma.column.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+  const nameOf = (id: string | null | undefined, fallback: string) => columns.find((c) => c.id === id)?.name ?? fallback;
+  const result = ctx.explainInputOf(itemId, {
+    manualStartName: nameOf(boardColumns?.manualStartColumnId, "Start"),
+    manualDurationName: nameOf(boardColumns?.manualDurationColumnId, "Duration"),
+  });
+  if (!result) return null;
+  const otherBoardIds = [...new Set(result.preds.map((p) => p.boardId).filter((id) => id && id !== item.boardId))];
+  const boards = otherBoardIds.length > 0 ? await prisma.board.findMany({ where: { id: { in: otherBoardIds } }, select: { id: true, name: true } }) : [];
+  return { ...result, boardNames: new Map(boards.map((b) => [b.id, b.name])), homeBoardId: item.boardId };
+}
 
 /**
  * Which OTHER items would move if this one were rescheduled to `range`, and

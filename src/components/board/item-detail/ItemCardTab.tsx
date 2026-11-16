@@ -16,6 +16,8 @@ import { pinnedScheduleReason } from "@/lib/constraints";
 import { computeWbsCodes } from "@/lib/wbs";
 import { listDependentItems, listPredecessorItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
+import { ScheduleReasonLine } from "../ScheduleReasonLine";
+import { useScheduleExplanation } from "../useScheduleExplanation";
 import { PredLampDot } from "../PredLampDot";
 import { ConstraintRow } from "./ConstraintRow";
 import { StatusTimes } from "./StatusTimes";
@@ -177,8 +179,10 @@ export function ItemCardTab({
         endColumnId: ganttEndColumnId,
       })
     : [];
+  // 開始日 / 完成日是被什麼決定的,以及前置的 Lag、哪個前置決定了日期(伺服器依排程引擎算,含跨分組 / 跨看板的前置)。
+  const explanation = useScheduleExplanation(boardId, item);
   // 這個項目自己參照的前置(跟上面的後續是一體兩面,分兩段顯示)。
-  const predecessors = groupItems
+  const localPredecessors = groupItems
     ? listPredecessorItems(item.id, groupItems, {
         predColumnId,
         linkColumnId,
@@ -187,6 +191,8 @@ export function ItemCardTab({
         endColumnId: ganttEndColumnId,
       })
     : [];
+
+  const predecessors = explanation?.predecessors ?? localPredecessors;
 
   /** 實際完成比預定晚:把這個工作項的結束日改成實際完成日,依賴它的後續工作項由排程連動順延。
    *  先預覽會動到誰、經 PM 確認才寫入;基準線(原計畫)不動,事後仍可比較。 */
@@ -368,6 +374,8 @@ export function ItemCardTab({
                 }}
               />
             )}
+            {col.id === ganttStartColumnId && <ScheduleReasonLine reason={explanation?.start} field="start" />}
+            {col.id === ganttEndColumnId && <ScheduleReasonLine reason={explanation?.finish} field="finish" />}
             {col.id === progressColumnId && childCount > 0 && (
               <p className="border-b border-neutral-100 px-4 py-1.5 text-[11px] text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
                 這個項目有 {childCount} 個子項目,進度是它們的平均(沒填的算 0%)。要改請到子項目填進度。
