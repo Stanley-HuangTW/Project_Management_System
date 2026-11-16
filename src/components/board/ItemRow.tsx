@@ -331,6 +331,8 @@ export function ItemRow({
       <>
         <div
           ref={setRowRef}
+          data-table-row={item.id}
+          data-table-pane="frozen"
           {...dragAttributes}
           onPointerDown={(e) => {
             // 點名稱/留言/指派/選單/勾選框還是原本的點擊行為,不會被拖曳搶走。
@@ -652,6 +654,8 @@ export function ItemRow({
     <>
       <div
         ref={rowRef}
+        data-table-row={item.id}
+        data-table-pane="data"
         className="group grid h-9 w-fit items-center border-b border-neutral-100 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800"
         style={{
           gridTemplateColumns: gridTemplate(columns.length),

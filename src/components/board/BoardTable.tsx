@@ -44,6 +44,7 @@ import { usePasteIntoRange } from "./usePasteIntoRange";
 import { ItemDetailModal } from "./ItemDetailModal";
 import { ItemEventsProvider } from "./ItemEventsContext";
 import { ItemProtoUnitsProvider, type ProtoUnitsData } from "./ItemProtoUnitsContext";
+import { useRowHoverFrame } from "./useRowHoverFrame";
 import { EVENT_COLUMN_LABELS, PROTO_COLUMN_LABEL } from "./gridTemplate";
 import { RowMenu, RowMenuItem } from "@/components/ui/RowMenu";
 import {
@@ -203,6 +204,8 @@ export function BoardTable({
   );
   const hasAutoSizedRef = useRef(false);
   const tableRootRef = useRef<HTMLDivElement>(null);
+  // 滑到某個工作項時,左右兩塊(名稱 / 資料欄)的同一列一起框起來。
+  const rowHover = useRowHoverFrame();
   const scrollPanesRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   function expandGroup(groupItems: ItemData[]) {
@@ -490,7 +493,7 @@ export function BoardTable({
   return (
     <ItemEventsProvider summaries={summaries}>
     <ItemProtoUnitsProvider data={protoUnits}>
-    <div ref={tableRootRef} className="flex h-full flex-col">
+    <div ref={tableRootRef} className="flex h-full flex-col" {...rowHover}>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <span className="shrink-0 whitespace-nowrap text-neutral-500 dark:text-neutral-400">專案(分組)</span>
         <select

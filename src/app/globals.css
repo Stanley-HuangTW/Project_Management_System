@@ -158,3 +158,29 @@ body.cell-range-dragging * {
 .dark .manual-prose th { background: #262626; }
 .dark .manual-prose code { background: #262626; }
 .dark .manual-prose hr { border-top-color: #404040; }
+
+/* 表格:滑過某個工作項,整列(左邊名稱 + 右邊資料欄,兩塊各自的 DOM)一起框起來。
+ * 由 useRowHoverFrame 在滑到列時把同一個項目的兩塊都標上 data-row-hover;框蓋在上面、不吃滑鼠事件。 */
+[data-table-row] {
+  position: relative;
+}
+[data-table-row][data-row-hover]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  border: 2px solid #3b82f6;
+  background: rgb(59 130 246 / 0.05);
+}
+/* 兩塊拼成一列:中間不要有框線。 */
+[data-table-pane="frozen"][data-row-hover]::after {
+  border-right-width: 0;
+}
+[data-table-pane="data"][data-row-hover]::after {
+  border-left-width: 0;
+}
+.dark [data-table-row][data-row-hover]::after {
+  border-color: #60a5fa;
+  background: rgb(96 165 250 / 0.1);
+}
