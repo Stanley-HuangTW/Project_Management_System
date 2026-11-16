@@ -14,7 +14,7 @@ import { isItemAssignedToUser } from "@/lib/itemAssignment";
 import type { ScheduleLock } from "@/lib/predecessorLink";
 import { pinnedScheduleReason } from "@/lib/constraints";
 import { computeWbsCodes } from "@/lib/wbs";
-import { listDependentItems } from "@/lib/predecessorLink";
+import { listDependentItems, listPredecessorItems } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "../DependentItemsRow";
 import { PredLampDot } from "../PredLampDot";
 import { ConstraintRow } from "./ConstraintRow";
@@ -170,6 +170,16 @@ export function ItemCardTab({
   // only says what this item points at.
   const dependents = groupItems
     ? listDependentItems(item.id, groupItems, {
+        predColumnId,
+        linkColumnId,
+        linkColumnOptions: columns.find((c) => c.id === linkColumnId)?.options,
+        startColumnId: ganttStartColumnId,
+        endColumnId: ganttEndColumnId,
+      })
+    : [];
+  // 這個項目自己參照的前置(跟上面的後續是一體兩面,分兩段顯示)。
+  const predecessors = groupItems
+    ? listPredecessorItems(item.id, groupItems, {
         predColumnId,
         linkColumnId,
         linkColumnOptions: columns.find((c) => c.id === linkColumnId)?.options,
@@ -382,7 +392,7 @@ export function ItemCardTab({
                 </span>
               </div>
             )}
-            {col.name === "Lvl" && <DependentItemsRow dependents={dependents} />}
+            {col.name === "Lvl" && <DependentItemsRow dependents={dependents} predecessors={predecessors} />}
             {col.name === "Lvl" && (
               <ConstraintRow
                 itemId={item.id}

@@ -1667,6 +1667,53 @@ export function listDependentItems(
 }
 
 /**
+ * 這個工作項自己參照的前置(Pred 欄指到的那些),跟 listDependentItems 是一體兩面:
+ * 一個列「我指向誰」、一個列「誰指向我」。格式一樣,所以兩個清單可以用同一個元件顯示。
+ * 前置在別的分組 / 別的看板時,這裡找不到它(只看傳進來的這一組項目),就不列;
+ * 那幾個在 Pred 欄與甘特圖的跨看板列看得到。
+ */
+export function listPredecessorItems(
+  itemId: string,
+  groupItems: Pick<ItemData, "id" | "name" | "parentId" | "order" | "groupId" | "cellValues">[],
+  columns: {
+    predColumnId?: string | null;
+    linkColumnId?: string | null;
+    linkColumnOptions?: unknown;
+    startColumnId?: string | null;
+    endColumnId?: string | null;
+  }
+): DependentSummary[] {
+  const { predColumnId, linkColumnId, startColumnId, endColumnId } = columns;
+  if (!predColumnId) return [];
+  const self = groupItems.find((i) => i.id === itemId);
+  if (!self) return [];
+  const index = buildWbsIndexFromItems(groupItems);
+  const linkOptions = linkColumnId ? getStatusOptions(columns.linkColumnOptions) : [];
+  const text = (item: (typeof groupItems)[number], columnId?: string | null) => {
+    if (!columnId) return null;
+    const value = item.cellValues.find((cv) => cv.columnId === columnId)?.value;
+    return typeof value === "string" && value ? value : null;
+  };
+  const byId = new Map(groupItems.map((i) => [i.id, i]));
+
+  return parsePredEntries(index, self.groupId, text(self, predColumnId))
+    .flatMap((edge) => {
+      const pred = byId.get(edge.itemId);
+      return pred ? [{ pred, edge }] : [];
+    })
+    .map(({ pred, edge }) => ({
+      itemId: pred.id,
+      wbsCode: index.wbsByItemId.get(pred.id) ?? "",
+      name: pred.name,
+      // 這條邊自己的關係;沒寫就用「這個工作項」Link 欄的值(跟排程引擎一樣)。
+      link: edge.relationship ?? linkOptions.find((o) => o.id === text(self, linkColumnId))?.label ?? null,
+      start: text(pred, startColumnId),
+      end: text(pred, endColumnId),
+    }))
+    .sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }));
+}
+
+/**
  * The range an item's predecessors alone would give it, before any date
  * constraint. With several predecessors the binding one is whichever pushes
  * this item latest — you cannot start until the last thing you wait on is out

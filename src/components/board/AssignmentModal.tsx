@@ -9,7 +9,7 @@ import type { ColumnData, ItemData, PredOption, UserOption } from "@/types/board
 import type { UserRole } from "@prisma/client";
 import { upsertCellValue } from "@/lib/actions/cell";
 import { previewSchedule } from "@/lib/actions/predecessorSchedule";
-import { listDependentItems, type SchedulePreview } from "@/lib/predecessorLink";
+import { listDependentItems, listPredecessorItems, type SchedulePreview } from "@/lib/predecessorLink";
 import { DependentItemsRow } from "./DependentItemsRow";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { ItemProtoUnitsField } from "./ItemProtoUnitsField";
@@ -125,6 +125,20 @@ export function AssignmentModal({
     () =>
       item && groupItems
         ? listDependentItems(item.id, groupItems, {
+            predColumnId,
+            linkColumnId,
+            linkColumnOptions: columns?.find((c) => c.id === linkColumnId)?.options,
+            startColumnId: ganttStartColumnId,
+            endColumnId: ganttEndColumnId,
+          })
+        : [],
+    [item, groupItems, columns, predColumnId, linkColumnId, ganttStartColumnId, ganttEndColumnId]
+  );
+  // 這個項目自己參照的前置(跟上面的後續是一體兩面,分兩段顯示)。
+  const predecessors = useMemo(
+    () =>
+      item && groupItems
+        ? listPredecessorItems(item.id, groupItems, {
             predColumnId,
             linkColumnId,
             linkColumnOptions: columns?.find((c) => c.id === linkColumnId)?.options,
@@ -299,7 +313,7 @@ export function AssignmentModal({
             </div>
           )}
 
-          <DependentItemsRow dependents={dependents} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
+          <DependentItemsRow dependents={dependents} predecessors={predecessors} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
 
           {scheduleColumns.map((col) => {
             const rawValue = item.cellValues.find((cv) => cv.columnId === col.id)?.value as
