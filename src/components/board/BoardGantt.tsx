@@ -2685,6 +2685,13 @@ function GanttBar({
     }
   }
 
+  // 窄長條(週刻度下 1 天的長條才 10px、里程碑也是):兩個各 6px 的拖曳把手疊在長條裡面會把本體整個蓋住,
+  // 只能拖、點不到(開不了視窗)。窄的時候把手改放到長條外側各 4px,本體完整留給點擊。
+  // 用還沒拖曳時的寬度判斷,拖到一半把手不會換位置。
+  const narrowBar = (endIndex - startIndex + 1) * dayWidth < 24;
+  const outsideHandle = (side: "left" | "right"): React.CSSProperties =>
+    narrowBar ? { [side]: -4, width: 4 } : {};
+
   // Only while 要徑 is switched on: the ring and the bolt are the two halves
   // of the same answer, so they appear and disappear together.
   const isCritical = highlightCritical && !!scheduleFloat?.isCritical;
@@ -2704,7 +2711,7 @@ function GanttBar({
         className={`absolute left-0 top-0 z-10 h-full w-1.5 rounded-l ${
           canResizeStart ? "cursor-col-resize hover:bg-blue-500/60" : "cursor-not-allowed"
         }`}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", ...outsideHandle("left") }}
         title={canResizeStart ? "拖曳調整開始日期" : (blockedReason("start") ?? undefined)}
       />
       <div
@@ -2775,7 +2782,7 @@ function GanttBar({
         className={`absolute right-0 top-0 z-10 h-full w-1.5 rounded-r ${
           canResizeEnd ? "cursor-col-resize hover:bg-blue-500/60" : "cursor-not-allowed"
         }`}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", ...outsideHandle("right") }}
         title={canResizeEnd ? "拖曳調整結束日期" : (blockedReason("end") ?? undefined)}
       />
       {canLink && onLinkDragStart && (
