@@ -244,7 +244,8 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
         <div className="space-y-5 overflow-x-auto">
           {summary.products.map((product) => (
             <DndContext key={product.product} sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void endPhaseDrag(e)}>
-            <table className="w-full min-w-[640px] text-sm">
+            {/* table-fixed:每個產品與「全部產品」是各自的 table,自動欄寬會讓階段欄的位置互相錯開;固定欄寬後同一欄一定對齊。 */}
+            <table className="w-full min-w-[640px] table-fixed text-sm">
               <thead>
                 <tr className="border-b-2 border-neutral-300 dark:border-neutral-600">
                   <th className="w-56 py-2 text-left font-semibold text-neutral-800 dark:text-neutral-100">
@@ -391,7 +392,7 @@ export function ProtoPlanTable({ boardId }: { boardId: string }) {
           ))}
 
           {summary.products.length > 1 && (
-            <table className="w-full min-w-[640px] border-t-2 border-neutral-300 text-sm dark:border-neutral-600">
+            <table className="w-full min-w-[640px] table-fixed border-t-2 border-neutral-300 text-sm dark:border-neutral-600">
               <tbody>
                 <tr className="font-semibold text-neutral-800 dark:text-neutral-100">
                   <td className="w-56 py-2">全部產品</td>
