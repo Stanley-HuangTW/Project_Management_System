@@ -96,7 +96,7 @@ function RelatedList({
                   {d.start && d.end ? `・${d.start} → ${d.end}` : ""}
                 </span>
                 {driving && d.note ? (
-                  <div className="text-xs font-normal text-red-600 dark:text-red-400">← 參照此時間:{d.note}</div>
+                  <div className="text-xs font-normal text-red-600 dark:text-red-400">← {d.note}</div>
                 ) : null}
               </li>
             );
