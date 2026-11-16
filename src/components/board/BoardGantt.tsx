@@ -1495,7 +1495,7 @@ export function BoardGantt({
         <div
           key={item.id}
           data-dependency-seed={flat && dependencyView?.seedIds.includes(item.id) ? "" : undefined}
-          className={`flex items-stretch border-b border-neutral-100 dark:border-neutral-700 ${
+          className={`group/row relative flex items-stretch border-b border-neutral-100 dark:border-neutral-700 ${
             flat && dependencyView?.seedIds.includes(item.id) ? "bg-amber-50 dark:bg-amber-950/40" : ""
           }`}
         >
@@ -1735,6 +1735,12 @@ export function BoardGantt({
               />
             )}
           </div>
+          {/* 滑過這一列:整列(名稱到時間軸)框起來,名稱和長條才對得上。不吃滑鼠事件,不擋點擊與拖曳。 */}
+          <div
+            aria-hidden
+            data-row-hover-frame
+            className="pointer-events-none absolute inset-0 z-[11] border-2 border-blue-500 bg-blue-500/5 opacity-0 group-hover/row:opacity-100 dark:border-blue-400 dark:bg-blue-400/10"
+          />
         </div>
       );
 
