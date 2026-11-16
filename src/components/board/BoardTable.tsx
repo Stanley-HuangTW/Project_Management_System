@@ -57,7 +57,9 @@ import {
 import { createGroup, reorderGroups } from "@/lib/actions/group";
 import { deleteColumn, setProgressColumn, reorderColumns } from "@/lib/actions/column";
 
-const NAME_CELL_CHROME_WIDTH = 182; // input padding + 留言/更新記錄/指派/更多操作 icons + gaps + measurement margin(實測約 178)
+// input padding + 升降階 / 上下移(滑過才顯示但一直佔位)+ 留言 / 更新記錄 / 指派 / 新增子項目 / 下方插入 / 更多操作 icons
+// + gaps + measurement margin。2026-11-16 加了上下移與兩個新增按鈕後實測少 104px。
+const NAME_CELL_CHROME_WIDTH = 286;
 
 function SortableColumnHeader({
   col,
