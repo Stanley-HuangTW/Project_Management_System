@@ -138,8 +138,11 @@ const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 34, week: 10, month: 3 };
 const CHECKBOX_GUTTER = 20;
 const DEFAULT_LABEL_WIDTH = 260;
 const MIN_LABEL_WIDTH = 140;
-/** 手動拖曳的上限;自動調整寬度的上限(autoFitCap 最多 720)不能比它大,不然一開始拖就被截回來。 */
-const MAX_LABEL_WIDTH = 720;
+/** 顯示比例的預設值(也是滑桿的最小值)。 */
+const DEFAULT_SCALE_PCT = 50;
+/** 手動拖曳的上限;自動調整寬度的上限不能比它大,不然一開始拖就被截回來。
+ *  這是縮放前的寬度:顯示比例 50% 時,1600 在畫面上只有 800。 */
+const MAX_LABEL_WIDTH = 1600;
 /** 一列上名稱以外不隨項目變的寬度:左側勾選框的位置與邊距、收合箭頭、留言 / 指派 / 新增子項目 / 下方插入 / 新增圖示、
  *  升降階與上下移按鈕與間距。 */
 const LABEL_CHROME_WIDTH = 258;
@@ -281,7 +284,8 @@ export function BoardGantt({
   const [assignmentItem, setAssignmentItem] = useState<ItemData | null>(null);
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<"updates" | "card">("updates");
-  const [zoom, setZoom] = useState<Zoom>("day");
+  // 預設以週為單位、顯示比例 50%:一開始就看得到整個專案的大概,要看細節再切到天、放大。
+  const [zoom, setZoom] = useState<Zoom>("week");
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const [groupFilterId, setGroupFilterId] = useState("");
   const [parentFilterId, setParentFilterId] = useState("");
@@ -289,7 +293,7 @@ export function BoardGantt({
   const [searchQuery, setSearchQuery] = useState("");
   const searching = searchQuery.trim() !== "";
   const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
-  const [scalePct, setScalePct] = useState(100);
+  const [scalePct, setScalePct] = useState(DEFAULT_SCALE_PCT);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -1026,14 +1030,15 @@ export function BoardGantt({
             return count > 0 ? measureText(String(count), 10) + 24 : 0;
           },
           min: DEFAULT_LABEL_WIDTH,
-          max: autoFitCap(scroller.clientWidth || 1200, 320),
+          // 容器寬度要換成縮放前的寬度:顯示比例 50% 時畫面上放得下的是兩倍,不然長名稱一定被截。
+          max: autoFitCap((scroller.clientWidth || 1200) / (scalePct / 100), 320, MAX_LABEL_WIDTH),
         })
       );
     })();
     return () => {
       cancelled = true;
     };
-  }, [board.items, wbsCodes, ganttStatusColumn, protoUnits]);
+  }, [board.items, wbsCodes, ganttStatusColumn, protoUnits, scalePct]);
 
   const linkOptions = useMemo(
     () => getStatusOptions(board.columns.find((c) => c.id === linkColumnId)?.options),
