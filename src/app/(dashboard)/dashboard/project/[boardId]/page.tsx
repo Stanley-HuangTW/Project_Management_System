@@ -83,7 +83,7 @@ export default async function ProjectDashboardPage({ params }: { params: Promise
           idle={protoUsage.idle}
           tasksByMachine={protoUsage.tasksByMachine}
           weeks={weeks}
-          weeklyLoadByMachine={protoUsage.weeklyLoadByMachine}
+          dailyLoadByMachine={protoUsage.dailyLoadByMachine}
           colors={threshold}
           showBoardName={false}
         />

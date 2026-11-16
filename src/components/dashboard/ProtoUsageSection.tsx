@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { groupTasksByBoardAndGroup, weekIndexForDate, type MemberTask, type WeekColumn, type WorkloadThresholdSettings } from "@/lib/workload";
+import { groupTasksByBoardAndGroup, type MemberTask, type WeekColumn, type WorkloadThresholdSettings } from "@/lib/workload";
+import {
+  buildTimelineColumns,
+  columnIndexForDate,
+  columnPeaks,
+  groupColumns,
+  pixelForDate,
+  ZOOM_COL_WIDTH,
+  ZOOM_LABELS,
+  type TimelineZoom,
+} from "@/lib/protoTimeline";
+import { withWeekday } from "@/lib/weekdayLabel";
 import { machineLoadColor, type ProtoUsageMachine } from "@/lib/protoUsage";
 import { setItemProtoUnitPct } from "@/lib/actions/itemProtoUnits";
 import { PercentInput } from "@/components/ui/PercentInput";
@@ -20,8 +31,7 @@ const MIN_LABEL_WIDTH = 120;
 const MAX_LABEL_WIDTH = 720;
 /** 樣機那一列上名稱以外的寬度:左右 padding、展開箭頭、間距、右邊的工作項數量、邊線。 */
 const MACHINE_LABEL_CHROME = 60;
-const WEEK_WIDTH = 26;
-const DAY_MS = 86_400_000;
+const ZOOMS: TimelineZoom[] = ["day", "week", "month"];
 
 type Colors = Pick<WorkloadThresholdSettings, "greenColor" | "redColor">;
 
@@ -29,7 +39,8 @@ type Colors = Pick<WorkloadThresholdSettings, "greenColor" | "redColor">;
 function UsageBar({
   task,
   machineId,
-  weeks,
+  hasTimeline,
+  colWidth,
   colors,
   startIdx,
   endIdx,
@@ -37,7 +48,10 @@ function UsageBar({
 }: {
   task: MemberTask;
   machineId: string;
-  weeks: WeekColumn[];
+  /** 時間軸有沒有任何一欄(沒有就畫不出長條)。 */
+  hasTimeline: boolean;
+  /** 一欄多寬(px),隨日 / 週 / 月刻度變。 */
+  colWidth: number;
   colors: Colors;
   startIdx: number;
   endIdx: number;
@@ -50,7 +64,7 @@ function UsageBar({
   const [pct, setPct] = useState(task.allocationPct);
   const [applyToAll, setApplyToAll] = useState(false);
   const [saving, setSaving] = useState(false);
-  const hasRange = !!(task.startDate && task.endDate && weeks.length > 0);
+  const hasRange = !!(task.startDate && task.endDate && hasTimeline);
 
   async function save() {
     // 「全部都改」時,這一台的百分比沒變也要送——其他台可能還不是這個數字。
@@ -95,8 +109,8 @@ function UsageBar({
             hasRange ? "absolute top-0.5" : "px-1.5"
           }`}
           style={{
-            left: hasRange ? startIdx * WEEK_WIDTH : undefined,
-            width: hasRange ? (endIdx - startIdx + 1) * WEEK_WIDTH : undefined,
+            left: hasRange ? startIdx * colWidth : undefined,
+            width: hasRange ? (endIdx - startIdx + 1) * colWidth : undefined,
             backgroundColor: machineLoadColor(task.allocationPct, colors),
           }}
         >
@@ -112,6 +126,17 @@ function UsageBar({
           <p className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-100" title={task.itemName}>
             {task.itemName}
           </p>
+          {/* 這個工作項的起訖:長條只畫到欄的粗細,精確的日期寫在這裡。 */}
+          {task.startDate && task.endDate ? (
+            <dl data-proto-range className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-neutral-500 dark:text-neutral-400">
+              <dt>開始日期</dt>
+              <dd className="text-neutral-800 dark:text-neutral-100">{withWeekday(new Date(task.startDate).toISOString().slice(0, 10))}</dd>
+              <dt>結束日期</dt>
+              <dd className="text-neutral-800 dark:text-neutral-100">{withWeekday(new Date(task.endDate).toISOString().slice(0, 10))}</dd>
+            </dl>
+          ) : (
+            <p data-proto-range className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">尚未排程(沒有開始、結束日期)</p>
+          )}
           <label className="mt-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             佔用這台的百分比
             <PercentInput
@@ -136,7 +161,7 @@ function UsageBar({
               {saving ? "儲存中..." : "儲存"}
             </button>
             <Link
-              href={`/boards/${task.boardId}?highlight=${task.itemId}`}
+              href={`/boards/${task.boardId}?view=gantt&highlight=${task.itemId}`}
               className="ml-auto text-xs text-blue-600 hover:underline dark:text-blue-400"
             >
               開啟工作項
@@ -151,7 +176,8 @@ function UsageBar({
 /**
  * 樣機使用時程:跟「成員工作量明細」同一個樣子——一台樣機一列,上面是每週的佔用,
  * 點開來是用它的每一個工作項的起訖長條與佔用百分比(預設 100%)。
- * 每週的顏色:有人在用綠色,同一天不只一個工作項在用(超過 100%)紅色。
+ * 每一格的顏色:有人在用綠色,同一天不只一個工作項在用(超過 100%)紅色。
+ * 時間刻度可以選日、週、月,一格取涵蓋的那幾天裡最滿的一天。
  */
 export function ProtoUsageSection({
   title,
@@ -159,7 +185,7 @@ export function ProtoUsageSection({
   idle,
   tasksByMachine,
   weeks,
-  weeklyLoadByMachine,
+  dailyLoadByMachine,
   colors,
   showBoardName,
 }: {
@@ -168,8 +194,10 @@ export function ProtoUsageSection({
   /** 這些看板上沒有工作項在用的樣機。 */
   idle: ProtoUsageMachine[];
   tasksByMachine: Record<string, MemberTask[]>;
+  /** 時間軸涵蓋的期間(週欄位);日 / 月刻度由它換算。 */
   weeks: WeekColumn[];
-  weeklyLoadByMachine: Record<string, number[]>;
+  /** 樣機 id → 每天佔用 %(只含有人在用的那幾天)。 */
+  dailyLoadByMachine: Record<string, Record<string, number>>;
   colors: Colors;
   /** 好幾個看板的樣機放在一起時,每一列前面標看板名稱。 */
   showBoardName: boolean;
@@ -182,12 +210,13 @@ export function ProtoUsageSection({
   // 每個工作項在這一區用到幾台樣機。
   const machinesPerItem = new Map<string, number>();
   for (const tasks of Object.values(tasksByMachine)) for (const t of tasks) machinesPerItem.set(t.itemId, (machinesPerItem.get(t.itemId) ?? 0) + 1);
-  const timelineWidth = weeks.length * WEEK_WIDTH;
-  const timelineOrigin = weeks[0]?.start ?? null;
+  const [zoom, setZoom] = useState<TimelineZoom>("week");
+  const columns = useMemo(() => buildTimelineColumns(weeks, zoom), [weeks, zoom]);
+  const colWidth = ZOOM_COL_WIDTH[zoom];
+  const timelineWidth = columns.length * colWidth;
+  const columnGroups = groupColumns(columns);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const todayOffsetPx = timelineOrigin
-    ? ((new Date(new Date().toISOString().slice(0, 10)).getTime() - timelineOrigin.getTime()) / DAY_MS / 7) * WEEK_WIDTH
-    : null;
+  const todayOffsetPx = pixelForDate(new Date(new Date().toISOString().slice(0, 10)), columns, colWidth);
 
   // 樣機欄一開始就寬到看得到每一台的全名,照畫面上真正的字型量字,不是固定寬度。只做一次;使用者之後照樣可以拖。
   useEffect(() => {
@@ -226,9 +255,9 @@ export function ProtoUsageSection({
     const el = scrollRef.current;
     if (!labelReady || !el || todayOffsetPx === null) return;
     el.scrollLeft = Math.max(0, labelWidth + todayOffsetPx - el.clientWidth / 2);
-    // 只在樣機欄的寬度定下來之後,捲到今天附近一次。
+    // 樣機欄的寬度定下來之後捲到今天附近一次;換日 / 週 / 月刻度後同樣回到今天(欄寬變了,原本的位置就不對了)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [labelReady]);
+  }, [labelReady, zoom]);
 
   function startLabelResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -256,13 +285,6 @@ export function ProtoUsageSection({
     />
   );
 
-  const monthGroups: { label: string; count: number }[] = [];
-  for (const week of weeks) {
-    const last = monthGroups[monthGroups.length - 1];
-    if (last && last.label === week.monthLabel) last.count += 1;
-    else monthGroups.push({ label: week.monthLabel, count: 1 });
-  }
-
   function toggle(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -276,6 +298,25 @@ export function ProtoUsageSection({
     <section data-proto-usage>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-100">{title}</h2>
+        <div role="group" aria-label="時間刻度" data-proto-zoom className="flex items-center gap-1 text-xs">
+          <span className="mr-1 text-neutral-500 dark:text-neutral-400">時間刻度</span>
+          {ZOOMS.map((z) => (
+            <button
+              key={z}
+              type="button"
+              data-proto-zoom-option={z}
+              aria-pressed={zoom === z}
+              onClick={() => setZoom(z)}
+              className={`rounded-md border px-2.5 py-1 ${
+                zoom === z
+                  ? "border-blue-600 bg-blue-600 text-white"
+                  : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {ZOOM_LABELS[z]}
+            </button>
+          ))}
+        </div>
       </div>
       <div ref={scrollRef} className="max-h-[70vh] overflow-auto">
         <div className="relative" style={{ width: labelWidth + timelineWidth }}>
@@ -297,10 +338,10 @@ export function ProtoUsageSection({
                   {resizeHandle}
                 </div>
                 <div className="flex">
-                  {monthGroups.map((g, i) => (
+                  {columnGroups.map((g, i) => (
                     <div
                       key={`${g.label}-${i}`}
-                      style={{ width: g.count * WEEK_WIDTH }}
+                      style={{ width: g.count * colWidth }}
                       className="shrink-0 truncate border-r border-neutral-100 px-1 py-1 dark:border-neutral-700"
                     >
                       {g.label}
@@ -316,13 +357,14 @@ export function ProtoUsageSection({
                   {resizeHandle}
                 </div>
                 <div className="flex">
-                  {weeks.map((w, i) => (
+                  {columns.map((c, i) => (
                     <div
                       key={i}
-                      style={{ width: WEEK_WIDTH }}
-                      className={`shrink-0 truncate text-center ${w.isMonthStart ? "border-l border-neutral-300 dark:border-neutral-600" : ""}`}
+                      title={c.title}
+                      style={{ width: colWidth }}
+                      className={`shrink-0 truncate text-center ${c.isGroupStart ? "border-l border-neutral-300 dark:border-neutral-600" : ""}`}
                     >
-                      {w.label}
+                      {c.label}
                     </div>
                   ))}
                 </div>
@@ -333,7 +375,7 @@ export function ProtoUsageSection({
           <div className="space-y-2">
             {machines.map((machine) => {
               const tasks = tasksByMachine[machine.id] ?? [];
-              const weekly = weeklyLoadByMachine[machine.id] ?? [];
+              const loads = columnPeaks(dailyLoadByMachine[machine.id], columns);
               const isOpen = expanded.has(machine.id);
               const text = showBoardName ? `${machine.boardName}・${machine.label}` : machine.label;
               return (
@@ -359,16 +401,16 @@ export function ProtoUsageSection({
                       <span className="shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">{tasks.length}</span>
                     </div>
                     <div className="flex">
-                      {weeks.map((w, i) => (
+                      {columns.map((c, i) => (
                         <div
                           key={i}
-                          title={`${w.label}: ${weekly[i] ?? 0}%`}
-                          className={w.isMonthStart ? "border-l border-neutral-200 dark:border-neutral-700" : ""}
+                          title={`${c.title}: ${loads[i] ?? 0}%`}
+                          className={c.isGroupStart ? "border-l border-neutral-200 dark:border-neutral-700" : ""}
                           style={{
-                            width: WEEK_WIDTH,
+                            width: colWidth,
                             height: 20,
-                            backgroundColor: machineLoadColor(weekly[i] ?? 0, colors),
-                            opacity: (weekly[i] ?? 0) > 0 ? 1 : 0.25,
+                            backgroundColor: machineLoadColor(loads[i] ?? 0, colors),
+                            opacity: (loads[i] ?? 0) > 0 ? 1 : 0.25,
                           }}
                         />
                       ))}
@@ -389,8 +431,8 @@ export function ProtoUsageSection({
                           </div>,
                           ...g.rows.map((t) => {
                             const hasRange = !!(t.startDate && t.endDate);
-                            const startIdx = hasRange ? weekIndexForDate(t.startDate!, weeks) : 0;
-                            const endIdx = hasRange ? weekIndexForDate(t.endDate!, weeks) : 0;
+                            const startIdx = hasRange ? columnIndexForDate(t.startDate!, columns) : 0;
+                            const endIdx = hasRange ? columnIndexForDate(t.endDate!, columns) : 0;
                             return (
                               <div key={`${t.boardId}-${t.itemId}`} data-proto-task={t.itemId} className="flex items-center">
                                 <div
@@ -398,13 +440,13 @@ export function ProtoUsageSection({
                                   className="sticky left-0 z-10 shrink-0 truncate border-r border-neutral-100 bg-white py-1 pl-6 pr-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
                                   title={t.itemName}
                                 >
-                                  <Link href={`/boards/${t.boardId}?highlight=${t.itemId}`} className="hover:text-blue-600">
+                                  <Link href={`/boards/${t.boardId}?view=gantt&highlight=${t.itemId}`} className="hover:text-blue-600">
                                     {t.wbsCode && <span className="mr-1.5 tabular-nums text-neutral-400 dark:text-neutral-500">{t.wbsCode}</span>}
                                     {t.itemName}
                                   </Link>
                                 </div>
                                 <div className="relative flex items-center" style={{ width: timelineWidth, height: 18 }}>
-                                  <UsageBar task={t} machineId={machine.id} weeks={weeks} colors={colors} startIdx={startIdx} endIdx={endIdx} machineCountOfItem={machinesPerItem.get(t.itemId) ?? 1} />
+                                  <UsageBar task={t} machineId={machine.id} hasTimeline={columns.length > 0} colWidth={colWidth} colors={colors} startIdx={startIdx} endIdx={endIdx} machineCountOfItem={machinesPerItem.get(t.itemId) ?? 1} />
                                 </div>
                               </div>
                             );

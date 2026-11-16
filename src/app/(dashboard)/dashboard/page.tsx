@@ -343,7 +343,7 @@ export default async function DashboardPage({
           idle={protoUsage.idle}
           tasksByMachine={protoUsage.tasksByMachine}
           weeks={weekColumns}
-          weeklyLoadByMachine={protoUsage.weeklyLoadByMachine}
+          dailyLoadByMachine={protoUsage.dailyLoadByMachine}
           colors={workloadThreshold}
           showBoardName={new Set(protoUsage.machines.map((m) => m.boardId)).size > 1}
         />

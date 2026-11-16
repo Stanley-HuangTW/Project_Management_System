@@ -36,9 +36,17 @@ export type ProtoUsage = {
   tasksByMachine: Record<string, MemberTask[]>;
   /** 樣機 id → 每週佔用 %,取那一週裡最滿的一天(不是平均:週末沒人用不該把重疊稀釋掉);超過 100 = 同一天不只一個工作項在用。 */
   weeklyLoadByMachine: Record<string, number[]>;
+  /** 樣機 id → 每天佔用 %("YYYY-MM-DD" → %,只含有人在用的那幾天)。畫面可以選日 / 週 / 月刻度,每一欄取涵蓋的那幾天裡最滿的一天。 */
+  dailyLoadByMachine: Record<string, Record<string, number>>;
 };
 
-export const EMPTY_PROTO_USAGE: ProtoUsage = { machines: [], idle: [], tasksByMachine: {}, weeklyLoadByMachine: {} };
+export const EMPTY_PROTO_USAGE: ProtoUsage = {
+  machines: [],
+  idle: [],
+  tasksByMachine: {},
+  weeklyLoadByMachine: {},
+  dailyLoadByMachine: {},
+};
 
 const toIsoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
@@ -164,7 +172,13 @@ export function computeProtoUsage(
     });
   }
 
-  return { machines, idle, tasksByMachine, weeklyLoadByMachine };
+  const dailyLoadByMachine: Record<string, Record<string, number>> = {};
+  for (const machine of machines) {
+    const dayMap = dailyLoad.get(machine.id);
+    dailyLoadByMachine[machine.id] = dayMap ? Object.fromEntries(dayMap) : {};
+  }
+
+  return { machines, idle, tasksByMachine, weeklyLoadByMachine, dailyLoadByMachine };
 }
 
 /**

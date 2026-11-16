@@ -242,6 +242,8 @@ export function BoardGantt({
   holidays,
   ownerDefaultPct,
   active = true,
+  highlightItemId,
+  highlightNonce,
   externalPreds,
   completedAtByItem,
 }: {
@@ -257,6 +259,10 @@ export function BoardGantt({
    *  hiding it is display:none, which drops the scroll offsets, so those are
    *  put back when it comes into view again. */
   active?: boolean;
+  /** ?highlight= 帶來的項目(例如儀表板點工作項):展開藏著它的上層、捲到那一列、閃一下。 */
+  highlightItemId?: string | null;
+  /** 隨每次點擊都不同的值——同一個項目被連點兩次也要再閃一次。 */
+  highlightNonce?: string | null;
   /** 位在同群組其他看板上的前置。它們各佔一列唯讀的長條,跨看板那條
    *  藍色虛線才畫得出來 —— 箭頭要有兩端。 */
   externalPreds: ExternalPredecessor[];
@@ -821,6 +827,37 @@ export function BoardGantt({
   const usersWithLoad = users.filter((u) => (dailyLoad.get(u.id)?.size ?? 0) > 0);
 
   const itemById = useMemo(() => new Map(board.items.map((i) => [i.id, i])), [board.items]);
+
+  // ?highlight=:從儀表板等地方點工作項過來。上層收合著就先展開,不然那一列不在畫面上;
+  // 等畫面排好再捲到那一列(橫向也捲到長條),並把整列閃一下。
+  const [flashItemId, setFlashItemId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!highlightItemId || !active) return;
+    const ancestors = new Set<string>();
+    let parentId = itemById.get(highlightItemId)?.parentId ?? null;
+    for (let guard = 0; parentId && guard < 100; guard++) {
+      ancestors.add(parentId);
+      parentId = itemById.get(parentId)?.parentId ?? null;
+    }
+    const expand = setTimeout(() => {
+      setCollapsed((prev) =>
+        [...prev].some((id) => ancestors.has(id)) ? new Set([...prev].filter((id) => !ancestors.has(id))) : prev
+      );
+    }, 0);
+    const show = setTimeout(() => {
+      const row = scrollRef.current?.querySelector(`[data-gantt-row="${highlightItemId}"]`);
+      row?.scrollIntoView({ block: "center", inline: "center" });
+      setFlashItemId(highlightItemId);
+    }, 400);
+    const hide = setTimeout(() => setFlashItemId(null), 3200);
+    return () => {
+      clearTimeout(expand);
+      clearTimeout(show);
+      clearTimeout(hide);
+    };
+    // itemById 只用來往上找父項;項目資料更新(重新整理)不該再閃一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightItemId, highlightNonce, active]);
 
   const visibleIds = useMemo(() => {
     let ids = computeVisibleItemIds(board.items, filters, searchQuery);
@@ -1741,6 +1778,14 @@ export function BoardGantt({
             data-row-hover-frame
             className="pointer-events-none absolute inset-0 z-[11] border-2 border-blue-500 bg-blue-500/5 opacity-0 group-hover/row:opacity-100 dark:border-blue-400 dark:bg-blue-400/10"
           />
+          {/* 閃一下:蓋一層半透明的紅框(名稱欄是不透明白底,改列底色蓋不到),跟滑過的框同一個做法。 */}
+          {flashItemId === item.id && (
+            <div
+              aria-hidden
+              data-gantt-flash
+              className="pointer-events-none absolute inset-0 z-[12] animate-pulse border-2 border-red-500 bg-red-500/15"
+            />
+          )}
         </div>
       );
 

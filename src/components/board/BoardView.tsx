@@ -86,7 +86,7 @@ export function BoardView({
   protoUnits?: ProtoUnitsData;
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">(
-    () => (initialView === "risks" || initialView === "gates" || initialView === "changes" || (initialView === "issues" && hasMantis) ? initialView : "table")
+    () => (initialView === "risks" || initialView === "gates" || initialView === "changes" || initialView === "gantt" || (initialView === "issues" && hasMantis) ? initialView : "table")
   );
   // 看板欄的「本週完成」以實際切成完成的時間為準。
   const completedAtByItem = useMemo(
@@ -101,7 +101,8 @@ export function BoardView({
   const [prevHighlightKey, setPrevHighlightKey] = useState(highlightKey);
   if (highlightKey !== prevHighlightKey) {
     setPrevHighlightKey(highlightKey);
-    if (highlightItemId) setView("table");
+    // 網址帶 view=gantt(例如儀表板的樣機使用時程點工作項)就留在甘特圖,由甘特圖捲到那一列標出來。
+    if (highlightItemId) setView(initialView === "gantt" ? "gantt" : "table");
   }
   // Once the Gantt has been opened it stays mounted, so switching to the table
   // and back keeps its zoom, display scale, filters, collapsed rows, column
@@ -338,6 +339,8 @@ export function BoardView({
             currentUserId={currentUserId}
             holidays={holidays}
             active={view === "gantt"}
+            highlightItemId={highlightItemId}
+            highlightNonce={highlightNonce}
             externalPreds={externalPreds}
             completedAtByItem={completedAtByItem}
             ownerDefaultPct={ownerDefaultPct}
