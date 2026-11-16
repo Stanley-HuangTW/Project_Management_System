@@ -25,6 +25,14 @@ describe("fitNameColumnWidth", () => {
     expect(fitNameColumnWidth({ ...base, items })).toBe(280);
   });
 
+  it("adds a row's own extra width (a badge only some rows have)", () => {
+    const items = [
+      { id: "a", name: "這是一個比較長的項目名稱", parentId: null }, // 120 + 100 = 220
+      { id: "b", name: "短名稱有標籤", parentId: null }, // 60 + 100 + 80 = 240
+    ];
+    expect(fitNameColumnWidth({ ...base, items, extraOf: (id) => (id === "b" ? 80 : 0) })).toBe(240);
+  });
+
   it("counts the WBS code when there is one", () => {
     const items = [{ id: "a", name: "名稱十個字的名稱字", parentId: null }]; // 90
     const codeOf = () => "2.1.12"; // 6 字 = 36

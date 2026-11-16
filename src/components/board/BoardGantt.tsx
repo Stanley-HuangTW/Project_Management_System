@@ -140,8 +140,9 @@ const DEFAULT_LABEL_WIDTH = 260;
 const MIN_LABEL_WIDTH = 140;
 /** 手動拖曳的上限;自動調整寬度的上限(autoFitCap 最多 720)不能比它大,不然一開始拖就被截回來。 */
 const MAX_LABEL_WIDTH = 720;
-/** 一列上名稱以外不隨項目變的寬度:左側勾選框的位置與邊距、收合箭頭、留言 / 指派 / 新增圖示、升降階按鈕與間距。 */
-const LABEL_CHROME_WIDTH = 210;
+/** 一列上名稱以外不隨項目變的寬度:左側勾選框的位置與邊距、收合箭頭、留言 / 指派 / 新增子項目 / 下方插入 / 新增圖示、
+ *  升降階與上下移按鈕與間距。 */
+const LABEL_CHROME_WIDTH = 258;
 /** 名稱旁狀態標籤的字級(比名稱小),以及標籤文字以外的寬度:左右內距 px-1.5 加上與前一格的間距 gap-1。 */
 const STATUS_LABEL_FONT_SIZE = 10;
 const STATUS_LABEL_CHROME_WIDTH = 16;
@@ -982,6 +983,11 @@ export function BoardGantt({
                   )
                 )
               : 0),
+          // 用了樣機的列多一個紫色標籤:圖示 10 + 間距 2 + 台數字 + 左右內距 8 + 跟前一個東西的間距 4。
+          extraOf: (id) => {
+            const count = protoUnits?.byItem[id]?.length ?? 0;
+            return count > 0 ? measureText(String(count), 10) + 24 : 0;
+          },
           min: DEFAULT_LABEL_WIDTH,
           max: autoFitCap(scroller.clientWidth || 1200, 320),
         })
@@ -990,7 +996,7 @@ export function BoardGantt({
     return () => {
       cancelled = true;
     };
-  }, [board.items, wbsCodes, ganttStatusColumn]);
+  }, [board.items, wbsCodes, ganttStatusColumn, protoUnits]);
 
   const linkOptions = useMemo(
     () => getStatusOptions(board.columns.find((c) => c.id === linkColumnId)?.options),

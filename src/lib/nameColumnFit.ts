@@ -19,6 +19,8 @@ export function fitNameColumnWidth(args: {
   indentPerLevel: number;
   /** 一列上名稱以外、不隨項目變的寬度。 */
   chrome: number;
+  /** 只有某些列才有的東西(例如甘特圖的樣機標籤)要多留的寬度;沒給就是 0。 */
+  extraOf?: (id: string) => number;
   /** 最窄不低於(預設寬度)、最寬不超過(整塊表被一個超長的名稱吃光)。 */
   min: number;
   max: number;
@@ -40,7 +42,8 @@ export function fitNameColumnWidth(args: {
       depth * args.indentPerLevel +
       (code ? args.measure(code, "code") : 0) +
       args.measure(item.name, "name") +
-      args.chrome;
+      args.chrome +
+      (args.extraOf?.(item.id) ?? 0);
     if (width > widest) widest = width;
   }
   if (widest === 0) return args.min;
