@@ -11,6 +11,7 @@ import { collapseToRoots, subtreeIdsOf } from "@/lib/bulkStructure";
 import type { BoardWithData } from "@/types/board";
 import { BulkRenameDialog } from "./BulkRenameDialog";
 import { BulkTargetDialog, type BulkTarget } from "./BulkTargetDialog";
+import { BulkStatusSelects, useBulkRun } from "./BulkEditBar";
 import { knownErrorMessage } from "@/lib/userError";
 
 const MAX_LISTED = 12;
@@ -273,6 +274,7 @@ export function BulkStructureBar({
   dependencyLoading?: boolean;
 }) {
   const { rootIds, totalCount } = useSelectionRoots(board, selectedIds);
+  const { busy, run } = useBulkRun(onClear);
   if (rootIds.length === 0) return null;
   return (
     <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-3 py-2 text-xs">
@@ -291,6 +293,8 @@ export function BulkStructureBar({
           <GitFork size={13} /> {dependencyLoading ? "讀取中…" : "相依檢視"}
         </button>
       )}
+      {/* 跟表格的批次編輯列一樣:一次把勾選的項目某個狀態欄(Status、Priority…)都改成同一個值。 */}
+      <BulkStatusSelects boardId={board.id} columns={board.columns} ids={[...selectedIds]} busy={busy} run={run} />
       <BulkStructureActions
         board={board}
         selectedIds={selectedIds}
