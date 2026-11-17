@@ -9,6 +9,7 @@ import {
   renameTimeCategory,
   setTimeCategoryActive,
   setTimeCategoryLinkIssue,
+  setTimeCategoryLinkIssueCase,
   setTimeCategoryAllowProject,
   type TimeCategoryRow,
 } from "@/lib/actions/timeCategory";
@@ -154,6 +155,18 @@ function CategoryRow({
           onChange={(e) => run(() => setTimeCategoryLinkIssue(category.id, e.target.checked), "無法儲存")}
         />
         可連結風險 / 議題
+      </label>
+      <label
+        className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"
+        title="勾起來:登記時可以選 ISSUE TRACKER 的案件,這筆工時就算在那個案件的「花費工時」。"
+      >
+        <input
+          type="checkbox"
+          checked={category.linkIssueCase}
+          disabled={busy}
+          onChange={(e) => run(() => setTimeCategoryLinkIssueCase(category.id, e.target.checked), "無法儲存")}
+        />
+        可連結案件
       </label>
       <label
         className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300"

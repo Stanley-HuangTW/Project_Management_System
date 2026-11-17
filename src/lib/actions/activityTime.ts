@@ -11,6 +11,7 @@ import { weekRangeOf } from "@/lib/weeklyReport";
 import { riskLinkTag } from "@/lib/riskRegister";
 import { validateStartMinute } from "@/lib/timeOfDay";
 import { loadOrgUnits } from "@/lib/orgUnitsServer";
+import { loadSystemAccess } from "@/lib/issueServer";
 import { DAILY_LIMIT_HOURS, hoursAlreadyLoggedOn } from "@/lib/timesheetHours";
 import {
   EXEMPT_DECISION_NOTE,
@@ -66,6 +67,9 @@ export type ActivityDayEntry = {
   riskTitle: string | null;
   /** 連結的風險/議題是什麼:風險、議題,或 Mantis 編號。 */
   riskTag: string | null;
+  /** 連結的 ISSUE TRACKER 案件(處理案件花的工時)。 */
+  issueCaseId: string | null;
+  issueCaseNo: string | null;
   /** 對應的專案;有的話要主管核准才計入那個專案的成本。 */
   boardId: string | null;
   boardName: string | null;
@@ -91,7 +95,9 @@ export type MyWeek = {
 
 export type TimesheetOptions = {
   /** 只列啟用中的類別——停用的不能再登記,但舊紀錄仍然顯示它的名字。 */
-  categories: { id: string; name: string; linkIssue: boolean; allowProject: boolean }[];
+  categories: { id: string; name: string; linkIssue: boolean; linkIssueCase: boolean; allowProject: boolean }[];
+  /** 我能看到的 ISSUE TRACKER 案件(沒有 ISSUE TRACKER 權限的人是空的),給「連結案件」選;沒結案的在前。 */
+  cases: { id: string; caseNo: string; label: string; closed: boolean }[];
   /** 指派給我、而且我看得到的工作項。 */
   items: { id: string; name: string; boardName: string }[];
   /** 我看得到的專案(看板),給「對應專案」選。 */
@@ -130,6 +136,7 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
       include: {
         category: { select: { name: true } },
         riskEntry: { select: { title: true, kind: true, mantisId: true } },
+        issueCase: { select: { caseNo: true } },
         board: { select: { name: true } },
       },
     }),
@@ -188,6 +195,8 @@ export async function listMyWeek(weekStart: string): Promise<MyWeek | { error: s
           riskEntryId: e.riskEntryId,
           riskTitle: e.riskEntry?.title ?? null,
           riskTag: e.riskEntry ? riskLinkTag(e.riskEntry) : null,
+          issueCaseId: e.issueCaseId,
+          issueCaseNo: e.issueCase?.caseNo ?? null,
           boardId: e.boardId,
           boardName: e.board?.name ?? null,
           startMinute: e.startMinute,
@@ -209,7 +218,7 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
     prisma.timeCategory.findMany({
       where: { active: true },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      select: { id: true, name: true, linkIssue: true, allowProject: true },
+      select: { id: true, name: true, linkIssue: true, linkIssueCase: true, allowProject: true },
     }),
     prisma.assignment.findMany({
       where: { userId: session.userId, item: { deletedAt: null, board: boardWhere } },
@@ -224,9 +233,26 @@ export async function getTimesheetOptions(): Promise<TimesheetOptions> {
     prisma.board.findMany({ where: boardWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
+  // 連結案件的選單:有 ISSUE TRACKER 權限的人才有;沒結案的在前,新的在前。
+  const access = await loadSystemAccess(session);
+  const caseRows = access.issues
+    ? await prisma.issueCase.findMany({
+        where: { deletedAt: null },
+        orderBy: [{ status: "asc" }, { issueDate: "desc" }],
+        take: 300,
+        select: { id: true, caseNo: true, status: true, description: true, customer: { select: { name: true } } },
+      })
+    : [];
+
   return {
     categories,
     boards,
+    cases: caseRows.map((c) => ({
+      id: c.id,
+      caseNo: c.caseNo,
+      label: [c.caseNo, c.customer?.name, c.description.replace(/\s+/g, " ").trim().slice(0, 24)].filter(Boolean).join(" · "),
+      closed: c.status !== "OPEN",
+    })),
     items: assignments
       .map((a) => ({ id: a.item.id, name: a.item.name, boardName: a.item.board.name }))
       .sort((a, b) => a.boardName.localeCompare(b.boardName, "zh-TW") || a.name.localeCompare(b.name, "zh-TW")),
@@ -246,6 +272,8 @@ type ActivityInput = {
   categoryId: string;
   note: string;
   riskEntryId: string | null;
+  /** 連結的 ISSUE TRACKER 案件(類別要開「可連結案件」,而且登記的人要有 ISSUE TRACKER 權限)。 */
+  issueCaseId?: string | null;
   /** 對應的專案(看板)。要主管核准才計入那個專案的成本。 */
   boardId?: string | null;
   /** 一天中的開始時間(分鐘),行事曆用。 */
@@ -270,7 +298,7 @@ async function validateActivityInput(
 
   const category = await prisma.timeCategory.findUnique({
     where: { id: input.categoryId },
-    select: { active: true, linkIssue: true, allowProject: true },
+    select: { active: true, linkIssue: true, linkIssueCase: true, allowProject: true },
   });
   if (!category) return "找不到這個類別";
 
@@ -293,6 +321,14 @@ async function validateActivityInput(
       select: { id: true },
     });
     if (!risk) return "找不到這個風險或議題,或你沒有它所在看板的存取權限";
+  }
+
+  if (input.issueCaseId) {
+    if (!category.linkIssueCase) return "這個類別不能連結案件";
+    const access = await loadSystemAccess(session);
+    if (!access.issues) return "你沒有 ISSUE TRACKER 的使用權限,不能連結案件";
+    const found = await prisma.issueCase.findFirst({ where: { id: input.issueCaseId, deletedAt: null }, select: { id: true } });
+    if (!found) return "找不到這個案件(可能已經被刪除)";
   }
 
   const already = await hoursAlreadyLoggedOn(userId, input.date, { activityEntryId: excludeActivityId });
@@ -330,6 +366,7 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
       categoryId: input.categoryId,
       note: input.note.trim() || null,
       riskEntryId: input.riskEntryId,
+      issueCaseId: input.issueCaseId || null,
       startMinute: input.startMinute ?? null,
       externalId: input.externalId ?? null,
       seriesId: input.seriesId ?? null,
@@ -341,6 +378,7 @@ export async function logActivityTime(input: ActivityInput): Promise<{ error?: s
   });
   if (input.boardId && !exempt) await notifyActivityApprovalNeeded(session.userId, input.boardId);
   revalidatePath("/timesheet");
+  revalidatePath("/issues", "layout");
   revalidatePath("/approvals");
   return {};
 }
@@ -388,6 +426,7 @@ export async function updateActivityTime(
       categoryId: input.categoryId,
       note: input.note.trim() || null,
       riskEntryId: input.riskEntryId,
+      issueCaseId: input.issueCaseId || null,
       startMinute: input.startMinute ?? null,
       boardId,
       ...(boardId === null

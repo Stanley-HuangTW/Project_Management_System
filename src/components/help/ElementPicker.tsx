@@ -12,6 +12,7 @@ import { helpTopicFor, helpTopicForElement, manualHref, type HelpTopic } from "@
 import { actionErrorMessage } from "@/lib/userError";
 import { registerElementPicker, startElementPicker, stopElementPicker, useElementPicking } from "./pickerState";
 import { useCurrentHelpHint } from "./helpHint";
+import { useSystemBase } from "./useSystemBase";
 import { capturePickedElement, manualQueryOf, pickTarget } from "./pickElement";
 
 type Picked = {
@@ -52,6 +53,7 @@ const ZOOM = 2147482999;
 export function ElementPicker({ isAdmin, impersonating }: { isAdmin: boolean; impersonating: boolean }) {
   const pathname = usePathname();
   const hint = useCurrentHelpHint();
+  const base = useSystemBase();
   const picking = useElementPicking();
   const [picked, setPicked] = useState<Picked | null>(null);
   const [tab, setTab] = useState<"manual" | "report">("manual");
@@ -269,7 +271,7 @@ export function ElementPicker({ isAdmin, impersonating }: { isAdmin: boolean; im
             {tab === "manual" ? (
               <div className="space-y-2">
                 <a
-                  href={manualHref(topic.anchor)}
+                  href={manualHref(topic.anchor, base)}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-picker-manual-link
@@ -283,7 +285,7 @@ export function ElementPicker({ isAdmin, impersonating }: { isAdmin: boolean; im
                 </a>
                 {picked.elementTopic && picked.elementTopic.anchor !== picked.pageTopic.anchor && (
                   <a
-                    href={manualHref(picked.pageTopic.anchor)}
+                    href={manualHref(picked.pageTopic.anchor, base)}
                     target="_blank"
                     rel="noopener noreferrer"
                     data-picker-page-link
@@ -295,7 +297,7 @@ export function ElementPicker({ isAdmin, impersonating }: { isAdmin: boolean; im
                 )}
                 {picked.query && (
                   <a
-                    href={`/manual?q=${encodeURIComponent(picked.query)}`}
+                    href={`${base}/manual?q=${encodeURIComponent(picked.query)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     data-picker-search-link

@@ -3,6 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Crosshair, HelpCircle, X } from "lucide-react";
 import { manualHref } from "@/lib/helpTopics";
+import { useSystemBase } from "@/components/help/useSystemBase";
 import { startElementPicker, useElementPickerAvailable } from "@/components/help/pickerState";
 import { ReactNode } from "react";
 
@@ -20,6 +21,7 @@ const MAX_WIDTH = { md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" };
 
 export function Modal({ open, onOpenChange, title, children, size = "md", help }: ModalProps) {
   const canPick = useElementPickerAvailable();
+  const base = useSystemBase();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -47,7 +49,7 @@ export function Modal({ open, onOpenChange, title, children, size = "md", help }
               )}
               {help && (
                 <a
-                  href={manualHref(help.anchor)}
+                  href={manualHref(help.anchor, base)}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-modal-help

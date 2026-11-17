@@ -169,8 +169,13 @@ const DETAIL_INCLUDE = {
 
 type DetailSource = Prisma.IssueCaseGetPayload<{ include: typeof DETAIL_INCLUDE }>;
 
-function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }): IssueCaseDetail {
+type WorkSource = { workRows: { id: string; date: string; hours: Prisma.Decimal; note: string | null; userId: string; user: { name: string }; category: { name: string } }[]; workCategories: { id: string; name: string }[] };
+
+function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource): IssueCaseDetail {
   const facts = factsOf(c);
+  // 管理者與負責人看得到案件上所有人的工時;其他人只看自己登記的(沿用「看得到誰的工時」的精神)。
+  const seeAll = role === "MANAGER" || facts.assigneeIds.includes(userId);
+  const visible = seeAll ? work.workRows : work.workRows.filter((w) => w.userId === userId);
   return {
     id: c.id,
     caseNo: c.caseNo,
@@ -205,6 +210,12 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
     firstResponseAt: c.firstResponseAt?.toISOString() ?? null,
     ...dayFields(c, ctx),
     dayMode: ctx.mode,
+    workHours: {
+      scope: seeAll ? "ALL" : "OWN",
+      total: visible.reduce((sum, w) => sum + Number(w.hours), 0),
+      entries: visible.map((w) => ({ id: w.id, date: w.date, hours: Number(w.hours), userName: w.user.name, categoryName: w.category.name, note: w.note ?? "", own: w.userId === userId })),
+    },
+    workCategories: work.workCategories,
     logs: c.logs.map((l) => ({
       id: l.id,
       kind: l.kind,
@@ -235,11 +246,17 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
 
 export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> {
   const { role, userId } = await requireIssueActor();
-  const [c, ctx] = await Promise.all([
+  const [c, ctx, workRows, workCategories] = await Promise.all([
     prisma.issueCase.findFirst({ where: { id, deletedAt: null }, include: DETAIL_INCLUDE }),
     dayContext(),
+    prisma.activityTimeEntry.findMany({
+      where: { issueCaseId: id },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      select: { id: true, date: true, hours: true, note: true, userId: true, user: { select: { name: true } }, category: { select: { name: true } } },
+    }),
+    prisma.timeCategory.findMany({ where: { active: true, linkIssueCase: true }, orderBy: [{ order: "asc" }, { createdAt: "asc" }], select: { id: true, name: true } }),
   ]);
-  return c ? toDetail(c, role, userId, ctx) : null;
+  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }) : null;
 }
 
 async function loadCaseForWrite(id: string) {

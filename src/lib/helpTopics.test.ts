@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { allHelpAnchors, ELEMENT_TOPICS, helpTopicFor, helpTopicForElement, manualHref, MODAL_HELP } from "./helpTopics";
+import { allHelpAnchors, ELEMENT_TOPICS, helpTopicFor, helpTopicForElement, manualHref, MODAL_HELP, systemBaseOf } from "./helpTopics";
 import { parseManual } from "./manual";
 
 describe("helpTopicFor", () => {
@@ -23,8 +23,27 @@ describe("helpTopicFor", () => {
     expect(helpTopicFor("/issues/stats", null, false).anchor).toBe("s-24-6");
     expect(helpTopicFor("/issues/admin", null, false).anchor).toBe("s-24-7");
     expect(helpTopicFor("/issues/cmwk57lo7002klg2l53hbt0aa", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件頁", anchor: "s-24-3" });
+    // ISSUE TRACKER 裡共用的頁面:說明沿用專案管理系統手冊的章節
+    expect(helpTopicFor("/issues/timesheet", null, false).anchor).toBe("ch-17");
+    expect(helpTopicFor("/issues/org-chart", null, true).anchor).toBe("s-21-1b");
+    expect(helpTopicFor("/issues/users", null, true).anchor).toBe("s-21-1");
+    expect(helpTopicFor("/issues/users", null, false).anchor).toBe("");
+    expect(helpTopicFor("/issues/feedback", null, true).anchor).toBe("s-21-2b");
+    expect(helpTopicFor("/issues/manual", null, false).anchor).toBe("");
+    expect(helpTopicFor("/issues/settings", null, false).anchor).toBe("s-24-9");
     expect(helpTopicFor("/select-system", null, false).anchor).toBe("s-1-1");
     expect(helpTopicFor("/no-access", null, false).anchor).toBe("s-1-1");
+  });
+
+  it("手冊連結跟著系統走:ISSUE TRACKER 的頁面開 /issues/manual,其他開 /manual", () => {
+    expect(systemBaseOf("/issues")).toBe("/issues");
+    expect(systemBaseOf("/issues/stats")).toBe("/issues");
+    expect(systemBaseOf("/issues/users")).toBe("/issues");
+    expect(systemBaseOf("/issuesx")).toBe("");
+    expect(systemBaseOf("/boards/b1")).toBe("");
+    expect(manualHref("s-24-2", "/issues")).toBe("/issues/manual#s-24-2");
+    expect(manualHref("", "/issues")).toBe("/issues/manual");
+    expect(manualHref("ch-9")).toBe("/manual#ch-9");
   });
 
   it("a board is on its table view until the page says otherwise, and follows the tab it registers", () => {

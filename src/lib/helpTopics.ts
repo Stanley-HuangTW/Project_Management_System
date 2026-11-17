@@ -68,6 +68,7 @@ export const ELEMENT_TOPICS: [selector: string, topic: HelpTopic][] = [
   ["[data-issue-pareto]", { label: "ISSUE TRACKER:最常發生的問題統計", anchor: "s-24-6" }],
   ["[data-issue-options]", { label: "ISSUE TRACKER:選項管理", anchor: "s-24-7" }],
   ["[data-issue-import]", { label: "ISSUE TRACKER:Excel 匯入", anchor: "s-24-7" }],
+  ["[data-issue-work-hours]", { label: "ISSUE TRACKER:花費工時", anchor: "s-24-4" }],
   ["[data-issue-days]", { label: "ISSUE TRACKER:處理天數", anchor: "s-24-4" }],
   ["[data-issue-lock]", { label: "ISSUE TRACKER:確認完成與鎖定", anchor: "s-24-5" }],
 ];
@@ -79,6 +80,13 @@ const ISSUE_CASE_TOPIC: HelpTopic = { label: "ISSUE TRACKER:案件頁", anchor: 
 /** 路徑 → 主題,長的前綴排前面。 */
 const ROUTES: [prefix: string, topic: HelpTopic][] = [
   // ISSUE TRACKER(手冊第 24 章)。/issues/<案件> 的案件頁在 resolve() 裡另外處理。
+  // ISSUE TRACKER 裡共用的頁面(同一份資料與頁面,說明沿用專案管理系統手冊的章節)。
+  ["/issues/users", { label: "使用者管理", anchor: "s-21-1", adminOnly: true }],
+  ["/issues/org-chart", { label: "組織架構圖", anchor: "s-21-1b" }],
+  ["/issues/timesheet", { label: "工時", anchor: "ch-17" }],
+  ["/issues/feedback", { label: "使用者回報", anchor: "s-21-2b", adminOnly: true }],
+  ["/issues/manual", { label: "使用手冊", anchor: "" }],
+  ["/issues/settings", { label: "ISSUE TRACKER:系統設定", anchor: "s-24-9" }],
   ["/issues/admin", { label: "ISSUE TRACKER:選項管理與 Excel 匯入", anchor: "s-24-7" }],
   ["/issues/stats", { label: "ISSUE TRACKER:各產品統整", anchor: "s-24-6" }],
   ["/issues/new", { label: "ISSUE TRACKER:回報新案件", anchor: "s-24-2" }],
@@ -146,9 +154,17 @@ export function helpTopicForElement(matches: (selector: string) => boolean, isAd
   return null;
 }
 
-/** 手冊網頁的連結:有錨點就跳到那一章 / 小節。 */
-export function manualHref(anchor: string): string {
-  return anchor ? `/manual#${anchor}` : "/manual";
+/**
+ * 目前畫面屬於哪個系統的網址前綴:ISSUE TRACKER 的頁面都在 /issues 底下(手冊也要留在它的外框裡),
+ * 其他(專案管理系統)沒有前綴。
+ */
+export function systemBaseOf(pathname: string): "" | "/issues" {
+  return pathname === "/issues" || pathname.startsWith("/issues/") ? "/issues" : "";
+}
+
+/** 手冊網頁的連結:有錨點就跳到那一章 / 小節。base 是系統的網址前綴(見 systemBaseOf)。 */
+export function manualHref(anchor: string, base: "" | "/issues" = ""): string {
+  return anchor ? `${base}/manual#${anchor}` : `${base}/manual`;
 }
 
 /** 所有會用到的錨點,給測試對照真的手冊。 */

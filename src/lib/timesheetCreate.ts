@@ -11,6 +11,7 @@ export type EntrySpec =
       categoryId: string;
       boardId: string | null;
       riskEntryId: string | null;
+      issueCaseId?: string | null;
       startMinute: number | null;
       hours: number;
       note: string;
@@ -60,6 +61,7 @@ export async function createFromSpec(
     categoryId: spec.categoryId,
     note: spec.note,
     riskEntryId: spec.riskEntryId,
+    issueCaseId: spec.issueCaseId ?? null,
     boardId: spec.boardId,
     startMinute: spec.startMinute,
     seriesId: seriesId ?? null,

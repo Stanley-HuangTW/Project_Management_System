@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, FolderKanban, LifeBuoy, ListChecks, Plus, Settings2, UserRound } from "lucide-react";
+import { BarChart3, BookOpen, ChevronDown, ChevronRight, Clock, FolderKanban, LifeBuoy, ListChecks, Network, Plus, ScrollText, Settings, Settings2, Users, UserRound } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { ProfileModal } from "@/components/sidebar/ProfileModal";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/issues/new", label: "回報新案件", Icon: Plus, exact: true },
   { href: "/issues?mine=1", label: "我的案件", Icon: UserRound, exact: false, key: "mine" },
   { href: "/issues/stats", label: "各產品統整", Icon: BarChart3, exact: false },
+  { href: "/issues/timesheet", label: "工時", Icon: Clock, exact: false },
 ] as const;
 
 /** ISSUE TRACKER 的側邊欄:導覽、使用者選單(個人資料、切換到專案管理系統、登出)。手機版變成上方一列。 */
@@ -25,6 +26,7 @@ export function IssueSidebar({
   avatarUrl,
   impersonating,
   canSwitchToPm,
+  feedbackOpen = 0,
 }: {
   userName: string;
   isAdmin: boolean;
@@ -32,10 +34,16 @@ export function IssueSidebar({
   avatarUrl: string | null;
   impersonating: boolean;
   canSwitchToPm: boolean;
+  /** 管理者:還沒處理的使用者回報有幾則。 */
+  feedbackOpen?: number;
 }) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
   const isManager = issueRole === "MANAGER";
+  // 「系統設定」群組:使用者管理(管理者)、組織架構圖(大家)、ISSUE TRACKER 設定(管理者)。
+  const settingsPaths = ["/issues/users", "/issues/org-chart", "/issues/settings"];
+  const inSettings = settingsPaths.some((p) => pathname.startsWith(p));
+  const [settingsOpen, setSettingsOpen] = useState(inSettings);
 
   const link = (active: boolean) =>
     `flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm ${
@@ -60,11 +68,47 @@ export function IssueSidebar({
             </Link>
           );
         })}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((v) => !v)}
+          data-testid="issue-settings-group"
+          className={`${link(false)} w-full justify-start`}
+          aria-expanded={settingsOpen || inSettings}
+        >
+          <Settings size={15} /> <span className="whitespace-nowrap">系統設定</span>
+          {settingsOpen || inSettings ? <ChevronDown size={13} className="ml-auto" /> : <ChevronRight size={13} className="ml-auto" />}
+        </button>
+        {(settingsOpen || inSettings) && (
+          <div className="ml-4 flex gap-1 border-neutral-200 md:flex-col md:border-l md:pl-1.5 dark:border-neutral-700">
+            {isAdmin && (
+              <Link href="/issues/users" className={link(pathname.startsWith("/issues/users"))} data-testid="issue-users-link">
+                <Users size={14} /> <span className="whitespace-nowrap">使用者管理</span>
+              </Link>
+            )}
+            <Link href="/issues/org-chart" className={link(pathname.startsWith("/issues/org-chart"))} data-testid="issue-orgchart-link">
+              <Network size={14} /> <span className="whitespace-nowrap">組織架構圖</span>
+            </Link>
+            {isManager && (
+              <Link href="/issues/settings" className={link(pathname.startsWith("/issues/settings"))} data-testid="issue-settings-link">
+                <Settings2 size={14} /> <span className="whitespace-nowrap">ISSUE TRACKER 設定</span>
+              </Link>
+            )}
+          </div>
+        )}
         {isManager && (
           <Link href="/issues/admin" className={link(pathname.startsWith("/issues/admin"))} data-testid="issue-admin-link">
             <Settings2 size={15} /> <span className="whitespace-nowrap">選項管理 / 匯入</span>
           </Link>
         )}
+        {isAdmin && (
+          <Link href="/issues/feedback" className={link(pathname.startsWith("/issues/feedback"))} data-testid="issue-feedback-link">
+            <ScrollText size={15} /> <span className="whitespace-nowrap">使用者回報</span>
+            {feedbackOpen > 0 && <span className="ml-auto rounded-full bg-red-500 px-1.5 text-[10px] font-medium text-white">{feedbackOpen}</span>}
+          </Link>
+        )}
+        <Link href="/issues/manual" className={link(pathname.startsWith("/issues/manual"))} data-testid="issue-manual-link">
+          <BookOpen size={15} /> <span className="whitespace-nowrap">使用手冊</span>
+        </Link>
       </nav>
 
       <div className="border-t border-neutral-200 px-4 py-3 dark:border-neutral-700">

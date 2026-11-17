@@ -8,6 +8,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import type { OrgUnit } from "@/lib/orgUnits";
 import type { OrgNodeLite } from "@/lib/orgTree";
 import { OrgUnitNodesPicker } from "./OrgUnitNodesPicker";
+import { useSystemBase } from "@/components/help/useSystemBase";
 import {
   createOrgUnit,
   renameOrgUnit,
@@ -24,6 +25,7 @@ import { knownErrorMessage } from "@/lib/userError";
  * schema 裡,公司多一個 FAE 就得改程式重上版 —— 那不是設定該有的樣子。
  */
 export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNodeLite[] }) {
+  const base = useSystemBase();
   const { notify, prompt, confirm } = useDialogs();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -88,7 +90,7 @@ export function OrgUnitCard({ units, nodes }: { units: OrgUnit[]; nodes: OrgNode
       </p>
       <p className="mb-3 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
         這裡的「單位」是算人力用的(EE、ME…)。「對應組織架構圖部門」把單位對應到
-        <Link href="/org-chart" className="mx-1 font-medium underline">組織架構圖</Link>
+        <Link href={`${base}/org-chart`} className="mx-1 font-medium underline">組織架構圖</Link>
         的部門,可以複選;一個部門也可以同時對應好幾個單位(例如品質管理部 = QA + FAE)。
         使用者管理裡選了那個部門(或它底下沒有自己對應的子部門)的人,對應只有一個單位就自動帶入;有好幾個單位就由你在使用者管理選。
         誰是誰的直屬、二階、三階主管,也在組織架構圖設定。

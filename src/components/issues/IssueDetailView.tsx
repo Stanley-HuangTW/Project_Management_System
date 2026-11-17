@@ -12,6 +12,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { IssueForm } from "./IssueForm";
 import { IssueTimeline } from "./IssueTimeline";
 import { IssueAttachments } from "./IssueAttachments";
+import { IssueWorkHours } from "./IssueWorkHours";
 import { PriorityBadge, StatusBadge, buttonClass, formatDateTime } from "./issueUi";
 
 export function IssueDetailView({
@@ -19,11 +20,14 @@ export function IssueDetailView({
   options,
   users,
   currentUserId,
+  today,
 }: {
   detail: IssueCaseDetail;
   options: IssueOptionDto[];
   users: IssueUserDto[];
   currentUserId: string;
+  /** 台北今天的日期(由伺服器算好傳來,client 自己算會跟伺服器的時區不一致)。 */
+  today: string;
 }) {
   const router = useRouter();
   const { confirm } = useDialogs();
@@ -127,6 +131,7 @@ export function IssueDetailView({
         />
         <div className="space-y-4">
           <IssueTimeline caseId={detail.id} logs={detail.logs} canAdd={detail.can.addLog} isManager={detail.can.manage} currentUserId={currentUserId} locked={locked} />
+          <IssueWorkHours detail={detail} today={today} />
           <IssueAttachments
             caseId={detail.id}
             attachments={detail.attachments}

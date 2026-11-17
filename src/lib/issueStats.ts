@@ -28,6 +28,8 @@ export type StatCase = {
   rmaCuttingDisk: boolean;
   createdAt: string;
   firstResponseAt: string | null;
+  /** 連到這個案件的工時小時數合計(沒有登記工時是 0)。 */
+  workHours: number;
 };
 
 export type ParetoRow = { name: string; count: number; pct: number; cumPct: number };
@@ -72,6 +74,9 @@ export type ProductSummary = {
   medianDays: number | null;
   /** 首次回覆時間平均(小時)。只算有記錄的案件。 */
   avgFirstResponseHours: number | null;
+  /** 花費工時:登記在案件上的小時數合計,與「有登記工時的案件」平均每案幾小時。 */
+  totalWorkHours: number;
+  avgWorkHoursPerCase: number | null;
   errorTypes: ParetoRow[];
   categories: ParetoRow[];
   parts: ParetoRow[];
@@ -107,6 +112,8 @@ export function summarize(product: string, cases: StatCase[], opts: SummaryOptio
     avgDays: mean(days),
     medianDays: median(days),
     avgFirstResponseHours: mean(frt),
+    totalWorkHours: cases.reduce((sum, c) => sum + c.workHours, 0),
+    avgWorkHoursPerCase: mean(cases.filter((c) => c.workHours > 0).map((c) => c.workHours)),
     errorTypes: pareto(cases.map((c) => c.errorType ?? NONE)),
     categories: pareto(cases.map((c) => (c.errorType ? errorTypeCategory(c.errorType) : NONE))),
     parts: pareto(cases.flatMap((c) => c.parts.map((p) => p.shortName || p.name))),

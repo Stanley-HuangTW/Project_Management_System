@@ -141,7 +141,7 @@ export function IssueStatsView({ stats, from, to }: { stats: IssueStatsResult; f
             ))}
           </div>
 
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7" data-testid="kpis">
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8" data-testid="kpis">
             <Kpi label="案件數" value={String(s.total)} />
             <Kpi label="處理中" value={String(s.open)} />
             <Kpi label="暫時解決 / 永久解決" value={`${s.tc} / ${s.pc}`} />
@@ -149,6 +149,7 @@ export function IssueStatsView({ stats, from, to }: { stats: IssueStatsResult; f
             <Kpi label={`平均處理(${dayLabel})`} value={num(s.avgDays)} hint="MTTR,有結案日期的案件" />
             <Kpi label={`中位數(${dayLabel})`} value={num(s.medianDays)} />
             <Kpi label="平均首次回覆(小時)" value={num(s.avgFirstResponseHours)} hint="FRT" />
+            <Kpi label="花費工時合計(小時)" value={num(s.totalWorkHours)} hint={`有登記工時的案件平均 ${num(s.avgWorkHoursPerCase)} 小時`} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

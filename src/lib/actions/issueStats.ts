@@ -31,7 +31,7 @@ export type IssueStatsResult = {
  */
 export async function getIssueStats(range: { from?: string; to?: string }): Promise<IssueStatsResult> {
   await requireIssueActor();
-  const [rows, mode, holidays] = await Promise.all([
+  const [rows, mode, holidays, hourSums] = await Promise.all([
     prisma.issueCase.findMany({
       where: { deletedAt: null },
       include: {
@@ -45,7 +45,9 @@ export async function getIssueStats(range: { from?: string; to?: string }): Prom
     }),
     issueDayModeSetting(),
     listHolidays(),
+    prisma.activityTimeEntry.groupBy({ by: ["issueCaseId"], where: { issueCaseId: { not: null } }, _sum: { hours: true } }),
   ]);
+  const hoursOf = new Map(hourSums.map((h) => [h.issueCaseId, Number(h._sum.hours ?? 0)]));
   const today = taipeiTodayIso();
   const all: StatCase[] = rows.map((c) => ({
     id: c.id,
@@ -64,6 +66,7 @@ export async function getIssueStats(range: { from?: string; to?: string }): Prom
     rmaCuttingDisk: c.rmaCuttingDisk,
     createdAt: c.createdAt.toISOString(),
     firstResponseAt: c.firstResponseAt?.toISOString() ?? null,
+    workHours: hoursOf.get(c.id) ?? 0,
   }));
   const from = range.from && isIsoDate(range.from) ? range.from : null;
   const to = range.to && isIsoDate(range.to) ? range.to : null;

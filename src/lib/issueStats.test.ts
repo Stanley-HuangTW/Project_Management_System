@@ -18,6 +18,7 @@ function c(over: Partial<StatCase> & { id: string }): StatCase {
     rmaCuttingDisk: false,
     createdAt: "2026-06-01T00:00:00.000Z",
     firstResponseAt: null,
+    workHours: 0,
     ...over,
   };
 }
@@ -52,6 +53,12 @@ describe("summarize", () => {
     expect(s.avgDays).toBeCloseTo(4); // (5 + 3) / 2
     expect(s.medianDays).toBe(4);
     expect(s.avgFirstResponseHours).toBeCloseTo(3);
+  });
+  it("花費工時:合計與「有登記工時的案件」平均每案", () => {
+    const s = summarize("M2", [c({ id: "1", workHours: 3 }), c({ id: "2", workHours: 5 }), c({ id: "3" })], opts);
+    expect(s.totalWorkHours).toBe(8);
+    expect(s.avgWorkHoursPerCase).toBe(4);
+    expect(summarize("M2", [c({ id: "1" })], opts).avgWorkHoursPerCase).toBeNull();
   });
   it("零件統計用簡稱(沒有簡稱用完整名稱),一個案件可有多個零件", () => {
     const s = summarize("M2", [

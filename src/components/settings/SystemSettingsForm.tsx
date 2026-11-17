@@ -51,7 +51,7 @@ import type { DefaultColumn } from "@/lib/defaultColumns";
 
 const MAX_LEVELS = 6;
 
-function EmailNotificationsCard({ initial }: { initial: boolean }) {
+export function EmailNotificationsCard({ initial }: { initial: boolean }) {
   const [enabled, setEnabled] = useState(initial);
   const [isPending, startTransition] = useTransition();
 
@@ -99,7 +99,7 @@ function EmailNotificationsCard({ initial }: { initial: boolean }) {
 
 /** 決定這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼
  *  選,那個類型的通知(站內與 email)都不會產生。 */
-function NotificationTypesCard({ initial }: { initial: NotificationType[] }) {
+export function NotificationTypesCard({ initial }: { initial: NotificationType[] }) {
   const [enabled, setEnabled] = useState<Set<NotificationType>>(new Set(initial));
   const [isPending, startTransition] = useTransition();
 
@@ -248,7 +248,7 @@ function OwnerDefaultAllocationCard({ initial }: { initial: number }) {
   );
 }
 
-function HolidayCard({ holidays }: { holidays: Holiday[] }) {
+export function HolidayCard({ holidays }: { holidays: Holiday[] }) {
   const [open, setOpen] = useState(false);
 
   return (

@@ -152,6 +152,7 @@ export function MyWeekLog({ today }: { today: string }) {
     return updateActivityTime(event.id, {
       categoryId: a.categoryId,
       riskEntryId: a.riskEntryId,
+      issueCaseId: a.issueCaseId,
       boardId: a.boardId,
       note,
       ...change,
@@ -195,6 +196,7 @@ export function MyWeekLog({ today }: { today: string }) {
                 categoryId: draft.categoryId,
                 boardId: draft.boardId || null,
                 riskEntryId: draft.riskEntryId || null,
+                issueCaseId: draft.issueCaseId || null,
                 startMinute: draft.startMinute,
                 hours: draft.hours,
                 note: draft.note,
@@ -235,6 +237,7 @@ export function MyWeekLog({ today }: { today: string }) {
         categoryId: draft.categoryId,
         note: draft.note,
         riskEntryId: draft.riskEntryId || null,
+        issueCaseId: draft.issueCaseId || null,
         boardId: draft.boardId || null,
         startMinute: draft.startMinute,
       };

@@ -9,6 +9,7 @@ import { FEEDBACK_MAX_LENGTH } from "@/lib/feedback";
 import { helpTopicFor, manualHref } from "@/lib/helpTopics";
 import { actionErrorMessage } from "@/lib/userError";
 import { useCurrentHelpHint } from "./helpHint";
+import { useSystemBase } from "./useSystemBase";
 import { startElementPicker, useElementPickerAvailable } from "./pickerState";
 
 /**
@@ -18,6 +19,7 @@ import { startElementPicker, useElementPickerAvailable } from "./pickerState";
 export function HelpButton({ isAdmin, impersonating }: { isAdmin: boolean; impersonating: boolean }) {
   const pathname = usePathname();
   const hint = useCurrentHelpHint();
+  const base = useSystemBase();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -86,7 +88,7 @@ export function HelpButton({ isAdmin, impersonating }: { isAdmin: boolean; imper
           <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">不知道怎麼用?有疑問?</p>
 
           <a
-            href={manualHref(topic.anchor)}
+            href={manualHref(topic.anchor, base)}
             target="_blank"
             rel="noopener noreferrer"
             data-help-manual-link
@@ -118,7 +120,7 @@ export function HelpButton({ isAdmin, impersonating }: { isAdmin: boolean; imper
             </button>
           )}
 
-          <form action="/manual" method="get" target="_blank" className="mt-2 flex items-center gap-1.5 rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-600">
+          <form action={`${base}/manual`} method="get" target="_blank" className="mt-2 flex items-center gap-1.5 rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-600">
             <Search size={14} className="shrink-0 text-neutral-400" />
             <input
               name="q"

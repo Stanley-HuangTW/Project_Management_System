@@ -71,6 +71,17 @@ export type IssueAttachmentDto = {
   createdAt: string;
 };
 
+export type IssueWorkEntryDto = {
+  id: string;
+  date: string;
+  hours: number;
+  userName: string;
+  categoryName: string;
+  note: string;
+  /** 是我自己登記的(可以刪)。 */
+  own: boolean;
+};
+
 export type IssueCaseDetail = {
   id: string;
   caseNo: string;
@@ -108,6 +119,13 @@ export type IssueCaseDetail = {
   dayMode: "WORKDAY" | "CALENDAR";
   logs: IssueLogDto[];
   attachments: IssueAttachmentDto[];
+  /**
+   * 花費工時:連到這個案件的工時(非專案工時,登記即生效)。管理者與負責人看得到全部人的,其他人只看得到自己登記的
+   * (scope = "OWN",total 也只算自己的)。
+   */
+  workHours: { total: number; scope: "ALL" | "OWN"; entries: IssueWorkEntryDto[] };
+  /** 登記工時時可選的類別(已啟用、而且開了「可連結案件」的)。 */
+  workCategories: { id: string; name: string }[];
   can: {
     editReport: boolean;
     editHandling: boolean;

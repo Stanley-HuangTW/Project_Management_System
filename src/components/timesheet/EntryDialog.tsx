@@ -31,6 +31,7 @@ export type EntryDraft = {
   categoryId: string;
   boardId: string;
   riskEntryId: string;
+  issueCaseId: string;
   /** 新增時選了「重複」:一次建立一批,到 until 為止。修改既有的不會有。 */
   repeat: { rule: RecurrenceRule; until: string } | null;
 };
@@ -109,6 +110,7 @@ function EntryForm({
   const [categoryId, setCategoryId] = useState(editing?.activity?.categoryId ?? "");
   const [boardId, setBoardId] = useState(editing?.activity?.boardId ?? "");
   const [riskEntryId, setRiskEntryId] = useState(editing?.activity?.riskEntryId ?? "");
+  const [issueCaseId, setIssueCaseId] = useState(editing?.activity?.issueCaseId ?? "");
   const [note, setNote] = useState(editing?.project?.note ?? editing?.activity?.note ?? "");
   const [busy, setBusy] = useState(false);
   // 重複(只有新增時):不重複 / 每週(選星期) / 每月同一天,到哪一天為止。
@@ -123,7 +125,7 @@ function EntryForm({
       ? options.categories
       : [
           ...options.categories,
-          { id: act.categoryId, name: `${act.categoryName}(已停用)`, linkIssue: act.riskEntryId !== null, allowProject: act.boardId !== null },
+          { id: act.categoryId, name: `${act.categoryName}(已停用)`, linkIssue: act.riskEntryId !== null, linkIssueCase: act.issueCaseId !== null, allowProject: act.boardId !== null },
         ]
     : [];
   const effectiveCategoryId = categoryId || categories[0]?.id || "";
@@ -198,6 +200,7 @@ function EntryForm({
           categoryId: effectiveCategoryId,
           boardId: category?.allowProject ? boardId : "",
           riskEntryId: category?.linkIssue ? riskEntryId : "",
+          issueCaseId: category?.linkIssueCase ? issueCaseId : "",
           repeat,
         },
         editing
@@ -309,6 +312,25 @@ function EntryForm({
             value={riskEntryId}
             onChange={setRiskEntryId}
             emptyLabel="不連結風險 / 議題"
+            className={`${inputClass} mt-1 w-full`}
+          />
+        </label>
+      )}
+
+      {kind === "activity" && category?.linkIssueCase && (
+        <label className="block text-xs text-neutral-500 dark:text-neutral-400">
+          連結 ISSUE TRACKER 案件
+          <SearchableSelect
+            options={[
+              // 修改的舊紀錄連的案件可能不在清單裡(例如被刪了):至少保留它自己的案件編號。
+              ...(editing?.activity?.issueCaseId && !(options?.cases ?? []).some((c) => c.id === editing.activity!.issueCaseId)
+                ? [{ value: editing.activity.issueCaseId, label: editing.activity.issueCaseNo ?? "(已連結的案件)" }]
+                : []),
+              ...(options?.cases ?? []).map((c) => ({ value: c.id, label: `${c.closed ? "(已解決) " : ""}${c.label}` })),
+            ]}
+            value={issueCaseId}
+            onChange={setIssueCaseId}
+            emptyLabel="不連結案件"
             className={`${inputClass} mt-1 w-full`}
           />
         </label>
