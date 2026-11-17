@@ -16,6 +16,17 @@ describe("helpTopicFor", () => {
     expect(helpTopicFor("/search", null, false).anchor).toBe("s-20-1");
   });
 
+  it("ISSUE TRACKER 各頁對到手冊第 24 章,案件頁(/issues/<id>)與列表分開", () => {
+    expect(helpTopicFor("/issues", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件列表", anchor: "s-24-6" });
+    expect(helpTopicFor("/issues?mine=1", null, false).anchor).toBe("s-24-6");
+    expect(helpTopicFor("/issues/new", null, false).anchor).toBe("s-24-2");
+    expect(helpTopicFor("/issues/stats", null, false).anchor).toBe("s-24-6");
+    expect(helpTopicFor("/issues/admin", null, false).anchor).toBe("s-24-7");
+    expect(helpTopicFor("/issues/cmwk57lo7002klg2l53hbt0aa", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件頁", anchor: "s-24-3" });
+    expect(helpTopicFor("/select-system", null, false).anchor).toBe("s-1-1");
+    expect(helpTopicFor("/no-access", null, false).anchor).toBe("s-1-1");
+  });
+
   it("a board is on its table view until the page says otherwise, and follows the tab it registers", () => {
     expect(helpTopicFor("/boards/b1", null, false).anchor).toBe("ch-4");
     expect(helpTopicFor("/boards/b1", "board:table", false).anchor).toBe("ch-4");

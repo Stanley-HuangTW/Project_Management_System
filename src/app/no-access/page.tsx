@@ -3,6 +3,8 @@ import { requireSession } from "@/lib/session";
 import { loadSystemAccess } from "@/lib/issueServer";
 import { postLoginPath } from "@/lib/issueAccess";
 import { logout } from "@/lib/actions/auth";
+import { HelpButton } from "@/components/help/HelpButton";
+import { ElementPicker } from "@/components/help/ElementPicker";
 
 /** 帳號沒有被授權任何系統時的頁面。 */
 export default async function NoAccessPage() {
@@ -24,6 +26,8 @@ export default async function NoAccessPage() {
           </button>
         </form>
       </div>
+      <HelpButton isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
+      <ElementPicker isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
     </div>
   );
 }

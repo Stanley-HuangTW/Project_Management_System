@@ -63,7 +63,7 @@ export function IssueOptionsManager({ options }: { options: IssueOptionDto[] }) 
   }
 
   return (
-    <div data-testid="options-manager">
+    <div data-testid="options-manager" data-issue-options>
       <div className="mb-3 flex flex-wrap gap-1.5">
         {ISSUE_OPTION_KINDS.map((k) => (
           <button

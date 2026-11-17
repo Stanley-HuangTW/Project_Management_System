@@ -65,7 +65,7 @@ export function IssueTimeline({
   }
 
   return (
-    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900" data-testid="issue-timeline">
+    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900" data-testid="issue-timeline" data-issue-timeline>
       <h2 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">進度與解決方案</h2>
       <ol className="mb-4 space-y-3">
         {logs.map((l) => (

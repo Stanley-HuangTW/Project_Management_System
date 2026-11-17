@@ -69,7 +69,7 @@ export function IssueDetailView({
         <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100" data-testid="case-no">{detail.caseNo}</h1>
         <StatusBadge status={detail.status} locked={locked} />
         <PriorityBadge priority={detail.priority} />
-        <span className="text-sm text-neutral-500 dark:text-neutral-400" data-testid="case-days">
+        <span className="text-sm text-neutral-500 dark:text-neutral-400" data-testid="case-days" data-issue-days>
           {detail.days !== null
             ? `處理 ${detail.days} ${dayLabel}`
             : detail.openDays !== null
@@ -83,7 +83,7 @@ export function IssueDetailView({
             </button>
           )}
           {detail.can.confirm && (
-            <button type="button" disabled={busy} onClick={() => void onConfirm()} className={`${buttonClass} border-emerald-300 text-emerald-700 dark:text-emerald-300`} data-testid="confirm-case">
+            <button type="button" disabled={busy} onClick={() => void onConfirm()} className={`${buttonClass} border-emerald-300 text-emerald-700 dark:text-emerald-300`} data-testid="confirm-case" data-issue-lock>
               <CheckCircle2 size={14} /> 確認完成
             </button>
           )}
@@ -101,7 +101,7 @@ export function IssueDetailView({
       </div>
 
       {locked && (
-        <div className="mb-4 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200" data-testid="locked-banner">
+        <div className="mb-4 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200" data-testid="locked-banner" data-issue-lock>
           <Lock size={14} /> 已由 {detail.confirmedByName ?? "—"} 於 {formatDateTime(detail.confirmedAt!)} 確認完成並鎖定。
         </div>
       )}

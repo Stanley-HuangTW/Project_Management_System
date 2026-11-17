@@ -81,7 +81,7 @@ export function IssueListView({
         </Link>
       </div>
 
-      <div className="mb-3 space-y-2 rounded-md border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900" data-testid="issue-filters">
+      <div className="mb-3 space-y-2 rounded-md border border-neutral-200 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-900" data-testid="issue-filters" data-issue-filters>
         <form
           className="flex gap-2"
           onSubmit={(e) => {

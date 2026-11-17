@@ -62,12 +62,30 @@ export const ELEMENT_TOPICS: [selector: string, topic: HelpTopic][] = [
   ["[data-disk-usage-card]", { label: "系統設定:磁碟空間", anchor: "s-21-3", adminOnly: true }],
   ["[data-handover-section]", { label: "使用者管理:工作交接", anchor: "s-21-1", adminOnly: true }],
   ["[data-org-node]", { label: "組織架構圖", anchor: "s-21-1b" }],
+  ["[data-issue-timeline]", { label: "ISSUE TRACKER:進度與解決方案時間軸", anchor: "s-24-3" }],
+  ["[data-issue-attachments]", { label: "ISSUE TRACKER:附件與連結", anchor: "s-24-3" }],
+  ["[data-issue-filters]", { label: "ISSUE TRACKER:搜尋與篩選", anchor: "s-24-6" }],
+  ["[data-issue-pareto]", { label: "ISSUE TRACKER:最常發生的問題統計", anchor: "s-24-6" }],
+  ["[data-issue-options]", { label: "ISSUE TRACKER:選項管理", anchor: "s-24-7" }],
+  ["[data-issue-import]", { label: "ISSUE TRACKER:Excel 匯入", anchor: "s-24-7" }],
+  ["[data-issue-days]", { label: "ISSUE TRACKER:處理天數", anchor: "s-24-4" }],
+  ["[data-issue-lock]", { label: "ISSUE TRACKER:確認完成與鎖定", anchor: "s-24-5" }],
 ];
 
 const BOARD_PREFIX = "board:";
 
+const ISSUE_CASE_TOPIC: HelpTopic = { label: "ISSUE TRACKER:案件頁", anchor: "s-24-3" };
+
 /** 路徑 → 主題,長的前綴排前面。 */
 const ROUTES: [prefix: string, topic: HelpTopic][] = [
+  // ISSUE TRACKER(手冊第 24 章)。/issues/<案件> 的案件頁在 resolve() 裡另外處理。
+  ["/issues/admin", { label: "ISSUE TRACKER:選項管理與 Excel 匯入", anchor: "s-24-7" }],
+  ["/issues/stats", { label: "ISSUE TRACKER:各產品統整", anchor: "s-24-6" }],
+  ["/issues/new", { label: "ISSUE TRACKER:回報新案件", anchor: "s-24-2" }],
+  ["/issues", { label: "ISSUE TRACKER:案件列表", anchor: "s-24-6" }],
+  // 登入後的選系統頁與無權限頁:說明在「登入」那一節。
+  ["/select-system", { label: "登入與選擇系統", anchor: "s-1-1" }],
+  ["/no-access", { label: "登入與選擇系統", anchor: "s-1-1" }],
   ["/dashboard/project/", { label: "專案儀表板", anchor: "s-16-1" }],
   ["/dashboard", { label: "儀表板", anchor: "ch-16" }],
   ["/boards", { label: "看板的基本概念", anchor: "ch-3" }],
@@ -106,6 +124,8 @@ export function helpTopicFor(pathname: string, hint: string | null | undefined, 
 function resolve(pathname: string, hint: string | null | undefined): HelpTopic {
   const path = pathname.split("?")[0].replace(/\/+$/, "") || "/";
   const route = ROUTES.find(([prefix]) => startsWithSegment(path, prefix));
+  // /issues/<案件 id>:案件頁(歸屬、解決方案、時間軸、附件、確認完成)。
+  if (route && route[0] === "/issues" && /^\/issues\/[^/]+$/.test(path)) return ISSUE_CASE_TOPIC;
   if (route && route[0] === "/boards" && hint?.startsWith(BOARD_PREFIX)) {
     return BOARD_VIEWS[hint.slice(BOARD_PREFIX.length)] ?? BOARD_VIEWS.table;
   }

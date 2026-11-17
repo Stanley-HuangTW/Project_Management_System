@@ -8,6 +8,29 @@ export const FEEDBACK_MAX_LENGTH = 2000;
 /** 一個人一天最多送幾則(擋手滑連按與灌水,不是限制正常使用)。 */
 export const FEEDBACK_DAILY_LIMIT = 20;
 
+/** 回報是從哪個系統送的。PM 專案管理系統、ISSUES ISSUE TRACKER、ENTRY 登入後的選系統頁 / 無權限頁。 */
+export type FeedbackSystem = "PM" | "ISSUES" | "ENTRY";
+
+export const FEEDBACK_SYSTEM_LABELS: Record<FeedbackSystem, string> = {
+  PM: "專案管理系統",
+  ISSUES: "ISSUE TRACKER",
+  ENTRY: "登入 / 選系統",
+};
+
+/** 由送出時的網址判斷系統(伺服器自己判斷,不信畫面傳來的)。 */
+export function feedbackSystemOf(path: string): FeedbackSystem {
+  const p = path.split("?")[0].replace(/\/+$/, "") || "/";
+  const under = (prefix: string) => p === prefix || p.startsWith(prefix + "/");
+  if (under("/issues")) return "ISSUES";
+  if (under("/select-system") || under("/no-access")) return "ENTRY";
+  return "PM";
+}
+
+/** 資料庫裡的字串轉成已知的系統;不認得的當專案管理系統(舊資料沒有這個欄位時的預設)。 */
+export function normalizeFeedbackSystem(value: unknown): FeedbackSystem {
+  return value === "ISSUES" || value === "ENTRY" ? value : "PM";
+}
+
 export type FeedbackInput = {
   message: string;
   /** 送出時的畫面網址(路徑與查詢字串)。 */
@@ -47,6 +70,7 @@ export type FeedbackCsvRow = {
   createdAt: string;
   userName: string;
   userEmail: string;
+  system: FeedbackSystem;
   pageLabel: string;
   path: string;
   manualAnchor: string;
@@ -65,12 +89,13 @@ export const FEEDBACK_STATUS_LABELS = { OPEN: "未處理", RESOLVED: "已處理"
 
 /** 回報清單轉成 CSV(逗號分隔,每格用雙引號包起來,內容裡的雙引號與換行都保留)。給 Excel 開要在前面加 BOM,由下載的那一端加。 */
 export function feedbackCsv(rows: FeedbackCsvRow[]): string {
-  const header = ["送出時間", "回報人", "Email", "畫面", "網址", "手冊章節", "內容", "狀態", "處理說明", "處理時間", "處理人", "選取的元素", "selector"];
+  const header = ["送出時間", "回報人", "Email", "系統", "畫面", "網址", "手冊章節", "內容", "狀態", "處理說明", "處理時間", "處理人", "選取的元素", "selector"];
   const lines = rows.map((r) =>
     [
       r.createdAt,
       r.userName,
       r.userEmail,
+      FEEDBACK_SYSTEM_LABELS[r.system],
       r.pageLabel,
       r.path,
       r.manualAnchor,

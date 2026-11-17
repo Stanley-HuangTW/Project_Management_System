@@ -66,7 +66,7 @@ export function IssueAttachments({ caseId, attachments, canAdd, canDelete }: { c
   }
 
   return (
-    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900" data-testid="issue-attachments">
+    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900" data-testid="issue-attachments" data-issue-attachments>
       <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
         <Paperclip size={14} /> 附件與連結
       </h2>

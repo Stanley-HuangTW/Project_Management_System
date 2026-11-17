@@ -64,7 +64,7 @@ export function IssueImportPanel() {
   }
 
   return (
-    <div className="space-y-3" data-testid="import-panel">
+    <div className="space-y-3" data-testid="import-panel" data-issue-import>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         支援從原 Google Sheet 匯出的 .xlsx(2024CSTable、2025CSTable、2026CSTable 都可以,一個檔案裡有幾個案件分頁都會讀)。找不到的客戶、產品、問題類型、零件等選項會自動新增;
         Case No 沿用檔案裡的(已經存在的略過),沒有的重新產生。

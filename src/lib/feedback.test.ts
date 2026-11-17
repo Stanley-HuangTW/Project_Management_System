@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FEEDBACK_MAX_LENGTH, feedbackCsv, normalizeFeedback } from "./feedback";
+import { FEEDBACK_MAX_LENGTH, feedbackCsv, feedbackSystemOf, normalizeFeedback, normalizeFeedbackSystem } from "./feedback";
 import type { FeedbackContext } from "./feedbackContext";
 
 const ok = { message: "甘特圖的長條拖不動", path: "/boards/b1", pageLabel: "甘特圖", manualAnchor: "ch-9" };
@@ -59,11 +59,33 @@ describe("normalizeFeedback", () => {
   });
 });
 
+describe("feedbackSystemOf", () => {
+  it("由網址判斷:/issues 底下是 ISSUE TRACKER,選系統與無權限頁是 ENTRY,其他是專案管理系統", () => {
+    expect(feedbackSystemOf("/issues")).toBe("ISSUES");
+    expect(feedbackSystemOf("/issues/stats?from=2026-01-01")).toBe("ISSUES");
+    expect(feedbackSystemOf("/issues/abc123")).toBe("ISSUES");
+    expect(feedbackSystemOf("/select-system")).toBe("ENTRY");
+    expect(feedbackSystemOf("/no-access/")).toBe("ENTRY");
+    expect(feedbackSystemOf("/boards/b1")).toBe("PM");
+    expect(feedbackSystemOf("/")).toBe("PM");
+  });
+  it("前綴只認完整的路徑段落(/issuesx 不是 ISSUE TRACKER)", () => {
+    expect(feedbackSystemOf("/issuesx")).toBe("PM");
+  });
+  it("資料庫裡不認得的值當專案管理系統", () => {
+    expect(normalizeFeedbackSystem("ISSUES")).toBe("ISSUES");
+    expect(normalizeFeedbackSystem("ENTRY")).toBe("ENTRY");
+    expect(normalizeFeedbackSystem("whatever")).toBe("PM");
+    expect(normalizeFeedbackSystem(null)).toBe("PM");
+  });
+});
+
 describe("feedbackCsv", () => {
   const row = {
     createdAt: "2026-11-03 09:30",
     userName: "李小明",
     userEmail: "li@example.com",
+    system: "PM" as const,
     pageLabel: "甘特圖",
     path: "/boards/b1",
     manualAnchor: "ch-9",
@@ -77,7 +99,7 @@ describe("feedbackCsv", () => {
 
   it("has a header and one line per report", () => {
     const lines = feedbackCsv([row, { ...row, userName: "王主管" }]).split("\r\n");
-    expect(lines[0]).toBe('"送出時間","回報人","Email","畫面","網址","手冊章節","內容","狀態","處理說明","處理時間","處理人","選取的元素","selector"');
+    expect(lines[0]).toBe('"送出時間","回報人","Email","系統","畫面","網址","手冊章節","內容","狀態","處理說明","處理時間","處理人","選取的元素","selector"');
     // 表頭 + 兩列;內容裡的換行是 LF,不會被當成列的結尾(CRLF)。
     expect(lines).toHaveLength(3);
   });
@@ -85,7 +107,7 @@ describe("feedbackCsv", () => {
   it("quotes every cell and doubles the quotes inside, keeping commas and line breaks", () => {
     const csv = feedbackCsv([row]);
     expect(csv).toContain('"長條拖不動,出現 ""權限不足""\n第二行"');
-    expect(csv).toContain('"李小明","li@example.com","甘特圖","/boards/b1","ch-9"');
+    expect(csv).toContain('"李小明","li@example.com","專案管理系統","甘特圖","/boards/b1","ch-9"');
     expect(csv).toContain('"未處理"');
   });
 

@@ -27,7 +27,7 @@ function ParetoTable({ title, rows, limit = 15, testId, note }: { title: string;
   const shown = all ? rows : rows.slice(0, limit);
   const max = rows[0]?.count ?? 1;
   return (
-    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900" data-testid={testId}>
+    <section className="rounded-md border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900" data-testid={testId} data-issue-pareto>
       <h3 className="mb-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{title}</h3>
       {note && <p className="mb-2 text-[11px] text-neutral-400">{note}</p>}
       {rows.length === 0 ? (

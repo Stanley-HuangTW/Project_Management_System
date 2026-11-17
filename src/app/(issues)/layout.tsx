@@ -4,6 +4,8 @@ import { requireIssueSession, loadSystemAccess } from "@/lib/issueServer";
 import { DialogProvider } from "@/components/ui/DialogProvider";
 import { ImpersonationBanner } from "@/components/sidebar/ImpersonationBanner";
 import { IssueSidebar } from "@/components/issues/IssueSidebar";
+import { HelpButton } from "@/components/help/HelpButton";
+import { ElementPicker } from "@/components/help/ElementPicker";
 
 /** ISSUE TRACKER 的外框:跟專案管理系統共用帳號與網址,有自己的側邊欄;沒有權限的人進不來。 */
 export default async function IssuesLayout({ children }: { children: ReactNode }) {
@@ -26,7 +28,9 @@ export default async function IssuesLayout({ children }: { children: ReactNode }
             impersonating={!!session.impersonatorId}
             canSwitchToPm={access.pm}
           />
-          <div className="min-h-0 flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800">{children}</div>
+          <div className="min-h-0 flex-1 overflow-auto bg-neutral-50 pb-16 dark:bg-neutral-800">{children}</div>
+          <HelpButton isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
+          <ElementPicker isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
         </div>
       </div>
     </DialogProvider>

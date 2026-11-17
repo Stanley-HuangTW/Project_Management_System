@@ -5,6 +5,8 @@ import { requireSession } from "@/lib/session";
 import { loadSystemAccess } from "@/lib/issueServer";
 import { postLoginPath } from "@/lib/issueAccess";
 import { logout } from "@/lib/actions/auth";
+import { HelpButton } from "@/components/help/HelpButton";
+import { ElementPicker } from "@/components/help/ElementPicker";
 
 /** 登入後選要進哪個系統(兩個都能進的人才會看到)。進去之後可以從使用者選單切換。 */
 export default async function SelectSystemPage() {
@@ -45,6 +47,8 @@ export default async function SelectSystemPage() {
           </button>
         </form>
       </div>
+      <HelpButton isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
+      <ElementPicker isAdmin={session.role === "ADMIN"} impersonating={!!session.impersonatorId} />
     </div>
   );
 }

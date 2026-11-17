@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpen, Check, Copy, Download, ExternalLink } from "lucide-react";
 import { setFeedbackStatus, type FeedbackRow } from "@/lib/actions/feedback";
-import { FEEDBACK_STATUS_LABELS, feedbackCsv } from "@/lib/feedback";
+import { FEEDBACK_STATUS_LABELS, FEEDBACK_SYSTEM_LABELS, feedbackCsv, type FeedbackSystem } from "@/lib/feedback";
 import { debugPrompt, elementSummary } from "@/lib/feedbackContext";
 import { manualHref } from "@/lib/helpTopics";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -27,13 +27,15 @@ export function FeedbackList({ rows }: { rows: FeedbackRow[] }) {
   const router = useRouter();
   const { notify } = useDialogs();
   const [filter, setFilter] = useState<Filter>("OPEN");
+  const [system, setSystem] = useState<FeedbackSystem | "ALL">("ALL");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   /** 剛複製過的那一則(或 "all"):按鈕短暫變成「已複製」。 */
   const [copied, setCopied] = useState<string | null>(null);
 
-  const counts = { OPEN: rows.filter((r) => r.status === "OPEN").length, RESOLVED: rows.filter((r) => r.status === "RESOLVED").length, ALL: rows.length };
-  const shown = filter === "ALL" ? rows : rows.filter((r) => r.status === filter);
+  const bySystem = system === "ALL" ? rows : rows.filter((r) => r.system === system);
+  const counts = { OPEN: bySystem.filter((r) => r.status === "OPEN").length, RESOLVED: bySystem.filter((r) => r.status === "RESOLVED").length, ALL: bySystem.length };
+  const shown = filter === "ALL" ? bySystem : bySystem.filter((r) => r.status === filter);
 
   async function change(row: FeedbackRow, status: "OPEN" | "RESOLVED") {
     setBusyId(row.id);
@@ -97,6 +99,20 @@ export function FeedbackList({ rows }: { rows: FeedbackRow[] }) {
             </button>
           ))}
         </div>
+        <select
+          value={system}
+          onChange={(e) => setSystem(e.target.value as FeedbackSystem | "ALL")}
+          data-feedback-system-filter
+          aria-label="系統"
+          className="rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+        >
+          <option value="ALL">全部系統</option>
+          {(Object.keys(FEEDBACK_SYSTEM_LABELS) as FeedbackSystem[]).map((k) => (
+            <option key={k} value={k}>
+              {FEEDBACK_SYSTEM_LABELS[k]}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={() => void copy(shown.map(promptOf).join(PROMPT_SEPARATOR), "all")}
@@ -129,6 +145,9 @@ export function FeedbackList({ rows }: { rows: FeedbackRow[] }) {
                 <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{r.userName}</span>
                 <span>{r.userEmail}</span>
                 <span className="tabular-nums">{r.createdAt}</span>
+                <span data-feedback-system={r.system} className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                  {FEEDBACK_SYSTEM_LABELS[r.system]}
+                </span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
                     r.status === "OPEN" ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"

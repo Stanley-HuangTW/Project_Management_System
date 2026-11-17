@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { UserError } from "@/lib/userError";
 import { logAudit } from "@/lib/activityLog";
-import { FEEDBACK_DAILY_LIMIT, normalizeFeedback, type FeedbackCsvRow, type FeedbackInput } from "@/lib/feedback";
+import { FEEDBACK_DAILY_LIMIT, feedbackSystemOf, normalizeFeedback, normalizeFeedbackSystem, type FeedbackCsvRow, type FeedbackInput } from "@/lib/feedback";
 import { normalizeContext } from "@/lib/feedbackContext";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,6 +46,8 @@ export async function submitFeedback(input: Partial<FeedbackInput>): Promise<{ e
       userId: session.userId,
       userName: session.name,
       userEmail: session.email,
+      // 從哪個系統送的:由網址判斷(ISSUE TRACKER、專案管理系統、登入 / 選系統頁),方便管理者分流。
+      system: feedbackSystemOf(checked.value.path),
     },
   });
   revalidatePath("/feedback");
@@ -63,6 +65,7 @@ export async function listFeedback(): Promise<FeedbackRow[]> {
     createdAt: taipei(r.createdAt),
     userName: r.userName,
     userEmail: r.userEmail,
+    system: normalizeFeedbackSystem(r.system),
     pageLabel: r.pageLabel,
     path: r.path,
     manualAnchor: r.manualAnchor,
