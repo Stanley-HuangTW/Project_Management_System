@@ -53,13 +53,19 @@ export async function POST(request: Request) {
     return respond({ ran: false, reason: "還沒到設定的時間" });
   }
 
-  // 排程報的是剛結束的那個範圍(從星期幾到星期幾,照系統設定,預設週三到週二),不是才剛開始的
+  // 排程報的是已經結束的最近一個範圍(從星期幾到星期幾,照系統設定,預設週三到週二),不是才剛開始的;
+  // 範圍最後一天就是今天時,要過了設定的「一天結束時間」才算結束。
   // ——跟 /api/reports/weekly 預設 week=last 是同一個道理。「這週跑過了沒」仍然照日曆上的週算,
   // 排程本來就是每個日曆週跑一次。
-  const { weekKey: thisWeekKey, target } = weeklyRunPlan(taipeiNow.toISOString().slice(0, 10), {
-    startDow: settings.weeklyReportRangeStartDow,
-    endDow: settings.weeklyReportRangeEndDow,
-  });
+  const { weekKey: thisWeekKey, target } = weeklyRunPlan(
+    taipeiNow.toISOString().slice(0, 10),
+    {
+      startDow: settings.weeklyReportRangeStartDow,
+      endDow: settings.weeklyReportRangeEndDow,
+      dayEndMinutes: settings.weeklyReportDayEndHour * 60 + settings.weeklyReportDayEndMinute,
+    },
+    nowParts.hour * 60 + nowParts.minute
+  );
 
   if (settings.weeklyReportLastRunWeek === thisWeekKey) {
     return respond({ ran: false, reason: "這週已經跑過了" });

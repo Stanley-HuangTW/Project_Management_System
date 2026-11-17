@@ -44,6 +44,8 @@ export async function getSystemSettings() {
     weeklyReportMinute: 0,
     weeklyReportRangeStartDow: 3,
     weeklyReportRangeEndDow: 2,
+    weeklyReportDayEndHour: 18,
+    weeklyReportDayEndMinute: 0,
     weeklyReportLastRunWeek: null as string | null,
     weeklyReportLastRunAt: null as Date | null,
     weeklyReportLastRunNote: null as string | null,
@@ -304,6 +306,9 @@ export async function setWeeklyReportSchedule(schedule: {
   /** 週報範圍從星期幾開始、到星期幾結束(0=週日 … 6=週六)。 */
   rangeStartDow: number;
   rangeEndDow: number;
+  /** 一天什麼時候算結束(台北時間)。範圍的最後一天要過了這個時刻才算結束,週報才報到那一天。 */
+  dayEndHour: number;
+  dayEndMinute: number;
   /** 週報產生前幾小時寄信提醒各單位同仁更新工作事項。0 = 不提醒。 */
   reminderHours: number;
 }): Promise<{ error?: string }> {
@@ -316,6 +321,8 @@ export async function setWeeklyReportSchedule(schedule: {
   }
   if (schedule.hour < 0 || schedule.hour > 23) return { error: "小時不合法" };
   if (schedule.minute < 0 || schedule.minute > 59) return { error: "分鐘不合法" };
+  if (!Number.isInteger(schedule.dayEndHour) || schedule.dayEndHour < 0 || schedule.dayEndHour > 23) return { error: "一天結束時間的小時不合法" };
+  if (!Number.isInteger(schedule.dayEndMinute) || schedule.dayEndMinute < 0 || schedule.dayEndMinute > 59) return { error: "一天結束時間的分鐘不合法" };
   for (const dow of [schedule.rangeStartDow, schedule.rangeEndDow]) {
     if (!Number.isInteger(dow) || dow < 0 || dow > 6) return { error: "週報範圍的星期幾不合法" };
   }
@@ -330,6 +337,8 @@ export async function setWeeklyReportSchedule(schedule: {
       weeklyReportMinute: schedule.minute,
       weeklyReportRangeStartDow: schedule.rangeStartDow,
       weeklyReportRangeEndDow: schedule.rangeEndDow,
+      weeklyReportDayEndHour: schedule.dayEndHour,
+      weeklyReportDayEndMinute: schedule.dayEndMinute,
       weeklyReportReminderHours: schedule.reminderHours,
     },
     update: {
@@ -339,6 +348,8 @@ export async function setWeeklyReportSchedule(schedule: {
       weeklyReportMinute: schedule.minute,
       weeklyReportRangeStartDow: schedule.rangeStartDow,
       weeklyReportRangeEndDow: schedule.rangeEndDow,
+      weeklyReportDayEndHour: schedule.dayEndHour,
+      weeklyReportDayEndMinute: schedule.dayEndMinute,
       weeklyReportReminderHours: schedule.reminderHours,
     },
   });

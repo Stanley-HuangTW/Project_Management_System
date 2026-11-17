@@ -277,9 +277,20 @@ export function isPastWeeklyTrigger(
  * 週報涵蓋的日期範圍:從星期幾到星期幾(0=週日 … 6=週六,沿用 JS Date.getDay())。
  * 連續 1~7 天、每 7 天一輪,預設週三到週二——不一定是日曆上的週一到週日。
  */
-export type ReportRangeConfig = { startDow: number; endDow: number };
+export type ReportRangeConfig = {
+  startDow: number;
+  endDow: number;
+  /**
+   * 一天什麼時候算結束(從 0 點起算的分鐘數,台北時間,例如 17:00 = 1020)。範圍的最後一天要過了這個時刻才算
+   * 結束,週報才會報到這一天;沒到之前,報的是上一個範圍。沒給就是整天過完(24:00)才算。
+   */
+  dayEndMinutes?: number;
+};
 
 export const DEFAULT_REPORT_RANGE: ReportRangeConfig = { startDow: 3, endDow: 2 };
+
+/** 一天結束時間的預設值:18:00。 */
+export const DEFAULT_DAY_END_MINUTES = 18 * 60;
 
 /** 範圍有幾天:週三到週二 = 7、週一到週五 = 5、起訖同一天 = 1。 */
 export function reportRangeDays(config: ReportRangeConfig): number {
@@ -309,15 +320,22 @@ export function previousReportWeekStart(weekStartIso: string): string {
 }
 
 /**
- * 最近一個已經結束的範圍(結束日早於今天)。排程與「產生上一週」要的是這個:跟原本
- * 「週一早上報剛結束的那一週」同一個道理——範圍的最後一天還沒過完,就還不算結束。
+ * 最近一個已經結束的範圍。排程與「產生上一週」要的是這個。
+ *
+ * 範圍的最後一天早於今天,一定結束了。最後一天就是今天時,要看現在(nowMinutes,台北時間、從 0 點起算的分鐘數)
+ * 有沒有過了設定的「一天結束時間」(config.dayEndMinutes):過了,這一輪就算結束、週報報到今天;還沒過,
+ * 今天還沒完,報上一個範圍。沒給 nowMinutes(或沒給一天結束時間)就是「今天一定還沒過完」,跟原本一樣——
+ * 週一早上報的是剛過完的週一到週日。
  */
 export function lastCompletedReportRange(
   todayIso: string,
-  config: ReportRangeConfig
+  config: ReportRangeConfig,
+  nowMinutes?: number
 ): { weekStart: string; weekEnd: string } {
   const current = reportRangeOf(todayIso, config);
-  return current.weekEnd < todayIso ? current : reportRangeOf(previousReportWeekStart(current.weekStart), config);
+  const dayEnd = config.dayEndMinutes ?? 24 * 60;
+  const finished = current.weekEnd < todayIso || (current.weekEnd === todayIso && nowMinutes !== undefined && nowMinutes >= dayEnd);
+  return finished ? current : reportRangeOf(previousReportWeekStart(current.weekStart), config);
 }
 
 /**
@@ -1121,12 +1139,37 @@ export function summarizeWeeklyRun(week: string, results: ProgramRunResult[]): s
   return `${week}:${parts.join(";")}`;
 }
 
-/** 排程這一輪(「立即執行一次」也是)叫什麼、報哪一個範圍:報的是剛結束的那個範圍,「這週跑過了沒」照日曆週算。 */
-export function weeklyRunPlan(todayIso: string, range: ReportRangeConfig): { weekKey: string; target: string } {
+/**
+ * 排程這一輪(「立即執行一次」也是)叫什麼、報哪一個範圍:報的是已經結束的最近一個範圍
+ * (範圍最後一天就是今天時,要看 nowMinutes 有沒有過了一天結束時間),「這週跑過了沒」照日曆週算。
+ */
+export function weeklyRunPlan(
+  todayIso: string,
+  range: ReportRangeConfig,
+  nowMinutes?: number
+): { weekKey: string; target: string } {
   return {
     weekKey: isoWeekLabel(weekRangeOf(todayIso).weekStart),
-    target: lastCompletedReportRange(todayIso, range).weekStart,
+    target: lastCompletedReportRange(todayIso, range, nowMinutes).weekStart,
   };
+}
+
+/**
+ * 照目前的設定,從 todayIso(含)起最近一次排程產出的週報涵蓋哪幾天——給設定頁預覽用,
+ * 讓人在改產出時間、範圍、一天結束時間時馬上看到結果。runDate 是那次產出的日期。
+ */
+export function nextRunCoverage(
+  todayIso: string,
+  trigger: { dow: number; hour: number; minute: number },
+  range: ReportRangeConfig
+): { runDate: string; weekStart: string; weekEnd: string; endsOnRunDayButNotYetOver: boolean } {
+  const today = utc(todayIso);
+  const ahead = (trigger.dow - today.getUTCDay() + 7) % 7;
+  const runDate = iso(new Date(today.getTime() + ahead * DAY_MS));
+  const covered = lastCompletedReportRange(runDate, range, trigger.hour * 60 + trigger.minute);
+  // 產出那天剛好是範圍的最後一天,但產出時間還沒到一天結束時間——這天不會算進去,最容易讓人意外。
+  const endsOnRunDayButNotYetOver = reportRangeOf(runDate, range).weekEnd === runDate && covered.weekEnd !== runDate;
+  return { runDate, ...covered, endsOnRunDayButNotYetOver };
 }
 
 /** 觸發時刻已經過了幾分鐘(只在「已經過了」的前提下算,星期幾的順序同 isPastWeeklyTrigger)。 */

@@ -21,6 +21,7 @@ import {
   WEEKLY_RETRY_WINDOW_MINUTES,
   DEFAULT_REPORT_RANGE,
   lastCompletedReportRange,
+  nextRunCoverage,
   previousReportWeekStart,
   reportRangeDays,
   reportRangeOf,
@@ -1440,8 +1441,60 @@ describe("summarizeWeeklyRun", () => {
   });
 });
 
+describe("一天的結束時間:範圍最後一天要過了才算結束", () => {
+  const TUE_MON = { startDow: 2, endDow: 1, dayEndMinutes: 17 * 60 };
+
+  it("最後一天就是今天:現在還沒到一天結束時間,報上一個範圍;到了(含剛好那一分)就報到今天", () => {
+    // 2026-11-16 週一,範圍 11-10 ~ 11-16
+    expect(lastCompletedReportRange("2026-11-16", TUE_MON, 16 * 60 + 59)).toEqual({ weekStart: "2026-11-03", weekEnd: "2026-11-09" });
+    expect(lastCompletedReportRange("2026-11-16", TUE_MON, 17 * 60)).toEqual({ weekStart: "2026-11-10", weekEnd: "2026-11-16" });
+    expect(lastCompletedReportRange("2026-11-16", TUE_MON, 23 * 60 + 59)).toEqual({ weekStart: "2026-11-10", weekEnd: "2026-11-16" });
+  });
+
+  it("沒給現在幾點或沒給一天結束時間:今天一定還沒過完(跟原本一樣)", () => {
+    expect(lastCompletedReportRange("2026-11-16", TUE_MON)).toEqual({ weekStart: "2026-11-03", weekEnd: "2026-11-09" });
+    expect(lastCompletedReportRange("2026-11-16", { startDow: 2, endDow: 1 }, 23 * 60 + 59)).toEqual({
+      weekStart: "2026-11-03",
+      weekEnd: "2026-11-09",
+    });
+  });
+
+  it("最後一天不是今天時,不受影響:前一天一定結束了、範圍還沒走完就不算", () => {
+    expect(lastCompletedReportRange("2026-11-17", TUE_MON, 0)).toEqual({ weekStart: "2026-11-10", weekEnd: "2026-11-16" });
+    expect(lastCompletedReportRange("2026-11-14", TUE_MON, 23 * 60)).toEqual({ weekStart: "2026-11-03", weekEnd: "2026-11-09" });
+  });
+
+  it("你回報的情況:週一 16:00 產出、範圍週二到週一 —— 一天結束設 17:00 以前不會報到 11-16;產出時間改到 17:00 之後就會", () => {
+    expect(weeklyRunPlan("2026-11-16", TUE_MON, 16 * 60).target).toBe("2026-11-03");
+    expect(weeklyRunPlan("2026-11-16", TUE_MON, 17 * 60 + 30).target).toBe("2026-11-10");
+    // 一天結束設在 15:30,16:00 產出就已經過了
+    expect(weeklyRunPlan("2026-11-16", { ...TUE_MON, dayEndMinutes: 15 * 60 + 30 }, 16 * 60).target).toBe("2026-11-10");
+  });
+
+  it("nextRunCoverage:最近一次產出(含今天)涵蓋哪幾天,並標出「產出那天是範圍最後一天、但還沒到一天結束」", () => {
+    const range = { startDow: 2, endDow: 1, dayEndMinutes: 17 * 60 };
+    // 今天 11-12(週四),下一個週一是 11-16
+    expect(nextRunCoverage("2026-11-12", { dow: 1, hour: 16, minute: 0 }, range)).toEqual({
+      runDate: "2026-11-16",
+      weekStart: "2026-11-03",
+      weekEnd: "2026-11-09",
+      endsOnRunDayButNotYetOver: true,
+    });
+    expect(nextRunCoverage("2026-11-12", { dow: 1, hour: 17, minute: 30 }, range)).toEqual({
+      runDate: "2026-11-16",
+      weekStart: "2026-11-10",
+      weekEnd: "2026-11-16",
+      endsOnRunDayButNotYetOver: false,
+    });
+    // 今天就是產出那天:從今天算起
+    expect(nextRunCoverage("2026-11-16", { dow: 1, hour: 17, minute: 30 }, range).runDate).toBe("2026-11-16");
+    // 產出日不是範圍最後一天:沒有這個警告
+    expect(nextRunCoverage("2026-11-12", { dow: 3, hour: 9, minute: 0 }, range).endsOnRunDayButNotYetOver).toBe(false);
+  });
+});
+
 describe("weeklyRunPlan", () => {
-  it("週一 16:00 的排程報剛結束的範圍(週二到週一的範圍,週一還沒過完,所以是上一輪)", () => {
+  it("週一 16:00 的排程報剛結束的範圍(週二到週一的範圍,週一還沒過完,所以是上一輪;沒設一天結束時間 = 一天過完才算)", () => {
     expect(weeklyRunPlan("2026-10-26", { startDow: 2, endDow: 1 })).toEqual({ weekKey: "2026 W44", target: "2026-10-13" });
   });
 

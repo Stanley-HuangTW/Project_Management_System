@@ -59,6 +59,8 @@ const settings = {
   weeklyReportMinute: 0,
   weeklyReportRangeStartDow: 3,
   weeklyReportRangeEndDow: 2,
+  weeklyReportDayEndHour: 18,
+  weeklyReportDayEndMinute: 0,
   weeklyReportLastRunWeek: null as string | null,
   weeklyReportReminderHours: 24,
   weeklyReportReminderLastWeek: null as string | null,

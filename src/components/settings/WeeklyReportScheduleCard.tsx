@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { setWeeklyReportSchedule } from "@/lib/actions/systemSettings";
 import { runWeeklyReportNow } from "@/lib/actions/weeklyReportRun";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { reportRangeDays } from "@/lib/weeklyReport";
+import { nextRunCoverage, reportRangeDays } from "@/lib/weeklyReport";
+import { withWeekday } from "@/lib/weekdayLabel";
 import { MAX_REMINDER_HOURS, formatClock, reminderTime } from "@/lib/weeklyReminder";
 
 const DOW_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
@@ -19,6 +20,7 @@ function formatTaipei(iso: string): string {
 export function WeeklyReportScheduleCard({
   initial,
   lastRun,
+  todayIso,
 }: {
   initial: {
     enabled: boolean;
@@ -27,8 +29,12 @@ export function WeeklyReportScheduleCard({
     minute: number;
     rangeStartDow: number;
     rangeEndDow: number;
+    dayEndHour: number;
+    dayEndMinute: number;
     reminderHours: number;
   };
+  /** 台北的今天("YYYY-MM-DD"),預覽「最近一次涵蓋哪幾天」用(由伺服器給,畫面前後一致)。 */
+  todayIso: string;
   /** 排程最近一次真的動手的時間(ISO)與結果;還沒跑過就是 null。 */
   lastRun: { at: string; note: string } | null;
 }) {
@@ -74,6 +80,14 @@ export function WeeklyReportScheduleCard({
   }
 
   const reminderAt = reminderTime(schedule, schedule.reminderHours);
+  const triggerTimeText = `${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`;
+  const dayEndText = `${String(schedule.dayEndHour).padStart(2, "0")}:${String(schedule.dayEndMinute).padStart(2, "0")}`;
+  // 照目前的設定,最近一次產出的週報涵蓋哪幾天——改了時間、範圍、一天結束時間馬上看得到結果。
+  const coverage = nextRunCoverage(todayIso, schedule, {
+    startDow: schedule.rangeStartDow,
+    endDow: schedule.rangeEndDow,
+    dayEndMinutes: schedule.dayEndHour * 60 + schedule.dayEndMinute,
+  });
 
   const fieldClass =
     "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -190,7 +204,7 @@ export function WeeklyReportScheduleCard({
         <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">週報涵蓋的範圍</p>
         <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
           每份週報(手動產生的、排程寄的都一樣)涵蓋哪幾天。預設週三到週二;排程與「產生上一週」報的是已經結束的那一個範圍
-          (最後一天過完才算結束)。
+          (範圍的最後一天要過了下面設定的「一天的結束時間」才算結束)。
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-neutral-600 dark:text-neutral-300">從</span>
@@ -225,6 +239,55 @@ export function WeeklyReportScheduleCard({
             共 {reportRangeDays({ startDow: schedule.rangeStartDow, endDow: schedule.rangeEndDow })} 天
           </span>
         </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-neutral-600 dark:text-neutral-300">一天的結束時間</span>
+          <select
+            value={schedule.dayEndHour}
+            disabled={isPending}
+            onChange={(e) => save({ ...schedule, dayEndHour: Number(e.target.value) })}
+            className={fieldClass}
+            aria-label="一天結束的小時"
+            data-day-end-hour
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>
+                {String(h).padStart(2, "0")} 點
+              </option>
+            ))}
+          </select>
+          <select
+            value={schedule.dayEndMinute}
+            disabled={isPending}
+            onChange={(e) => save({ ...schedule, dayEndMinute: Number(e.target.value) })}
+            className={fieldClass}
+            aria-label="一天結束的分鐘"
+            data-day-end-minute
+          >
+            {[0, 15, 30, 45].map((m) => (
+              <option key={m} value={m}>
+                {String(m).padStart(2, "0")} 分
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+          範圍的最後一天要過了這個時間才算結束。週報產生的時間設在這個時間<strong>之後</strong>,報告才會包含最後一天;
+          設在這之前,報的是上一個範圍。
+        </p>
+        <p data-coverage-preview className="mt-1.5 text-xs text-neutral-600 dark:text-neutral-300">
+          照目前的設定,最近一次({withWeekday(coverage.runDate)} {triggerTimeText})產生的週報涵蓋{" "}
+          <span className="font-medium">
+            {coverage.weekStart} ~ {coverage.weekEnd}
+          </span>
+          。
+        </p>
+        {coverage.endsOnRunDayButNotYetOver && (
+          <p data-coverage-warning className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+            這天是範圍的最後一天,但週報產生時間({triggerTimeText})還沒到一天結束時間({dayEndText}),所以這一天不會算進去。
+            要包含這一天,請把週報產生時間設在 {dayEndText} 之後。
+          </p>
+        )}
       </div>
     </div>
   );

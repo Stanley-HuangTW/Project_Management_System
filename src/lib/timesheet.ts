@@ -84,6 +84,12 @@ export function taipeiTodayIso(): string {
   return iso(new Date(Date.now() + 8 * 3_600_000));
 }
 
+/** 台北現在幾點幾分,以「從 0 點起算的分鐘數」表示(例如 16:30 = 990)。 */
+export function taipeiNowMinutes(): number {
+  const now = new Date(Date.now() + 8 * 3_600_000);
+  return now.getUTCHours() * 60 + now.getUTCMinutes();
+}
+
 /** 這一天落在哪個時間桶:日=日期本身、週=那週的週一、月="YYYY-MM"。 */
 export function bucketKeyOf(dayIso: string, granularity: Granularity): string {
   if (granularity === "day") return dayIso;

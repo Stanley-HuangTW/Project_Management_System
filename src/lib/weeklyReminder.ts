@@ -69,7 +69,7 @@ function formatInstant(at: Date): string {
 
 /**
  * 提醒信的標題與內文。要講清楚的兩件事:請更新工作事項,以及週報什麼時候產生、涵蓋哪一段。
- * 涵蓋的範圍照排程真的會報的那一段算(最後一天過完才算結束),不是「這個星期」。
+ * 涵蓋的範圍照排程真的會報的那一段算(範圍最後一天就是產生那天時,要看產生時刻有沒有過了一天結束時間),不是「這個星期」。
  */
 export function buildReminderMail(args: {
   triggerAt: Date;
@@ -80,7 +80,12 @@ export function buildReminderMail(args: {
   programNames?: string[];
 }): { subject: string; text: string } {
   const when = formatInstant(args.triggerAt);
-  const covered = lastCompletedReportRange(args.triggerAt.toISOString().slice(0, 10), args.range);
+  // triggerAt 是台北牆上時間放在 UTC 欄位(見檔頭),所以日期與「幾點」直接讀 UTC 欄位。
+  const covered = lastCompletedReportRange(
+    args.triggerAt.toISOString().slice(0, 10),
+    args.range,
+    args.triggerAt.getUTCHours() * 60 + args.triggerAt.getUTCMinutes()
+  );
   const names = (args.programNames ?? []).join("、");
   const subject = names
     ? `【週報提醒】${names} 週報將於 ${when} 產生,請先更新你的工作事項`

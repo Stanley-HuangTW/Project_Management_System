@@ -1218,6 +1218,10 @@ model SystemSettings {
   /// 連續 1~7 天,每 7 天一輪——手動產生與排程寄的週報都照這個範圍。
   weeklyReportRangeStartDow Int                @default(3)
   weeklyReportRangeEndDow   Int                @default(2)
+  /// 一天什麼時候算結束(台北時間,預設 18:00)。週報範圍的最後一天要過了這個時刻才算結束,週報才報到那一天;
+  /// 排程的產出時間要設在這之後,不然報的是上一輪。
+  weeklyReportDayEndHour    Int                @default(18)
+  weeklyReportDayEndMinute  Int                @default(0)
   /// 這週跑過了沒——存 ISO 週字串("2026-W39"),不是時間戳記,拿「這週
   /// 有沒有跑過」判斷,不用擔心 tick 間隔或時區把「跨過某個時刻」算錯。
   weeklyReportLastRunWeek   String?

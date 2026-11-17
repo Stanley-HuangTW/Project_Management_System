@@ -531,6 +531,7 @@ export function SystemSettingsForm({
   programBoards,
   programReportSubscriptions,
   weeklyReportSchedule,
+  todayIso,
   weeklyReportLastRun,
   backupSchedule,
   reportSettingsBoards,
@@ -573,8 +574,12 @@ export function SystemSettingsForm({
     minute: number;
     rangeStartDow: number;
     rangeEndDow: number;
+    dayEndHour: number;
+    dayEndMinute: number;
     reminderHours: number;
   };
+  /** 台北的今天("YYYY-MM-DD"),週報排程卡片預覽「最近一次涵蓋哪幾天」用。 */
+  todayIso: string;
   weeklyReportLastRun: { at: string; note: string } | null;
   backupSchedule: BackupScheduleInput;
   reportSettingsBoards: ReportSettingsBoardWithName[];
@@ -615,7 +620,7 @@ export function SystemSettingsForm({
           <WorkloadThresholdCard threshold={workloadThreshold} />
           <BaselineCard boards={baselineBoards} />
           <ProgramCard programs={programs} boards={programBoards} />
-          <WeeklyReportScheduleCard initial={weeklyReportSchedule} lastRun={weeklyReportLastRun} />
+          <WeeklyReportScheduleCard initial={weeklyReportSchedule} lastRun={weeklyReportLastRun} todayIso={todayIso} />
           <BackupSettingsCard initial={backupSchedule} />
           <DiskUsageCard />
           <ProgramReportSubscriptionCard subscriptions={programReportSubscriptions} users={users} />

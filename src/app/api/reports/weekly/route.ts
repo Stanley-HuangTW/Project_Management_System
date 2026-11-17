@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 import { generateAndStoreWeeklyReport, getReportRange } from "@/lib/weeklyReportServer";
 import { deliverWeeklyReport } from "@/lib/weeklyReportDelivery";
 import { lastCompletedReportRange, reportRangeOf } from "@/lib/weeklyReport";
-import { taipeiTodayIso } from "@/lib/timesheet";
+import { taipeiNowMinutes, taipeiTodayIso } from "@/lib/timesheet";
 
 /**
  * 產一份週報。
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     scope === "this"
       ? reportRangeOf(today, range).weekStart
       : scope === "last"
-        ? lastCompletedReportRange(today, range).weekStart
+        ? lastCompletedReportRange(today, range, taipeiNowMinutes()).weekStart
         : scope;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {

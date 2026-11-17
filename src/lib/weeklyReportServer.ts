@@ -69,10 +69,14 @@ const DM_ROLE_OF: Record<string, string> = {
   PM: "PM_DM",
 };
 
-/** 系統設定裡的週報範圍(從星期幾到星期幾)。 */
+/** 系統設定裡的週報範圍(從星期幾到星期幾)與一天結束的時間。 */
 export async function getReportRange(): Promise<ReportRangeConfig> {
   const settings = await getSystemSettings();
-  return { startDow: settings.weeklyReportRangeStartDow, endDow: settings.weeklyReportRangeEndDow };
+  return {
+    startDow: settings.weeklyReportRangeStartDow,
+    endDow: settings.weeklyReportRangeEndDow,
+    dayEndMinutes: settings.weeklyReportDayEndHour * 60 + settings.weeklyReportDayEndMinute,
+  };
 }
 
 /** weekStartIso 是範圍裡的任何一天,實際涵蓋的起訖照系統設定的週報範圍算。 */

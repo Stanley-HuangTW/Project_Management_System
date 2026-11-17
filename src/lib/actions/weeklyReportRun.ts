@@ -21,11 +21,17 @@ export async function runWeeklyReportNow(): Promise<{ error?: string; note?: str
   requireBoardAdmin(session.role);
 
   const settings = await getSystemSettings();
-  const todayIso = new Date(Date.now() + TAIPEI_OFFSET_MS).toISOString().slice(0, 10);
-  const { weekKey, target } = weeklyRunPlan(todayIso, {
-    startDow: settings.weeklyReportRangeStartDow,
-    endDow: settings.weeklyReportRangeEndDow,
-  });
+  const taipeiNow = new Date(Date.now() + TAIPEI_OFFSET_MS);
+  const todayIso = taipeiNow.toISOString().slice(0, 10);
+  const { weekKey, target } = weeklyRunPlan(
+    todayIso,
+    {
+      startDow: settings.weeklyReportRangeStartDow,
+      endDow: settings.weeklyReportRangeEndDow,
+      dayEndMinutes: settings.weeklyReportDayEndHour * 60 + settings.weeklyReportDayEndMinute,
+    },
+    taipeiNow.getUTCHours() * 60 + taipeiNow.getUTCMinutes()
+  );
 
   await prisma.systemSettings.upsert({
     where: { id: "global" },

@@ -110,6 +110,20 @@ describe("buildReminderMail", () => {
   });
 });
 
+describe("buildReminderMail:涵蓋的範圍要看一天結束時間", () => {
+  const base = { triggerAt: at("2026-11-16T16:00"), hours: 24, baseUrl: "https://pm.example.com" };
+
+  it("週一 16:00 產出、一天結束 17:00:這天還沒結束,涵蓋上一個範圍", () => {
+    const mail = buildReminderMail({ ...base, range: { startDow: 2, endDow: 1, dayEndMinutes: 17 * 60 } });
+    expect(mail.text).toContain("2026-11-03 ~ 2026-11-09");
+  });
+
+  it("一天結束設在 15:30:16:00 產出時已經結束,涵蓋到今天", () => {
+    const mail = buildReminderMail({ ...base, range: { startDow: 2, endDow: 1, dayEndMinutes: 15 * 60 + 30 } });
+    expect(mail.text).toContain("2026-11-10 ~ 2026-11-16");
+  });
+});
+
 describe("buildReminderMail with project names", () => {
   const base = { triggerAt: at("2026-10-26T16:00"), hours: 24, range: { startDow: 2, endDow: 1 }, baseUrl: "https://pm.example.com" };
 

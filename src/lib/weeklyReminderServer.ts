@@ -20,6 +20,8 @@ export type ReminderSettings = {
   weeklyReportMinute: number;
   weeklyReportRangeStartDow: number;
   weeklyReportRangeEndDow: number;
+  weeklyReportDayEndHour: number;
+  weeklyReportDayEndMinute: number;
   weeklyReportLastRunWeek: string | null;
   weeklyReportReminderHours: number;
   weeklyReportReminderLastWeek: string | null;
@@ -103,7 +105,11 @@ export async function sendWeeklyReportReminder(settings: ReminderSettings, now =
     const { subject, text } = buildReminderMail({
       triggerAt,
       hours,
-      range: { startDow: settings.weeklyReportRangeStartDow, endDow: settings.weeklyReportRangeEndDow },
+      range: {
+        startDow: settings.weeklyReportRangeStartDow,
+        endDow: settings.weeklyReportRangeEndDow,
+        dayEndMinutes: settings.weeklyReportDayEndHour * 60 + settings.weeklyReportDayEndMinute,
+      },
       baseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000",
       programNames,
     });

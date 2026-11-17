@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { getSystemSettings, listBomDefaultColumns, listDefaultBoardColumns } from "@/lib/actions/systemSettings";
 import { listHolidays } from "@/lib/holidays";
+import { taipeiTodayIso } from "@/lib/timesheet";
 import { getWorkloadThreshold } from "@/lib/actions/workloadThreshold";
 import { listPrograms, type ProgramRow } from "@/lib/actions/program";
 import { listProgramReportSubscriptions } from "@/lib/actions/programReportSubscription";
@@ -106,8 +107,11 @@ export default async function SettingsPage() {
           minute: settings.weeklyReportMinute,
           rangeStartDow: settings.weeklyReportRangeStartDow,
           rangeEndDow: settings.weeklyReportRangeEndDow,
+          dayEndHour: settings.weeklyReportDayEndHour,
+          dayEndMinute: settings.weeklyReportDayEndMinute,
           reminderHours: settings.weeklyReportReminderHours,
         }}
+        todayIso={taipeiTodayIso()}
         weeklyReportLastRun={
           settings.weeklyReportLastRunAt && settings.weeklyReportLastRunNote
             ? { at: settings.weeklyReportLastRunAt.toISOString(), note: settings.weeklyReportLastRunNote }
