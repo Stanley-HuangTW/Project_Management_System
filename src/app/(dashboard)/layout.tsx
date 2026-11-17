@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
+import { postLoginPath, systemAccess } from "@/lib/issueAccess";
 import { requireSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { accessibleBoardWhere } from "@/lib/boardAccess";
@@ -26,8 +28,11 @@ export default async function DashboardLayout({
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, programId: true, ownerId: true },
     }),
-    prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true, boardOrder: true, programOrder: true } }),
+    prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true, boardOrder: true, programOrder: true, pmAccess: true, issueRole: true } }),
   ]);
+  // 沒有專案管理系統的使用權限:送去他能去的地方(直接輸入網址也進不來)。
+  const access = currentUser ? systemAccess({ role: session.role, pmAccess: currentUser.pmAccess, issueRole: currentUser.issueRole }) : { pm: false, issues: false };
+  if (!access.pm) redirect(postLoginPath(access));
   // 側邊欄的順序是這個人自己排的(沒排過的照建立時間)。
   const boards = applyStoredOrder(boardRows, currentUser?.boardOrder ?? []);
 
@@ -81,6 +86,7 @@ export default async function DashboardLayout({
           avatarUrl={currentUser?.avatarUrl}
           impersonating={!!session.impersonatorId}
           feedbackOpen={feedbackOpen}
+          canSwitchToIssues={access.issues}
         />
         {/* pt-12 clears the fixed mobile bar the sidebar renders below md. */}
         <div className="flex-1 overflow-auto bg-neutral-50 dark:bg-neutral-800 pt-12 md:pt-0">{children}</div>

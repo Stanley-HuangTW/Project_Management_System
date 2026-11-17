@@ -76,6 +76,8 @@ export default async function SettingsPage() {
         emailNotificationsEnabled={settings.emailNotificationsEnabled}
         enabledNotificationTypes={settings.enabledNotificationTypes}
         ganttDurationMode={settings.ganttDurationMode}
+        issueDayMode={settings.issueDayMode}
+        issueEmailNotify={settings.issueEmailNotify}
         hoursPerDay={settings.hoursPerDay}
         workingDaysPerMonth={settings.workingDaysPerMonth}
         ownerDefaultAllocationPct={settings.ownerDefaultAllocationPct}

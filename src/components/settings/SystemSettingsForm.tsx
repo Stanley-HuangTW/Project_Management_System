@@ -34,6 +34,7 @@ import { ProgramReportSubscriptionCard } from "./ProgramReportSubscriptionCard";
 import { WeeklyReportScheduleCard } from "./WeeklyReportScheduleCard";
 import { BackupSettingsCard } from "./BackupSettingsCard";
 import { DiskUsageCard } from "./DiskUsageCard";
+import { IssueSettingsCard } from "./IssueSettingsCard";
 import { TimeCategoryCard } from "./TimeCategoryCard";
 import type { BackupScheduleInput } from "@/lib/actions/backup";
 import { ExchangeRateCard } from "./ExchangeRateCard";
@@ -515,6 +516,8 @@ export function SystemSettingsForm({
   emailNotificationsEnabled,
   enabledNotificationTypes,
   ganttDurationMode,
+  issueDayMode,
+  issueEmailNotify,
   hoursPerDay,
   workingDaysPerMonth,
   ownerDefaultAllocationPct,
@@ -552,6 +555,8 @@ export function SystemSettingsForm({
   emailNotificationsEnabled: boolean;
   enabledNotificationTypes: NotificationType[];
   ganttDurationMode: GanttDurationMode;
+  issueDayMode: "WORKDAY" | "CALENDAR";
+  issueEmailNotify: boolean;
   hoursPerDay: number;
   workingDaysPerMonth: number;
   ownerDefaultAllocationPct: number;
@@ -599,6 +604,7 @@ export function SystemSettingsForm({
           <EmailNotificationsCard initial={emailNotificationsEnabled} />
           <NotificationTypesCard initial={enabledNotificationTypes} />
           <GanttModeCard initial={ganttDurationMode} />
+          <IssueSettingsCard dayMode={issueDayMode} emailNotify={issueEmailNotify} />
           <HoursPerDayCard initial={hoursPerDay} />
           <OwnerDefaultAllocationCard initial={ownerDefaultAllocationPct} />
           <TimeCategoryCard />

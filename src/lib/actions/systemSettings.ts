@@ -33,6 +33,8 @@ export async function getSystemSettings() {
     predReadyColor: "#00c875",
     predWaitingColor: "#fdab3d",
     predBlockedColor: "#e2445c",
+    issueDayMode: "WORKDAY" as const,
+    issueEmailNotify: false,
     hoursPerDay: 8,
     workingDaysPerMonth: 21,
     ownerDefaultAllocationPct: 2,

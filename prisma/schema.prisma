@@ -128,6 +128,16 @@ model User {
   approvalSteps ApprovalStep[] @relation("ApprovalStepApprover")
   orgRoles      OrgRole[]      @relation("OrgRoleUser")
 
+  /// 可不可以進「專案管理系統」。預設可以(既有使用者行為不變);管理者一律可以進兩個系統。
+  pmAccess      Boolean        @default(true)
+  /// 在 ISSUE TRACKER 的角色。null = 不能進 ISSUE TRACKER;管理者(ADMIN)不需要設定,一律等同管理者。
+  issueRole     IssueRole?
+  issuesReported   IssueCase[]       @relation("IssueReporter")
+  issuesConfirmed  IssueCase[]       @relation("IssueConfirmer")
+  issueAssignments IssueAssignee[]
+  issueLogs        IssueLog[]
+  issueAttachments IssueAttachment[]
+
   ownedBoards             Board[]
   comments                Comment[]
   notifications           Notification[]
@@ -1252,6 +1262,10 @@ model SystemSettings {
   /// 這些組織(組織架構圖的部門)的主管,對所有看板都看得到預算金額。空 = 沒有人靠這條路看。
   budgetViewOrgNodeIds      String[]           @default([])
   timesheetApprovalLevels   Int                @default(1)
+  /// ISSUE TRACKER 的「處理天數」怎麼算:工作天(排除週六日與公司假日)或日曆天。
+  issueDayMode              IssueDayMode       @default(WORKDAY)
+  /// 案件指派給人時,除了站內通知要不要另外寄 email(還要 SMTP 有設定、對方沒關掉才會寄)。
+  issueEmailNotify          Boolean            @default(false)
   updatedAt                 DateTime           @updatedAt
 }
 
@@ -2499,4 +2513,223 @@ model UserFeedback {
 
   @@index([status, createdAt])
   @@index([userId])
+}
+
+
+// ─────────────────────────── ISSUE TRACKER ───────────────────────────
+// 客服維修紀錄(原本是 Google Sheet「客服維修紀錄_TW」)。跟專案管理系統共用帳號與網址,
+// 但資料表獨立:案件、選項(原 _mgt 分頁)、進度時間軸、附件。
+
+enum IssueRole {
+  /// 回報人:新增案件、編輯自己回報且尚未確認的案件。
+  REPORTER
+  /// 處理人:加上編輯指派給自己或自己所在處理單位的案件。
+  HANDLER
+  /// 管理者:全部案件、指派、確認、刪除、管理選項。
+  MANAGER
+}
+
+enum IssueKind {
+  REPAIR
+  ISSUE
+}
+
+/// OPEN 處理中;TC = 暫時解決(Temporary Close);PC = 永久解決(Permanent Close);NA 不適用。
+enum IssueStatus {
+  OPEN
+  TC
+  PC
+  NA
+}
+
+enum IssuePriority {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum IssueDayMode {
+  WORKDAY
+  CALENDAR
+}
+
+/// 原 _mgt 分頁的各欄下拉選項。
+enum IssueOptionKind {
+  CUSTOMER
+  PRODUCT
+  REGION
+  CUSTOMER_TYPE
+  WARRANTY
+  ERROR_TYPE
+  PART
+  HANDLER_UNIT
+}
+
+enum IssueLogKind {
+  /// 回應 / 原因分析(原 Response 欄)
+  RESPONSE
+  /// 處理安排(原「安排」欄)
+  ARRANGEMENT
+  SOLUTION
+  NOTE
+}
+
+model IssueOption {
+  id        String          @id @default(cuid())
+  kind      IssueOptionKind
+  name      String
+  /// 零件的簡稱(原 _mgt 的 Column 8),統整頁拿來分類。
+  shortName String?
+  /// 客戶的預設地區與客戶型態。
+  defaultRegionId String?
+  defaultRegion   IssueOption?  @relation("IssueOptionRegion", fields: [defaultRegionId], references: [id], onDelete: SetNull)
+  customerTypeId  String?
+  customerType    IssueOption?  @relation("IssueOptionCustomerType", fields: [customerTypeId], references: [id], onDelete: SetNull)
+  regionOf        IssueOption[] @relation("IssueOptionRegion")
+  customerTypeOf  IssueOption[] @relation("IssueOptionCustomerType")
+  order     Int             @default(0)
+  /// 用過的選項只能停用不能刪;停用後新案件的下拉看不到,舊案件照常顯示。
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+
+  customerCases  IssueCase[]     @relation("IssueCustomer")
+  productCases   IssueCase[]     @relation("IssueProduct")
+  regionCases    IssueCase[]     @relation("IssueRegion")
+  warrantyCases  IssueCase[]     @relation("IssueWarranty")
+  errorTypeCases IssueCase[]     @relation("IssueErrorType")
+  partUses       IssueCasePart[]
+  unitUses       IssueCaseUnit[]
+
+  @@unique([kind, name])
+  @@index([kind, order])
+}
+
+model IssueCase {
+  id          String        @id @default(cuid())
+  /// CS + 發生日期(yyyymmdd) + - + 當月流水號(至少 3 位)。建立後固定,資料庫層唯一。
+  caseNo      String        @unique
+  kind        IssueKind     @default(ISSUE)
+  priority    IssuePriority @default(P2)
+  customerId  String?
+  customer    IssueOption?  @relation("IssueCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  productId   String?
+  product     IssueOption?  @relation("IssueProduct", fields: [productId], references: [id], onDelete: Restrict)
+  regionId    String?
+  region      IssueOption?  @relation("IssueRegion", fields: [regionId], references: [id], onDelete: Restrict)
+  /// 發生日期 / 結案日期:只有日期,存 "YYYY-MM-DD"(跟專案管理系統其他日期欄位一致,避免時區位移)。
+  issueDate   String
+  serialNo    String?
+  qrCode      String?
+  description String        @default("")
+  behavior    String        @default("")
+  warrantyId  String?
+  warranty    IssueOption?  @relation("IssueWarranty", fields: [warrantyId], references: [id], onDelete: Restrict)
+  status      IssueStatus   @default(OPEN)
+  closeDate   String?
+  /// 機器端的計數器(不是處理時間):刀盤升降次數、割草時數、行走時數。
+  deckCount   Int?
+  cutHours    Decimal?      @db.Decimal(10, 2)
+  wheelHours  Decimal?      @db.Decimal(10, 2)
+  errorTypeId String?
+  errorType   IssueOption?  @relation("IssueErrorType", fields: [errorTypeId], references: [id], onDelete: Restrict)
+  rma             Boolean   @default(false)
+  rmaCuttingDisk  Boolean   @default(false)
+  repairOrderNo   String?
+  reporterId  String?
+  reporter    User?         @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  /// 第一次有人回應的時間(時間軸第一筆「回應」自動記),算首次回覆時間用。
+  firstResponseAt DateTime?
+  /// 有人確認案件已完成就鎖定;只有管理者可以解除。
+  confirmedAt   DateTime?
+  confirmedById String?
+  confirmedBy   User?       @relation("IssueConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  deletedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  assignees   IssueAssignee[]
+  units       IssueCaseUnit[]
+  parts       IssueCasePart[]
+  logs        IssueLog[]
+  attachments IssueAttachment[]
+
+  @@index([issueDate])
+  @@index([status])
+  @@index([productId])
+  @@index([errorTypeId])
+  @@index([customerId])
+  @@index([deletedAt])
+}
+
+/// 負責人(可多人)。
+model IssueAssignee {
+  caseId String
+  case   IssueCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId String
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([caseId, userId])
+  @@index([userId])
+}
+
+/// 處理單位(可多個)。
+model IssueCaseUnit {
+  caseId   String
+  case     IssueCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  optionId String
+  option   IssueOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@id([caseId, optionId])
+}
+
+/// 更換的重要零件(原本「更換重要零件 1–7」,現在不限數量)。
+model IssueCasePart {
+  id     String      @id @default(cuid())
+  caseId String
+  case   IssueCase   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  partId String
+  part   IssueOption @relation(fields: [partId], references: [id], onDelete: Restrict)
+  order  Int         @default(0)
+
+  @@index([caseId])
+  @@index([partId])
+}
+
+/// 進度時間軸:回應 / 處理安排 / 解決方案 / 備註,誰在什麼時候寫的。
+model IssueLog {
+  id        String       @id @default(cuid())
+  caseId    String
+  case      IssueCase    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind      IssueLogKind
+  content   String
+  /// 內部備註(true)或之後要給客戶看的回覆(false)。目前沒有客戶入口,全部是內部。
+  internal  Boolean      @default(true)
+  authorId  String?
+  author    User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt DateTime     @default(now())
+
+  @@index([caseId, createdAt])
+}
+
+/// 附件:上傳的檔案(url 是 /uploads/issues/…,走 /api/issue-attachments/<id> 下載)或外部連結(isLink,url 是完整網址)。
+model IssueAttachment {
+  id         String    @id @default(cuid())
+  caseId     String
+  case       IssueCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fileName   String
+  url        String
+  size       Int       @default(0)
+  isLink     Boolean   @default(false)
+  uploaderId String?
+  uploader   User?     @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+
+  @@index([caseId])
+}
+
+/// Case No 的流水號:一個月一列,新增案件時原子加一(INSERT … ON CONFLICT DO UPDATE … RETURNING),並發不會拿到同一號。
+model IssueCaseCounter {
+  period String @id
+  last   Int    @default(0)
 }

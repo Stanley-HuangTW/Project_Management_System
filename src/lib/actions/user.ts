@@ -10,6 +10,9 @@ import { requireSession } from "@/lib/session";
 import { resyncBoardLabour } from "@/lib/actions/labourSheet";
 import { Prisma, type UserRole } from "@prisma/client";
 import { UserError } from "@/lib/userError";
+import { ISSUE_ROLE_LABELS, type IssueRole } from "@/lib/issueAccess";
+
+const ISSUE_ROLES: IssueRole[] = ["REPORTER", "HANDLER", "MANAGER"];
 
 export async function listUsers() {
   await requireSession();
@@ -30,6 +33,8 @@ export async function listUsers() {
       monthlySalary: true,
       canViewAllTimesheets: true,
       timesheetNoApproval: true,
+      pmAccess: true,
+      issueRole: true,
     },
     orderBy: { order: "asc" },
   });
@@ -121,6 +126,28 @@ export async function updateUserTimesheetNoApproval(userId: string, noApproval: 
   revalidatePath("/users");
   revalidatePath("/approvals");
   revalidatePath("/timesheet");
+}
+
+/**
+ * 設定某個人能進哪個系統:專案管理系統(pmAccess)與 ISSUE TRACKER(issueRole:null = 不能進)。
+ * 管理者(ADMIN)兩邊一律可進,這裡的設定對他沒有作用。
+ */
+export async function updateUserSystemAccess(userId: string, pmAccess: boolean, issueRole: IssueRole | null) {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") {
+    throw new UserError("只有管理員可以設定系統使用權限");
+  }
+  if (issueRole !== null && !ISSUE_ROLES.includes(issueRole)) throw new UserError("ISSUE TRACKER 角色不正確");
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
+  if (!target) throw new UserError("找不到使用者");
+
+  await prisma.user.update({ where: { id: userId }, data: { pmAccess, issueRole } });
+  await logAudit(
+    "ACCESS",
+    session.userId,
+    `${target.name} 的系統權限:專案管理系統${pmAccess ? "可進" : "不可進"}、ISSUE TRACKER ${issueRole ? ISSUE_ROLE_LABELS[issueRole] : "不可進"}`
+  );
+  revalidatePath("/users");
 }
 
 /** 這個人被指到的人力表名額所在的看板。他的月薪(或他這個人)一變,那些看板的人力預算要重算。 */

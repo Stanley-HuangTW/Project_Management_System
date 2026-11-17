@@ -90,6 +90,7 @@ export function BoardSidebar({
   avatarUrl,
   impersonating = false,
   feedbackOpen = 0,
+  canSwitchToIssues = false,
 }: {
   boards: Board[];
   programs: Program[];
@@ -108,6 +109,8 @@ export function BoardSidebar({
   impersonating?: boolean;
   /** 管理者:還沒處理的使用者回報有幾則。 */
   feedbackOpen?: number;
+  /** 也能進 ISSUE TRACKER:使用者選單多一個「切換到 ISSUE TRACKER」。 */
+  canSwitchToIssues?: boolean;
 }) {
   const { unread: chatUnread } = useChat();
   const canManage = canManageBoard(userRole);
@@ -713,6 +716,15 @@ export function BoardSidebar({
           </button>
           <NotificationBell />
         </div>
+        {canSwitchToIssues && (
+          <Link
+            href="/issues"
+            data-testid="switch-to-issues"
+            className="mb-2 flex items-center gap-1.5 rounded px-1 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          >
+            <LifeBuoy size={13} /> 切換到 ISSUE TRACKER
+          </Link>
+        )}
         <form action={logout}>
           <button
             type="submit"

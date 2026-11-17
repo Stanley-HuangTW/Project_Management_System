@@ -36,10 +36,12 @@ import {
   updateUserMonthlySalary,
   updateUserTimesheetAccess,
   updateUserTimesheetNoApproval,
+  updateUserSystemAccess,
   adminResetUserPassword,
   unlockUser,
 } from "@/lib/actions/user";
 import type { UserRole } from "@prisma/client";
+import { ISSUE_ROLE_LABELS, type IssueRole } from "@/lib/issueAccess";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { flattenOrgForest, unitCodesFromOrg, type OrgNodeLite } from "@/lib/orgTree";
 import { setUserOrgNode } from "@/lib/actions/orgChart";
@@ -389,6 +391,8 @@ export function UserManagement({
   const [editSupervisorId, setEditSupervisorId] = useState("");
   const [editCanViewAll, setEditCanViewAll] = useState(false);
   const [editNoApproval, setEditNoApproval] = useState(false);
+  const [editPmAccess, setEditPmAccess] = useState(true);
+  const [editIssueRole, setEditIssueRole] = useState<IssueRole | "">("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -488,6 +492,8 @@ export function UserManagement({
     setEditSupervisorId(user.supervisorId ?? "");
     setEditCanViewAll(user.canViewAllTimesheets);
     setEditNoApproval(user.timesheetNoApproval);
+    setEditPmAccess(user.pmAccess);
+    setEditIssueRole(user.issueRole ?? "");
     setEditError(null);
   }
 
@@ -508,6 +514,9 @@ export function UserManagement({
       }
       if (editNoApproval !== editTarget.timesheetNoApproval) {
         await updateUserTimesheetNoApproval(editTarget.id, editNoApproval);
+      }
+      if (editPmAccess !== editTarget.pmAccess || (editIssueRole || null) !== editTarget.issueRole) {
+        await updateUserSystemAccess(editTarget.id, editPmAccess, editIssueRole || null);
       }
       setEditTarget(null);
     } catch (err) {
@@ -776,6 +785,34 @@ export function UserManagement({
             emptyLabel="所屬主管(未設定)"
             className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-blue-500"
           />
+          {editRole === "ADMIN" ? (
+            <p className="rounded-md bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-xs text-neutral-500 dark:text-neutral-400">
+              管理者兩個系統(專案管理系統、ISSUE TRACKER)都可以進,在 ISSUE TRACKER 裡等同管理者。
+            </p>
+          ) : (
+            <div className="space-y-2 rounded-md border border-neutral-200 dark:border-neutral-700 px-3 py-2" data-testid="system-access">
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">可以使用的系統</div>
+              <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+                <input type="checkbox" checked={editPmAccess} onChange={(e) => setEditPmAccess(e.target.checked)} />
+                專案管理系統
+              </label>
+              <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+                ISSUE TRACKER
+                <select
+                  value={editIssueRole}
+                  onChange={(e) => setEditIssueRole(e.target.value as IssueRole | "")}
+                  className="rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="">不可進入</option>
+                  {(Object.keys(ISSUE_ROLE_LABELS) as IssueRole[]).map((r) => (
+                    <option key={r} value={r}>
+                      {ISSUE_ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
           <label className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">
             <input
               type="checkbox"

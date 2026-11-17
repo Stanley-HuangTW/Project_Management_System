@@ -67,7 +67,8 @@ export async function login(
     role: user.role,
   });
 
-  redirect(safeNextPath(formData.get("next")));
+  // 沒帶 next 就回根網址:由它依能進的系統決定去選擇頁、看板或 ISSUE TRACKER。
+  redirect(safeNextPath(formData.get("next"), "/"));
 }
 
 export async function logout() {
