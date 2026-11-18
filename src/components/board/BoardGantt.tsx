@@ -2027,6 +2027,7 @@ export function BoardGantt({
         <div className="mt-2">
           <BulkStructureBar
             board={board}
+            users={users}
             selectedIds={liveSelectedIds}
             canCopyMove={
               canManageStructure(userRole) || [...myGroupAccessByGroupId.values()].some((a) => a.disciplines.size > 0)

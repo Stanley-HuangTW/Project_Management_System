@@ -8,10 +8,11 @@ import { bulkCopyItems, bulkMoveItems, bulkReplaceItemNames } from "@/lib/action
 import { bulkCopyItemsAcross, bulkMoveItemsAcross } from "@/lib/actions/bulkCrossBoard";
 import { deleteItem, previewItemDeletion, type DeletionDependent, type DeletionImpact } from "@/lib/actions/item";
 import { collapseToRoots, subtreeIdsOf } from "@/lib/bulkStructure";
-import type { BoardWithData } from "@/types/board";
+import type { BoardWithData, UserOption } from "@/types/board";
 import { BulkRenameDialog } from "./BulkRenameDialog";
 import { BulkTargetDialog, type BulkTarget } from "./BulkTargetDialog";
-import { BulkStatusSelects, useBulkRun } from "./BulkEditBar";
+import { BulkPersonSelects, BulkStatusSelects, useBulkRun } from "./BulkEditBar";
+import { BulkAssignActions } from "./BulkAssignDialogs";
 import { knownErrorMessage } from "@/lib/userError";
 
 const MAX_LISTED = 12;
@@ -257,6 +258,7 @@ export function BulkStructureActions({
 /** 甘特圖用的選取列(表格視圖沿用批次編輯列,把上面的按鈕塞進去)。 */
 export function BulkStructureBar({
   board,
+  users,
   selectedIds,
   canCopyMove,
   canDelete,
@@ -265,6 +267,7 @@ export function BulkStructureBar({
   dependencyLoading = false,
 }: {
   board: BoardWithData;
+  users: UserOption[];
   selectedIds: Set<string>;
   canCopyMove: boolean;
   canDelete: boolean;
@@ -295,6 +298,16 @@ export function BulkStructureBar({
       )}
       {/* 跟表格的批次編輯列一樣:一次把勾選的項目某個狀態欄(Status、Priority…)都改成同一個值。 */}
       <BulkStatusSelects boardId={board.id} columns={board.columns} ids={[...selectedIds]} busy={busy} run={run} />
+      {/* 負責人(人員欄)、人員分配、使用樣機:一樣是逐項檢查權限,沒權限的略過並說明。 */}
+      <BulkPersonSelects
+        boardId={board.id}
+        columns={board.columns}
+        users={users}
+        ids={[...selectedIds]}
+        busy={busy}
+        run={run}
+      />
+      <BulkAssignActions boardId={board.id} users={users} ids={[...selectedIds]} busy={busy} run={run} />
       <BulkStructureActions
         board={board}
         selectedIds={selectedIds}

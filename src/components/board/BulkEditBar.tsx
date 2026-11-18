@@ -9,6 +9,7 @@ import { bulkSetCellValue, bulkShiftDates } from "@/lib/actions/bulk";
 import { getStatusOptions } from "@/types/column";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import { BulkAssignActions } from "./BulkAssignDialogs";
 
 /** 批次下拉 / 輸入框的外觀(表格的批次編輯列與甘特圖的選取列共用)。 */
 export const bulkSelectClass =
@@ -84,6 +85,47 @@ export function BulkStatusSelects({
   );
 }
 
+/** 每個「人員」欄(負責人…)一個下拉:選了就把勾選的項目都設成那個人,「— 清除 —」清空。 */
+export function BulkPersonSelects({
+  boardId,
+  columns,
+  users,
+  ids,
+  busy,
+  run,
+}: {
+  boardId: string;
+  columns: ColumnData[];
+  users: UserOption[];
+  ids: string[];
+  busy: boolean;
+  run: (label: string, action: () => Promise<{ applied: number; skipped: string[] }>) => Promise<void>;
+}) {
+  return (
+    <>
+      {columns
+        .filter((c) => c.type === "PERSON")
+        .map((column) => (
+          <UserSelect
+            key={column.id}
+            users={users}
+            disabled={busy}
+            extraOptions={[{ value: "__clear__", label: "— 清除 —" }]}
+            value=""
+            placeholder={`設定${column.name}...`}
+            onChange={(value) => {
+              if (!value) return;
+              run(`批次設定「${column.name}」`, () =>
+                bulkSetCellValue(boardId, ids, column.id, value === "__clear__" ? null : value)
+              );
+            }}
+            className={bulkSelectClass}
+          />
+        ))}
+    </>
+  );
+}
+
 /**
  * The bar that appears once rows are ticked. Everything here is something you
  * would otherwise do one cell at a time down a few hundred rows — a status
@@ -111,7 +153,6 @@ export function BulkEditBar({
   const [shiftDays, setShiftDays] = useState("7");
 
   const ids = [...selectedIds];
-  const personColumns = columns.filter((c) => c.type === "PERSON");
 
   async function handleShift() {
     const days = Number(shiftDays);
@@ -127,31 +168,14 @@ export function BulkEditBar({
     await run("批次推移時程", () => bulkShiftDates(boardId, ids, days));
   }
 
-  const selectClass = bulkSelectClass;
-
   return (
     <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 px-3 py-2 text-xs">
       <span className="font-medium text-blue-800 dark:text-blue-200">已選 {ids.length} 項</span>
 
       <BulkStatusSelects boardId={boardId} columns={columns} ids={ids} busy={busy} run={run} />
 
-      {personColumns.map((column) => (
-        <UserSelect
-          key={column.id}
-          users={users}
-          disabled={busy}
-          extraOptions={[{ value: "__clear__", label: "— 清除 —" }]}
-          value=""
-          placeholder={`設定${column.name}...`}
-          onChange={(value) => {
-            if (!value) return;
-            run(`批次設定「${column.name}」`, () =>
-              bulkSetCellValue(boardId, ids, column.id, value === "__clear__" ? null : value)
-            );
-          }}
-          className={selectClass}
-        />
-      ))}
+      <BulkPersonSelects boardId={boardId} columns={columns} users={users} ids={ids} busy={busy} run={run} />
+      <BulkAssignActions boardId={boardId} users={users} ids={ids} busy={busy} run={run} />
 
       <span className="ml-1 text-blue-800 dark:text-blue-200">推移</span>
       <input
