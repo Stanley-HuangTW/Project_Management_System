@@ -21,6 +21,14 @@ import { loadItemDetailContext, type ItemDetailContext } from "@/lib/actions/ite
 import { ItemDetailModal } from "@/components/board/ItemDetailModal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { actionErrorMessage } from "@/lib/userError";
+import {
+  EMPTY_PROGRAM_FILTER,
+  computeProgramVisibleIds,
+  isProgramFilterActive,
+  parseStoredProgramFilter,
+  type ProgramFilter,
+} from "@/lib/programFilter";
+import { ProgramFilterMenu } from "./ProgramFilterMenu";
 
 type Zoom = "day" | "week" | "month";
 const ZOOM_DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 9, month: 3 };
@@ -82,6 +90,28 @@ export function ProgramGantt({
   const [scalePct, setScalePct] = useState(100);
   const [boardFilterId, setBoardFilterId] = useState("");
   const [groupFilterId, setGroupFilterId] = useState("");
+  /** 依欄位值篩選(類型、狀態、優先級、負責人)。記在瀏覽器裡、每個群組各一份 ——
+   *  重新整理或切到預算分頁再回來,不用重選。 */
+  const filterStorageKey = `programGanttFilter:${view.id}`;
+  const [taskFilter, setTaskFilter] = useState<ProgramFilter>(EMPTY_PROGRAM_FILTER);
+  useEffect(() => {
+    try {
+      // 伺服器端渲染時讀不到 localStorage,先用空篩選(跟伺服器畫出來的一致),
+      // 掛載之後再補上記住的值,避免 hydration 對不上。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTaskFilter(parseStoredProgramFilter(localStorage.getItem(filterStorageKey)));
+    } catch {
+      // localStorage 不能用(私密模式等)—— 篩選照常運作,只是不會記住。
+    }
+  }, [filterStorageKey]);
+  function changeTaskFilter(next: ProgramFilter) {
+    setTaskFilter(next);
+    try {
+      localStorage.setItem(filterStorageKey, JSON.stringify(next));
+    } catch {
+      // 同上。
+    }
+  }
   const [isFullscreen, setIsFullscreen] = useState(false);
   const { notify } = useDialogs();
   const [itemDetail, setItemDetail] = useState<ItemDetailContext | null>(null);
@@ -187,6 +217,14 @@ export function ProgramGantt({
     });
   }
 
+  /** 欄位篩選留下的列(連同上層);沒有篩選是 null。只影響畫面上列出哪些,
+   *  排程與要徑都還是用全部工作項算的。 */
+  const filteredIds = useMemo(
+    () => computeProgramVisibleIds(view.tasks, taskFilter),
+    [view.tasks, taskFilter]
+  );
+  const taskFilterActive = isProgramFilterActive(taskFilter);
+
   const rows = useMemo(() => {
     const out: Row[] = [];
     for (const board of view.boards) {
@@ -197,10 +235,11 @@ export function ProgramGantt({
           t.boardId === board.id &&
           (!groupFilterId || t.groupId === groupFilterId) &&
           !hidden.has(t.id) &&
+          (!filteredIds || filteredIds.has(t.id)) &&
           (!onlyCritical || t.isCritical || t.isSummary)
       );
       // 篩掉之後整塊看板都空了就連標題一起收掉,不留一排只有名字的殼。
-      if (tasks.length === 0 && (boardFilterId || groupFilterId)) continue;
+      if (tasks.length === 0 && (boardFilterId || groupFilterId || taskFilterActive)) continue;
       if (onlyCritical && tasks.every((t) => t.isSummary)) continue;
       out.push({
         kind: "board",
@@ -228,7 +267,17 @@ export function ProgramGantt({
       }
     }
     return out;
-  }, [view.boards, view.tasks, colorOfBoard, onlyCritical, hidden, boardFilterId, groupFilterId]);
+  }, [
+    view.boards,
+    view.tasks,
+    colorOfBoard,
+    onlyCritical,
+    hidden,
+    boardFilterId,
+    groupFilterId,
+    filteredIds,
+    taskFilterActive,
+  ]);
 
   /** 分組下拉的選項。選了看板就只列那塊看板的分組 —— 別塊的分組選了也篩不
    *  出東西。同名不同塊的分組是不同的分組,所以用 id 當鍵。 */
@@ -434,6 +483,7 @@ export function ProgramGantt({
         >
           <ChevronDown size={12} /> 全部展開
         </button>
+        <ProgramFilterMenu tasks={view.tasks} filter={taskFilter} onChange={changeTaskFilter} />
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-neutral-500 dark:text-neutral-400">看板</span>
           <select

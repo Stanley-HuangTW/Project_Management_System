@@ -41,6 +41,9 @@ export type ProgramTask = {
   end: string | null;
   isSummary: boolean;
   isMilestone: boolean;
+  /** 類型欄目前的選項標籤(Task / Summary / Milestone…)。欄位沒綁定或沒選值是 null。
+   *  isSummary 是「有沒有子項」,這個是使用者填的類型 —— 兩件事,篩選用這個。 */
+  type: string | null;
   assigneeNames: string[];
   /** 指派到誰。週報要靠 id 對上部門名冊 —— 名字會重複,而且會改。 */
   assigneeIds: string[];
@@ -218,7 +221,8 @@ export async function getProgramView(
       const typeValue = board.typeColumnId
         ? item.cellValues.find((cv) => cv.columnId === board.typeColumnId)?.value
         : undefined;
-      const isMilestone = typeOptions.find((o) => o.id === typeValue)?.label === "Milestone";
+      const typeLabel = typeOptions.find((o) => o.id === typeValue)?.label ?? null;
+      const isMilestone = typeLabel === "Milestone";
 
       const priorityValue = board.priorityColumnId
         ? item.cellValues.find((cv) => cv.columnId === board.priorityColumnId)?.value
@@ -261,6 +265,7 @@ export async function getProgramView(
         end: range ? iso(isMilestone ? range.start : range.end) : null,
         isSummary: hasChildren.has(item.id),
         isMilestone,
+        type: typeLabel,
         assigneeNames: item.assignments.map((a) => a.user.name),
         assigneeIds: item.assignments.map((a) => a.user.id),
         status: statusLabelOf(board, item),
