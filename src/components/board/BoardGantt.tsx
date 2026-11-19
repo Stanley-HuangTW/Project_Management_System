@@ -2813,7 +2813,9 @@ function GanttBar({
         )}
         {isMilestone ? (
           <div className="flex h-full w-full items-center justify-center">
-            <Star size={16} className="fill-amber-400 text-amber-500" />
+            {/* shrink-0:月刻度下一天只有 3px 寬,flex 會把 svg 一起壓扁;
+                溢出的部分由 overflow-visible 露出來,圖示維持原大小。 */}
+            <Star size={16} className="shrink-0 fill-amber-400 text-amber-500" />
           </div>
         ) : item.assignments.length === 0 ? (
           <div className="h-full w-full bg-neutral-300" />

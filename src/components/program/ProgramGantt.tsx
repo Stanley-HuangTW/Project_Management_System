@@ -775,8 +775,8 @@ function TaskRow({
         {startIndex !== undefined && endIndex !== undefined && (
           <div
             className={`absolute top-1/2 flex -translate-y-1/2 items-center rounded ${
-              isCritical ? "ring-2 ring-amber-400" : ""
-            }`}
+              task.isMilestone ? "justify-center" : ""
+            } ${isCritical ? "ring-2 ring-amber-400" : ""}`}
             style={{
               left: startIndex * dayWidth,
               width: Math.max((endIndex - startIndex + 1) * dayWidth, 4),
@@ -789,7 +789,7 @@ function TaskRow({
             }`}
           >
             {task.isMilestone ? (
-              <Star size={14} className="fill-amber-400 text-amber-500" />
+              <Star size={14} className="shrink-0 fill-amber-400 text-amber-500" />
             ) : (
               isCritical && (
                 <span className="ml-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-black">
