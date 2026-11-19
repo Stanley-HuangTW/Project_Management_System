@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { buildHeaderSegmentsUtc } from "@/lib/ganttHeaderUtc";
 import Link from "next/link";
 import {
   Zap,
@@ -36,10 +37,6 @@ const BOARD_COLORS = ["#579bfc", "#00c875", "#a25ddc", "#fdab3d", "#ff642e", "#0
 
 function toIso(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-function formatDay(date: Date): string {
-  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 function isWeekend(date: Date): boolean {
@@ -128,6 +125,8 @@ export function ProgramGantt({
     }
     return out;
   }, [view.startDate, view.finishDate]);
+
+  const headerSegments = useMemo(() => buildHeaderSegmentsUtc(days, zoom), [days, zoom]);
 
   const dayIndexByIso = useMemo(() => {
     const map = new Map<string, number>();
@@ -532,30 +531,24 @@ export function ProgramGantt({
                 工作項
               </div>
               <div className="relative flex" style={{ width: timelineWidth }}>
-                {days.map((d) => {
-                  const isoDate = toIso(d);
-                  const off = isWeekend(d) || holidaySet.has(isoDate);
-                  // At week/month zoom a per-day label is unreadable, so only
-                  // the first day of each bucket carries one.
-                  const label =
-                    zoom === "day"
-                      ? formatDay(d)
-                      : zoom === "week"
-                        ? d.getUTCDay() === 1
-                          ? formatDay(d)
-                          : ""
-                        : d.getUTCDate() === 1
-                          ? `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}`
-                          : "";
+                {headerSegments.map((seg) => {
+                  // 日刻度一天一格,週末與假日上色;週、月刻度一格涵蓋好幾天(一週 / 一個月),
+                  // 標籤寫在那一格裡——一天只有 9px、3px 寬,一天一格的話標籤塞不下、溢出疊在一起。
+                  const date = zoom === "day" ? new Date(`${seg.key}T00:00:00.000Z`) : null;
+                  const off = !!date && (isWeekend(date) || holidaySet.has(seg.key));
+                  // 期間頭尾常常只涵蓋幾天,格子比標籤還窄:不寫標籤(滑過去有說明),免得截斷、疊在一起。
+                  const fits = zoom === "day" || seg.days * dayWidth >= (zoom === "week" ? 30 : 40);
                   return (
                     <div
-                      key={isoDate}
-                      className={`shrink-0 overflow-visible whitespace-nowrap border-r border-neutral-100 dark:border-neutral-800 py-2 text-center text-[10px] ${
+                      key={seg.key}
+                      title={zoom === "day" ? undefined : seg.sublabel ? `${seg.key} 起的一週` : seg.label}
+                      className={`shrink-0 truncate border-r border-neutral-100 dark:border-neutral-800 py-1.5 text-center text-[10px] ${
                         off ? "bg-neutral-100 dark:bg-neutral-900" : ""
                       } text-neutral-500 dark:text-neutral-400`}
-                      style={{ width: dayWidth }}
+                      style={{ width: seg.days * dayWidth }}
                     >
-                      {label}
+                      {fits && seg.sublabel && <div className="text-[9px] text-neutral-400 dark:text-neutral-500">{seg.sublabel}</div>}
+                      {fits && seg.label}
                     </div>
                   );
                 })}
