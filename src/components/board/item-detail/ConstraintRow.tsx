@@ -104,6 +104,9 @@ export function ConstraintRow({
   // 這個項目 Pred 裡有哪些前置任務可以跟著走——問伺服器,因為前置任務可能在別的分組、別的看板。
   // 選了約束類型才需要;前置任務的日期一變(存檔後畫面重新整理)再問一次,選單上的日期才是最新的。
   const [predecessors, setPredecessors] = useState<ItemPredecessor[]>([]);
+  // 還沒問到答案之前不能說「沒有前置任務」—— 伺服器要把整個專案群組的排程載進來算,
+  // 看板大時要好幾秒,那段時間選單若寫「先在 Pred 設定前置任務」,會讓人以為已經設好的 Pred 沒被認得。
+  const [predsStatus, setPredsStatus] = useState<"loading" | "ready" | "failed">("loading");
   const wantsPreds = canEdit && !!draftType;
   useEffect(() => {
     if (!wantsPreds) return;
@@ -111,9 +114,15 @@ export function ConstraintRow({
     void (async () => {
       try {
         const list = await getConstraintPredecessors(itemId);
-        if (!cancelled) setPredecessors(list);
+        if (!cancelled) {
+          setPredecessors(list);
+          setPredsStatus("ready");
+        }
       } catch {
-        if (!cancelled) setPredecessors([]);
+        if (!cancelled) {
+          setPredecessors([]);
+          setPredsStatus("failed");
+        }
       }
     })();
     return () => {
@@ -160,7 +169,8 @@ export function ConstraintRow({
   const missingLength = type === "MUST_FINISH_ON" && !!date && durationDays === null;
 
   const disabled = !canEdit || saving;
-  const noPreds = predecessors.length === 0 && !followsPred;
+  const noPreds = predsStatus === "ready" && predecessors.length === 0 && !followsPred;
+  const predsUnavailable = predsStatus !== "ready" && predecessors.length === 0 && !followsPred;
 
   // ---- 來源:固定日期 / 前置任務 ----
   function onSourceChange(value: string) {
@@ -229,8 +239,14 @@ export function ConstraintRow({
             >
               <option value={SOURCE_FIXED}>固定日期</option>
               {/* 沒有前置任務也列出來(灰的):看得到有這個選項,也知道要先在 Pred 設定前置任務。 */}
-              <option value={SOURCE_PRED} disabled={noPreds}>
-                {noPreds ? "前置任務(先在 Pred 設定前置任務)" : "前置任務"}
+              <option value={SOURCE_PRED} disabled={noPreds || predsUnavailable}>
+                {noPreds
+                  ? "前置任務(先在 Pred 設定前置任務)"
+                  : predsUnavailable
+                    ? predsStatus === "failed"
+                      ? "前置任務(載入失敗,關掉卡片再開一次)"
+                      : "前置任務(載入中…)"
+                    : "前置任務"}
               </option>
             </select>
           )}
@@ -324,7 +340,9 @@ export function ConstraintRow({
                   ? HINTS[draftType]
                   : noPreds
                     ? "請選擇約束日期(想跟著前置任務的日期走,先在 Pred 設定前置任務)"
-                    : "請選擇約束日期,或把來源改成前置任務")}
+                    : predsUnavailable
+                      ? "請選擇約束日期,或等前置任務載入完把來源改成前置任務"
+                      : "請選擇約束日期,或把來源改成前置任務")}
         </p>
       )}
       {shownConflict && (
