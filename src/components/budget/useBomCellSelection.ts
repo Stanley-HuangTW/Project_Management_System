@@ -114,6 +114,8 @@ export function useBomCellSelection(
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      // 表頭右緣的欄寬把手(data-bom-resize):拖它是調欄寬,不是選取整欄,也不動現在的框選。
+      if (e.target instanceof Element && e.target.closest("[data-bom-resize]")) return;
       engaged = true;
       const header = headerOf(e.target);
       if (header) {

@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/cost";
 import type { BomLineDraft } from "@/lib/actions/bom";
 import { isCustomColumn, isEmptyCellValue, isMoneyBlock, isStoredCustomColumn, type BomColumnDef } from "@/lib/bomColumns";
 import { BomFileCell, type BomFileRef } from "./BomFileCell";
+import { useBomColWidthStyle, useBomFrozenLeft } from "./BomColumnWidthsContext";
 
 const inputClass = cellFieldClass(false);
 const cellPad = "px-1 py-1";
@@ -193,6 +194,9 @@ export function BomRow({
   onUploadFile?: (lineId: string, columnId: string, file: File) => Promise<boolean>;
   onDeleteFile?: (file: BomFileRef) => Promise<void>;
 }) {
+  // 使用者拖曳調整過的欄寬(沒調整過的欄是 undefined,照原本的最小寬度)。
+  const colStyle = useBomColWidthStyle();
+  const frozen = useBomFrozenLeft();
   const blank: FieldState = {
     name: initial.name,
     qty: String(initial.qty),
@@ -381,8 +385,17 @@ export function BomRow({
 
   return (
     <tr onBlur={handleRowBlur}>
-      {selectColumn && <td className="w-8 px-2 py-1 text-center">{selectCell}</td>}
-      <td {...cellAttrs("name")} className={`${cellPad} ${NAME_MIN_WIDTH}`} style={{ paddingLeft: 4 + depth * 20 }}>
+      {selectColumn && (
+        <td data-bom-frozen className="sticky left-0 z-10 w-8 px-2 py-1 text-center bg-white dark:bg-neutral-900">
+          {selectCell}
+        </td>
+      )}
+      <td
+        {...cellAttrs("name")}
+        data-bom-frozen
+        className={`sticky z-10 ${cellPad} ${NAME_MIN_WIDTH} bg-white dark:bg-neutral-900`}
+        style={{ ...colStyle("name"), left: frozen.name, paddingLeft: 4 + depth * 20 }}
+      >
         <div className="flex items-center gap-1">
           {leading}
           <input
@@ -396,7 +409,12 @@ export function BomRow({
           />
         </div>
       </td>
-      <td data-bom-level className={`px-1 py-1 text-center ${LEVEL_MIN_WIDTH}`}>
+      <td
+        data-bom-level
+        data-bom-frozen
+        className={`sticky z-10 border-r border-neutral-200 px-1 py-1 text-center dark:border-neutral-700 ${LEVEL_MIN_WIDTH} bg-white dark:bg-neutral-900`}
+        style={{ ...colStyle("level"), left: frozen.level }}
+      >
         {levelCell ?? <span className="text-sm tabular-nums text-neutral-300 dark:text-neutral-600">{depth + 1}</span>}
       </td>
       {columns.map((column) =>
@@ -421,7 +439,7 @@ export function BomRow({
             cellAttrs={cellAttrs}
           />
         ) : (
-          <td key={column.id} {...(column.type !== "FILE" ? cellAttrs(column.id) : {})} className={`${cellPad} ${columnMinWidth(column)}`}>
+          <td key={column.id} {...(column.type !== "FILE" ? cellAttrs(column.id) : {})} className={`${cellPad} ${columnMinWidth(column)}`} style={colStyle(column.id)}>
             {renderField(column)}
           </td>
         )
@@ -471,9 +489,10 @@ function MoneyCells({
   blurOnEnter: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   cellAttrs: (key: string) => Record<string, string>;
 }) {
+  const colStyle = useBomColWidthStyle();
   return (
     <>
-      <td {...cellAttrs("qty")} className={`${cellPad} ${MONEY_MIN_WIDTH.qty}`}>
+      <td {...cellAttrs("qty")} className={`${cellPad} ${MONEY_MIN_WIDTH.qty}`} style={colStyle("qty")}>
         <input
           value={qty}
           onChange={(e) => setQty(e.target.value)}
@@ -483,7 +502,7 @@ function MoneyCells({
           className={`${inputClass} text-right`}
         />
       </td>
-      <td {...cellAttrs("unitPrice")} className={`${cellPad} ${MONEY_MIN_WIDTH.price}`}>
+      <td {...cellAttrs("unitPrice")} className={`${cellPad} ${MONEY_MIN_WIDTH.price}`} style={colStyle("unitPrice")}>
         {disablePrice ? (
           <span className="block whitespace-nowrap px-2 py-1 text-right text-xs text-neutral-400 dark:text-neutral-500">(子項目加總)</span>
         ) : (
@@ -497,7 +516,7 @@ function MoneyCells({
           />
         )}
       </td>
-      <td {...cellAttrs("currency")} className={`${cellPad} ${MONEY_MIN_WIDTH.currency}`}>
+      <td {...cellAttrs("currency")} className={`${cellPad} ${MONEY_MIN_WIDTH.currency}`} style={colStyle("currency")}>
         {disablePrice ? (
           <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
         ) : (
@@ -527,7 +546,7 @@ function MoneyCells({
         )}
       </td>
       {showFx && (
-        <td {...cellAttrs("fxRate")} className={`${cellPad} ${MONEY_MIN_WIDTH.fx}`}>
+        <td {...cellAttrs("fxRate")} className={`${cellPad} ${MONEY_MIN_WIDTH.fx}`} style={colStyle("fxRate")}>
           {disablePrice ? (
             <span className="block px-2 py-1 text-center text-xs text-neutral-300 dark:text-neutral-600">—</span>
           ) : (
@@ -542,7 +561,7 @@ function MoneyCells({
           )}
         </td>
       )}
-      <td className={`px-3 py-1.5 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100 ${MONEY_MIN_WIDTH.subtotal}`}>
+      <td className={`px-3 py-1.5 text-right tabular-nums font-medium text-neutral-800 dark:text-neutral-100 ${MONEY_MIN_WIDTH.subtotal}`} style={colStyle("subtotal")}>
         {extendedTwd !== null ? formatMoney(extendedTwd) : ""}
       </td>
     </>

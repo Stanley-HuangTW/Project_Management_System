@@ -184,3 +184,11 @@ body.cell-range-dragging * {
   border-color: #60a5fa;
   background: rgb(96 165 250 / 0.1);
 }
+
+/* 樣機 BOM 表固定在左邊的欄(勾選、名稱、BOM LEVEL):被框選時用實色,不然半透明的底色會透出捲過去的內容。 */
+td[data-bom-frozen][data-range-selected] {
+  background-color: #dbeafe !important;
+}
+.dark td[data-bom-frozen][data-range-selected] {
+  background-color: #1e3a6e !important;
+}

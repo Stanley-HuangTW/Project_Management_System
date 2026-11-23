@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, ClipboardPaste, Copy, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, ClipboardPaste, Copy, Maximize2, Minimize2, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { isStaleBuildError } from "@/lib/staleBuild";
 import { formatMoney } from "@/lib/cost";
@@ -26,6 +26,8 @@ import {
   type BomLineRow,
   type BomLineDraft,
 } from "@/lib/actions/bom";
+import { BomColumnWidthsProvider } from "./BomColumnWidthsContext";
+import { clampColWidth, colWidthStyle, loadColWidths, saveColWidths, type BomColWidths } from "@/lib/bomColumnWidths";
 import { BomRow, columnMinWidth, LEVEL_MIN_WIDTH, MONEY_MIN_WIDTH, NAME_MIN_WIDTH, type BomRowInitial } from "./BomRow";
 import { BomLevelCell } from "./BomLevelCell";
 import { BomBulkBar } from "./BomBulkBar";
@@ -38,7 +40,6 @@ import { deleteBomFile, uploadBomFile } from "@/lib/actions/bomAttachment";
 import {
   countRowsMissingRequired,
   initialColumnValues,
-  isEmptyCellValue,
   isMoneyBlock,
   type BomColumnDef,
 } from "@/lib/bomColumns";
@@ -59,8 +60,6 @@ function subtreeIds(lines: BomLineRow[], rootIndex: number): Set<string> {
   return ids;
 }
 
-/** 內建的次要欄位:預設收起來,有資料、必填、或使用者要看才顯示。 */
-const SECONDARY_COLUMNS = new Set(["delivery", "note"]);
 
 /** 一列在某個欄位上的值(內建欄位在 BomLine 自己的欄位裡,自訂欄位在 extra 裡)。 */
 function lineValue(line: BomLineRow, column: BomColumnDef): unknown {
@@ -318,6 +317,99 @@ export function BomTable({ boardId }: { boardId: string }) {
     colOrder: [],
   });
   const tableWrapRef = useRef<HTMLDivElement>(null);
+  /** 使用者拖曳調整過的欄寬(記在這台瀏覽器,每個看板一份)。沒調整過的欄不在裡面,照原本的最小寬度。 */
+  const [colWidths, setColWidths] = useState<BomColWidths>(() => loadColWidths(boardId));
+  const hasCustomWidths = Object.keys(colWidths).length > 0;
+  /** 名稱、BOM LEVEL 欄貼在左邊時的 sticky left:前面的欄(勾選、名稱)實際畫出來有多寬(使用者調整欄寬時跟著變)。 */
+  const [frozen, setFrozen] = useState({ name: 0, level: 0 });
+  const layout = useMemo(() => ({ widths: colWidths, frozen }), [colWidths, frozen]);
+  const tableReady = !!view;
+  const canEditView = !!view?.canEdit;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      // 有對話框開著的時候 Esc 是關對話框,不是離開全螢幕。
+      if (e.key === "Escape" && !document.querySelector('[role="dialog"][data-state="open"]')) setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFullscreen]);
+
+  /**
+   * 拖表頭右緣調這一欄的寬度。第一次拖的時候,先把畫面上每一欄現在的寬度都記下來:
+   * 只有一欄有固定寬度的話,整張表會重新分配,別的欄會跳一下。
+   */
+  function startColResize(key: string, e: React.PointerEvent<HTMLElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    const root = tableWrapRef.current;
+    if (!root) return;
+    const base: BomColWidths = { ...colWidths };
+    for (const th of root.querySelectorAll<HTMLElement>("thead th[data-bom-wkey]")) {
+      const k = th.dataset.bomWkey!;
+      if (base[k] === undefined) base[k] = clampColWidth(th.getBoundingClientRect().width);
+    }
+    const startX = e.clientX;
+    const startWidth = base[key] ?? clampColWidth(e.currentTarget.parentElement?.getBoundingClientRect().width ?? 120);
+    let latest: BomColWidths = { ...base, [key]: startWidth };
+    function onMove(ev: PointerEvent) {
+      latest = { ...base, [key]: clampColWidth(startWidth + ev.clientX - startX) };
+      setColWidths(latest);
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      saveColWidths(boardId, latest);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  /** 連點兩下把手:這一欄還原成原本的寬度。 */
+  function resetColWidth(key: string) {
+    setColWidths((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      saveColWidths(boardId, next);
+      return next;
+    });
+  }
+
+  function resetAllColWidths() {
+    setColWidths({});
+    saveColWidths(boardId, {});
+  }
+
+  /** 表頭右緣的欄寬把手;表頭要 relative。放在 th 裡面,框選的監聽認得 data-bom-resize,不會當成「選取整欄」。 */
+  const resizeHandle = (key: string) => (
+    <span
+      data-bom-resize={key}
+      onPointerDown={(e) => startColResize(key, e)}
+      onDoubleClick={() => resetColWidth(key)}
+      title="拖曳調整欄寬(連點兩下還原這一欄)"
+      className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none hover:bg-blue-400"
+    />
+  );
+
+  useEffect(() => {
+    const root = tableWrapRef.current;
+    if (!root) return;
+    const nameTh = root.querySelector<HTMLElement>('thead th[data-bom-wkey="name"]');
+    const selectTh = root.querySelector<HTMLElement>("thead th[data-bom-select]");
+    if (!nameTh) return;
+    // ResizeObserver 一開始就會通知一次,之後欄寬變了(拖曳、全螢幕、視窗大小)也會。
+    const measure = () => {
+      const select = selectTh ? Math.round(selectTh.getBoundingClientRect().width) : 0;
+      const name = Math.round(nameTh.getBoundingClientRect().width);
+      setFrozen((prev) => (prev.name === select && prev.level === select + name ? prev : { name: select, level: select + name }));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(nameTh);
+    if (selectTh) observer.observe(selectTh);
+    return () => observer.disconnect();
+  }, [tableReady, canEditView, tableVersion]);
+
   const cellSel = useBomCellSelection(tableWrapRef, {
     enabled: !!view?.canEdit,
     onPasteUpdate: (trigger) => {
@@ -605,12 +697,9 @@ export function BomTable({ boardId }: { boardId: string }) {
   const liveSelected = new Set([...selected].filter((id) => lineIds.has(id)));
   const allSelected = lines.length > 0 && liveSelected.size === lines.length;
   const showFx = showAllCols || lines.some((l) => l.currency !== "TWD");
-  // 次要欄位(交期、備註)預設收起來,表格才放得進一個畫面;這一份有資料、必填、或使用者要看才顯示。
-  const columns = ctx.columns.filter(
-    (c) =>
-      isMoneyBlock(c) ||
-      (c.visible && (!SECONDARY_COLUMNS.has(c.id) || c.required || showAllCols || lines.some((l) => !isEmptyCellValue(c, lineValue(l, c)))))
-  );
+  // 欄位設定裡勾了「顯示」的欄位就一定顯示(交期、備註也一樣,不再因為還沒有資料就自動收起來)。
+  // 表格太寬放不進一個畫面時:拖曳表頭右緣調欄寬、用表格底下的橫向捲軸,或切全螢幕。
+  const columns = ctx.columns.filter((c) => isMoneyBlock(c) || c.visible);
   const blank = blankRow(ctx.columns);
   const rowsMissing = countRowsMissingRequired(
     columns,
@@ -624,7 +713,13 @@ export function BomTable({ boardId }: { boardId: string }) {
   const totalCols = leadCols + 1 + trailCols;
 
   return (
-    <div className="space-y-4">
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-hidden bg-white p-4 dark:bg-neutral-950"
+          : "space-y-4"
+      }
+    >
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         某個產品、某個階段要用的料:廠商、型號、名稱,可以往下分子集(電池模組底下再掛零件)。算出單台成本;
         乘上「樣機計畫」排的台數,就是這個階段的材料預算(自動寫進「階段預算」)。直接在欄位裡打資訊,離開那一列就存檔。
@@ -798,6 +893,15 @@ export function BomTable({ boardId }: { boardId: string }) {
             <div className="flex shrink-0 items-center gap-3">
               <button
                 type="button"
+                data-bom-fullscreen
+                onClick={() => setIsFullscreen((v) => !v)}
+                className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                title={isFullscreen ? "離開全螢幕(Esc)" : "全螢幕:表格佔滿整個畫面,欄位多的時候比較看得全"}
+              >
+                {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />} {isFullscreen ? "離開全螢幕" : "全螢幕"}
+              </button>
+              <button
+                type="button"
                 data-bom-diff-button
                 onClick={() => setDiffOpen(true)}
                 disabled={ctx.sources.length < 2}
@@ -817,9 +921,20 @@ export function BomTable({ boardId }: { boardId: string }) {
                   <Settings2 size={12} /> 欄位設定
                 </button>
               )}
+              {hasCustomWidths && (
+                <button
+                  type="button"
+                  data-bom-reset-widths
+                  onClick={resetAllColWidths}
+                  className="flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  title="把所有欄位的寬度還原成預設(欄寬是記在這台瀏覽器的個人設定,不影響別人)"
+                >
+                  還原欄寬
+                </button>
+              )}
               <label className="flex items-center gap-1.5">
                 <input type="checkbox" checked={showAllCols} onChange={(e) => setShowAllCols(e.target.checked)} />
-                顯示匯率與收起來的欄位
+                顯示匯率欄
               </label>
             </div>
           </div>
@@ -851,12 +966,17 @@ export function BomTable({ boardId }: { boardId: string }) {
             </p>
           )}
 
-          <div ref={tableWrapRef} className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
-            <table className="w-full text-sm">
+          <BomColumnWidthsProvider value={layout}>
+          <div
+            ref={tableWrapRef}
+            data-bom-table-wrap
+            className={`overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-700 ${isFullscreen ? "min-h-0 flex-1" : "max-h-[70vh]"}`}
+          >
+            <table className="w-full text-sm" style={hasCustomWidths ? { width: "max-content" } : undefined}>
               <thead className="border-b border-neutral-200 bg-neutral-50 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400">
                 <tr>
                   {view.canEdit && (
-                    <th className="w-8 px-2 py-2">
+                    <th data-bom-select className="sticky left-0 top-0 z-30 w-8 px-2 py-2 bg-neutral-50 dark:bg-neutral-800">
                       <input
                         type="checkbox"
                         data-bom-select-all
@@ -870,31 +990,38 @@ export function BomTable({ boardId }: { boardId: string }) {
                       />
                     </th>
                   )}
-                  <th data-bom-col-header="name" title="點一下選取整欄(可以接著 Ctrl+C 複製、Ctrl+V 貼上更新)" className={`cursor-pointer select-none px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH}`}>
+                  <th data-bom-col-header="name" data-bom-wkey="name" data-bom-frozen style={{ ...colWidthStyle(colWidths, "name"), left: frozen.name, zIndex: 30 }} title="點一下選取整欄(可以接著 Ctrl+C 複製、Ctrl+V 貼上更新)" className={`sticky top-0 cursor-pointer select-none px-3 py-2 text-left font-medium ${NAME_MIN_WIDTH} bg-neutral-50 dark:bg-neutral-800`}>
                     名稱
+                    {resizeHandle("name")}
                   </th>
                   <th
                     data-bom-level-header
-                    className={`px-3 py-2 text-center font-medium ${LEVEL_MIN_WIDTH}`}
+                    data-bom-wkey="level"
+                    data-bom-frozen
+                    style={{ ...colWidthStyle(colWidths, "level"), left: frozen.level, zIndex: 30 }}
+                    className={`sticky top-0 border-r border-neutral-200 px-3 py-2 text-center font-medium dark:border-neutral-700 ${LEVEL_MIN_WIDTH} bg-neutral-50 dark:bg-neutral-800`}
                     title="階層:1 = 最上層。數字可以直接改,或用左右箭頭升階 / 降階;底下的子項目一起走"
                   >
                     BOM LEVEL
+                    {resizeHandle("level")}
                   </th>
                   {columns.map((c) =>
                     isMoneyBlock(c) ? (
                       <Fragment key={c.id}>
-                        <th data-bom-col-header="qty" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.qty}`}>數量</th>
-                        <th data-bom-col-header="unitPrice" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.price}`}>單價</th>
-                        <th data-bom-col-header="currency" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-center font-medium ${MONEY_MIN_WIDTH.currency}`}>幣別</th>
-                        {showFx && <th data-bom-col-header="fxRate" title="點一下選取整欄" className={`cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.fx}`}>匯率</th>}
-                        <th className={`px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.subtotal}`}>小計(台幣)</th>
+                        <th data-bom-col-header="qty" data-bom-wkey="qty" style={colWidthStyle(colWidths, "qty")} title="點一下選取整欄" className={`sticky top-0 z-20 bg-neutral-50 dark:bg-neutral-800 cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.qty}`}>數量{resizeHandle("qty")}</th>
+                        <th data-bom-col-header="unitPrice" data-bom-wkey="unitPrice" style={colWidthStyle(colWidths, "unitPrice")} title="點一下選取整欄" className={`sticky top-0 z-20 bg-neutral-50 dark:bg-neutral-800 cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.price}`}>單價{resizeHandle("unitPrice")}</th>
+                        <th data-bom-col-header="currency" data-bom-wkey="currency" style={colWidthStyle(colWidths, "currency")} title="點一下選取整欄" className={`sticky top-0 z-20 bg-neutral-50 dark:bg-neutral-800 cursor-pointer select-none px-3 py-2 text-center font-medium ${MONEY_MIN_WIDTH.currency}`}>幣別{resizeHandle("currency")}</th>
+                        {showFx && <th data-bom-col-header="fxRate" data-bom-wkey="fxRate" style={colWidthStyle(colWidths, "fxRate")} title="點一下選取整欄" className={`sticky top-0 z-20 bg-neutral-50 dark:bg-neutral-800 cursor-pointer select-none px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.fx}`}>匯率{resizeHandle("fxRate")}</th>}
+                        <th data-bom-wkey="subtotal" style={colWidthStyle(colWidths, "subtotal")} className={`sticky top-0 z-20 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-right font-medium ${MONEY_MIN_WIDTH.subtotal}`}>小計(台幣){resizeHandle("subtotal")}</th>
                       </Fragment>
                     ) : (
                       <th
                         key={c.id}
                         data-bom-column={c.id}
+                        data-bom-wkey={c.id}
+                        style={colWidthStyle(colWidths, c.id)}
                         {...(c.type !== "FILE" ? { "data-bom-col-header": c.id, title: "點一下選取整欄" } : {})}
-                        className={`${c.type !== "FILE" ? "cursor-pointer select-none " : ""}px-3 py-2 font-medium ${columnMinWidth(c)} ${c.type === "NUMBER" ? "text-right" : c.type === "CHECKBOX" ? "text-center" : "text-left"}`}
+                        className={`sticky top-0 z-20 bg-neutral-50 dark:bg-neutral-800 ${c.type !== "FILE" ? "cursor-pointer select-none " : ""}px-3 py-2 font-medium ${columnMinWidth(c)} ${c.type === "NUMBER" ? "text-right" : c.type === "CHECKBOX" ? "text-center" : "text-left"}`}
                       >
                         {c.name}
                         {c.required && (
@@ -902,10 +1029,11 @@ export function BomTable({ boardId }: { boardId: string }) {
                             *
                           </span>
                         )}
+                        {resizeHandle(c.id)}
                       </th>
                     )
                   )}
-                  {view.canEdit && <th className="px-3 py-2" />}
+                  {view.canEdit && <th className="sticky top-0 z-20 px-3 py-2 bg-neutral-50 dark:bg-neutral-800" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -981,6 +1109,7 @@ export function BomTable({ boardId }: { boardId: string }) {
               </tfoot>
             </table>
           </div>
+          </BomColumnWidthsProvider>
         </>
       )}
 
