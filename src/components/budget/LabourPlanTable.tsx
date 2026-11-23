@@ -42,7 +42,7 @@ export function LabourPlanTable({ boardId }: { boardId: string }) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
-        這張是彙總,不是輸入:人月由「人力表」每個名額逐月的投入加總而來,哪個月算哪個階段由日期決定。
+        這張是彙總,不是輸入:人月由「人力表」每個名額逐月的投入加總而來,哪個月算哪個階段由日期決定(階段日期重疊的月份,照各階段在那個月內的天數比例分)。
         要改人月請到人力表。乘上月薪就是金額,會直接寫進「各類別」的人力那一列:人力表裡指到人、而且在使用者管理設了月薪的名額,用他的月薪算;其他名額用單位標準月薪。
       </p>
 

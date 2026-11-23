@@ -67,11 +67,36 @@ export function monthAxis(phases: { startDate: string; endDate: string }[]): Mon
   return axis;
 }
 
-/** 哪個階段涵蓋這個月。重疊時取先排到的那個,所以人月不會被算兩次。 */
+/** 哪個階段涵蓋這個月。重疊時取先排到的那個(只用來標示「這個月算哪個階段」;人月的分攤看 phaseSharesOfMonth)。 */
 export function phaseOfMonth(phases: PhaseRow[], month: MonthKey): PhaseRow | null {
   return (
     phases.find((p) => monthKeyOf(p.startDate) <= month && month <= monthKeyOf(p.endDate)) ?? null
   );
+}
+
+/** 階段在這個月內佔幾天(階段起訖日跟這個月的交集)。 */
+function daysInMonth(phase: PhaseRow, month: MonthKey): number {
+  const [year, mon] = month.split("-").map(Number);
+  const monthStart = Date.UTC(year, mon - 1, 1);
+  const monthEnd = Date.UTC(year, mon, 0);
+  const from = Math.max(monthStart, Date.parse(phase.startDate.slice(0, 10)));
+  const to = Math.min(monthEnd, Date.parse(phase.endDate.slice(0, 10)));
+  return to < from ? 0 : Math.round((to - from) / 86_400_000) + 1;
+}
+
+/**
+ * 這個月的人月怎麼分給階段:只有一個階段涵蓋就整個月給它;幾個階段在這個月重疊,
+ * 就照各階段在這個月內各佔幾天的比例分(加起來是 1,人月不會多也不會少)。
+ * 沒有階段涵蓋 → 空陣列。
+ */
+export function phaseSharesOfMonth(phases: PhaseRow[], month: MonthKey): { phase: PhaseRow; share: number }[] {
+  const covering = phases.filter((p) => monthKeyOf(p.startDate) <= month && month <= monthKeyOf(p.endDate));
+  if (covering.length <= 1) return covering.map((phase) => ({ phase, share: 1 }));
+  const days = covering.map((p) => daysInMonth(p, month));
+  const total = days.reduce((t, d) => t + d, 0);
+  // 日期壞掉(起訖顛倒)算不出天數時,退回「歸給先排到的那個」。
+  if (total <= 0) return [{ phase: covering[0], share: 1 }];
+  return covering.map((phase, i) => ({ phase, share: days[i] / total })).filter((s) => s.share > 0);
 }
 
 export type SlotTotal = {
@@ -191,7 +216,16 @@ export function buildLabourSheet(
     };
   });
 
-  // 每個月歸到涵蓋它的那個階段,於是「階段 × 單位人月」是算出來的,不是另外填的。
+  // 每個月歸到涵蓋它的階段(重疊的照天數比例分),於是「階段 × 單位人月」是算出來的,不是另外填的。
+  const sharesByMonth = new Map<MonthKey, { phase: PhaseRow; share: number }[]>();
+  const shareOf = (month: MonthKey, phaseId: string): number => {
+    let shares = sharesByMonth.get(month);
+    if (!shares) {
+      shares = phaseSharesOfMonth(phases, month);
+      sharesByMonth.set(month, shares);
+    }
+    return shares.find((s) => s.phase.id === phaseId)?.share ?? 0;
+  };
   const byPhase: PhaseTotal[] = phases.map((phase) => {
     const perDiscipline = DISCIPLINES.map((discipline) => {
       let personMonths = 0;
@@ -199,10 +233,12 @@ export function buildLabourSheet(
       for (const slot of slots.filter((s) => s.discipline === discipline)) {
         const rate = rateOfSlot(slot);
         for (const [month, fte] of Object.entries(slot.months)) {
-          // 重疊的階段只算一次,歸給先排到的那個。
-          if (fte <= 0 || phaseOfMonth(phases, month)?.id !== phase.id) continue;
-          personMonths += fte;
-          amount += cost(fte, rate);
+          // 重疊的月份照各階段在那個月內的天數比例分,加起來還是一個月的人月。
+          if (fte <= 0) continue;
+          const share = shareOf(month, phase.id);
+          if (share <= 0) continue;
+          personMonths += fte * share;
+          amount += cost(fte, rate) * share;
         }
       }
       return {

@@ -5,6 +5,7 @@ import {
   monthAxis,
   monthKeyOf,
   phaseOfMonth,
+  phaseSharesOfMonth,
   phaseVariances,
   type PhaseRow,
   type SlotRow,
@@ -87,6 +88,49 @@ describe("phaseOfMonth", () => {
 
   it("階段之外的月份沒有歸屬", () => {
     expect(phaseOfMonth(phases, "2026-12")).toBeNull();
+  });
+});
+
+describe("階段日期重疊:同一個月照各階段在那個月內的天數比例分", () => {
+  // 三月:A 到 3/15(15 天)、B 從 3/16(16 天)
+  const overlap: PhaseRow[] = [
+    { id: "a", name: "A", startDate: "2026-02-01", endDate: "2026-03-15", itemId: null },
+    { id: "b", name: "B", startDate: "2026-03-16", endDate: "2026-04-30", itemId: null },
+  ];
+
+  it("一個月只有一個階段涵蓋就整個月給它", () => {
+    expect(phaseSharesOfMonth(overlap, "2026-02")).toEqual([{ phase: overlap[0], share: 1 }]);
+    expect(phaseSharesOfMonth(overlap, "2026-04")).toEqual([{ phase: overlap[1], share: 1 }]);
+    expect(phaseSharesOfMonth(overlap, "2026-09")).toEqual([]);
+  });
+
+  it("兩個階段在同一個月,各佔那個月的天數比例,加起來是 1", () => {
+    const shares = phaseSharesOfMonth(overlap, "2026-03");
+    expect(shares.map((x) => x.phase.id)).toEqual(["a", "b"]);
+    expect(shares[0].share).toBeCloseTo(15 / 31);
+    expect(shares[1].share).toBeCloseTo(16 / 31);
+    expect(shares.reduce((t, x) => t + x.share, 0)).toBeCloseTo(1);
+  });
+
+  it("日期真的重疊(同一天兩個階段都在)也照各自在這個月內的天數分", () => {
+    const real: PhaseRow[] = [
+      { id: "a", name: "A", startDate: "2026-03-01", endDate: "2026-03-20", itemId: null },
+      { id: "b", name: "B", startDate: "2026-03-11", endDate: "2026-03-31", itemId: null },
+    ];
+    const shares = phaseSharesOfMonth(real, "2026-03");
+    expect(shares[0].share).toBeCloseTo(20 / 41);
+    expect(shares[1].share).toBeCloseTo(21 / 41);
+  });
+
+  it("buildLabourSheet:重疊月份的人月與金額照比例進各階段,總和不變", () => {
+    const sheet = buildLabourSheet(overlap, [slot("ee1", "EE", { "2026-03": 1 })], { EE: 31_000 }, UNITS);
+    const [a, b] = sheet.byPhase;
+    expect(a.byDiscipline.find((d) => d.discipline === "EE")!.personMonths).toBe(0.48);
+    expect(b.byDiscipline.find((d) => d.discipline === "EE")!.personMonths).toBe(0.52);
+    expect(a.amount).toBe(15_000);
+    expect(b.amount).toBe(16_000);
+    expect(a.amount + b.amount).toBe(sheet.totalAmount);
+    expect(sheet.monthsOutsideAnyPhase).toEqual([]);
   });
 });
 

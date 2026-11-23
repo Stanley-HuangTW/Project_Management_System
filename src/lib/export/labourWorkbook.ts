@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { assertSafeXlsx } from "@/lib/xlsxGuard";
 import type { MonthKey, PhaseRow, SlotRow } from "@/lib/labourSheet";
-import { MAX_FTE, phaseOfMonth } from "@/lib/labourSheet";
+import { MAX_FTE, phaseSharesOfMonth } from "@/lib/labourSheet";
 import type { OrgUnit } from "@/lib/orgUnits";
 
 /**
@@ -147,7 +147,7 @@ export async function buildLabourWorkbook(input: LabourWorkbookInput): Promise<B
   const phaseRow = ws.getRow(2);
   phaseRow.getCell(2).value = "階段";
   months.forEach((month, i) => {
-    phaseRow.getCell(FIRST_MONTH_COL + i).value = phaseOfMonth(phases, month)?.name ?? "";
+    phaseRow.getCell(FIRST_MONTH_COL + i).value = phaseSharesOfMonth(phases, month).map((s) => s.phase.name).join("/");
   });
   phaseRow.font = { italic: true, color: { argb: "FF808080" } };
 
