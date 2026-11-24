@@ -2,6 +2,7 @@
 
 import type { DependentSummary } from "@/lib/predecessorLink";
 import type { PredDrives } from "@/lib/scheduleExplain";
+import { PredecessorTimeButton } from "./PredecessorTimeDialog";
 
 /** 清單的一列:後續只有 DependentSummary;前置另外可以帶 Lag、決定了什麼日期、在哪個看板(見 RelatedPredecessor)。 */
 type RelatedItem = DependentSummary & {
@@ -22,12 +23,15 @@ type RelatedItem = DependentSummary & {
 export function DependentItemsRow({
   dependents,
   predecessors = [],
+  adjust,
   className = "border-b border-neutral-100 dark:border-neutral-700 px-4 py-2.5",
 }: {
   /** 後續:以這個項目為前置的項目。 */
   dependents: DependentSummary[];
   /** 前置:這個項目 Pred 欄指到的項目(在同一組裡找得到的)。 */
   predecessors?: RelatedItem[];
+  /** 給了就能在前置那一列直接「調整時間」:本工作項是誰,確認畫面要列出它的時間變化。 */
+  adjust?: { boardId: string; itemId: string; itemName: string };
   /** The row styling of whichever list this sits in. */
   className?: string;
 }) {
@@ -41,6 +45,7 @@ export function DependentItemsRow({
             kind="predecessors"
             items={predecessors}
             empty="沒有參照其他項目"
+            adjust={adjust}
           />
           <RelatedList
             title="後續(以此為前置)"
@@ -59,11 +64,13 @@ function RelatedList({
   kind,
   items,
   empty,
+  adjust,
 }: {
   title: string;
   kind: "predecessors" | "dependents";
   items: RelatedItem[];
   empty: string;
+  adjust?: { boardId: string; itemId: string; itemName: string };
 }) {
   return (
     <div data-related-list={kind}>
@@ -95,6 +102,14 @@ function RelatedList({
                   {d.lag ? ` ${d.lag > 0 ? "+" : "−"} Lag ${Math.abs(d.lag)} 天` : ""}
                   {d.start && d.end ? `・${d.start} → ${d.end}` : ""}
                 </span>
+                {adjust && kind === "predecessors" && d.start && d.end ? (
+                  <PredecessorTimeButton
+                    boardId={adjust.boardId}
+                    itemId={adjust.itemId}
+                    itemName={adjust.itemName}
+                    predecessor={{ itemId: d.itemId, name: d.name, wbsCode: d.wbsCode, start: d.start, end: d.end }}
+                  />
+                ) : null}
                 {driving && d.note ? (
                   <div className="text-xs font-normal text-red-600 dark:text-red-400">← {d.note}</div>
                 ) : null}

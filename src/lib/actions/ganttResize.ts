@@ -272,3 +272,84 @@ export async function moveItemBar(
 
   revalidatePath(`/boards/${boardId}`);
 }
+
+/**
+ * 一次設定開始日與結束日(項目卡片「相關項目」裡調整前置任務的時間用)。
+ * 只改有變的那一端,而且那一端不能是被前置依賴、子項目統計或里程碑算出來的——跟拖曳長條的規則一樣,
+ * 做不到的會說明原因。Days 依新的起訖重算。
+ */
+export async function setItemBarRange(
+  /** Not trusted for authorization — see loadGanttEditContext. */
+  _boardId: string,
+  itemId: string,
+  newStartIso: string,
+  newEndIso: string
+) {
+  const session = await requireSession();
+  const { boardId, board, item, lock, holidays, alwaysComputed, writeStartColumnId, writeDurationColumnId } =
+    await loadGanttEditContext(itemId, session);
+
+  const currentRange = getItemDateRange(
+    item,
+    board.ganttStartColumnId!,
+    board.ganttDurationColumnId!,
+    board.ganttDurationMode,
+    holidays
+  );
+  if (!currentRange) throw new UserError("此項目尚未填寫開始日期與天數");
+
+  const newStart = new Date(newStartIso);
+  const newEnd = new Date(newEndIso);
+  if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) throw new UserError("日期格式錯誤");
+
+  const oldStartIso = currentRange.start.toISOString().slice(0, 10);
+  const oldEndIso = currentRange.end.toISOString().slice(0, 10);
+  const startIso = newStart.toISOString().slice(0, 10);
+  const endIso = newEnd.toISOString().slice(0, 10);
+  if (startIso === oldStartIso && endIso === oldEndIso) return;
+
+  const lockedReason =
+    pinnedScheduleReason({ type: item.constraintType, date: item.constraintDate }) ??
+    "此日期由前置依賴、子項目統計或里程碑規則自動計算,請改天數、前置依賴或子項目設定";
+  if (startIso !== oldStartIso && lock?.startLocked) throw new UserError(`開始日無法調整:${lockedReason}`);
+  if (endIso !== oldEndIso && (lock?.endLocked || lock?.daysLocked)) throw new UserError(`結束日無法調整:${lockedReason}`);
+
+  const days = countDaysInRange(newStart, newEnd, board.ganttDurationMode, holidays);
+  if (days === null || days < 1) throw new UserError("時間範圍不合理,結束日期不能早於開始日期");
+
+  await assertRangeWithinAncestorRule(boardId, itemId, { start: newStart, end: newEnd });
+
+  await prisma.$transaction([
+    prisma.cellValue.upsert({
+      where: { itemId_columnId: { itemId, columnId: writeStartColumnId } },
+      create: { itemId, columnId: writeStartColumnId, value: startIso },
+      update: { value: startIso },
+    }),
+    prisma.cellValue.upsert({
+      where: { itemId_columnId: { itemId, columnId: writeDurationColumnId } },
+      create: { itemId, columnId: writeDurationColumnId, value: days },
+      update: { value: days },
+    }),
+    ...(board.ganttEndColumnId && !alwaysComputed
+      ? [
+          prisma.cellValue.upsert({
+            where: { itemId_columnId: { itemId, columnId: board.ganttEndColumnId } },
+            create: { itemId, columnId: board.ganttEndColumnId, value: endIso },
+            update: { value: endIso },
+          }),
+        ]
+      : []),
+  ]);
+
+  await logActivity(itemId, session.userId, `調整時程:${oldStartIso}~${oldEndIso} → ${startIso}~${endIso}`);
+  await notifyItemAssignees(
+    prisma,
+    itemId,
+    session.userId,
+    "UPDATED",
+    `「${item.name}」的時程已調整:${oldStartIso}~${oldEndIso} → ${startIso}~${endIso}`
+  );
+  await syncPredecessorSchedule(boardId, itemId, writeStartColumnId);
+
+  revalidatePath(`/boards/${boardId}`);
+}

@@ -319,7 +319,7 @@ export function AssignmentModal({
             </div>
           )}
 
-          <DependentItemsRow dependents={dependents} predecessors={shownPredecessors} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
+          <DependentItemsRow dependents={dependents} predecessors={shownPredecessors} adjust={{ boardId, itemId: item.id, itemName: item.name }} className="border-t border-neutral-100 dark:border-neutral-700 pt-3" />
 
           {scheduleColumns.map((col) => {
             const rawValue = item.cellValues.find((cv) => cv.columnId === col.id)?.value as

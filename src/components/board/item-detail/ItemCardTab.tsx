@@ -400,7 +400,13 @@ export function ItemCardTab({
                 </span>
               </div>
             )}
-            {col.name === "Lvl" && <DependentItemsRow dependents={dependents} predecessors={predecessors} />}
+            {col.name === "Lvl" && (
+              <DependentItemsRow
+                dependents={dependents}
+                predecessors={predecessors}
+                adjust={{ boardId, itemId: item.id, itemName: item.name }}
+              />
+            )}
             {col.name === "Lvl" && (
               <ConstraintRow
                 itemId={item.id}
