@@ -35,7 +35,10 @@ export function NumberCell({
     const entered = parseNumberInput(text);
     const normalized = percent && entered !== null ? entered / 100 : entered;
     if (normalized !== value) {
-      runSave({ boardId, itemId, columnId, before: value, after: normalized });
+      // 進度填 100% 會問要不要把狀態一起切成完成;不同意就把輸入框還原成儲存的值。
+      void runSave({ boardId, itemId, columnId, before: value, after: normalized }).then((sent) => {
+        if (!sent) setText(displayValue === null ? "" : String(displayValue));
+      });
     }
   }
 

@@ -7,6 +7,8 @@ import { sameJson, type UndoResult } from "@/lib/editHistory";
 import type { CellValueJson } from "@/types/column";
 import { useEditHistory, type EditHistoryApi } from "../EditHistoryProvider";
 import { knownErrorMessage } from "@/lib/userError";
+import { doneStatusTarget } from "@/lib/progressDoneStatus";
+import { getStatusOptions } from "@/types/column";
 
 /**
  * Runs a cell-update server action and surfaces its error instead of leaving
@@ -87,11 +89,41 @@ async function writeIfUnchanged(
   }
 }
 
-/** 一格儲存格的修改:存成功才登記到看板的「上一步 / 下一步」。不在看板裡就跟 useCellSave 一樣。 */
+/**
+ * 一格儲存格的修改:存成功才登記到看板的「上一步 / 下一步」。不在看板裡就跟 useCellSave 一樣。
+ *
+ * 進度(% Done)填到 100% 而狀態還不是完成時,伺服器會把狀態一起切成完成(見 upsertCellValue),
+ * 所以存之前先請使用者同意;不同意就整個不存。回傳 Promise<boolean>:有沒有送出(不同意是 false,
+ * 輸入框要把使用者打的數字還原)。
+ */
 export function useRecordedCellSave() {
   const save = useCellSave();
   const history = useEditHistory();
-  return (edit: RecordedCellEdit) => {
+  const { confirm } = useDialogs();
+  return (edit: RecordedCellEdit): Promise<boolean> => {
+    const board = history?.getBoard();
+    if (board && edit.columnId === board.progressColumnId && typeof edit.after === "number" && edit.after >= 1) {
+      const target = doneStatusTarget(board.columns, board.reportStatusColumnId, board.reportDoneOptionIds);
+      const item = board.items.find((i) => i.id === edit.itemId);
+      const current = item?.cellValues.find((c) => c.columnId === target?.columnId)?.value;
+      if (target && item && !(typeof current === "string" && target.doneOptionIds.includes(current))) {
+        const statusColumn = board.columns.find((c) => c.id === target.columnId);
+        const label = getStatusOptions(statusColumn?.options).find((o) => o.id === target.optionId)?.label ?? "完成";
+        return confirm(
+          `進度設為 100%,「${item.name}」的狀態會一併切成「${label}」。
+是否同意?`,
+          { title: "狀態切成完成", confirmLabel: "同意" }
+        ).then((ok) => {
+          if (ok) runSave(edit);
+          return ok;
+        });
+      }
+    }
+    runSave(edit);
+    return Promise.resolve(true);
+  };
+
+  function runSave(edit: RecordedCellEdit) {
     save(
       () => upsertCellValue(edit.boardId, edit.itemId, edit.columnId, edit.after),
       () => {
@@ -106,5 +138,5 @@ export function useRecordedCellSave() {
         });
       }
     );
-  };
+  }
 }
