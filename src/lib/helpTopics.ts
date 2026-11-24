@@ -69,6 +69,8 @@ export const ELEMENT_TOPICS: [selector: string, topic: HelpTopic][] = [
   ["[data-issue-options]", { label: "ISSUE TRACKER:選項管理", anchor: "s-24-7" }],
   ["[data-issue-import]", { label: "ISSUE TRACKER:Excel 匯入", anchor: "s-24-7" }],
   ["[data-issue-work-hours]", { label: "ISSUE TRACKER:花費工時", anchor: "s-24-4" }],
+  ["[data-issue-mantis]", { label: "ISSUE TRACKER:案件的 Mantis", anchor: "s-24-10" }],
+  ["[data-issue-mantis-card]", { label: "ISSUE TRACKER:Mantis 連線與欄位對應", anchor: "s-24-10" }],
   ["[data-issue-days]", { label: "ISSUE TRACKER:處理天數", anchor: "s-24-4" }],
   ["[data-issue-lock]", { label: "ISSUE TRACKER:確認完成與鎖定", anchor: "s-24-5" }],
 ];

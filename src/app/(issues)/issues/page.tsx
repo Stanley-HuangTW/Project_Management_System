@@ -23,6 +23,7 @@ function filtersFrom(sp: SP): IssueFilters {
     unitId: one(sp.unit) || undefined,
     assigneeId: one(sp.assignee) || undefined,
     unassigned: one(sp.unassigned) === "1",
+    mantis: one(sp.mantis) === "1" ? "1" : one(sp.mantis) === "0" ? "0" : "",
     mine: one(sp.mine) === "1",
     from: one(sp.from) || undefined,
     to: one(sp.to) || undefined,

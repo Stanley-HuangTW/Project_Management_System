@@ -13,6 +13,7 @@ import { IssueForm } from "./IssueForm";
 import { IssueTimeline } from "./IssueTimeline";
 import { IssueAttachments } from "./IssueAttachments";
 import { IssueWorkHours } from "./IssueWorkHours";
+import { IssueMantisPanel } from "./IssueMantisPanel";
 import { PriorityBadge, StatusBadge, buttonClass, formatDateTime } from "./issueUi";
 
 export function IssueDetailView({
@@ -128,9 +129,11 @@ export function IssueDetailView({
           canEditHandling={detail.can.editHandling}
           canAssign={detail.can.manage}
           locked={locked}
+          mantisLock={detail.mantis.id !== null ? detail.mantis.locked : undefined}
         />
         <div className="space-y-4">
           <IssueTimeline caseId={detail.id} logs={detail.logs} canAdd={detail.can.addLog} isManager={detail.can.manage} currentUserId={currentUserId} locked={locked} />
+          <IssueMantisPanel caseId={detail.id} mantis={detail.mantis} />
           <IssueWorkHours detail={detail} today={today} />
           <IssueAttachments
             caseId={detail.id}

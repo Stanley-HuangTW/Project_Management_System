@@ -34,7 +34,7 @@ export const MANTIS_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 /** 帶著可以直接給人看的訊息。 */
 export class MantisError extends Error {}
 
-type Method = "GET" | "PATCH";
+type Method = "GET" | "PATCH" | "POST";
 
 async function request(method: Method, baseUrl: string, token: string, path: string, params: Record<string, string>, auth: "bearer" | "bare", body?: unknown) {
   const url = new URL(`${baseUrl}/api/rest/${path}`);
@@ -150,12 +150,19 @@ export async function patchMantisIssue(baseUrl: string, token: string, id: numbe
   await mantisCall("PATCH", baseUrl, token, `issues/${id}`, {}, payload);
 }
 
+/** 建立一筆問題(ISSUE TRACKER 的案件建立到 Mantis)。回 Mantis 建好的問題;有些版本只回編號或空內容,讀不到就回 null。 */
+export async function postMantisIssue(baseUrl: string, token: string, payload: Record<string, unknown>): Promise<MantisIssue | null> {
+  const json = await mantisCall("POST", baseUrl, token, "issues", {}, payload);
+  const created = (json as { issue?: unknown } | null)?.issue;
+  return created && typeof created === "object" && Number.isInteger((created as MantisIssue).id) ? (created as MantisIssue) : null;
+}
+
 /** 這個 token 看得到的 Mantis 專案,管理者設定時挑一個。 */
 export async function fetchMantisProjects(baseUrl: string, token: string): Promise<MantisProject[]> {
   return parseProjects(await mantisGet(baseUrl, token, "projects"));
 }
 
-async function fetchAllIssues(baseUrl: string, token: string, projectId: number): Promise<{ issues: MantisIssue[]; truncated: boolean }> {
+export async function fetchAllIssues(baseUrl: string, token: string, projectId: number): Promise<{ issues: MantisIssue[]; truncated: boolean }> {
   const issues: MantisIssue[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = parseIssuesPage(

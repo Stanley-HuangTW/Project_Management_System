@@ -6,6 +6,8 @@ import { loadOrgUnits } from "@/lib/orgUnitsServer";
 import { loadOrgNodes } from "@/lib/orgNodesServer";
 import { IssueSettingsCard } from "@/components/settings/IssueSettingsCard";
 import { IssueSharedSettingsCards } from "@/components/settings/IssueSharedSettingsCards";
+import { IssueMantisCard } from "@/components/settings/IssueMantisCard";
+import { getIssueMantisConnection } from "@/lib/actions/issueMantis";
 
 /**
  * ISSUE TRACKER 的系統設定:ISSUE TRACKER 專屬的設定(ISSUE TRACKER 的管理者可改),
@@ -16,6 +18,7 @@ export default async function IssueSettingsPage() {
   if (role !== "MANAGER") redirect("/issues");
   const isAdmin = session.role === "ADMIN";
   const settings = await getSystemSettings();
+  const mantis = isAdmin ? await getIssueMantisConnection() : null;
   const [holidays, orgUnits, orgNodes] = isAdmin ? await Promise.all([listHolidays(), loadOrgUnits(), loadOrgNodes()]) : [[], [], []];
 
   return (
@@ -28,6 +31,8 @@ export default async function IssueSettingsPage() {
         <IssueSettingsCard dayMode={settings.issueDayMode} emailNotify={settings.issueEmailNotify} />
         {isAdmin && (
           <>
+            <h2 className="pt-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">Mantis</h2>
+            <IssueMantisCard initial={mantis} />
             <h2 className="pt-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">兩個系統共用的設定</h2>
             <IssueSharedSettingsCards
               emailNotificationsEnabled={settings.emailNotificationsEnabled}

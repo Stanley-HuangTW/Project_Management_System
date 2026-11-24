@@ -43,6 +43,7 @@ export function IssueListView({
       unit: filters.unitId,
       assignee: filters.assigneeId,
       unassigned: filters.unassigned ? "1" : undefined,
+      mantis: filters.mantis || undefined,
       mine: filters.mine ? "1" : undefined,
       from: filters.from,
       to: filters.to,
@@ -67,7 +68,7 @@ export function IssueListView({
 
   const hasFilters = !!(
     filters.q || filters.statuses?.length || filters.kind || filters.priority || filters.productId || filters.customerId || filters.errorTypeId ||
-    filters.unitId || filters.assigneeId || filters.unassigned || filters.mine || filters.from || filters.to
+    filters.unitId || filters.assigneeId || filters.unassigned || filters.mantis || filters.mine || filters.from || filters.to
   );
   const pages = Math.max(1, Math.ceil(result.total / result.pageSize));
   const selectClass = "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500";
@@ -129,6 +130,11 @@ export function IssueListView({
           <SearchableSelect options={opt("ERROR_TYPE", filters.errorTypeId)} value={filters.errorTypeId ?? ""} onChange={(v) => go({ error: v || undefined })} emptyLabel="問題類型:全部" placeholder="問題類型:全部" className={selectClass} />
           <SearchableSelect options={opt("HANDLER_UNIT", filters.unitId)} value={filters.unitId ?? ""} onChange={(v) => go({ unit: v || undefined })} emptyLabel="處理單位:全部" placeholder="處理單位:全部" className={selectClass} />
           <SearchableSelect options={users.map((u) => ({ value: u.id, label: u.name }))} value={filters.assigneeId ?? ""} onChange={(v) => go({ assignee: v || undefined, unassigned: undefined })} emptyLabel="負責人:全部" placeholder="負責人:全部" className={selectClass} />
+          <select value={filters.mantis ?? ""} onChange={(e) => go({ mantis: e.target.value || undefined })} className={selectClass} aria-label="Mantis" data-testid="f-mantis">
+            <option value="">Mantis:全部</option>
+            <option value="1">已連到 Mantis</option>
+            <option value="0">沒連 Mantis</option>
+          </select>
           <label className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-300">
             <input type="checkbox" checked={!!filters.unassigned} onChange={(e) => go({ unassigned: e.target.checked ? "1" : undefined, assignee: undefined })} />
             待指派
@@ -172,6 +178,7 @@ export function IssueListView({
                 <td className="whitespace-nowrap px-3 py-2">
                   <Link href={`/issues/${r.id}`} className="font-medium text-blue-700 hover:underline dark:text-blue-400" data-testid="case-link">{r.caseNo}</Link>
                   <span className="ml-1.5 text-[10px] text-neutral-400">{r.kind === "REPAIR" ? "維修" : "問題"}{r.rma ? " · RMA" : ""}</span>
+                  {r.mantisId !== null && <span className="ml-1 rounded bg-blue-50 px-1 text-[10px] text-blue-700 dark:bg-blue-950 dark:text-blue-300" title="已連到 Mantis" data-testid="mantis-tag">M#{r.mantisId}</span>}
                 </td>
                 <td className="px-3 py-2"><PriorityBadge priority={r.priority} /></td>
                 <td className="whitespace-nowrap px-3 py-2 text-neutral-600 dark:text-neutral-300">{r.issueDate}</td>

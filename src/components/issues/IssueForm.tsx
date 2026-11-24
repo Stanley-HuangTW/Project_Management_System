@@ -9,6 +9,7 @@ import { ISSUE_KIND_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_STATUS_LABELS } from "@
 import { partLabel, type IssueOptionDto } from "@/lib/issueOptions";
 import type { IssueCaseInput, IssueUserDto } from "@/lib/issueTypes";
 import { actionErrorMessage } from "@/lib/userError";
+import { useDialogs } from "@/components/ui/DialogProvider";
 import { inputClass, primaryButtonClass } from "./issueUi";
 
 function Field({ label, hint, children, wide }: { label: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
@@ -35,6 +36,8 @@ export function IssueForm({
   canEditHandling,
   canAssign,
   locked,
+  mantisLock,
+  mantisCreatable,
 }: {
   mode: "create" | "edit";
   caseId?: string;
@@ -45,8 +48,13 @@ export function IssueForm({
   canEditHandling: boolean;
   canAssign: boolean;
   locked?: boolean;
+  /** 案件已連到 Mantis 且連線啟用:沒開寫回的那一類欄位不能在這裡改,請到 Mantis 改。 */
+  mantisLock?: { status: boolean; priority: boolean; content: boolean };
+  /** 新增時顯示「同時建立到 Mantis」:Mantis 連線啟用,而且這個人是管理者或處理人。 */
+  mantisCreatable?: boolean;
 }) {
   const router = useRouter();
+  const { notify } = useDialogs();
   const [v, setV] = useState<IssueCaseInput>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +86,8 @@ export function IssueForm({
     try {
       if (mode === "create") {
         const out = await createIssueCase(v);
+        // Mantis 那邊沒建成功(案件已經建好):先讓使用者看到原因再進案件頁。
+        if (out.mantisNote) await notify(out.mantisNote, { title: "建立到 Mantis" });
         router.push(`/issues/${out.id}`);
         return;
       }
@@ -124,7 +134,7 @@ export function IssueForm({
             </select>
           </Field>
           <Field label="優先級">
-            <select disabled={reportOff} value={v.priority} onChange={(e) => set("priority", e.target.value as IssueCaseInput["priority"])} className={inputClass} data-testid="f-priority">
+            <select disabled={reportOff || !!mantisLock?.priority} title={mantisLock?.priority ? "這個案件已連到 Mantis,優先級請到 Mantis 修改" : undefined} value={v.priority} onChange={(e) => set("priority", e.target.value as IssueCaseInput["priority"])} className={inputClass} data-testid="f-priority">
               {Object.entries(ISSUE_PRIORITY_LABELS).map(([k, l]) => (
                 <option key={k} value={k}>{l}</option>
               ))}
@@ -152,10 +162,10 @@ export function IssueForm({
             <SearchableSelect options={select("WARRANTY", v.warrantyId)} value={v.warrantyId ?? ""} onChange={(x) => set("warrantyId", x || null)} disabled={reportOff} placeholder="選擇保固狀態" emptyLabel="未指定" className={inputClass} />
           </Field>
           <Field label={`問題描述${v.kind === "ISSUE" ? " *" : ""}`} wide>
-            <textarea disabled={reportOff} rows={4} value={v.description} onChange={(e) => set("description", e.target.value)} className={inputClass} data-testid="f-description" />
+            <textarea disabled={reportOff || !!mantisLock?.content} rows={4} value={v.description} onChange={(e) => set("description", e.target.value)} className={inputClass} data-testid="f-description" />
           </Field>
           <Field label="規格與行為(Specification and behavior)" wide>
-            <textarea disabled={reportOff} rows={3} value={v.behavior} onChange={(e) => set("behavior", e.target.value)} className={inputClass} />
+            <textarea disabled={reportOff || !!mantisLock?.content} rows={3} value={v.behavior} onChange={(e) => set("behavior", e.target.value)} className={inputClass} />
           </Field>
         </div>
       </section>
@@ -185,7 +195,7 @@ export function IssueForm({
               <SearchableSelect options={select("ERROR_TYPE", v.errorTypeId)} value={v.errorTypeId ?? ""} onChange={(x) => set("errorTypeId", x || null)} disabled={handlingOff} placeholder="尚未判定" emptyLabel="尚未判定" className={inputClass} />
             </Field>
             <Field label="狀態">
-              <select disabled={handlingOff} value={v.status} onChange={(e) => set("status", e.target.value as IssueCaseInput["status"])} className={inputClass} data-testid="f-status">
+              <select disabled={handlingOff || !!mantisLock?.status} title={mantisLock?.status ? "這個案件已連到 Mantis,狀態請到 Mantis 修改" : undefined} value={v.status} onChange={(e) => set("status", e.target.value as IssueCaseInput["status"])} className={inputClass} data-testid="f-status">
                 {Object.entries(ISSUE_STATUS_LABELS).map(([k, l]) => (
                   <option key={k} value={k}>{k} {l}</option>
                 ))}
@@ -215,6 +225,17 @@ export function IssueForm({
         </section>
       )}
 
+      {mantisLock && (mantisLock.status || mantisLock.priority || mantisLock.content) && (
+        <p className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/40 dark:text-blue-200" data-testid="mantis-lock-note">
+          這個案件已連到 Mantis:{[mantisLock.status && "狀態", mantisLock.priority && "優先級", mantisLock.content && "問題描述與規格與行為"].filter(Boolean).join("、")}請到 Mantis 修改(系統管理員可以在 ISSUE TRACKER 設定開啟寫回)。
+        </p>
+      )}
+      {mode === "create" && mantisCreatable && (
+        <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+          <input type="checkbox" checked={!!v.createInMantis} onChange={(e) => set("createInMantis", e.target.checked)} data-testid="f-create-in-mantis" />
+          同時建立到 Mantis
+        </label>
+      )}
       {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="form-error">{error}</div>}
       {(canEditReport || canEditHandling || canAssign) && (
         <div className="flex items-center gap-3">

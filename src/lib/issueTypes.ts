@@ -31,6 +31,8 @@ export type IssueCaseRow = {
   locked: boolean;
   rma: boolean;
   reporterName: string | null;
+  /** 連到的 Mantis 單號(沒連 = null)。 */
+  mantisId: number | null;
 };
 
 export type IssueFilters = {
@@ -45,6 +47,8 @@ export type IssueFilters = {
   assigneeId?: string;
   /** 還沒有負責人的案件(「待指派」)。 */
   unassigned?: boolean;
+  /** "1" = 只看已連到 Mantis 的;"0" = 只看沒連的。 */
+  mantis?: "1" | "0" | "";
   /** 只看我回報或我負責的。 */
   mine?: boolean;
   from?: string;
@@ -126,6 +130,17 @@ export type IssueCaseDetail = {
   workHours: { total: number; scope: "ALL" | "OWN"; entries: IssueWorkEntryDto[] };
   /** 登記工時時可選的類別(已啟用、而且開了「可連結案件」的)。 */
   workCategories: { id: string; name: string }[];
+  /**
+   * Mantis:連到的單號與網址、連線是不是啟用中、這個人能不能操作、
+   * 以及哪些欄位現在不能在這裡改(連線啟用、案件已連 Mantis、而且那一類欄位沒開寫回 → 請到 Mantis 改)。
+   */
+  mantis: {
+    id: number | null;
+    url: string | null;
+    connected: boolean;
+    canUse: boolean;
+    locked: { status: boolean; priority: boolean; content: boolean };
+  };
   can: {
     editReport: boolean;
     editHandling: boolean;
@@ -161,6 +176,8 @@ export type IssueCaseInput = {
   partIds: string[];
   /** 只有管理者能改負責人;其他人送來的會被忽略。 */
   assigneeIds: string[];
+  /** 新增時同時建立到 Mantis(要有 Mantis 連線,而且是管理者或處理人)。 */
+  createInMantis?: boolean;
 };
 
 export const ISSUE_PAGE_SIZE = 50;

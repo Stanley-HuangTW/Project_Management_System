@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runMantisSyncTick } from "@/lib/mantisSync";
+import { runIssueMantisSyncTick } from "@/lib/issueMantisServer";
 
 /**
  * MantisBT 同步的排程心跳。
@@ -13,7 +14,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const result = await runMantisSyncTick();
-  return NextResponse.json({ ran: true, ...result });
+  // ISSUE TRACKER 自己的 Mantis 連線也在這支心跳裡同步。
+  const issues = await runIssueMantisSyncTick();
+  return NextResponse.json({ ran: true, ...result, issues });
 }
 
 /** 給人在瀏覽器確認端點活著,不需要密鑰。 */

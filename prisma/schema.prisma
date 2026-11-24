@@ -2652,6 +2652,10 @@ model IssueCase {
   confirmedAt   DateTime?
   confirmedById String?
   confirmedBy   User?       @relation("IssueConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  /// 連到的 Mantis 問題單編號(從 Mantis 同步進來的、或從這裡建立到 Mantis 的、或手動連結的);沒連 = null。
+  mantisId        Int?      @unique
+  /// 上一次跟 Mantis 對過的 updated_at:寫回前拿來偵測 Mantis 那筆是不是被別人改過。
+  mantisUpdatedAt DateTime?
   deletedAt   DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -2741,4 +2745,25 @@ model IssueAttachment {
 model IssueCaseCounter {
   period String @id
   last   Int    @default(0)
+}
+
+/// ISSUE TRACKER 與 MantisBT 的連線(一個 ISSUE TRACKER 一個連線,跟看板無關)。
+/// API token 加密後存放(見 secretBox.ts),不會回傳給畫面。對應與寫回設定見 issueMantis.ts。
+model IssueMantisConnection {
+  id          String   @id @default("global")
+  baseUrl     String
+  projectId   Int
+  projectName String
+  tokenEnc    String
+  enabled     Boolean  @default(true)
+  lastSyncAt  DateTime?
+  lastSyncError String?
+  /// 上一次同步的結果:{ total, created, updated, unchanged, truncated }。
+  lastSyncSummary Json?
+  /// 欄位對應與寫回設定(見 issueMantis.ts);null = 預設值(而且不寫回)。
+  mapping     Json?
+  /// 同步時從問題收集到的 Mantis 使用者,寫回負責人時比對用。
+  users       Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

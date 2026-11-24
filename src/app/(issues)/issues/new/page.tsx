@@ -4,11 +4,13 @@ import { listIssueUsers } from "@/lib/actions/issueCases";
 import { taipeiTodayIso } from "@/lib/timesheet";
 import { IssueForm } from "@/components/issues/IssueForm";
 import { emptyIssueInput } from "@/lib/issueTypes";
+import { loadConnection } from "@/lib/issueMantisServer";
 
 export default async function NewIssuePage() {
   const { role } = await requireIssueSession();
   const [options, users] = await Promise.all([listIssueOptions(), listIssueUsers()]);
   const handling = role === "MANAGER" || role === "HANDLER";
+  const mantisEnabled = !!(await loadConnection())?.enabled;
   return (
     <div className="mx-auto max-w-4xl p-4 md:p-6">
       <h1 className="mb-1 text-lg font-semibold text-neutral-900 dark:text-neutral-100">回報新案件</h1>
@@ -21,6 +23,7 @@ export default async function NewIssuePage() {
         canEditReport
         canEditHandling={handling}
         canAssign={role === "MANAGER"}
+        mantisCreatable={handling && mantisEnabled}
       />
     </div>
   );

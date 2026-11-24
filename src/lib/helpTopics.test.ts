@@ -31,6 +31,7 @@ describe("helpTopicFor", () => {
     expect(helpTopicFor("/issues/feedback", null, true).anchor).toBe("s-21-2b");
     expect(helpTopicFor("/issues/manual", null, false).anchor).toBe("");
     expect(helpTopicFor("/issues/settings", null, false).anchor).toBe("s-24-9");
+    expect(helpTopicForElement((sel) => sel.includes("[data-issue-mantis]"), false)).toMatchObject({ anchor: "s-24-10" });
     expect(helpTopicFor("/select-system", null, false).anchor).toBe("s-1-1");
     expect(helpTopicFor("/no-access", null, false).anchor).toBe("s-1-1");
   });

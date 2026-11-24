@@ -17,9 +17,13 @@ import {
   canManageIssues,
   type IssueRole,
 } from "@/lib/issueAccess";
-import { casePeriod, formatCaseNo, isIsoDate, isResolvedStatus, ISSUE_STATUS_LABELS, openDays, processingDays, type IssueDayMode } from "@/lib/issueCase";
+import { isIsoDate, isResolvedStatus, ISSUE_STATUS_LABELS, openDays, processingDays, type IssueDayMode } from "@/lib/issueCase";
 import { issueDayModeSetting } from "@/lib/issueSettingsServer";
 import { notifyIssueAssigned } from "@/lib/issueNotify";
+import { allocateCaseNo } from "@/lib/issueCaseNoServer";
+import { createCaseInMantis, loadConnection, pushCaseToMantis } from "@/lib/issueMantisServer";
+import { isWriteEnabled, parseIssueMapping, type IssueMantisChange } from "@/lib/issueMantis";
+import { issueUrl } from "@/lib/mantis";
 import {
   ISSUE_PAGE_SIZE,
   type IssueCaseDetail,
@@ -29,17 +33,6 @@ import {
   type IssueLogKind,
   type IssueUserDto,
 } from "@/lib/issueTypes";
-
-type Tx = Prisma.TransactionClient;
-
-/** 新增一個案件的流水號:每個月一列計數器,INSERT … ON CONFLICT DO UPDATE … RETURNING 在資料庫裡原子加一(列鎖),並發不會拿到同一號。 */
-async function nextSequence(tx: Tx, period: string): Promise<number> {
-  const rows = await tx.$queryRaw<{ last: number }[]>`
-    INSERT INTO "IssueCaseCounter" ("period", "last") VALUES (${period}, 1)
-    ON CONFLICT ("period") DO UPDATE SET "last" = "IssueCaseCounter"."last" + 1
-    RETURNING "last"`;
-  return Number(rows[0].last);
-}
 
 function factsOf(c: { reporterId: string | null; confirmedAt: Date | null; assignees: { userId: string }[] }) {
   return { reporterId: c.reporterId, assigneeIds: c.assignees.map((a) => a.userId), locked: c.confirmedAt !== null };
@@ -97,6 +90,8 @@ function buildWhere(filters: IssueFilters, userId: string): Prisma.IssueCaseWher
   if (filters.unitId) and.push({ units: { some: { optionId: filters.unitId } } });
   if (filters.assigneeId) and.push({ assignees: { some: { userId: filters.assigneeId } } });
   if (filters.unassigned) and.push({ assignees: { none: {} } });
+  if (filters.mantis === "1") and.push({ mantisId: { not: null } });
+  if (filters.mantis === "0") and.push({ mantisId: null });
   if (filters.mine) and.push({ OR: [{ reporterId: userId }, { assignees: { some: { userId } } }] });
   if (filters.from && isIsoDate(filters.from)) and.push({ issueDate: { gte: filters.from } });
   if (filters.to && isIsoDate(filters.to)) and.push({ issueDate: { lte: filters.to } });
@@ -134,6 +129,7 @@ function toRow(c: RowSource, ctx: { mode: IssueDayMode; holidays: Set<string>; t
     locked: c.confirmedAt !== null,
     rma: c.rma,
     reporterName: c.reporter?.name ?? null,
+    mantisId: c.mantisId,
   };
 }
 
@@ -169,9 +165,11 @@ const DETAIL_INCLUDE = {
 
 type DetailSource = Prisma.IssueCaseGetPayload<{ include: typeof DETAIL_INCLUDE }>;
 
+type MantisSource = { baseUrl: string; enabled: boolean; mapping: unknown } | null;
+
 type WorkSource = { workRows: { id: string; date: string; hours: Prisma.Decimal; note: string | null; userId: string; user: { name: string }; category: { name: string } }[]; workCategories: { id: string; name: string }[] };
 
-function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource): IssueCaseDetail {
+function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource, mantisConn: MantisSource): IssueCaseDetail {
   const facts = factsOf(c);
   // 管理者與負責人看得到案件上所有人的工時;其他人只看自己登記的(沿用「看得到誰的工時」的精神)。
   const seeAll = role === "MANAGER" || facts.assigneeIds.includes(userId);
@@ -216,6 +214,19 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
       entries: visible.map((w) => ({ id: w.id, date: w.date, hours: Number(w.hours), userName: w.user.name, categoryName: w.category.name, note: w.note ?? "", own: w.userId === userId })),
     },
     workCategories: work.workCategories,
+    mantis: (() => {
+      const connected = !!mantisConn?.enabled;
+      const mapping = parseIssueMapping(mantisConn?.mapping);
+      // 連線啟用、案件已連 Mantis、那一類欄位沒開寫回 → 這裡不能改,請到 Mantis 改。
+      const lock = (field: "status" | "priority" | "content") => connected && c.mantisId !== null && !isWriteEnabled(mapping, field);
+      return {
+        id: c.mantisId,
+        url: mantisConn && c.mantisId !== null ? issueUrl(mantisConn.baseUrl, c.mantisId) : null,
+        connected,
+        canUse: connected && (canManageIssues(role) || canEditHandlingFields(role, userId, facts)),
+        locked: { status: lock("status"), priority: lock("priority"), content: lock("content") },
+      };
+    })(),
     logs: c.logs.map((l) => ({
       id: l.id,
       kind: l.kind,
@@ -246,7 +257,7 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
 
 export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> {
   const { role, userId } = await requireIssueActor();
-  const [c, ctx, workRows, workCategories] = await Promise.all([
+  const [c, ctx, workRows, workCategories, mantisConn] = await Promise.all([
     prisma.issueCase.findFirst({ where: { id, deletedAt: null }, include: DETAIL_INCLUDE }),
     dayContext(),
     prisma.activityTimeEntry.findMany({
@@ -255,8 +266,9 @@ export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> 
       select: { id: true, date: true, hours: true, note: true, userId: true, user: { select: { name: true } }, category: { select: { name: true } } },
     }),
     prisma.timeCategory.findMany({ where: { active: true, linkIssueCase: true }, orderBy: [{ order: "asc" }, { createdAt: "asc" }], select: { id: true, name: true } }),
+    loadConnection(),
   ]);
-  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }) : null;
+  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }, mantisConn) : null;
 }
 
 async function loadCaseForWrite(id: string) {
@@ -387,7 +399,7 @@ async function cleanCaseInput(input: IssueCaseInput, existing: { optionIds: Set<
  * 寫入失敗連計數器一起退回,不會留下空號;caseNo 還有資料庫唯一索引當最後一道保險,萬一撞號就重取。
  * 回報人沒有「處理」的權限,處理欄位(狀態、零件、RMA…)一律用預設值,由處理人之後補。
  */
-export async function createIssueCase(input: IssueCaseInput): Promise<{ id: string; caseNo: string }> {
+export async function createIssueCase(input: IssueCaseInput): Promise<{ id: string; caseNo: string; mantisNote?: string }> {
   const { role, userId } = await requireIssueActor();
   const data = await cleanCaseInput(input, null);
   const handling = role === "MANAGER" || role === "HANDLER";
@@ -403,8 +415,7 @@ export async function createIssueCase(input: IssueCaseInput): Promise<{ id: stri
   for (let attempt = 0; ; attempt++) {
     try {
       const created = await prisma.$transaction(async (tx) => {
-        const seq = await nextSequence(tx, casePeriod(data.issueDate));
-        const caseNo = formatCaseNo(data.issueDate, seq);
+        const caseNo = await allocateCaseNo(tx, data.issueDate);
         return tx.issueCase.create({
           data: {
             caseNo,
@@ -431,7 +442,13 @@ export async function createIssueCase(input: IssueCaseInput): Promise<{ id: stri
       await logAudit("SETTINGS", userId, `ISSUE TRACKER 新增案件 ${created.caseNo}`);
       await notifyIssueAssigned(created, assigneeIds, userId);
       revalidatePath("/issues", "layout");
-      return { id: created.id, caseNo: created.caseNo };
+      // 勾了「同時建立到 Mantis」:案件已經建好,Mantis 那邊失敗只回說明(案件不退回),之後可以在案件頁再按「建立到 Mantis」。
+      let mantisNote: string | undefined;
+      if (input.createInMantis && role !== "REPORTER") {
+        const result = await createCaseInMantis(created.id);
+        mantisNote = "error" in result ? `案件 ${created.caseNo} 已建立,但建立到 Mantis 失敗:${result.error}(可以在案件頁再按「建立到 Mantis」)` : result.warnings.length ? `案件已建立到 Mantis #${result.mantisId},但:${result.warnings.join(";")}` : undefined;
+      }
+      return { id: created.id, caseNo: created.caseNo, ...(mantisNote ? { mantisNote } : {}) };
     } catch (err) {
       const unique = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
       if (unique && attempt < 4) continue; // 號碼被別的來源(匯入)佔了:交易已退回,重新取下一號。
@@ -485,6 +502,22 @@ export async function updateIssueCase(id: string, input: IssueCaseInput): Promis
   if (reportChanged && !canEditReportFields(role, userId, facts)) throw new UserError("權限不足:你不能修改這個案件的回報內容");
   if (handlingChanged && !canEditHandlingFields(role, userId, facts)) throw new UserError("權限不足:你不能修改這個案件的處理內容");
   if (assigneesChanged && !canManageIssues(role)) throw new UserError("權限不足:只有管理者可以改負責人");
+
+  // 已連到 Mantis 的案件:存檔當下先寫回 Mantis(Mantis 拒絕或那一筆被別人改過就整個不存,回說明)。沒有連線 / 連線停用就略過。
+  if (existing.mantisId !== null) {
+    const change: IssueMantisChange = {};
+    if (data.status !== existing.status) change.status = data.status;
+    if (data.priority !== existing.priority) change.priority = data.priority;
+    if (data.description !== existing.description || data.behavior !== existing.behavior) change.text = { description: data.description, behavior: data.behavior };
+    if (assigneesChanged) {
+      const first = data.assigneeIds[0] ? await prisma.user.findUnique({ where: { id: data.assigneeIds[0] }, select: { id: true, name: true, email: true } }) : null;
+      change.owner = first;
+    }
+    if (Object.keys(change).length > 0) {
+      const pushed = await pushCaseToMantis(id, change);
+      if ("error" in pushed) throw new UserError(pushed.error);
+    }
+  }
 
   const logs: string[] = [];
   if (data.status !== existing.status) logs.push(`狀態:${ISSUE_STATUS_LABELS[existing.status]} → ${ISSUE_STATUS_LABELS[data.status]}`);

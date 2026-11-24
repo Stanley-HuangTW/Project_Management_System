@@ -11,7 +11,8 @@ import { mailBody } from "@/lib/appUrl";
 export async function notifyIssueAssigned(
   c: { id: string; caseNo: string; description: string },
   userIds: string[],
-  actorId: string
+  /** 誰指派的;系統自己指派(Mantis 同步)是 null。 */
+  actorId: string | null
 ): Promise<void> {
   const targets = [...new Set(userIds)].filter((id) => id !== actorId);
   if (targets.length === 0) return;
