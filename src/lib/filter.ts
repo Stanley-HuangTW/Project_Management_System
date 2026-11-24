@@ -1,4 +1,5 @@
 import type { ItemData } from "@/types/board";
+import { computeWbsCodes } from "@/lib/wbs";
 
 export type FilterValue =
   | { kind: "text"; query: string }
@@ -73,6 +74,32 @@ function itemMatchesFilter(item: ItemData, columnId: string, value: FilterValue)
 }
 
 /**
+ * 搜尋框的比對:項目名稱含有關鍵字,或關鍵字是項目編號(WBS,例如 1.9.3)——
+ * 編號照層級比,所以「1.9」找得到 1.9 與它底下的 1.9.1、1.9.3,但不會把 1.90 也撈進來。
+ */
+export function itemMatchesSearch(name: string, wbsCode: string | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (name.toLowerCase().includes(q)) return true;
+  if (!wbsCode || !/^[\d.]+$/.test(q)) return false;
+  const code = q.replace(/\.+$/, "");
+  return code !== "" && (wbsCode === code || wbsCode.startsWith(code + "."));
+}
+
+/** 每個分組各自編號(跟表格、甘特圖畫面上的編號一樣:WBS 只在自己的分組裡有意義)。 */
+export function wbsCodesByGroup(items: ItemData[]): Map<string, string> {
+  const byGroup = new Map<string, ItemData[]>();
+  for (const item of items) {
+    const list = byGroup.get(item.groupId);
+    if (list) list.push(item);
+    else byGroup.set(item.groupId, [item]);
+  }
+  const codes = new Map<string, string>();
+  for (const list of byGroup.values()) for (const [id, code] of computeWbsCodes(list)) codes.set(id, code);
+  return codes;
+}
+
+/**
  * Returns the set of item ids that should stay visible under the active
  * filters and/or a name search, including ancestors of any matching item so
  * the hierarchy stays intact. Returns null when there's nothing active (show
@@ -88,9 +115,11 @@ export function computeVisibleItemIds(
 
   const itemById = new Map(items.map((i) => [i.id, i]));
   const visible = new Set<string>();
+  // 關鍵字是數字與點(像 1.9.3)才需要算編號,一般的名稱搜尋不多做這一步。
+  const codes = query && /^[\d.]+$/.test(query) ? wbsCodesByGroup(items) : null;
 
   for (const item of items) {
-    const matchesSearch = !query || item.name.toLowerCase().includes(query);
+    const matchesSearch = !query || itemMatchesSearch(item.name, codes?.get(item.id), query);
     if (matchesSearch && filters.every((f) => itemMatchesFilter(item, f.columnId, f.value))) {
       visible.add(item.id);
       let cur = item;

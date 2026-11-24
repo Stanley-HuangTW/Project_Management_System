@@ -105,7 +105,7 @@ import {
 import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
 import { describeCascade, describeConflicts } from "@/lib/cascadeText";
 import { getStatusOptions } from "@/types/column";
-import { computeVisibleItemIds, type ActiveFilter } from "@/lib/filter";
+import { computeVisibleItemIds, itemMatchesSearch, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import { resolveItemNameColor, resolveItemStatusOption, resolveStatusColumn } from "@/lib/dashboard";
 import { AssignmentModal } from "./AssignmentModal";
@@ -1976,14 +1976,14 @@ export function BoardGantt({
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜尋項目名稱..."
+              placeholder="搜尋項目名稱或編號..."
               data-gantt-search
               className="w-48 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 py-1 pl-7 pr-2 text-xs outline-none focus:border-blue-500"
             />
           </div>
           {searching && (
             <span className="text-xs text-neutral-400 dark:text-neutral-500" data-gantt-search-count>
-              {board.items.filter((i) => i.name.toLowerCase().includes(searchQuery.trim().toLowerCase())).length} 個符合
+              {board.items.filter((i) => itemMatchesSearch(i.name, wbsCodes.get(i.id), searchQuery)).length} 個符合
             </span>
           )}
         </div>

@@ -522,7 +522,7 @@ export function BoardTable({
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜尋項目名稱..."
+            placeholder="搜尋項目名稱或編號..."
             className="w-48 rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 py-1 pl-7 pr-2 text-xs outline-none focus:border-blue-500"
           />
         </div>
