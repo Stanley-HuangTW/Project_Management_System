@@ -25,6 +25,7 @@ import { isItemAssignedToUser, isItemAssignedToTeam } from "@/lib/itemAssignment
 import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { getPersonIds, getStatusOptions, type CellValueJson } from "@/types/column";
 import { itemLink } from "@/lib/notificationLink";
+import { doneStatusTarget } from "@/lib/progressDoneStatus";
 
 /** Human-readable form of a cell's raw value for the activity log — STATUS
  *  values are stored as option ids, so the log needs the option's label,
@@ -62,6 +63,8 @@ export async function upsertCellValue(
       where: { id: boardId },
       select: {
         progressColumnId: true,
+        reportStatusColumnId: true,
+        reportDoneOptionIds: true,
         ganttStartColumnId: true,
         ganttDurationColumnId: true,
         ganttEndColumnId: true,
@@ -257,6 +260,22 @@ export async function upsertCellValue(
   }
 
   await dispatchWebhooks(boardId, "item.updated", { itemId, columnId, value });
+
+  // 進度填到 100%,狀態跟著變成「完成」(不然進度滿了、狀態還是 Planned,逾期也不會標紅,
+  // 因為系統把進度 100% 視為完成)。走同一個函式,所以活動紀錄、通知、自動化規則、後續項目的提醒都照常。
+  if (column && board && column.id === board.progressColumnId && typeof value === "number" && value >= 1) {
+    const statusColumns = await prisma.column.findMany({
+      where: { boardId, type: "STATUS" },
+      select: { id: true, type: true, name: true, options: true },
+    });
+    const target = doneStatusTarget(statusColumns, board.reportStatusColumnId, board.reportDoneOptionIds);
+    if (target) {
+      const current = item?.cellValues.find((cv) => cv.columnId === target.columnId)?.value;
+      if (typeof current !== "string" || !target.doneOptionIds.includes(current)) {
+        await upsertCellValue(boardId, itemId, target.columnId, target.optionId);
+      }
+    }
+  }
 
   revalidatePath(`/boards/${boardId}`);
 

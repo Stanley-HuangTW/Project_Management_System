@@ -12,6 +12,7 @@ import { resolveLockedScheduleFields } from "@/lib/predecessorLink";
 import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
 import { statusActivityDetail } from "@/lib/statusEvent";
+import { doneStatusTarget } from "@/lib/progressDoneStatus";
 import { shiftDate } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { CellValueJson } from "@/types/column";
@@ -56,6 +57,8 @@ export async function bulkSetCellValue(
     where: { id: boardId },
     select: {
       progressColumnId: true,
+      reportStatusColumnId: true,
+      reportDoneOptionIds: true,
       ganttStartColumnId: true,
       ganttDurationColumnId: true,
       ganttEndColumnId: true,
@@ -159,6 +162,30 @@ export async function bulkSetCellValue(
       update: { value: jsonValue },
     });
     await logActivity(itemId, session.userId, `「${column.name}」已批次更新`, statusDetail);
+  }
+
+  // 批次把進度填到 100%:狀態也跟著變成「完成」(單項編輯是同樣的規則,見 cell.ts)。
+  if (board && columnId === board.progressColumnId && typeof value === "number" && value >= 1) {
+    const statusColumns = await prisma.column.findMany({
+      where: { boardId, type: "STATUS" },
+      select: { id: true, type: true, name: true, options: true },
+    });
+    const target = doneStatusTarget(statusColumns, board.reportStatusColumnId, board.reportDoneOptionIds);
+    if (target) {
+      const statusColumn = statusColumns.find((c) => c.id === target.columnId)!;
+      const detail = await statusActivityDetail(boardId, statusColumn, target.optionId);
+      for (const item of items) {
+        if (!changed.includes(item.id)) continue;
+        const current = item.cellValues.find((cv) => cv.columnId === target.columnId)?.value;
+        if (typeof current === "string" && target.doneOptionIds.includes(current)) continue;
+        await prisma.cellValue.upsert({
+          where: { itemId_columnId: { itemId: item.id, columnId: target.columnId } },
+          create: { itemId: item.id, columnId: target.columnId, value: target.optionId },
+          update: { value: target.optionId },
+        });
+        await logActivity(item.id, session.userId, `「${statusColumn.name}」因進度 100% 自動改為完成`, detail);
+      }
+    }
   }
 
   // Once at the end rather than per item: a cascade re-entered 200 times would
