@@ -14,6 +14,7 @@ import {
 import type { ItemPredecessor } from "@/lib/predecessorLink";
 import { withWeekday } from "@/lib/weekdayLabel";
 import { useDialogs } from "@/components/ui/DialogProvider";
+import { DateChangeHint, useSavedBaseline } from "@/components/ui/DateChangeHint";
 
 const NONE = "__none__";
 const SOURCE_FIXED = "FIXED";
@@ -204,8 +205,12 @@ export function ConstraintRow({
     save(draftType, { kind: "PRED", predItemId: refItemId!, edge: "DAY", day });
   }
 
+  // 固定日期改了立刻存檔,所以另外記打開卡片時存的那一份,才比得出調整了幾天。
+  const savedDate = useSavedBaseline(itemId, date);
+
   return (
     <div className={className}>
+      {draftType && !followsPred && <DateChangeHint saved={savedDate} current={date} className="text-right" />}
       <div className="flex items-center justify-between gap-3">
         <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">日期約束</span>
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">

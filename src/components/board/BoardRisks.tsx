@@ -10,6 +10,7 @@ import type { BoardWithData, UserOption } from "@/types/board";
 import { computeWbsCodes } from "@/lib/wbs";
 import { withWeekday } from "@/lib/weekdayLabel";
 import { describeDueAgainstItem } from "@/lib/riskDueWindow";
+import { DateChangeHint } from "@/components/ui/DateChangeHint";
 import { ItemTreePicker } from "./ItemTreePicker";
 import {
   riskScore,
@@ -731,6 +732,15 @@ export function BoardRisks({
               />
             </label>
 
+            {/* 對策到期日改了多少:放在這一列的上方、整列寬,不要塞進窄欄裡把同列的欄位擠歪。 */}
+            {editing.id && (
+              <DateChangeHint
+                label="對策到期日"
+                saved={risks.find((r) => r.id === editing.id)?.dueDate ?? null}
+                current={editing.input.dueDate}
+                className="!mb-0"
+              />
+            )}
             <div className="grid grid-cols-3 gap-3">
               <div className="block">
                 <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">負責人</span>

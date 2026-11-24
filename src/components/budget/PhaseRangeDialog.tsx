@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { daysBetween, endFromDays, type DurationMode } from "@/lib/rangeDuration";
+import { DateChangeHint } from "@/components/ui/DateChangeHint";
 
 export type RangeDraft = {
   /** 里程碑才有:排在哪一排。 */
@@ -213,6 +214,7 @@ export function PhaseRangeDialog({
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">開始日</span>
+            {initial && <DateChangeHint saved={initial.startDate} current={startDate} />}
             <input
               type="date"
               value={startDate}
@@ -225,6 +227,7 @@ export function PhaseRangeDialog({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">結束日</span>
+            {initial && <DateChangeHint saved={initial.endDate} current={endDate} />}
             <input
               type="date"
               value={endDate}

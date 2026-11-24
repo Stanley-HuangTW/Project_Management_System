@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRecordedCellSave } from "./useCellSave";
 import { cellFieldClass } from "./cellFieldClass";
 import { withWeekday } from "@/lib/weekdayLabel";
+import { DateChangeHint, useSavedBaseline } from "@/components/ui/DateChangeHint";
 
 export function DateCell({
   boardId,
@@ -37,6 +38,8 @@ export function DateCell({
     setShown(value);
   }
   const weekday = shown ? withWeekday(shown).slice(shown.length) : "";
+  // 卡片裡:上方寫打開卡片時存的日期,改了就寫差幾天(改了立刻存檔,所以要另外記打開時的那一份)。
+  const baseline = useSavedBaseline(`${itemId}:${columnId}`, value);
 
   const input = (
     <input
@@ -53,6 +56,7 @@ export function DateCell({
   if (!bordered) return input;
   return (
     <div>
+      <DateChangeHint saved={baseline} current={shown} className="px-2" />
       {input}
       {weekday && (
         <span data-date-weekday className="block px-2 pt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
