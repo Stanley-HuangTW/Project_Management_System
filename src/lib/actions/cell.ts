@@ -26,6 +26,7 @@ import { loadGroupRoleContext } from "@/lib/groupRoleContext";
 import { getPersonIds, getStatusOptions, type CellValueJson } from "@/types/column";
 import { itemLink } from "@/lib/notificationLink";
 import { doneStatusTarget } from "@/lib/progressDoneStatus";
+import { syncSummaryStatusFromChild } from "@/lib/summaryStatusSync";
 
 /** Human-readable form of a cell's raw value for the activity log — STATUS
  *  values are stored as option ids, so the log needs the option's label,
@@ -239,6 +240,8 @@ export async function upsertCellValue(
         );
         if (column.type === "STATUS") {
           await executeAutomationRules(boardId, itemId, columnId, value, session.userId);
+          // 子項目切成進行中 / 完成:還沒開始的上層(摘要)項目跟著切成進行中,並記下是哪個子項目造成的。
+          await syncSummaryStatusFromChild(boardId, itemId, session.userId, columnId);
         }
         // Marking something done is what unblocks whoever was waiting on it —
         // the Pred lamp turns green at the same moment, but nobody watches a

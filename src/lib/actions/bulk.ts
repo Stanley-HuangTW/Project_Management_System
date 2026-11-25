@@ -13,6 +13,7 @@ import { syncPredecessorSchedule } from "@/lib/scheduleCascade";
 import { logActivity } from "@/lib/activityLog";
 import { statusActivityDetail } from "@/lib/statusEvent";
 import { doneStatusTarget } from "@/lib/progressDoneStatus";
+import { syncSummaryStatusFromChild } from "@/lib/summaryStatusSync";
 import { shiftDate } from "@/lib/workday";
 import { listHolidays, toHolidaySet } from "@/lib/holidays";
 import type { CellValueJson } from "@/types/column";
@@ -162,6 +163,11 @@ export async function bulkSetCellValue(
       update: { value: jsonValue },
     });
     await logActivity(itemId, session.userId, `「${column.name}」已批次更新`, statusDetail);
+  }
+
+  // 批次改狀態:被改的項目若是別人的子項目,上層還沒開始的跟著切成進行中(跟單項編輯一樣)。
+  if (column.type === "STATUS") {
+    for (const itemId of changed) await syncSummaryStatusFromChild(boardId, itemId, session.userId, columnId);
   }
 
   // 批次把進度填到 100%:狀態也跟著變成「完成」(單項編輯是同樣的規則,見 cell.ts)。
