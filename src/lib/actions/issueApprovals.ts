@@ -24,7 +24,8 @@ import {
 } from "@/lib/issueApproval";
 import { APPROVAL_INCLUDE, pendingForUser, toApprovalDtos, viewerOf } from "@/lib/issueApprovalServer";
 import { notifyFlowById } from "@/lib/issueFlowServer";
-import { pushCaseToMantis } from "@/lib/issueMantisServer";
+import { loadConnection, pushCaseToMantis } from "@/lib/issueMantisServer";
+import { isWriteEnabled, parseIssueMapping } from "@/lib/issueMantis";
 
 const LINK = "/issues/approvals";
 
@@ -43,14 +44,17 @@ async function nameOf(userId: string) {
   return (await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? "同仁";
 }
 
-/** 結案簽核通過時案件的狀態要變:已連到 Mantis 的案件先寫回(失敗就整個不核准,回說明),避免兩邊狀態不一致。 */
+/** 結案簽核通過時案件的狀態要變:已連到 Mantis 且開了狀態寫回的案件先寫回(Mantis 拒絕就整個不核准,回說明),避免兩邊狀態不一致。 */
 async function pushCloseToMantis(c: { id: string; mantisId: number | null; status: string }, closeStatus: "TC" | "PC" | null) {
   if (c.mantisId === null || !closeStatus || closeStatus === c.status) return;
+  // 連線停用、或沒開「狀態」的寫回:狀態由 Mantis 自己管,不寫回,案件照簽核結果結案。
+  const conn = await loadConnection();
+  if (!conn?.enabled || !isWriteEnabled(parseIssueMapping(conn.mapping), "status")) return;
   const pushed = await pushCaseToMantis(c.id, { status: closeStatus });
   if ("error" in pushed) throw new UserError(pushed.error);
 }
 
-type CaseForApply = { id: string; caseNo: string; kind: "ISSUE" | "REPAIR"; status: "OPEN" | "TC" | "PC" | "NA"; closeDate: string | null };
+type CaseForApply = { id: string; caseNo: string; kind: "ISSUE" | "REPAIR"; status: "OPEN" | "TC" | "PC" | "NA"; closeDate: string | null; shippedDate: string | null };
 
 /** 簽核核准後案件要發生的事(在交易裡做)。 */
 async function applyApproved(
@@ -69,7 +73,7 @@ async function applyApproved(
     if (to !== c.status) await tx.issueLog.create({ data: { caseId: c.id, kind: "NOTE", content: `狀態:${ISSUE_STATUS_LABELS[c.status]} → ${ISSUE_STATUS_LABELS[to]}`, authorId: signerId } });
     await tx.issueLog.create({ data: { caseId: c.id, kind: "STAGE", content: `結案簽核通過,案件已結案並鎖定(${ISSUE_STATUS_LABELS[to]})`, authorId: signerId } });
   } else if (a.kind === "TO_REPAIR") {
-    await tx.issueCase.update({ where: { id: c.id }, data: { kind: "REPAIR", stage: TO_REPAIR_STAGE, stageAt: now, stuckNotifiedAt: null } });
+    await tx.issueCase.update({ where: { id: c.id }, data: { kind: "REPAIR", stage: TO_REPAIR_STAGE, stageAt: now, stuckNotifiedAt: null, shippedDate: c.shippedDate ?? taipeiTodayIso() } });
     await tx.issueLog.create({ data: { caseId: c.id, kind: "STAGE", content: "轉維修簽核通過:Issue 轉 Repair,階段到「運送中」", authorId: signerId } });
   } else {
     await tx.issueLog.create({ data: { caseId: c.id, kind: "STAGE", content: `外勤簽核通過:${a.note}`, authorId: signerId } });
