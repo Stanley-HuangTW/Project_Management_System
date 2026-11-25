@@ -253,6 +253,17 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
     })),
     stage: c.stage,
     stageAt: c.stageAt.toISOString(),
+    repair: {
+      shipMethod: c.shipMethod,
+      trackingNo: c.trackingNo ?? "",
+      shippedDate: c.shippedDate,
+      receivedDate: c.receivedDate,
+      accessories: c.accessories,
+      onsiteReplace: c.onsiteReplace,
+      repairStartDate: c.repairStartDate,
+      repairDoneDate: c.repairDoneDate,
+      canEdit: canMove || canEditHandlingFields(role, userId, facts),
+    },
     flow: { moves: canMove ? availableMoves(c.kind, c.stage as IssueStage) : [], canMove, canConvert: canMove && canConvertToRepair(c.kind, c.stage as IssueStage) },
     can: {
       editReport: canEditReportFields(role, userId, facts),

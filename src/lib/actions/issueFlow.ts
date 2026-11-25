@@ -10,12 +10,17 @@ import {
   canMoveStage,
   availableMoves,
   ISSUE_STAGE_LABELS,
+  STAGE_DATE_FIELD,
   TO_REPAIR_STAGE,
   type FlowActor,
   type IssueLane,
   type IssueStage,
 } from "@/lib/issueFlow";
 import { notifyFlowById } from "@/lib/issueFlowServer";
+import { canEditHandlingFields } from "@/lib/issueAccess";
+import { isIsoDate } from "@/lib/issueCase";
+import { taipeiTodayIso } from "@/lib/timesheet";
+import type { IssueRepairInfo } from "@/lib/issueTypes";
 
 async function loadForFlow(caseId: string, userId: string, role: "REPORTER" | "HANDLER" | "MANAGER") {
   const [c, me] = await Promise.all([
@@ -38,7 +43,18 @@ export async function moveIssueStage(caseId: string, to: IssueStage, note?: stri
   const direction = move.direction;
   const text = typeof note === "string" ? note.trim().slice(0, 2000) : "";
   await prisma.$transaction([
-    prisma.issueCase.update({ where: { id: caseId }, data: { stage: to, stageAt: new Date(), stuckNotifiedAt: null } }),
+    prisma.issueCase.update({
+      where: { id: caseId },
+      data: {
+        stage: to,
+        stageAt: new Date(),
+        stuckNotifiedAt: null,
+        // 往前推進時,這一階對應的日期(送出 / 收件 / 開始維修 / 維修完成)沒填就帶今天。
+        ...(direction === "FORWARD" && STAGE_DATE_FIELD[to] && !c[STAGE_DATE_FIELD[to]!] ? { [STAGE_DATE_FIELD[to]!]: taipeiTodayIso() } : {}),
+        // 維修案件從 FAE 評估直接到維修中 = 現場更換(不用送回)。
+        ...(c.kind === "REPAIR" && facts.stage === "FAE_REVIEW" && to === "REPAIRING" ? { onsiteReplace: true } : {}),
+      },
+    }),
     prisma.issueLog.create({
       data: {
         caseId,

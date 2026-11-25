@@ -9,6 +9,7 @@ import {
   isStageMove,
   isStuck,
   nextStages,
+  STAGE_DATE_FIELD,
   stageAfterUnlock,
   stageTrack,
   type FlowActor,
@@ -26,6 +27,13 @@ describe("流程階段的線", () => {
     expect(nextStages("REPAIR", "IN_TRANSIT")).toEqual(["RECEIVED"]);
     expect(nextStages("REPAIR", "RECEIVED")).toEqual(["REPAIRING"]);
     expect(nextStages("REPAIR", "REPAIRING")).toEqual(["REPAIRED"]);
+  });
+  it("Repair:客戶自送的件可以從已通報直接收件", () => {
+    expect(nextStages("REPAIR", "REPORTED")).toEqual(["FAE_REVIEW", "IN_TRANSIT", "RECEIVED"]);
+    expect(backStages("REPAIR", "RECEIVED")).toEqual(["REPORTED", "IN_TRANSIT"]);
+  });
+  it("進到運送 / 收件 / 維修 / 完成會自動帶日期的欄位", () => {
+    expect(STAGE_DATE_FIELD).toEqual({ IN_TRANSIT: "shippedDate", RECEIVED: "receivedDate", REPAIRING: "repairStartDate", REPAIRED: "repairDoneDate" });
   });
   it("結案(簽核中 / 已結案)不能手動推進,也沒有可退回的按鈕", () => {
     expect(availableMoves("ISSUE", "CLOSED")).toEqual([]);

@@ -2558,6 +2558,12 @@ enum IssueLane {
   RD
 }
 
+/// 維修件怎麼送到:郵寄(要追蹤包裹)或客戶自送。
+enum IssueShipMethod {
+  MAIL
+  HAND
+}
+
 /// 案件在客服維修流程裡走到哪。跟 status(處理中 / TC / PC)是兩件事:階段看「輪到誰」,狀態看「解決了沒」。
 enum IssueStage {
   REPORTED
@@ -2682,6 +2688,15 @@ model IssueCase {
   stageAt         DateTime   @default(now())
   /// 最近一次發出「卡關提醒」的時間;階段一換就清掉。
   stuckNotifiedAt DateTime?
+  /// 維修進度:送修方式、物流單號、各階段日期("YYYY-MM-DD",階段推進時沒填會自動帶當天)、配件清點、是不是現場更換。
+  shipMethod      IssueShipMethod?
+  trackingNo      String?
+  shippedDate     String?
+  receivedDate    String?
+  accessories     String    @default("")
+  onsiteReplace   Boolean   @default(false)
+  repairStartDate String?
+  repairDoneDate  String?
   reporterId  String?
   reporter    User?         @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
   /// 第一次有人回應的時間(時間軸第一筆「回應」自動記),算首次回覆時間用。

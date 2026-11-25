@@ -72,7 +72,8 @@ const FORWARD: Record<FlowKind, Partial<Record<IssueStage, IssueStage[]>>> = {
     SALES_DECISION: ["REPORTED"],
   },
   REPAIR: {
-    REPORTED: ["FAE_REVIEW", "IN_TRANSIT"],
+    // 客戶自己送來的維修件,Sales 直接收件。
+    REPORTED: ["FAE_REVIEW", "IN_TRANSIT", "RECEIVED"],
     // 要送回 → 運送中;現場更換 → 直接維修中。
     FAE_REVIEW: ["IN_TRANSIT", "REPAIRING"],
     IN_TRANSIT: ["RECEIVED"],
@@ -108,6 +109,14 @@ export function availableMoves(kind: FlowKind, stage: IssueStage): StageMove[] {
 export function isStageMove(kind: FlowKind, from: IssueStage, to: IssueStage): boolean {
   return availableMoves(kind, from).some((m) => m.to === to);
 }
+
+/** 進到這一階時自動帶當天日期的欄位(已經有日期就不蓋)。 */
+export const STAGE_DATE_FIELD: Partial<Record<IssueStage, "shippedDate" | "receivedDate" | "repairStartDate" | "repairDoneDate">> = {
+  IN_TRANSIT: "shippedDate",
+  RECEIVED: "receivedDate",
+  REPAIRING: "repairStartDate",
+  REPAIRED: "repairDoneDate",
+};
 
 /** Issue 轉 Repair 之後落在哪個階段:流程圖是「Issue 轉 Repair → 聯絡送回」。 */
 export const TO_REPAIR_STAGE: IssueStage = "IN_TRANSIT";

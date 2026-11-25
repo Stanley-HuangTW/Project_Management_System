@@ -91,6 +91,18 @@ export type IssueWorkEntryDto = {
   own: boolean;
 };
 
+/** 維修進度:送修方式、物流、各階段日期、配件清點。 */
+export type IssueRepairInfo = {
+  shipMethod: "MAIL" | "HAND" | null;
+  trackingNo: string;
+  shippedDate: string | null;
+  receivedDate: string | null;
+  accessories: string;
+  onsiteReplace: boolean;
+  repairStartDate: string | null;
+  repairDoneDate: string | null;
+};
+
 export type IssueCaseDetail = {
   id: string;
   caseNo: string;
@@ -150,6 +162,7 @@ export type IssueCaseDetail = {
   stage: IssueStage;
   stageAt: string;
   flow: { moves: StageMove[]; canMove: boolean; canConvert: boolean };
+  repair: IssueRepairInfo & { canEdit: boolean };
   can: {
     editReport: boolean;
     editHandling: boolean;
