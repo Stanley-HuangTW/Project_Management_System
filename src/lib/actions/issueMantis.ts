@@ -228,7 +228,7 @@ async function requireCaseMantisAccess(caseId: string) {
 
 export async function createInMantisAction(caseId: string): Promise<{ error?: string; warnings?: string[]; mantisId?: number }> {
   const { userId, caseNo } = await requireCaseMantisAccess(caseId);
-  const result = await createCaseInMantis(caseId);
+  const result = await createCaseInMantis(caseId, userId);
   if ("error" in result) return { error: result.error };
   await logAudit("SETTINGS", userId, `ISSUE TRACKER 案件 ${caseNo} 建立到 Mantis #${result.mantisId}`);
   revalidatePath("/issues", "layout");

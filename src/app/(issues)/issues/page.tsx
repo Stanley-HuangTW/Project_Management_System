@@ -2,6 +2,7 @@ import { listIssueCases } from "@/lib/actions/issueCases";
 import { listIssueOptions } from "@/lib/actions/issueOptions";
 import { listIssueUsers } from "@/lib/actions/issueCases";
 import { IssueListView } from "@/components/issues/IssueListView";
+import { ISSUE_STAGE_KEYS, type IssueStage } from "@/lib/issueFlow";
 import type { IssueFilters, IssueKind, IssuePriority, IssueStatus } from "@/lib/issueTypes";
 
 const STATUSES: IssueStatus[] = ["OPEN", "TC", "PC", "NA"];
@@ -23,6 +24,7 @@ function filtersFrom(sp: SP): IssueFilters {
     unitId: one(sp.unit) || undefined,
     assigneeId: one(sp.assignee) || undefined,
     unassigned: one(sp.unassigned) === "1",
+    stage: (ISSUE_STAGE_KEYS as string[]).includes(one(sp.stage) ?? "") ? (one(sp.stage) as IssueStage) : "",
     mantis: one(sp.mantis) === "1" ? "1" : one(sp.mantis) === "0" ? "0" : "",
     mine: one(sp.mine) === "1",
     from: one(sp.from) || undefined,

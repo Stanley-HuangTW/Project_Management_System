@@ -11,6 +11,7 @@ import { resyncBoardLabour } from "@/lib/actions/labourSheet";
 import { Prisma, type UserRole } from "@prisma/client";
 import { UserError } from "@/lib/userError";
 import { ISSUE_ROLE_LABELS, type IssueRole } from "@/lib/issueAccess";
+import { ISSUE_LANES, ISSUE_LANE_LABELS, type IssueLane } from "@/lib/issueFlow";
 
 const ISSUE_ROLES: IssueRole[] = ["REPORTER", "HANDLER", "MANAGER"];
 
@@ -35,6 +36,7 @@ export async function listUsers() {
       timesheetNoApproval: true,
       pmAccess: true,
       issueRole: true,
+      issueLanes: true,
     },
     orderBy: { order: "asc" },
   });
@@ -132,7 +134,7 @@ export async function updateUserTimesheetNoApproval(userId: string, noApproval: 
  * 設定某個人能進哪個系統:專案管理系統(pmAccess)與 ISSUE TRACKER(issueRole:null = 不能進)。
  * 管理者(ADMIN)兩邊一律可進,這裡的設定對他沒有作用。
  */
-export async function updateUserSystemAccess(userId: string, pmAccess: boolean, issueRole: IssueRole | null) {
+export async function updateUserSystemAccess(userId: string, pmAccess: boolean, issueRole: IssueRole | null, issueLanes?: IssueLane[]) {
   const session = await requireSession();
   if (session.role !== "ADMIN") {
     throw new UserError("只有管理員可以設定系統使用權限");
@@ -141,11 +143,13 @@ export async function updateUserSystemAccess(userId: string, pmAccess: boolean, 
   const target = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
   if (!target) throw new UserError("找不到使用者");
 
-  await prisma.user.update({ where: { id: userId }, data: { pmAccess, issueRole } });
+  const lanes = issueLanes === undefined ? undefined : [...new Set(issueLanes)];
+  if (lanes && lanes.some((l) => !ISSUE_LANES.includes(l))) throw new UserError("流程角色不正確");
+  await prisma.user.update({ where: { id: userId }, data: { pmAccess, issueRole, ...(lanes ? { issueLanes: lanes } : {}) } });
   await logAudit(
     "ACCESS",
     session.userId,
-    `${target.name} 的系統權限:專案管理系統${pmAccess ? "可進" : "不可進"}、ISSUE TRACKER ${issueRole ? ISSUE_ROLE_LABELS[issueRole] : "不可進"}`
+    `${target.name} 的系統權限:專案管理系統${pmAccess ? "可進" : "不可進"}、ISSUE TRACKER ${issueRole ? ISSUE_ROLE_LABELS[issueRole] : "不可進"}${lanes ? `、流程角色 ${lanes.length ? lanes.map((l) => ISSUE_LANE_LABELS[l]).join("/") : "無"}` : ""}`
   );
   revalidatePath("/users");
 }

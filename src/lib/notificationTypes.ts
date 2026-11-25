@@ -12,6 +12,7 @@ export const ALL_NOTIFICATION_TYPES: NotificationType[] = [
   "DEADLINE",
   "CHAT",
   "APPROVAL",
+  "ISSUE_FLOW",
 ];
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
@@ -24,6 +25,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   DEADLINE: "待辦事項期限提醒",
   CHAT: "對話(被提到、私訊與群組新訊息)",
   APPROVAL: "簽核(等你簽核、簽核結果)",
+  ISSUE_FLOW: "ISSUE TRACKER 客服維修流程(案件輪到你、RD 回應、維修完成、卡關提醒)",
 };
 
 /**
@@ -47,4 +49,6 @@ export const DEFAULT_NOTIFICATION_PREFERENCE: Record<
   CHAT: { inApp: true, email: true },
   // 等你簽、或送出的簽核有結果了:都是有人在等的事,email 預設也寄。
   APPROVAL: { inApp: true, email: true },
+  // 案件輪到你處理:有人在等,email 預設也寄(還要系統設定「流程通知也寄 email」開著才會寄)。
+  ISSUE_FLOW: { inApp: true, email: true },
 };

@@ -66,6 +66,7 @@ export const ISSUE_LOG_KIND_LABELS = {
   ARRANGEMENT: "處理安排",
   SOLUTION: "解決方案",
   NOTE: "備註",
+  STAGE: "流程",
 } as const;
 
 /** TC 與 PC 都算「已解決」(Sheet 的 Dashboard 也把兩者都當已結案);NA 不算已解決也不算未結。 */

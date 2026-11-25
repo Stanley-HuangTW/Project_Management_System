@@ -132,10 +132,13 @@ model User {
   pmAccess      Boolean        @default(true)
   /// 在 ISSUE TRACKER 的角色。null = 不能進 ISSUE TRACKER;管理者(ADMIN)不需要設定,一律等同管理者。
   issueRole     IssueRole?
+  /// 在客服維修流程裡的角色(Sales / FAE / RD,可多個):管「輪到誰、通知誰」,不影響能改什麼(那是 issueRole)。
+  issueLanes    IssueLane[]   @default([])
   issuesReported   IssueCase[]       @relation("IssueReporter")
   issuesConfirmed  IssueCase[]       @relation("IssueConfirmer")
   issueAssignments IssueAssignee[]
   issueLogs        IssueLog[]
+  issueRegionFaes  IssueRegionFae[]
   issueAttachments IssueAttachment[]
 
   ownedBoards             Board[]
@@ -747,6 +750,8 @@ enum NotificationType {
   CHAT
   /// 簽核:有東西等你簽(請假、工時、閘門、變更單、風險 / 議題結案),或你送出的簽核有結果了。
   APPROVAL
+  /// ISSUE TRACKER 客服維修流程:案件輪到你、RD 回應了、維修完成、卡關提醒…
+  ISSUE_FLOW
 }
 
 model AutomationRule {
@@ -1196,7 +1201,7 @@ model SystemSettings {
   emailNotificationsEnabled Boolean            @default(false)
   /// 這套系統要啟用哪些通知類型——關掉的話,不管使用者個人設定怎麼選,
   /// 那個類型的通知(站內與 email)都不會產生。
-  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE, CHAT, APPROVAL])
+  enabledNotificationTypes  NotificationType[] @default([ASSIGNED, UPDATED, COMMENTED, AUTOMATION, CREATED, DELETED, DEADLINE, CHAT, APPROVAL, ISSUE_FLOW])
   levelColors               String[]           @default([])
   ganttDurationMode         GanttDurationMode  @default(BUSINESS)
   ganttOverdueColor         String             @default("#e2445c")
@@ -1266,6 +1271,10 @@ model SystemSettings {
   issueDayMode              IssueDayMode       @default(WORKDAY)
   /// 案件指派給人時,除了站內通知要不要另外寄 email(還要 SMTP 有設定、對方沒關掉才會寄)。
   issueEmailNotify          Boolean            @default(false)
+  /// 案件同一個流程階段超過幾個工作天沒動就提醒負責的人;0 = 不提醒。
+  issueStuckDays            Int                @default(3)
+  /// 流程通知(階段推進、簽核…)除了站內通知也寄 email。
+  issueFlowEmail            Boolean            @default(false)
   updatedAt                 DateTime           @updatedAt
 }
 
@@ -2542,6 +2551,27 @@ enum IssueKind {
   ISSUE
 }
 
+/// 客服維修流程的泳道(角色)。
+enum IssueLane {
+  SALES
+  FAE
+  RD
+}
+
+/// 案件在客服維修流程裡走到哪。跟 status(處理中 / TC / PC)是兩件事:階段看「輪到誰」,狀態看「解決了沒」。
+enum IssueStage {
+  REPORTED
+  FAE_REVIEW
+  RD_WORKING
+  SALES_DECISION
+  IN_TRANSIT
+  RECEIVED
+  REPAIRING
+  REPAIRED
+  CLOSING
+  CLOSED
+}
+
 /// OPEN 處理中;TC = 暫時解決(Temporary Close);PC = 永久解決(Permanent Close);NA 不適用。
 enum IssueStatus {
   OPEN
@@ -2581,6 +2611,8 @@ enum IssueLogKind {
   ARRANGEMENT
   SOLUTION
   NOTE
+  /// 流程階段的推進 / 退回、轉 Repair。
+  STAGE
 }
 
 model IssueOption {
@@ -2608,6 +2640,7 @@ model IssueOption {
   errorTypeCases IssueCase[]     @relation("IssueErrorType")
   partUses       IssueCasePart[]
   unitUses       IssueCaseUnit[]
+  regionFaes     IssueRegionFae[] @relation("IssueRegionFaeRegion")
 
   @@unique([kind, name])
   @@index([kind, order])
@@ -2644,6 +2677,11 @@ model IssueCase {
   rma             Boolean   @default(false)
   rmaCuttingDisk  Boolean   @default(false)
   repairOrderNo   String?
+  /// 客服維修流程目前走到哪一階,與進到這一階的時間(卡關提醒用)。
+  stage           IssueStage @default(REPORTED)
+  stageAt         DateTime   @default(now())
+  /// 最近一次發出「卡關提醒」的時間;階段一換就清掉。
+  stuckNotifiedAt DateTime?
   reporterId  String?
   reporter    User?         @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
   /// 第一次有人回應的時間(時間軸第一筆「回應」自動記),算首次回覆時間用。
@@ -2673,6 +2711,18 @@ model IssueCase {
   @@index([errorTypeId])
   @@index([customerId])
   @@index([deletedAt])
+  @@index([stage])
+}
+
+/// FAE 負責的地區:案件的地區在這裡有對應的 FAE,就只通知他們(沒對應就通知全部 FAE)。
+model IssueRegionFae {
+  regionId String
+  region   IssueOption @relation("IssueRegionFaeRegion", fields: [regionId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([regionId, userId])
+  @@index([userId])
 }
 
 /// 負責人(可多人)。

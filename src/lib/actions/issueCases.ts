@@ -20,6 +20,8 @@ import {
 import { isIsoDate, isResolvedStatus, ISSUE_STATUS_LABELS, openDays, processingDays, type IssueDayMode } from "@/lib/issueCase";
 import { issueDayModeSetting } from "@/lib/issueSettingsServer";
 import { notifyIssueAssigned } from "@/lib/issueNotify";
+import { availableMoves, canConvertToRepair, canMoveStage, ISSUE_STAGE_LABELS, stageAfterUnlock, TO_REPAIR_STAGE, type IssueLane, type IssueStage } from "@/lib/issueFlow";
+import { notifyFlowById } from "@/lib/issueFlowServer";
 import { allocateCaseNo } from "@/lib/issueCaseNoServer";
 import { createCaseInMantis, loadConnection, pushCaseToMantis } from "@/lib/issueMantisServer";
 import { isWriteEnabled, parseIssueMapping, type IssueMantisChange } from "@/lib/issueMantis";
@@ -90,6 +92,7 @@ function buildWhere(filters: IssueFilters, userId: string): Prisma.IssueCaseWher
   if (filters.unitId) and.push({ units: { some: { optionId: filters.unitId } } });
   if (filters.assigneeId) and.push({ assignees: { some: { userId: filters.assigneeId } } });
   if (filters.unassigned) and.push({ assignees: { none: {} } });
+  if (filters.stage) and.push({ stage: filters.stage });
   if (filters.mantis === "1") and.push({ mantisId: { not: null } });
   if (filters.mantis === "0") and.push({ mantisId: null });
   if (filters.mine) and.push({ OR: [{ reporterId: userId }, { assignees: { some: { userId } } }] });
@@ -130,6 +133,7 @@ function toRow(c: RowSource, ctx: { mode: IssueDayMode; holidays: Set<string>; t
     rma: c.rma,
     reporterName: c.reporter?.name ?? null,
     mantisId: c.mantisId,
+    stage: c.stage,
   };
 }
 
@@ -169,8 +173,11 @@ type MantisSource = { baseUrl: string; enabled: boolean; mapping: unknown } | nu
 
 type WorkSource = { workRows: { id: string; date: string; hours: Prisma.Decimal; note: string | null; userId: string; user: { name: string }; category: { name: string } }[]; workCategories: { id: string; name: string }[] };
 
-function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource, mantisConn: MantisSource): IssueCaseDetail {
+function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource, mantisConn: MantisSource, lanes: IssueLane[]): IssueCaseDetail {
   const facts = factsOf(c);
+  const flowActor = { issueRole: role, userId, lanes };
+  const flowFacts = { assigneeIds: facts.assigneeIds, stage: c.stage as IssueStage, locked: facts.locked };
+  const canMove = canMoveStage(flowActor, flowFacts);
   // 管理者與負責人看得到案件上所有人的工時;其他人只看自己登記的(沿用「看得到誰的工時」的精神)。
   const seeAll = role === "MANAGER" || facts.assigneeIds.includes(userId);
   const visible = seeAll ? work.workRows : work.workRows.filter((w) => w.userId === userId);
@@ -244,6 +251,9 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
       uploaderName: a.uploader?.name ?? null,
       createdAt: a.createdAt.toISOString(),
     })),
+    stage: c.stage,
+    stageAt: c.stageAt.toISOString(),
+    flow: { moves: canMove ? availableMoves(c.kind, c.stage as IssueStage) : [], canMove, canConvert: canMove && canConvertToRepair(c.kind, c.stage as IssueStage) },
     can: {
       editReport: canEditReportFields(role, userId, facts),
       editHandling: canEditHandlingFields(role, userId, facts),
@@ -257,7 +267,7 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
 
 export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> {
   const { role, userId } = await requireIssueActor();
-  const [c, ctx, workRows, workCategories, mantisConn] = await Promise.all([
+  const [c, ctx, workRows, workCategories, mantisConn, me] = await Promise.all([
     prisma.issueCase.findFirst({ where: { id, deletedAt: null }, include: DETAIL_INCLUDE }),
     dayContext(),
     prisma.activityTimeEntry.findMany({
@@ -267,8 +277,9 @@ export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> 
     }),
     prisma.timeCategory.findMany({ where: { active: true, linkIssueCase: true }, orderBy: [{ order: "asc" }, { createdAt: "asc" }], select: { id: true, name: true } }),
     loadConnection(),
+    prisma.user.findUnique({ where: { id: userId }, select: { issueLanes: true } }),
   ]);
-  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }, mantisConn) : null;
+  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }, mantisConn, (me?.issueLanes ?? []) as IssueLane[]) : null;
 }
 
 async function loadCaseForWrite(id: string) {
@@ -441,11 +452,12 @@ export async function createIssueCase(input: IssueCaseInput): Promise<{ id: stri
       });
       await logAudit("SETTINGS", userId, `ISSUE TRACKER 新增案件 ${created.caseNo}`);
       await notifyIssueAssigned(created, assigneeIds, userId);
+      await notifyFlowById(created.id, { type: "CREATED" }, userId);
       revalidatePath("/issues", "layout");
       // 勾了「同時建立到 Mantis」:案件已經建好,Mantis 那邊失敗只回說明(案件不退回),之後可以在案件頁再按「建立到 Mantis」。
       let mantisNote: string | undefined;
       if (input.createInMantis && role !== "REPORTER") {
-        const result = await createCaseInMantis(created.id);
+        const result = await createCaseInMantis(created.id, userId);
         mantisNote = "error" in result ? `案件 ${created.caseNo} 已建立,但建立到 Mantis 失敗:${result.error}(可以在案件頁再按「建立到 Mantis」)` : result.warnings.length ? `案件已建立到 Mantis #${result.mantisId},但:${result.warnings.join(";")}` : undefined;
       }
       return { id: created.id, caseNo: created.caseNo, ...(mantisNote ? { mantisNote } : {}) };
@@ -520,6 +532,10 @@ export async function updateIssueCase(id: string, input: IssueCaseInput): Promis
   }
 
   const logs: string[] = [];
+  // 類型直接在表單改掉(問題 ↔ 維修):階段要換成那一條線上合理的位置,不然會卡在不存在的階段。
+  const kindChanged = data.kind !== existing.kind;
+  const resetStage: IssueStage = data.kind === "REPAIR" ? TO_REPAIR_STAGE : "FAE_REVIEW";
+  if (kindChanged) logs.push(`類型:${existing.kind === "REPAIR" ? "維修" : "問題"} → ${data.kind === "REPAIR" ? "維修" : "問題"};流程階段重設為「${ISSUE_STAGE_LABELS[resetStage]}」`);
   if (data.status !== existing.status) logs.push(`狀態:${ISSUE_STATUS_LABELS[existing.status]} → ${ISSUE_STATUS_LABELS[data.status]}`);
   if (data.priority !== existing.priority) logs.push(`優先級:${existing.priority} → ${data.priority}`);
   if (data.closeDate !== existing.closeDate && data.status === existing.status) logs.push(`結案日期:${existing.closeDate ?? "(無)"} → ${data.closeDate ?? "(無)"}`);
@@ -548,6 +564,7 @@ export async function updateIssueCase(id: string, input: IssueCaseInput): Promis
         rma: data.rma,
         rmaCuttingDisk: data.rmaCuttingDisk,
         repairOrderNo: data.repairOrderNo,
+        ...(kindChanged && !existing.confirmedAt ? { stage: resetStage, stageAt: new Date(), stuckNotifiedAt: null } : {}),
       },
     });
     if (handlingChanged) {
@@ -626,9 +643,10 @@ export async function confirmIssueCase(caseId: string): Promise<void> {
     throw new UserError(c.status === "OPEN" || c.status === "NA" ? "案件要先標為「暫時解決」或「永久解決」才能確認完成" : "權限不足:只有管理者或回報人可以確認完成");
   }
   await prisma.$transaction([
-    prisma.issueCase.update({ where: { id: caseId }, data: { confirmedAt: new Date(), confirmedById: userId } }),
+    prisma.issueCase.update({ where: { id: caseId }, data: { confirmedAt: new Date(), confirmedById: userId, stage: "CLOSED", stageAt: new Date(), stuckNotifiedAt: null } }),
     prisma.issueLog.create({ data: { caseId, kind: "NOTE", content: "確認完成,案件已鎖定", authorId: userId } }),
   ]);
+  await notifyFlowById(caseId, { type: "CLOSED" }, userId);
   await logAudit("SETTINGS", userId, `ISSUE TRACKER 確認案件完成 ${c.caseNo}`);
   revalidatePath("/issues", "layout");
 }
@@ -640,7 +658,7 @@ export async function unlockIssueCase(caseId: string): Promise<void> {
   const c = await loadCaseForWrite(caseId);
   if (!c.confirmedAt) throw new UserError("這個案件沒有鎖定");
   await prisma.$transaction([
-    prisma.issueCase.update({ where: { id: caseId }, data: { confirmedAt: null, confirmedById: null } }),
+    prisma.issueCase.update({ where: { id: caseId }, data: { confirmedAt: null, confirmedById: null, stage: stageAfterUnlock(c.kind), stageAt: new Date(), stuckNotifiedAt: null } }),
     prisma.issueLog.create({ data: { caseId, kind: "NOTE", content: "解除鎖定", authorId: userId } }),
   ]);
   await logAudit("SETTINGS", userId, `ISSUE TRACKER 解除案件鎖定 ${c.caseNo}`);

@@ -14,6 +14,7 @@ import { IssueTimeline } from "./IssueTimeline";
 import { IssueAttachments } from "./IssueAttachments";
 import { IssueWorkHours } from "./IssueWorkHours";
 import { IssueMantisPanel } from "./IssueMantisPanel";
+import { IssueStageBar } from "./IssueStageBar";
 import { PriorityBadge, StatusBadge, buttonClass, formatDateTime } from "./issueUi";
 
 export function IssueDetailView({
@@ -116,6 +117,8 @@ export function IssueDetailView({
         回報人:{detail.reporterName ?? "(匯入)"} · 建立於 {formatDateTime(detail.createdAt)}
         {detail.firstResponseAt ? ` · 首次回覆:${formatDateTime(detail.firstResponseAt)}` : " · 尚未回覆"}
       </p>
+
+      <IssueStageBar key={`${detail.stage}-${detail.stageAt}`} detail={detail} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <IssueForm

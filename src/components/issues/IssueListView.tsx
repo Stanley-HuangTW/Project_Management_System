@@ -8,6 +8,7 @@ import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { ISSUE_KIND_LABELS, ISSUE_PRIORITY_LABELS, ISSUE_STATUS_LABELS } from "@/lib/issueCase";
 import type { IssueOptionDto } from "@/lib/issueOptions";
 import type { IssueCaseRow, IssueFilters, IssueStatus, IssueUserDto } from "@/lib/issueTypes";
+import { ISSUE_STAGE_LABELS } from "@/lib/issueFlow";
 import { PriorityBadge, StatusBadge, buttonClass, inputClass, primaryButtonClass } from "./issueUi";
 
 const STATUS_ORDER: IssueStatus[] = ["OPEN", "TC", "PC", "NA"];
@@ -43,6 +44,7 @@ export function IssueListView({
       unit: filters.unitId,
       assignee: filters.assigneeId,
       unassigned: filters.unassigned ? "1" : undefined,
+      stage: filters.stage || undefined,
       mantis: filters.mantis || undefined,
       mine: filters.mine ? "1" : undefined,
       from: filters.from,
@@ -68,7 +70,7 @@ export function IssueListView({
 
   const hasFilters = !!(
     filters.q || filters.statuses?.length || filters.kind || filters.priority || filters.productId || filters.customerId || filters.errorTypeId ||
-    filters.unitId || filters.assigneeId || filters.unassigned || filters.mantis || filters.mine || filters.from || filters.to
+    filters.unitId || filters.assigneeId || filters.unassigned || filters.stage || filters.mantis || filters.mine || filters.from || filters.to
   );
   const pages = Math.max(1, Math.ceil(result.total / result.pageSize));
   const selectClass = "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500";
@@ -130,6 +132,12 @@ export function IssueListView({
           <SearchableSelect options={opt("ERROR_TYPE", filters.errorTypeId)} value={filters.errorTypeId ?? ""} onChange={(v) => go({ error: v || undefined })} emptyLabel="問題類型:全部" placeholder="問題類型:全部" className={selectClass} />
           <SearchableSelect options={opt("HANDLER_UNIT", filters.unitId)} value={filters.unitId ?? ""} onChange={(v) => go({ unit: v || undefined })} emptyLabel="處理單位:全部" placeholder="處理單位:全部" className={selectClass} />
           <SearchableSelect options={users.map((u) => ({ value: u.id, label: u.name }))} value={filters.assigneeId ?? ""} onChange={(v) => go({ assignee: v || undefined, unassigned: undefined })} emptyLabel="負責人:全部" placeholder="負責人:全部" className={selectClass} />
+          <select value={filters.stage ?? ""} onChange={(e) => go({ stage: e.target.value || undefined })} className={selectClass} aria-label="流程階段" data-testid="f-stage">
+            <option value="">階段:全部</option>
+            {Object.entries(ISSUE_STAGE_LABELS).map(([k, l]) => (
+              <option key={k} value={k}>{l}</option>
+            ))}
+          </select>
           <select value={filters.mantis ?? ""} onChange={(e) => go({ mantis: e.target.value || undefined })} className={selectClass} aria-label="Mantis" data-testid="f-mantis">
             <option value="">Mantis:全部</option>
             <option value="1">已連到 Mantis</option>
@@ -189,7 +197,10 @@ export function IssueListView({
                   {r.assignees.length ? r.assignees.map((a) => a.name).join("、") : <span className="text-amber-600">待指派</span>}
                   {r.units.length > 0 && <span className="ml-1 text-xs text-neutral-400">({r.units.join("/")})</span>}
                 </td>
-                <td className="px-3 py-2"><StatusBadge status={r.status} locked={r.locked} /></td>
+                <td className="px-3 py-2">
+                  <StatusBadge status={r.status} locked={r.locked} />
+                  <div className="mt-0.5 whitespace-nowrap text-[11px] text-neutral-500 dark:text-neutral-400" data-testid="row-stage">{ISSUE_STAGE_LABELS[r.stage]}</div>
+                </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right text-neutral-600 dark:text-neutral-300">
                   {r.days !== null ? `${r.days} 天` : r.openDays !== null ? <span className="text-amber-600">已開 {r.openDays} 天</span> : "—"}
                 </td>

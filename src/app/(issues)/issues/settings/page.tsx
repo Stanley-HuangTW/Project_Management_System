@@ -8,6 +8,8 @@ import { IssueSettingsCard } from "@/components/settings/IssueSettingsCard";
 import { IssueSharedSettingsCards } from "@/components/settings/IssueSharedSettingsCards";
 import { IssueMantisCard } from "@/components/settings/IssueMantisCard";
 import { getIssueMantisConnection } from "@/lib/actions/issueMantis";
+import { getRegionFaes } from "@/lib/actions/issueFlow";
+import { IssueFlowSettingsCard } from "@/components/settings/IssueFlowSettingsCard";
 
 /**
  * ISSUE TRACKER 的系統設定:ISSUE TRACKER 專屬的設定(ISSUE TRACKER 的管理者可改),
@@ -19,6 +21,7 @@ export default async function IssueSettingsPage() {
   const isAdmin = session.role === "ADMIN";
   const settings = await getSystemSettings();
   const mantis = isAdmin ? await getIssueMantisConnection() : null;
+  const regionFaes = await getRegionFaes();
   const [holidays, orgUnits, orgNodes] = isAdmin ? await Promise.all([listHolidays(), loadOrgUnits(), loadOrgNodes()]) : [[], [], []];
 
   return (
@@ -29,6 +32,7 @@ export default async function IssueSettingsPage() {
       </p>
       <div className="space-y-4">
         <IssueSettingsCard dayMode={settings.issueDayMode} emailNotify={settings.issueEmailNotify} />
+        <IssueFlowSettingsCard stuckDays={settings.issueStuckDays} flowEmail={settings.issueFlowEmail} regions={regionFaes.regions} faes={regionFaes.faes} />
         {isAdmin && (
           <>
             <h2 className="pt-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">Mantis</h2>

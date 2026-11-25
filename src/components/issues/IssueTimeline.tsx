@@ -15,6 +15,7 @@ const KIND_STYLE: Record<IssueLogKind, string> = {
   ARRANGEMENT: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
   SOLUTION: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
   NOTE: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
+  STAGE: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
 };
 
 /** 進度時間軸:回應 / 處理安排 / 解決方案 / 備註。誰、什麼時候寫的都留著;狀態變更等系統動作也會記一筆備註。 */
@@ -90,7 +91,7 @@ export function IssueTimeline({
         <div className="space-y-2">
           <div className="flex gap-2">
             <select value={kind} onChange={(e) => setKind(e.target.value as IssueLogKind)} className={`${inputClass} w-auto`} aria-label="紀錄類型" data-testid="log-kind">
-              {Object.entries(ISSUE_LOG_KIND_LABELS).map(([k, l]) => (
+              {Object.entries(ISSUE_LOG_KIND_LABELS).filter(([k]) => k !== "STAGE").map(([k, l]) => (
                 <option key={k} value={k}>{l}</option>
               ))}
             </select>

@@ -6,6 +6,7 @@ import { taipeiTodayIso } from "@/lib/timesheet";
 import { collectMantisUsers, issueUrl, type MantisIssue, type MantisUser } from "@/lib/mantis";
 import { ISSUE_STATUS_LABELS } from "@/lib/issueCase";
 import { allocateCaseNo } from "@/lib/issueCaseNoServer";
+import { notifyFlowById } from "@/lib/issueFlowServer";
 import { notifyIssueAssigned } from "@/lib/issueNotify";
 import { matchLocalPerson } from "@/lib/mantisPeople";
 import {
@@ -98,6 +99,8 @@ async function applyIssue(
           reporterId,
           mantisId: issue.id,
           mantisUpdatedAt: f.mantisUpdatedAt,
+          // Mantis 專案是給 RD 的:還沒解決 = RD 處理中;RD 已經處理 = 回到 FAE 回報結果。
+          stage: f.status === "OPEN" ? "RD_WORKING" : "FAE_REVIEW",
           assignees: ownerId ? { create: [{ userId: ownerId }] } : undefined,
           logs: { create: [{ kind: "NOTE", content: `從 Mantis 同步建立(Mantis #${issue.id})`, authorId: null }] },
         },
@@ -137,10 +140,21 @@ async function applyIssue(
   const added = ownerId && !old.assignees.some((a) => a.userId === ownerId) ? ownerId : null;
   if (added) data.assignees = { create: [{ userId: added }] };
 
+  // RD 處理中的案件 Mantis 有動靜:通知 FAE 看一下。RD 把單解決 / 關閉了就把案件交回 FAE(流程圖:RD 回應 → FAE 回報結果)。
+  const rdActive = old.stage === "RD_WORKING" && old.kind === "ISSUE";
+  const rdDone = rdActive && data.status !== undefined && data.status !== "OPEN";
+  if (rdDone) {
+    data.stage = "FAE_REVIEW";
+    data.stageAt = new Date();
+    data.stuckNotifiedAt = null;
+  }
+
   await prisma.$transaction([
     prisma.issueCase.update({ where: { id: old.id }, data }),
     ...logs.map((content) => prisma.issueLog.create({ data: { caseId: old.id, kind: "NOTE", content, authorId: null } })),
+    ...(rdDone ? [prisma.issueLog.create({ data: { caseId: old.id, kind: "STAGE" as const, content: "RD 在 Mantis 已處理:RD 處理中 → FAE 評估(請 FAE 回報結果)", authorId: null } })] : []),
   ]);
+  if (rdActive) await notifyFlowById(old.id, { type: "RD_UPDATED" }, null);
   if (added) await notifyIssueAssigned({ id: old.id, caseNo: old.caseNo, description: old.description }, [added], null);
   return "updated";
 }
@@ -290,7 +304,7 @@ async function recordMantisStamp(conn: Connection, token: string, caseId: string
 export type CreateResult = { ok: true; mantisId: number; url: string; warnings: string[] } | { error: string };
 
 /** 把一個還沒連到 Mantis 的案件建立成 Mantis 的問題單,並把單號記回案件。 */
-export async function createCaseInMantis(caseId: string): Promise<CreateResult> {
+export async function createCaseInMantis(caseId: string, actorId: string | null = null): Promise<CreateResult> {
   const usable = await usableConnection();
   if ("error" in usable) return usable;
   const { conn, token, mapping } = usable;
@@ -329,6 +343,14 @@ export async function createCaseInMantis(caseId: string): Promise<CreateResult> 
   }
   await recordMantisStamp(conn, token, c.id, created.id);
   await prisma.issueLog.create({ data: { caseId: c.id, kind: "NOTE", content: `建立到 Mantis:#${created.id}`, authorId: null } });
+  // 建到 Mantis = 請 RD 協助(流程圖:FAE 評估「需要 RD 協助」→ Mantis):問題案件還在通報 / FAE 評估的,階段進到「RD 處理中」並通知 RD。
+  if (c.kind === "ISSUE" && (c.stage === "REPORTED" || c.stage === "FAE_REVIEW")) {
+    await prisma.$transaction([
+      prisma.issueCase.update({ where: { id: c.id }, data: { stage: "RD_WORKING", stageAt: new Date(), stuckNotifiedAt: null } }),
+      prisma.issueLog.create({ data: { caseId: c.id, kind: "STAGE", content: `建立到 Mantis,請 RD 協助:${c.stage === "REPORTED" ? "已通報" : "FAE 評估"} → RD 處理中`, authorId: actorId } }),
+    ]);
+    await notifyFlowById(c.id, { type: "STAGE", to: "RD_WORKING", direction: "FORWARD" }, actorId);
+  }
   return { ok: true, mantisId: created.id, url: issueUrl(conn.baseUrl, created.id), warnings };
 }
 

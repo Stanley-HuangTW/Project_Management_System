@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runMantisSyncTick } from "@/lib/mantisSync";
 import { runIssueMantisSyncTick } from "@/lib/issueMantisServer";
+import { runIssueStuckCheck } from "@/lib/issueFlowServer";
 
 /**
  * MantisBT 同步的排程心跳。
@@ -16,7 +17,9 @@ export async function POST(request: Request) {
   const result = await runMantisSyncTick();
   // ISSUE TRACKER 自己的 Mantis 連線也在這支心跳裡同步。
   const issues = await runIssueMantisSyncTick();
-  return NextResponse.json({ ran: true, ...result, issues });
+  // 客服維修流程的卡關提醒也在這支心跳裡(每次很輕:只撈「待在同一階夠久、還沒提醒過」的案件)。
+  const stuck = await runIssueStuckCheck();
+  return NextResponse.json({ ran: true, ...result, issues, stuck });
 }
 
 /** 給人在瀏覽器確認端點活著,不需要密鑰。 */

@@ -35,6 +35,8 @@ export async function getSystemSettings() {
     predBlockedColor: "#e2445c",
     issueDayMode: "WORKDAY" as const,
     issueEmailNotify: false,
+    issueStuckDays: 3,
+    issueFlowEmail: false,
     hoursPerDay: 8,
     workingDaysPerMonth: 21,
     ownerDefaultAllocationPct: 2,

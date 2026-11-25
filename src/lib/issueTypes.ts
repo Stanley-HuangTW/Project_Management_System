@@ -2,11 +2,12 @@
  * ISSUE TRACKER 畫面與 server action 之間傳遞的資料形狀。純型別 + 常數,client 也能 import。
  */
 import type { IssueRole } from "@/lib/issueAccess";
+import type { IssueStage, StageMove } from "@/lib/issueFlow";
 
 export type IssueKind = "REPAIR" | "ISSUE";
 export type IssueStatus = "OPEN" | "TC" | "PC" | "NA";
 export type IssuePriority = "P0" | "P1" | "P2" | "P3";
-export type IssueLogKind = "RESPONSE" | "ARRANGEMENT" | "SOLUTION" | "NOTE";
+export type IssueLogKind = "RESPONSE" | "ARRANGEMENT" | "SOLUTION" | "NOTE" | "STAGE";
 
 export type IssueUserDto = { id: string; name: string; issueRole: IssueRole | null };
 
@@ -33,6 +34,8 @@ export type IssueCaseRow = {
   reporterName: string | null;
   /** 連到的 Mantis 單號(沒連 = null)。 */
   mantisId: number | null;
+  /** 客服維修流程走到哪一階。 */
+  stage: IssueStage;
 };
 
 export type IssueFilters = {
@@ -47,6 +50,8 @@ export type IssueFilters = {
   assigneeId?: string;
   /** 還沒有負責人的案件(「待指派」)。 */
   unassigned?: boolean;
+  /** 只看某個流程階段的案件。 */
+  stage?: IssueStage | "";
   /** "1" = 只看已連到 Mantis 的;"0" = 只看沒連的。 */
   mantis?: "1" | "0" | "";
   /** 只看我回報或我負責的。 */
@@ -141,6 +146,10 @@ export type IssueCaseDetail = {
     canUse: boolean;
     locked: { status: boolean; priority: boolean; content: boolean };
   };
+  /** 客服維修流程:目前階段、進到這階的時間,以及這個人現在可以做的移動。 */
+  stage: IssueStage;
+  stageAt: string;
+  flow: { moves: StageMove[]; canMove: boolean; canConvert: boolean };
   can: {
     editReport: boolean;
     editHandling: boolean;

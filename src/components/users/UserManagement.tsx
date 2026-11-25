@@ -42,6 +42,7 @@ import {
 } from "@/lib/actions/user";
 import type { UserRole } from "@prisma/client";
 import { ISSUE_ROLE_LABELS, type IssueRole } from "@/lib/issueAccess";
+import { ISSUE_LANES, ISSUE_LANE_LABELS, type IssueLane } from "@/lib/issueFlow";
 import { unitLabel, type OrgUnit } from "@/lib/orgUnits";
 import { flattenOrgForest, unitCodesFromOrg, type OrgNodeLite } from "@/lib/orgTree";
 import { setUserOrgNode } from "@/lib/actions/orgChart";
@@ -393,6 +394,7 @@ export function UserManagement({
   const [editNoApproval, setEditNoApproval] = useState(false);
   const [editPmAccess, setEditPmAccess] = useState(true);
   const [editIssueRole, setEditIssueRole] = useState<IssueRole | "">("");
+  const [editLanes, setEditLanes] = useState<IssueLane[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -494,6 +496,7 @@ export function UserManagement({
     setEditNoApproval(user.timesheetNoApproval);
     setEditPmAccess(user.pmAccess);
     setEditIssueRole(user.issueRole ?? "");
+    setEditLanes(user.issueLanes as IssueLane[]);
     setEditError(null);
   }
 
@@ -515,8 +518,9 @@ export function UserManagement({
       if (editNoApproval !== editTarget.timesheetNoApproval) {
         await updateUserTimesheetNoApproval(editTarget.id, editNoApproval);
       }
-      if (editPmAccess !== editTarget.pmAccess || (editIssueRole || null) !== editTarget.issueRole) {
-        await updateUserSystemAccess(editTarget.id, editPmAccess, editIssueRole || null);
+      const lanesChanged = editLanes.length !== editTarget.issueLanes.length || editLanes.some((l) => !(editTarget.issueLanes as IssueLane[]).includes(l));
+      if (editPmAccess !== editTarget.pmAccess || (editIssueRole || null) !== editTarget.issueRole || lanesChanged) {
+        await updateUserSystemAccess(editTarget.id, editPmAccess, editIssueRole || null, editLanes);
       }
       setEditTarget(null);
     } catch (err) {
@@ -811,6 +815,17 @@ export function UserManagement({
                   ))}
                 </select>
               </label>
+              {editIssueRole !== "" && (
+                <div className="flex flex-wrap items-center gap-3 text-sm text-neutral-700 dark:text-neutral-200" data-testid="issue-lanes">
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400">客服維修流程角色</span>
+                  {ISSUE_LANES.map((l) => (
+                    <label key={l} className="flex items-center gap-1">
+                      <input type="checkbox" checked={editLanes.includes(l)} onChange={(e) => setEditLanes(e.target.checked ? [...editLanes, l] : editLanes.filter((x) => x !== l))} data-testid={`lane-${l}`} />
+                      {ISSUE_LANE_LABELS[l]}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <label className="flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">
