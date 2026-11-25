@@ -347,6 +347,8 @@ export async function linkCaseToMantis(caseId: string, mantisId: number): Promis
   try {
     issue = await fetchMantisIssue(usable.conn.baseUrl, usable.token, mantisId);
   } catch (err) {
+    // 單號不存在時 Mantis 也回 404,跟「REST API 沒開」分不出來,兩種原因都講。
+    if (err instanceof Error && err.message.includes("(404)")) return { error: `Mantis 上找不到 #${mantisId}(如果單號沒錯,請確認網址與 REST API 已啟用)` };
     return { error: errText(err, "讀取 Mantis 失敗") };
   }
   if (!issue) return { error: `Mantis 上找不到 #${mantisId}` };
