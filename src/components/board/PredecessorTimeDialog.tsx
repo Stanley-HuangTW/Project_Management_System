@@ -8,7 +8,7 @@ import { useDialogs } from "@/components/ui/DialogProvider";
 import { DateChangeHint } from "@/components/ui/DateChangeHint";
 import { previewDragCascade } from "@/lib/actions/predecessorSchedule";
 import { setItemBarRange } from "@/lib/actions/ganttResize";
-import { describeCascade, describeConflicts } from "@/lib/cascadeText";
+import { describeAncestorWarnings, describeCascade, describeConflicts } from "@/lib/cascadeText";
 import { actionErrorMessage } from "@/lib/userError";
 import { withWeekday } from "@/lib/weekdayLabel";
 
@@ -61,8 +61,9 @@ export function PredecessorTimeButton({
     try {
       let cascaded: Awaited<ReturnType<typeof previewDragCascade>>["cascaded"] = [];
       let conflicts: Awaited<ReturnType<typeof previewDragCascade>>["conflicts"] = [];
+      let ancestorWarnings: string[] = [];
       try {
-        ({ cascaded, conflicts } = await previewDragCascade(boardId, predecessor.itemId, start, end));
+        ({ cascaded, conflicts, ancestorWarnings } = await previewDragCascade(boardId, predecessor.itemId, start, end));
       } catch {
         // 預覽失敗不擋調整,只是少了連動清單;真正能不能調整由套用時的檢查決定。
       }
@@ -79,6 +80,7 @@ export function PredecessorTimeButton({
         ...(own ? [`　原時間 ${own.oldStart}~${own.oldEnd}`, `　調整後 ${own.newStart}~${own.newEnd}`] : []),
         ...describeCascade(others),
         ...describeConflicts(conflicts),
+        ...describeAncestorWarnings(ancestorWarnings),
         "",
         "確定要套用這個時程調整嗎?",
       ];

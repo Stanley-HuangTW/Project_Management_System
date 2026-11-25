@@ -27,6 +27,7 @@ import { getPersonIds, getStatusOptions, type CellValueJson } from "@/types/colu
 import { itemLink } from "@/lib/notificationLink";
 import { doneStatusTarget } from "@/lib/progressDoneStatus";
 import { syncSummaryStatusFromChild } from "@/lib/summaryStatusSync";
+import { ancestorConstraintWarningsForItem } from "@/lib/ancestorConstraintServer";
 
 /** Human-readable form of a cell's raw value for the activity log — STATUS
  *  values are stored as option ids, so the log needs the option's label,
@@ -71,6 +72,7 @@ export async function upsertCellValue(
         ganttEndColumnId: true,
         predColumnId: true,
         linkColumnId: true,
+        lagColumnId: true,
         typeColumnId: true,
         manualStartColumnId: true,
         manualDurationColumnId: true,
@@ -285,5 +287,15 @@ export async function upsertCellValue(
   // The edit is saved; this only tells the editor that a 必須完成於 on this
   // item — or on something scheduled after it — now fights its predecessors.
   const conflicts = await findConstraintConflicts(boardId, itemId, { editedColumnId: columnId, downstream: true });
-  if (conflicts.length > 0) return { warning: describeConstraintConflicts(conflicts, itemId) };
+  // 改的是會動到時程的欄位:這個項目的新時間若超出上層(摘要)項目的日期約束,也要讓人知道(仍已存好)。
+  const driveColumns = [
+    board?.ganttStartColumnId, board?.ganttDurationColumnId, board?.ganttEndColumnId,
+    board?.manualStartColumnId, board?.manualDurationColumnId, board?.predColumnId, board?.linkColumnId, board?.lagColumnId,
+  ];
+  const ancestorLines = driveColumns.includes(columnId) ? await ancestorConstraintWarningsForItem(boardId, itemId) : [];
+  const parts = [
+    ...(conflicts.length > 0 ? [describeConstraintConflicts(conflicts, itemId)] : []),
+    ...(ancestorLines.length > 0 ? [["已超出上層項目的日期約束:", ...ancestorLines].join("\n")] : []),
+  ];
+  if (parts.length > 0) return { warning: parts.join("\n\n") };
 }

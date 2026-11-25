@@ -13,6 +13,7 @@ import {
   type SchedulePreview,
 } from "@/lib/predecessorLink";
 import { recomputeAllSchedules } from "@/lib/scheduleCascade";
+import { ancestorConstraintWarnings } from "@/lib/ancestorConstraintServer";
 
 export async function recomputeBoardSchedule(boardId: string): Promise<number> {
   const session = await requireSession();
@@ -49,13 +50,19 @@ export async function previewDragCascade(
   itemId: string,
   startIso: string,
   endIso: string
-): Promise<{ cascaded: CascadedItem[]; conflicts: ConstraintConflict[] }> {
+): Promise<{ cascaded: CascadedItem[]; conflicts: ConstraintConflict[]; ancestorWarnings: string[] }> {
   const session = await requireSession();
   const boardId = await requireItemBoardAccess(itemId, session);
   const start = new Date(startIso);
   const end = new Date(endIso);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { cascaded: [], conflicts: [] };
-  return previewScheduleCascade(boardId, itemId, { start, end });
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { cascaded: [], conflicts: [], ancestorWarnings: [] };
+  const preview = await previewScheduleCascade(boardId, itemId, { start, end });
+  // 被調整的項目,加上連動被推動的項目:新的起訖日有沒有超出它們上層(摘要)項目的日期約束。
+  const ancestorWarnings = await ancestorConstraintWarnings(boardId, [
+    { itemId, start: startIso.slice(0, 10), end: endIso.slice(0, 10) },
+    ...preview.cascaded.map((c) => ({ itemId: c.itemId, start: c.newStart, end: c.newEnd })),
+  ]);
+  return { ...preview, ancestorWarnings };
 }
 
 /**

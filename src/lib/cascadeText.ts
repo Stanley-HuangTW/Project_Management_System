@@ -22,6 +22,12 @@ export function describeCascade(cascaded: CascadedItem[]): string[] {
   return ["", `依前置依賴連動,以下 ${cascaded.length} 個項目也會一起移動:`, ...lines];
 }
 
+/** 調整後超出上層(摘要)項目日期約束的提醒:仍會套用,只是讓人先知道。 */
+export function describeAncestorWarnings(lines: string[]): string[] {
+  if (lines.length === 0) return [];
+  return ["", "⚠ 套用後,有項目超出上層項目的日期約束(仍會照調整套用,只提醒):", ...lines];
+}
+
 /** The "this pushes a pinned item past its date" section of the same dialogs —
  *  a warning, not a block: the item stays on its 必須完成於 date, so the work
  *  would start before its predecessors are done. */

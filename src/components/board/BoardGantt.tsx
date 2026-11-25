@@ -103,7 +103,7 @@ import {
   type LinkEdge,
 } from "@/lib/ganttLink";
 import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
-import { describeCascade, describeConflicts } from "@/lib/cascadeText";
+import { describeAncestorWarnings, describeCascade, describeConflicts } from "@/lib/cascadeText";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, itemMatchesSearch, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -2598,16 +2598,19 @@ function GanttBar({
   async function confirmScheduleChange(summary: string, newStart: Date, newEnd: Date): Promise<boolean> {
     let cascaded: CascadedItem[] = [];
     let conflicts: ConstraintConflict[] = [];
+    let ancestorWarnings: string[] = [];
     try {
-      ({ cascaded, conflicts } = await previewDragCascade(boardId, item.id, toIsoDate(newStart), toIsoDate(newEnd)));
+      ({ cascaded, conflicts, ancestorWarnings } = await previewDragCascade(boardId, item.id, toIsoDate(newStart), toIsoDate(newEnd)));
     } catch {
       cascaded = [];
       conflicts = [];
+      ancestorWarnings = [];
     }
     const message = [
       summary,
       ...describeCascade(cascaded),
       ...describeConflicts(conflicts),
+      ...describeAncestorWarnings(ancestorWarnings),
       "",
       "確定要套用這個時程調整嗎?",
     ].join("\n");
