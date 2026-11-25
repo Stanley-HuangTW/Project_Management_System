@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BookOpen, ChevronDown, ChevronRight, Clock, FolderKanban, LifeBuoy, ListChecks, Network, Plus, ScrollText, Settings, Settings2, Users, UserRound } from "lucide-react";
+import { BarChart3, BookOpen, ChevronDown, ClipboardCheck, ChevronRight, Clock, FolderKanban, LifeBuoy, ListChecks, Network, Plus, ScrollText, Settings, Settings2, Users, UserRound } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { ProfileModal } from "@/components/sidebar/ProfileModal";
@@ -27,6 +27,7 @@ export function IssueSidebar({
   impersonating,
   canSwitchToPm,
   feedbackOpen = 0,
+  pendingApprovals = 0,
 }: {
   userName: string;
   isAdmin: boolean;
@@ -36,6 +37,8 @@ export function IssueSidebar({
   canSwitchToPm: boolean;
   /** 管理者:還沒處理的使用者回報有幾則。 */
   feedbackOpen?: number;
+  /** 等我簽核的案件簽核有幾張。 */
+  pendingApprovals?: number;
 }) {
   const pathname = usePathname();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -68,6 +71,10 @@ export function IssueSidebar({
             </Link>
           );
         })}
+        <Link href="/issues/approvals" className={link(pathname.startsWith("/issues/approvals"))} data-testid="issue-approvals-link">
+          <ClipboardCheck size={15} /> <span className="whitespace-nowrap">待我簽核</span>
+          {pendingApprovals > 0 && <span className="ml-auto rounded-full bg-red-500 px-1.5 text-[10px] font-medium text-white" data-testid="approvals-count">{pendingApprovals}</span>}
+        </Link>
         <button
           type="button"
           onClick={() => setSettingsOpen((v) => !v)}

@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { setIssueFlowEmail, setIssueStuckDays, setRegionFaes, type RegionFaeRow } from "@/lib/actions/issueFlow";
+import { setIssueApprovalLevels } from "@/lib/actions/issueApprovals";
+import { levelLabel, MAX_APPROVAL_LEVELS } from "@/lib/approvalLevels";
 import { actionErrorMessage } from "@/lib/userError";
 
 const inputCls = "rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
@@ -10,16 +12,19 @@ const inputCls = "rounded-md border border-neutral-300 dark:border-neutral-600 d
 export function IssueFlowSettingsCard({
   stuckDays,
   flowEmail,
+  approvalLevels,
   regions,
   faes,
 }: {
   stuckDays: number;
   flowEmail: boolean;
+  approvalLevels: number;
   regions: RegionFaeRow[];
   faes: { id: string; name: string }[];
 }) {
   const [days, setDays] = useState(String(stuckDays));
   const [email, setEmail] = useState(flowEmail);
+  const [levels, setLevels] = useState(approvalLevels);
   const [byRegion, setByRegion] = useState<Record<string, string[]>>(() => Object.fromEntries(regions.map((r) => [r.regionId, r.userIds])));
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -51,6 +56,28 @@ export function IssueFlowSettingsCard({
         <button type="button" disabled={isPending} onClick={() => run(() => setIssueStuckDays(Number(days)), "已儲存卡關提醒天數")} className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-sm hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-800" data-testid="issue-stuck-save">
           儲存
         </button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200">
+        <label htmlFor="issue-approval-levels">案件簽核(結案、轉維修、外勤)需要</label>
+        <select
+          id="issue-approval-levels"
+          value={levels}
+          disabled={isPending}
+          onChange={(e) => {
+            const prev = levels;
+            const next = Number(e.target.value);
+            setLevels(next);
+            run(() => setIssueApprovalLevels(next), `案件簽核改為 ${next} 階主管同意`, () => setLevels(prev));
+          }}
+          className={inputCls}
+          data-testid="issue-approval-levels"
+        >
+          {Array.from({ length: MAX_APPROVAL_LEVELS }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>{n} 階({levelLabel(n)}{n > 1 ? "以上" : ""})</option>
+          ))}
+        </select>
+        <span className="text-xs text-neutral-400">依案件負責人的主管鏈(組織架構圖),各階同時送審;找不到主管由管理者簽。</span>
       </div>
 
       <label className="mb-4 flex items-start gap-2 text-sm text-neutral-700 dark:text-neutral-200">

@@ -15,6 +15,7 @@ import { IssueAttachments } from "./IssueAttachments";
 import { IssueWorkHours } from "./IssueWorkHours";
 import { IssueMantisPanel } from "./IssueMantisPanel";
 import { IssueStageBar } from "./IssueStageBar";
+import { IssueApprovalPanel } from "./IssueApprovalPanel";
 import { IssueRepairPanel } from "./IssueRepairPanel";
 import { PriorityBadge, StatusBadge, buttonClass, formatDateTime } from "./issueUi";
 
@@ -138,6 +139,7 @@ export function IssueDetailView({
         <div className="space-y-4">
           <IssueTimeline caseId={detail.id} logs={detail.logs} canAdd={detail.can.addLog} isManager={detail.can.manage} currentUserId={currentUserId} locked={locked} />
           {detail.kind === "REPAIR" && <IssueRepairPanel key={`${detail.id}-${detail.logs.length}`} caseId={detail.id} repair={detail.repair} />}
+          <IssueApprovalPanel key={`${detail.id}-${detail.logs.length}`} caseId={detail.id} approvals={detail.approvals} />
           <IssueMantisPanel caseId={detail.id} mantis={detail.mantis} />
           <IssueWorkHours detail={detail} today={today} />
           <IssueAttachments

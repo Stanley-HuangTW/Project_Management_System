@@ -139,6 +139,9 @@ model User {
   issueAssignments IssueAssignee[]
   issueLogs        IssueLog[]
   issueRegionFaes  IssueRegionFae[]
+  issueApprovalsRequested IssueApproval[]     @relation("IssueApprovalRequester")
+  issueApprovalSteps      IssueApprovalStep[] @relation("IssueApprovalStepApprover")
+  issueApprovalsDecided   IssueApprovalStep[] @relation("IssueApprovalStepDecider")
   issueAttachments IssueAttachment[]
 
   ownedBoards             Board[]
@@ -1275,6 +1278,8 @@ model SystemSettings {
   issueStuckDays            Int                @default(3)
   /// 流程通知(階段推進、簽核…)除了站內通知也寄 email。
   issueFlowEmail            Boolean            @default(false)
+  /// 案件簽核(結案、轉 Repair、外勤)要幾階主管同意(依負責人的主管鏈,1 = 只要直屬主管)。
+  issueApprovalLevels       Int                @default(1)
   updatedAt                 DateTime           @updatedAt
 }
 
@@ -2564,6 +2569,26 @@ enum IssueShipMethod {
   HAND
 }
 
+/// 案件簽核的種類:結案、Issue 轉 Repair、安排外勤。
+enum IssueApprovalKind {
+  CLOSE
+  TO_REPAIR
+  FIELD_TRIP
+}
+
+/// 簽核單的狀態。CANCELED = 申請人(或管理者)撤回。
+enum IssueApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum IssueApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
 /// 案件在客服維修流程裡走到哪。跟 status(處理中 / TC / PC)是兩件事:階段看「輪到誰」,狀態看「解決了沒」。
 enum IssueStage {
   REPORTED
@@ -2719,6 +2744,7 @@ model IssueCase {
   logs        IssueLog[]
   attachments IssueAttachment[]
   timeEntries ActivityTimeEntry[]
+  approvals   IssueApproval[]
 
   @@index([issueDate])
   @@index([status])
@@ -2727,6 +2753,48 @@ model IssueCase {
   @@index([customerId])
   @@index([deletedAt])
   @@index([stage])
+}
+
+/// 案件的簽核單。一件案件同一時間只有一張進行中的(資料庫層有部分唯一索引擋住,見 migration)。
+/// 各階主管同時送審(每階一列 IssueApprovalStep),都簽了才算核准;任一階退回就是退回。
+model IssueApproval {
+  id            String              @id @default(cuid())
+  caseId        String
+  case          IssueCase           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind          IssueApprovalKind
+  status        IssueApprovalStatus @default(PENDING)
+  requestedById String?
+  requestedBy   User?               @relation("IssueApprovalRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  /// 申請說明(外勤的地點與事由、結案的說明…)。
+  note          String              @default("")
+  /// 結案簽核通過後案件的狀態(TC 暫時解決 / PC 永久解決);其他種類是 null。
+  closeStatus   IssueStatus?
+  /// 申請當下案件所在的階段:退回或撤回結案簽核時回到這一階。
+  fromStage     IssueStage
+  createdAt     DateTime            @default(now())
+  decidedAt     DateTime?
+
+  steps IssueApprovalStep[]
+
+  @@index([caseId, createdAt])
+  @@index([status])
+}
+
+model IssueApprovalStep {
+  id         String                 @id @default(cuid())
+  approvalId String
+  approval   IssueApproval          @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  /// 1 = 直屬主管,2 = 二階主管 …;只有一階且找不到主管時由 ISSUE TRACKER 管理者簽(approverId = null)。
+  level      Int
+  approverId String?
+  approver   User?                  @relation("IssueApprovalStepApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  decision   IssueApprovalDecision?
+  comment    String                 @default("")
+  decidedById String?
+  decidedBy  User?                  @relation("IssueApprovalStepDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt  DateTime?
+
+  @@unique([approvalId, level])
 }
 
 /// FAE 負責的地區:案件的地區在這裡有對應的 FAE,就只通知他們(沒對應就通知全部 FAE)。

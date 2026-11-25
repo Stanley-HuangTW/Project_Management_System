@@ -86,7 +86,7 @@ export function canAddLog(role: IssueRole | null, userId: string, c: IssueCaseFa
   return role === "HANDLER" && c.assigneeIds.includes(userId);
 }
 
-/** 確認案件完成(鎖定):案件要已經是 TC 或 PC;由管理者或原回報人確認。 */
+/** 直接確認案件完成(鎖定,不經簽核):案件要已經是 TC 或 PC;只有管理者。一般的結案走「結案簽核」。 */
 export function canConfirmCase(
   role: IssueRole | null,
   userId: string,
@@ -94,7 +94,7 @@ export function canConfirmCase(
 ): boolean {
   if (role === null || c.locked) return false;
   if (c.status !== "TC" && c.status !== "PC") return false;
-  return role === "MANAGER" || c.reporterId === userId;
+  return role === "MANAGER";
 }
 
 /** 負責人「接手」:處理人對還沒人負責、尚未鎖定的案件,可以把自己加為負責人。 */

@@ -32,7 +32,7 @@ export default async function IssueSettingsPage() {
       </p>
       <div className="space-y-4">
         <IssueSettingsCard dayMode={settings.issueDayMode} emailNotify={settings.issueEmailNotify} />
-        <IssueFlowSettingsCard stuckDays={settings.issueStuckDays} flowEmail={settings.issueFlowEmail} regions={regionFaes.regions} faes={regionFaes.faes} />
+        <IssueFlowSettingsCard stuckDays={settings.issueStuckDays} flowEmail={settings.issueFlowEmail} approvalLevels={settings.issueApprovalLevels} regions={regionFaes.regions} faes={regionFaes.faes} />
         {isAdmin && (
           <>
             <h2 className="pt-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">Mantis</h2>

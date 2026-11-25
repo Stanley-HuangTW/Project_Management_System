@@ -6,21 +6,16 @@ import { logAudit } from "@/lib/activityLog";
 import { UserError } from "@/lib/userError";
 import { requireIssueActor, requireIssueManager } from "@/lib/issueServer";
 import {
-  canConvertToRepair,
   canMoveStage,
   availableMoves,
   ISSUE_STAGE_LABELS,
   STAGE_DATE_FIELD,
-  TO_REPAIR_STAGE,
   type FlowActor,
   type IssueLane,
   type IssueStage,
 } from "@/lib/issueFlow";
 import { notifyFlowById } from "@/lib/issueFlowServer";
-import { canEditHandlingFields } from "@/lib/issueAccess";
-import { isIsoDate } from "@/lib/issueCase";
 import { taipeiTodayIso } from "@/lib/timesheet";
-import type { IssueRepairInfo } from "@/lib/issueTypes";
 
 async function loadForFlow(caseId: string, userId: string, role: "REPORTER" | "HANDLER" | "MANAGER") {
   const [c, me] = await Promise.all([
@@ -38,6 +33,7 @@ export async function moveIssueStage(caseId: string, to: IssueStage, note?: stri
   const { role, userId } = await requireIssueActor();
   const { c, actor, facts } = await loadForFlow(caseId, userId, role);
   if (!canMoveStage(actor, facts)) throw new UserError(facts.locked ? "權限不足:案件已經結案鎖定,只有管理者可以改階段" : "權限不足:現在輪到的不是你,只有該階段的負責角色、案件負責人或管理者可以推進");
+  if (await prisma.issueApproval.findFirst({ where: { caseId, status: "PENDING" }, select: { id: true } })) throw new UserError("這個案件有簽核進行中,請先等簽核處理完(或撤回)再改階段");
   const move = availableMoves(c.kind, facts.stage).find((m) => m.to === to);
   if (!move) throw new UserError(`從「${ISSUE_STAGE_LABELS[facts.stage]}」不能直接到「${ISSUE_STAGE_LABELS[to]}」`);
   const direction = move.direction;
@@ -66,21 +62,6 @@ export async function moveIssueStage(caseId: string, to: IssueStage, note?: stri
   ]);
   await logAudit("SETTINGS", userId, `ISSUE TRACKER 案件 ${c.caseNo} 階段 ${ISSUE_STAGE_LABELS[facts.stage]} → ${ISSUE_STAGE_LABELS[to]}`);
   await notifyFlowById(caseId, { type: "STAGE", to, direction }, userId);
-  revalidatePath("/issues", "layout");
-}
-
-/** Issue 轉 Repair:同一件案件改成維修類型(案號不變),落到「運送中」(流程圖:Issue 轉 Repair → 聯絡送回)。 */
-export async function convertIssueToRepair(caseId: string): Promise<void> {
-  const { role, userId } = await requireIssueActor();
-  const { c, actor, facts } = await loadForFlow(caseId, userId, role);
-  if (!canMoveStage(actor, facts)) throw new UserError("權限不足:只有目前輪到的角色、案件負責人或管理者可以轉成維修");
-  if (!canConvertToRepair(c.kind, facts.stage)) throw new UserError("只有「待 Sales 判斷」或「FAE 評估」階段的問題案件可以轉成維修");
-  await prisma.$transaction([
-    prisma.issueCase.update({ where: { id: caseId }, data: { kind: "REPAIR", stage: TO_REPAIR_STAGE, stageAt: new Date(), stuckNotifiedAt: null } }),
-    prisma.issueLog.create({ data: { caseId, kind: "STAGE", content: `Issue 轉 Repair:${ISSUE_STAGE_LABELS[facts.stage]} → ${ISSUE_STAGE_LABELS[TO_REPAIR_STAGE]}`, authorId: userId } }),
-  ]);
-  await logAudit("SETTINGS", userId, `ISSUE TRACKER 案件 ${c.caseNo} 由 Issue 轉 Repair`);
-  await notifyFlowById(caseId, { type: "TO_REPAIR" }, userId);
   revalidatePath("/issues", "layout");
 }
 

@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Wrench } from "lucide-react";
-import { convertIssueToRepair, moveIssueStage } from "@/lib/actions/issueFlow";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { moveIssueStage } from "@/lib/actions/issueFlow";
 import { ISSUE_LANE_LABELS, ISSUE_STAGE_LABELS, STAGE_LANE, stageTrack, type IssueStage } from "@/lib/issueFlow";
 import type { IssueCaseDetail } from "@/lib/issueTypes";
 import { actionErrorMessage } from "@/lib/userError";
@@ -39,11 +39,6 @@ export function IssueStageBar({ detail }: { detail: IssueCaseDetail }) {
   async function move(to: IssueStage, direction: "FORWARD" | "BACK") {
     if (direction === "BACK" && !(await confirm(`要把案件退回到「${ISSUE_STAGE_LABELS[to]}」嗎?`, { title: "退回階段", confirmLabel: "退回" }))) return;
     await run(() => moveIssueStage(detail.id, to));
-  }
-
-  async function toRepair() {
-    const ok = await confirm("要把這個問題轉成維修(Repair)嗎?案號不變,階段會到「運送中」,並通知 FAE 與 Sales。", { title: "Issue 轉 Repair", confirmLabel: "轉成維修" });
-    if (ok) await run(() => convertIssueToRepair(detail.id));
   }
 
   return (
@@ -92,11 +87,6 @@ export function IssueStageBar({ detail }: { detail: IssueCaseDetail }) {
               {m.direction === "FORWARD" ? <ArrowRight size={13} /> : null}
             </button>
           ))}
-          {detail.flow.canConvert && (
-            <button type="button" disabled={busy} onClick={() => void toRepair()} className={`${buttonClass} border-amber-300 text-amber-700 dark:text-amber-300`} data-testid="stage-convert">
-              <Wrench size={13} /> 轉成維修
-            </button>
-          )}
         </div>
       </div>
       {error && <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="stage-error">{error}</div>}

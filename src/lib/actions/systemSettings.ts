@@ -37,6 +37,7 @@ export async function getSystemSettings() {
     issueEmailNotify: false,
     issueStuckDays: 3,
     issueFlowEmail: false,
+    issueApprovalLevels: 1,
     hoursPerDay: 8,
     workingDaysPerMonth: 21,
     ownerDefaultAllocationPct: 2,

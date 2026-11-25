@@ -3,6 +3,7 @@
  */
 import type { IssueRole } from "@/lib/issueAccess";
 import type { IssueStage, StageMove } from "@/lib/issueFlow";
+import type { IssueApprovalDto, IssueApprovalKind } from "@/lib/issueApproval";
 
 export type IssueKind = "REPAIR" | "ISSUE";
 export type IssueStatus = "OPEN" | "TC" | "PC" | "NA";
@@ -161,7 +162,9 @@ export type IssueCaseDetail = {
   /** 客服維修流程:目前階段、進到這階的時間,以及這個人現在可以做的移動。 */
   stage: IssueStage;
   stageAt: string;
-  flow: { moves: StageMove[]; canMove: boolean; canConvert: boolean };
+  flow: { moves: StageMove[]; canMove: boolean };
+  /** 簽核:這個案件的簽核單,以及這個人現在可以送哪幾種。 */
+  approvals: { items: IssueApprovalDto[]; available: IssueApprovalKind[] };
   repair: IssueRepairInfo & { canEdit: boolean };
   can: {
     editReport: boolean;

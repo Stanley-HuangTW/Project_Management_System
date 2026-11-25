@@ -20,8 +20,10 @@ import {
 import { isIsoDate, isResolvedStatus, ISSUE_STATUS_LABELS, openDays, processingDays, type IssueDayMode } from "@/lib/issueCase";
 import { issueDayModeSetting } from "@/lib/issueSettingsServer";
 import { notifyIssueAssigned } from "@/lib/issueNotify";
-import { availableMoves, canConvertToRepair, canMoveStage, ISSUE_STAGE_LABELS, stageAfterUnlock, TO_REPAIR_STAGE, type IssueLane, type IssueStage } from "@/lib/issueFlow";
+import { availableMoves, canMoveStage, ISSUE_STAGE_LABELS, stageAfterUnlock, TO_REPAIR_STAGE, type IssueLane, type IssueStage } from "@/lib/issueFlow";
 import { notifyFlowById } from "@/lib/issueFlowServer";
+import { approvalPrecondition, ISSUE_APPROVAL_KINDS, type IssueApprovalDto } from "@/lib/issueApproval";
+import { listCaseApprovals, viewerOf } from "@/lib/issueApprovalServer";
 import { allocateCaseNo } from "@/lib/issueCaseNoServer";
 import { createCaseInMantis, loadConnection, pushCaseToMantis } from "@/lib/issueMantisServer";
 import { isWriteEnabled, parseIssueMapping, type IssueMantisChange } from "@/lib/issueMantis";
@@ -173,7 +175,7 @@ type MantisSource = { baseUrl: string; enabled: boolean; mapping: unknown } | nu
 
 type WorkSource = { workRows: { id: string; date: string; hours: Prisma.Decimal; note: string | null; userId: string; user: { name: string }; category: { name: string } }[]; workCategories: { id: string; name: string }[] };
 
-function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource, mantisConn: MantisSource, lanes: IssueLane[]): IssueCaseDetail {
+function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode: IssueDayMode; holidays: Set<string>; today: string }, work: WorkSource, mantisConn: MantisSource, lanes: IssueLane[], approvals: IssueApprovalDto[]): IssueCaseDetail {
   const facts = factsOf(c);
   const flowActor = { issueRole: role, userId, lanes };
   const flowFacts = { assigneeIds: facts.assigneeIds, stage: c.stage as IssueStage, locked: facts.locked };
@@ -264,7 +266,12 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
       repairDoneDate: c.repairDoneDate,
       canEdit: canMove || canEditHandlingFields(role, userId, facts),
     },
-    flow: { moves: canMove ? availableMoves(c.kind, c.stage as IssueStage) : [], canMove, canConvert: canMove && canConvertToRepair(c.kind, c.stage as IssueStage) },
+    flow: { moves: canMove && !approvals.some((a) => a.status === "PENDING") ? availableMoves(c.kind, c.stage as IssueStage) : [], canMove },
+    approvals: {
+      items: approvals,
+      // 能送的簽核:輪到的人(或負責人、管理者)、案件沒鎖、沒有進行中的簽核、階段符合。
+      available: canMove && !facts.locked && !approvals.some((a) => a.status === "PENDING") ? ISSUE_APPROVAL_KINDS.filter((k) => approvalPrecondition(k, c.kind, c.stage as IssueStage) === null) : [],
+    },
     can: {
       editReport: canEditReportFields(role, userId, facts),
       editHandling: canEditHandlingFields(role, userId, facts),
@@ -278,7 +285,7 @@ function toDetail(c: DetailSource, role: IssueRole, userId: string, ctx: { mode:
 
 export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> {
   const { role, userId } = await requireIssueActor();
-  const [c, ctx, workRows, workCategories, mantisConn, me] = await Promise.all([
+  const [c, ctx, workRows, workCategories, mantisConn, me, approvals] = await Promise.all([
     prisma.issueCase.findFirst({ where: { id, deletedAt: null }, include: DETAIL_INCLUDE }),
     dayContext(),
     prisma.activityTimeEntry.findMany({
@@ -289,8 +296,9 @@ export async function getIssueCase(id: string): Promise<IssueCaseDetail | null> 
     prisma.timeCategory.findMany({ where: { active: true, linkIssueCase: true }, orderBy: [{ order: "asc" }, { createdAt: "asc" }], select: { id: true, name: true } }),
     loadConnection(),
     prisma.user.findUnique({ where: { id: userId }, select: { issueLanes: true } }),
+    viewerOf(userId).then((v) => listCaseApprovals(id, v)),
   ]);
-  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }, mantisConn, (me?.issueLanes ?? []) as IssueLane[]) : null;
+  return c ? toDetail(c, role, userId, ctx, { workRows, workCategories }, mantisConn, (me?.issueLanes ?? []) as IssueLane[], approvals) : null;
 }
 
 async function loadCaseForWrite(id: string) {

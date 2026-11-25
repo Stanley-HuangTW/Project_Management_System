@@ -78,9 +78,9 @@ describe("時間軸、確認、接手", () => {
     expect(canAddLog("REPORTER", "r1", locked)).toBe(false);
     expect(canAddLog("REPORTER", "r1", open)).toBe(true);
   });
-  it("確認完成:案件要是 TC/PC;管理者或回報人才能確認;已鎖定不能再確認", () => {
+  it("確認完成(不經簽核):案件要是 TC/PC;只有管理者能直接確認,回報人要走結案簽核;已鎖定不能再確認", () => {
     expect(canConfirmCase("MANAGER", "m", { ...open, status: "PC" })).toBe(true);
-    expect(canConfirmCase("REPORTER", "r1", { ...open, status: "TC" })).toBe(true);
+    expect(canConfirmCase("REPORTER", "r1", { ...open, status: "TC" })).toBe(false);
     expect(canConfirmCase("REPORTER", "r2", { ...open, status: "TC" })).toBe(false);
     expect(canConfirmCase("MANAGER", "m", { ...open, status: "OPEN" })).toBe(false);
     expect(canConfirmCase("MANAGER", "m", { ...open, status: "NA" })).toBe(false);
