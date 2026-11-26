@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { GateStatus, GateDecision } from "@prisma/client";
+import type { GateStatus, GateDecision, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { requireBoardAccess } from "@/lib/boardAccess";
-import { requireStructureAccess } from "@/lib/permissions";
+import { canManageStructure, requireStructureAccess } from "@/lib/permissions";
 import { assessGate, findGateBreaches, type GateBreach, type GatePhaseItem } from "@/lib/gateReview";
 import { visibleItemIdsForBoard } from "@/lib/serverVisibility";
 import { logAudit } from "@/lib/activityLog";
@@ -55,6 +55,8 @@ export type GateRow = {
   /** Whether PASSED would be honest, and what is missing if not. */
   canPass: boolean;
   blockers: string[];
+  /** 現在登入的人能不能改這個閘門的設定(名稱、階段、預計日、條件、簽核人):管理者與主管、這塊看板的 Team Leader / PMD、建立這個閘門的人。 */
+  canEdit: boolean;
 };
 
 export type GateBoardView = {
@@ -68,6 +70,7 @@ export async function listGates(boardId: string): Promise<GateBoardView> {
   const session = await requireSession();
   await requireBoardAccess(boardId, session);
 
+  const holdsLeadRole = canManageStructure(session.role) ? true : await holdsProjectLeadRole(boardId, session.userId);
   const [gates, board] = await Promise.all([
     prisma.gate.findMany({
       where: { boardId },
@@ -176,6 +179,7 @@ export async function listGates(boardId: string): Promise<GateBoardView> {
         })),
         canPass: readiness.canPass,
         blockers: readiness.blockers,
+        canEdit: holdsLeadRole || gate.createdById === session.userId,
       };
     }),
   };
@@ -184,6 +188,32 @@ export async function listGates(boardId: string): Promise<GateBoardView> {
 async function gateBoardId(gateId: string): Promise<string | null> {
   const gate = await prisma.gate.findUnique({ where: { id: gateId }, select: { boardId: true } });
   return gate?.boardId ?? null;
+}
+
+/** 這塊看板上擔任 Team Leader(專案負責人)或 PMD(專案 PM)的人:看板層級的角色已複製進各分組。 */
+async function holdsProjectLeadRole(boardId: string, userId: string): Promise<boolean> {
+  return (await prisma.groupRoleAssignment.count({ where: { userId, role: { in: ["TEAM_LEADER", "PMD"] }, group: { boardId } } })) > 0;
+}
+
+/**
+ * 能不能改閘門的設定(名稱、階段、預計日、出口條件、簽核人):管理者與主管,加上這塊看板的
+ * Team Leader / PMD,以及建立這個閘門的人。放行、不通過、退回、送審、刪除閘門仍是管理者與主管的事。
+ */
+async function canEditGateSetup(session: { role: UserRole; userId: string }, boardId: string, createdById: string | null): Promise<boolean> {
+  if (canManageStructure(session.role)) return true;
+  if (createdById && createdById === session.userId) return true;
+  return holdsProjectLeadRole(boardId, session.userId);
+}
+
+async function requireGateEditor(gateId: string) {
+  const session = await requireSession();
+  const gate = await prisma.gate.findUnique({ where: { id: gateId }, select: { boardId: true, createdById: true } });
+  if (!gate) throw new UserError("找不到這個閘門");
+  await requireBoardAccess(gate.boardId, session);
+  if (!(await canEditGateSetup(session, gate.boardId, gate.createdById))) {
+    throw new UserError("權限不足:只有管理者、主管、這塊看板的 Team Leader / PMD,或建立這個閘門的人可以修改閘門");
+  }
+  return { session, boardId: gate.boardId };
 }
 
 /** Setting a gate up is a structural act — it decides what the project has to
@@ -225,7 +255,7 @@ export async function updateGate(
   gateId: string,
   input: { name: string; itemId: string | null; plannedDate: string | null }
 ): Promise<{ error?: string }> {
-  const { boardId } = await requireGateOwner(gateId);
+  const { boardId } = await requireGateEditor(gateId);
   const name = input.name.trim();
   if (!name) return { error: "請輸入閘門名稱" };
 
@@ -250,7 +280,7 @@ export async function addCriterion(
   required: boolean,
   itemId: string | null
 ): Promise<{ error?: string }> {
-  const { boardId } = await requireGateOwner(gateId);
+  const { boardId } = await requireGateEditor(gateId);
   const trimmed = text.trim();
   if (!trimmed) return { error: "請輸入條件內容" };
 
@@ -299,13 +329,15 @@ export async function setCriterionApprovers(criterionId: string, userIds: string
     where: { id: criterionId },
     select: {
       text: true,
-      gate: { select: { name: true, boardId: true, status: true } },
+      gate: { select: { name: true, boardId: true, status: true, createdById: true } },
       approvers: { select: { userId: true, decision: true } },
     },
   });
   if (!criterion) return { error: "找不到這個條件" };
   await requireBoardAccess(criterion.gate.boardId, session);
-  requireStructureAccess(session.role);
+  if (!(await canEditGateSetup(session, criterion.gate.boardId, criterion.gate.createdById))) {
+    throw new UserError("權限不足:只有管理者、主管、這塊看板的 Team Leader / PMD,或建立這個閘門的人可以修改閘門");
+  }
   if (criterion.gate.status === "PASSED" || criterion.gate.status === "WAIVED") {
     return { error: "這個閘門已經放行,條件不能再改。要重新審查請先退回待審。" };
   }
@@ -386,11 +418,13 @@ export async function deleteCriterion(criterionId: string): Promise<{ error?: st
   const session = await requireSession();
   const criterion = await prisma.gateCriterion.findUnique({
     where: { id: criterionId },
-    select: { gateId: true, gate: { select: { boardId: true } } },
+    select: { gateId: true, gate: { select: { boardId: true, createdById: true } } },
   });
   if (!criterion) return { error: "找不到這個條件" };
   await requireBoardAccess(criterion.gate.boardId, session);
-  requireStructureAccess((await requireSession()).role);
+  if (!(await canEditGateSetup(session, criterion.gate.boardId, criterion.gate.createdById))) {
+    throw new UserError("權限不足:只有管理者、主管、這塊看板的 Team Leader / PMD,或建立這個閘門的人可以修改閘門");
+  }
 
   await prisma.gateCriterion.delete({ where: { id: criterionId } });
   revalidatePath(`/boards/${criterion.gate.boardId}`);
@@ -398,7 +432,7 @@ export async function deleteCriterion(criterionId: string): Promise<{ error?: st
 }
 
 export async function setApprovers(gateId: string, userIds: string[]): Promise<{ error?: string }> {
-  const { boardId } = await requireGateOwner(gateId);
+  const { boardId } = await requireGateEditor(gateId);
 
   // Replacing the list keeps the decisions of anybody who stays on it — their
   // signature was about this gate, and re-typing the list is not a reason to

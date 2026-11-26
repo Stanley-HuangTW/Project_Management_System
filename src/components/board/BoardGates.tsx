@@ -3,7 +3,8 @@
 import { UserSelect } from "@/components/ui/UserSelect";
 import { useCallback, useEffect, useState } from "react";
 import type { GateStatus } from "@prisma/client";
-import { AlertTriangle, Check, Plus, Trash2, X, ChevronRight, ChevronDown } from "lucide-react";
+import { AlertTriangle, Check, Pencil, Plus, Trash2, X, ChevronRight, ChevronDown } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
 import { useDialogs } from "@/components/ui/DialogProvider";
 import type { BoardWithData, UserOption } from "@/types/board";
 import { canManageStructure } from "@/lib/permissions";
@@ -13,6 +14,7 @@ import type { UserRole } from "@prisma/client";
 import {
   listGates,
   createGate,
+  updateGate,
   deleteGate,
   addCriterion,
   setCriterionMet,
@@ -238,6 +240,8 @@ export function BoardGates({
               run={run}
               confirm={confirm}
               prompt={prompt}
+              phaseChoices={phaseChoices}
+              wbsByItemId={wbsByItemId}
             />
           ))}
         </ul>
@@ -361,8 +365,13 @@ function GateCard({
   run,
   confirm,
   prompt,
+  phaseChoices,
+  wbsByItemId,
 }: {
   gate: GateRow;
+  /** 閘門可以綁的階段(有子項目的工作項)與它們的 WBS 編號,編輯閘門時選。 */
+  phaseChoices: BoardWithData["items"];
+  wbsByItemId: Map<string, string>;
   staff: UserOption[];
   currentUserId: string;
   canManage: boolean;
@@ -378,6 +387,10 @@ function GateCard({
   const [criterionText, setCriterionText] = useState("");
   const [criterionRequired, setCriterionRequired] = useState(true);
   const [signComment, setSignComment] = useState("");
+  const [editing, setEditing] = useState(false);
+  // 改閘門的設定(名稱、階段、預計日、條件、簽核人):管理者與主管、這塊看板的 Team Leader / PMD、建立閘門的人。
+  // 放行 / 不通過 / 退回 / 送審 / 刪除閘門仍是管理者與主管(canManage)。
+  const canEdit = gate.canEdit;
 
   const mine = gate.approvers.find((a) => a.userId === currentUserId);
   const decided = gate.status === "PASSED" || gate.status === "WAIVED" || gate.status === "FAILED";
@@ -434,6 +447,18 @@ function GateCard({
           {gate.approvers.length}
         </span>
 
+        {canEdit && (
+          <button
+            type="button"
+            data-gate-edit={gate.id}
+            disabled={busy}
+            onClick={() => setEditing(true)}
+            className={`${canManage ? "" : "ml-auto "}flex items-center gap-1 rounded border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800`}
+            title="修改閘門的名稱、階段、預計審查日"
+          >
+            <Pencil size={11} /> 編輯
+          </button>
+        )}
         {canManage && (
           <div className="ml-auto flex items-center gap-1">
             {(gate.status === "DRAFT" || gate.status === "FAILED") && (
@@ -550,7 +575,7 @@ function GateCard({
                     ) : (
                       <span className="text-[10px] text-neutral-400 dark:text-neutral-500">選填</span>
                     )}
-                    {canManage && (
+                    {canEdit && (
                       <button
                         type="button"
                         disabled={busy}
@@ -564,7 +589,7 @@ function GateCard({
                     <CriterionApprovers
                       criterion={criterion}
                       staff={staff}
-                      canManage={canManage && !decided}
+                      canManage={canEdit && !decided}
                       busy={busy}
                       run={run}
                     />
@@ -572,7 +597,7 @@ function GateCard({
                 ))}
               </ul>
             )}
-            {canManage && !decided && (
+            {canEdit && !decided && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input
                   value={criterionText}
@@ -639,7 +664,7 @@ function GateCard({
               </ul>
             )}
 
-            {canManage && !decided && (
+            {canEdit && !decided && (
               <UserSelect
                 users={staff.filter((u) => !gate.approvers.some((a) => a.userId === u.id))}
                 value=""
@@ -694,6 +719,87 @@ function GateCard({
           )}
         </div>
       )}
+      {editing && (
+        <GateEditDialog
+          gate={gate}
+          phaseChoices={phaseChoices}
+          wbsByItemId={wbsByItemId}
+          busy={busy}
+          onClose={() => setEditing(false)}
+          run={run}
+        />
+      )}
     </li>
+  );
+}
+
+/** 修改閘門的名稱、綁的階段、預計審查日。 */
+function GateEditDialog({
+  gate,
+  phaseChoices,
+  wbsByItemId,
+  busy,
+  onClose,
+  run,
+}: {
+  gate: GateRow;
+  phaseChoices: BoardWithData["items"];
+  wbsByItemId: Map<string, string>;
+  busy: boolean;
+  onClose: () => void;
+  run: (work: () => Promise<{ error?: string }>, failTitle: string) => Promise<boolean>;
+}) {
+  const [name, setName] = useState(gate.name);
+  const [itemId, setItemId] = useState(gate.itemId ?? "");
+  const [plannedDate, setPlannedDate] = useState(gate.plannedDate ?? "");
+  const fieldClass =
+    "w-full rounded-md border border-neutral-300 dark:border-neutral-600 dark:bg-neutral-900 px-2 py-1 text-sm outline-none focus:border-blue-500 disabled:opacity-50";
+  const unchanged = name.trim() === gate.name && itemId === (gate.itemId ?? "") && plannedDate === (gate.plannedDate ?? "");
+
+  return (
+    <Modal open onOpenChange={(open) => !open && onClose()} title="修改閘門">
+      <div className="space-y-3 text-left">
+        <label className="block">
+          <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">閘門名稱</span>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={fieldClass} />
+        </label>
+        <div>
+          <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">收尾的階段</span>
+          <ItemTreePicker
+            items={phaseChoices}
+            wbsByItemId={wbsByItemId}
+            value={itemId}
+            onChange={setItemId}
+            placeholder="(不綁階段)"
+            className={`${fieldClass} flex items-center justify-between gap-1`}
+          />
+        </div>
+        <label className="block">
+          <span className="mb-1 block text-xs text-neutral-500 dark:text-neutral-400">預計審查日</span>
+          <input type="date" value={plannedDate} onChange={(e) => setPlannedDate(e.target.value)} className={fieldClass} />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            data-gate-edit-save
+            disabled={busy || !name.trim() || unchanged}
+            onClick={async () => {
+              const ok = await run(() => updateGate(gate.id, { name, itemId: itemId || null, plannedDate: plannedDate || null }), "無法修改閘門");
+              if (ok) onClose();
+            }}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            儲存
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
