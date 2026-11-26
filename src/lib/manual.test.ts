@@ -264,3 +264,37 @@ describe("the real manual (docs/使用手冊.md)", () => {
     }
   });
 });
+
+describe("the ISSUE TRACKER manual (docs/ISSUE-TRACKER使用手冊.md)", () => {
+  const docs = path.join(process.cwd(), "docs");
+  const manual = parseManual(readFileSync(path.join(docs, "ISSUE-TRACKER使用手冊.md"), "utf8"));
+
+  it("is its own manual, with chapters numbered in order and a version line", () => {
+    expect(manual.title).toBe("ISSUE TRACKER 使用手冊");
+    expect(manual.version).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(manual.chapters.length).toBeGreaterThanOrEqual(10);
+    expect(manual.chapters.map((c) => c.number)).toEqual(manual.chapters.map((_, i) => i + 1));
+  });
+
+  it("does not repeat the project-management manual, and the project-management manual no longer carries the ISSUE TRACKER chapter", () => {
+    const pm = parseManual(readFileSync(path.join(docs, "使用手冊.md"), "utf8"));
+    expect(pm.chapters.some((c) => c.title.startsWith("ISSUE TRACKER"))).toBe(false);
+    expect(manual.chapters.some((c) => c.title === "甘特圖")).toBe(false);
+  });
+
+  it("covers the whole flow: stages, approvals and notifications", () => {
+    const flow = manual.chapters.find((c) => c.title === "客服維修流程");
+    expect(flow?.sections.map((s) => s.id)).toEqual(["s-4-1", "s-4-2", "s-4-3", "s-4-4", "s-4-5"]);
+    expect(searchManual(manual.chapters, "結案簽核").length).toBeGreaterThan(0);
+  });
+
+  it("only references images that exist, renders without raw markers, and has distinct section anchors", () => {
+    const missing = manual.chapters.flatMap((c) => manualImageNames(c.markdown)).filter((name) => !existsSync(path.join(docs, "manual-images", name)));
+    expect(missing).toEqual([]);
+    for (const chapter of manual.chapters) {
+      expect(renderManualHtml(chapter.markdown)).not.toContain('src="manual-images/');
+      const ids = chapter.sections.map((s) => s.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+});

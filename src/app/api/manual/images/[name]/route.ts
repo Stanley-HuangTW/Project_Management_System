@@ -3,7 +3,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { requireSession } from "@/lib/session";
 import { manualImageNames, visibleChapters } from "@/lib/manual";
-import { MANUAL_IMAGES_DIR, loadManual } from "@/lib/manualServer";
+import { MANUAL_IMAGES_DIR, loadManual, type ManualKind } from "@/lib/manualServer";
 
 const MIME_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
@@ -14,17 +14,19 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
- * 使用手冊裡的圖片。只送「這個人看得到的章節」引用的圖:管理者章節的畫面,一般成員連直接打網址也拿不到。
+ * 使用手冊裡的圖片(專案管理系統與 ISSUE TRACKER 兩份手冊共用同一個圖片資料夾)。
+ * 只送「這個人看得到的章節」引用的圖:管理者章節的畫面,一般成員連直接打網址也拿不到。
  * (docs/ 不在 public/ 底下,所以一定要經過這裡。)
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const session = await requireSession();
   const { name } = await params;
 
-  const loaded = await loadManual();
-  if (!loaded) return NextResponse.json({ error: "找不到使用手冊" }, { status: 404 });
+  const kinds: ManualKind[] = ["pm", "issues"];
+  const manuals = (await Promise.all(kinds.map((k) => loadManual(k)))).filter((m) => m !== null);
+  if (manuals.length === 0) return NextResponse.json({ error: "找不到使用手冊" }, { status: 404 });
 
-  const allowed = new Set(visibleChapters(loaded.manual, session.role === "ADMIN").flatMap((c) => manualImageNames(c.markdown)));
+  const allowed = new Set(manuals.flatMap((m) => visibleChapters(m.manual, session.role === "ADMIN").flatMap((c) => manualImageNames(c.markdown))));
   const type = MIME_TYPES[path.extname(name).toLowerCase()];
   if (!allowed.has(name) || !type) return NextResponse.json({ error: "找不到圖片" }, { status: 404 });
 

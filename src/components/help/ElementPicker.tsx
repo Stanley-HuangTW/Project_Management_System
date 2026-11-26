@@ -8,7 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { submitFeedback } from "@/lib/actions/feedback";
 import { FEEDBACK_MAX_LENGTH } from "@/lib/feedback";
 import type { FeedbackContext } from "@/lib/feedbackContext";
-import { helpTopicFor, helpTopicForElement, manualHref, type HelpTopic } from "@/lib/helpTopics";
+import { helpTopicFor, helpTopicForElement, manualHref, systemBaseOf, type HelpTopic } from "@/lib/helpTopics";
 import { actionErrorMessage } from "@/lib/userError";
 import { registerElementPicker, startElementPicker, stopElementPicker, useElementPicking } from "./pickerState";
 import { useCurrentHelpHint } from "./helpHint";
@@ -140,7 +140,7 @@ export function ElementPicker({ isAdmin, impersonating }: { isAdmin: boolean; im
       setPicked({
         context,
         pageTopic: helpTopicFor(path, view, admin),
-        elementTopic: helpTopicForElement((selector) => !!el.closest(selector), admin),
+        elementTopic: helpTopicForElement((selector) => !!el.closest(selector), admin, systemBaseOf(path)),
         query: manualQueryOf(el),
         path: `${window.location.pathname}${window.location.search}`,
       });

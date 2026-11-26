@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireSession } from "@/lib/session";
 import { MIN_SEARCH_LENGTH, searchManual, visibleChapters, type ManualChapter } from "@/lib/manual";
-import { loadManual } from "@/lib/manualServer";
+import { loadManual, type ManualKind } from "@/lib/manualServer";
 
 function Toc({ chapters, isAdmin }: { chapters: ManualChapter[]; isAdmin: boolean }) {
   return (
@@ -30,11 +30,11 @@ function AdminBadge() {
   );
 }
 
-export async function ManualPageContent({ base, q = "" }: { base: string; q?: string }) {
+export async function ManualPageContent({ base, q = "", kind = "pm" }: { base: string; q?: string; kind?: ManualKind }) {
   const session = await requireSession();
   const isAdmin = session.role === "ADMIN";
 
-  const loaded = await loadManual();
+  const loaded = await loadManual(kind);
   if (!loaded) {
     return (
       <div className="p-6">

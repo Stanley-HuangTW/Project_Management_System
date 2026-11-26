@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { allHelpAnchors, ELEMENT_TOPICS, helpTopicFor, helpTopicForElement, manualHref, MODAL_HELP, systemBaseOf } from "./helpTopics";
+import { allHelpAnchors, allIssueHelpAnchors, ELEMENT_TOPICS, helpTopicFor, helpTopicForElement, manualHref, MODAL_HELP, systemBaseOf } from "./helpTopics";
 import { parseManual } from "./manual";
 
 describe("helpTopicFor", () => {
@@ -16,26 +16,31 @@ describe("helpTopicFor", () => {
     expect(helpTopicFor("/search", null, false).anchor).toBe("s-20-1");
   });
 
-  it("ISSUE TRACKER 各頁對到手冊第 24 章,案件頁(/issues/<id>)與列表分開", () => {
-    expect(helpTopicFor("/issues", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件列表", anchor: "s-24-6" });
-    expect(helpTopicFor("/issues?mine=1", null, false).anchor).toBe("s-24-6");
-    expect(helpTopicFor("/issues/new", null, false).anchor).toBe("s-24-2");
-    expect(helpTopicFor("/issues/stats", null, false).anchor).toBe("s-24-6");
-    expect(helpTopicFor("/issues/admin", null, false).anchor).toBe("s-24-7");
-    expect(helpTopicFor("/issues/cmwk57lo7002klg2l53hbt0aa", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件頁", anchor: "s-24-3" });
-    // ISSUE TRACKER 裡共用的頁面:說明沿用專案管理系統手冊的章節
-    expect(helpTopicFor("/issues/timesheet", null, false).anchor).toBe("ch-17");
-    expect(helpTopicFor("/issues/org-chart", null, true).anchor).toBe("s-21-1b");
-    expect(helpTopicFor("/issues/users", null, true).anchor).toBe("s-21-1");
-    expect(helpTopicFor("/issues/users", null, false).anchor).toBe("");
-    expect(helpTopicFor("/issues/feedback", null, true).anchor).toBe("s-21-2b");
+  it("ISSUE TRACKER 各頁對到 ISSUE TRACKER 自己的手冊,案件頁(/issues/<id>)與列表分開", () => {
+    expect(helpTopicFor("/issues", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件列表", anchor: "ch-7" });
+    expect(helpTopicFor("/issues?mine=1", null, false).anchor).toBe("ch-7");
+    expect(helpTopicFor("/issues/new", null, false).anchor).toBe("ch-2");
+    expect(helpTopicFor("/issues/stats", null, false).anchor).toBe("ch-7");
+    expect(helpTopicFor("/issues/admin", null, false).anchor).toBe("ch-9");
+    expect(helpTopicFor("/issues/approvals", null, false).anchor).toBe("s-4-3");
+    expect(helpTopicFor("/issues/cmwk57lo7002klg2l53hbt0aa", null, false)).toMatchObject({ label: "ISSUE TRACKER:案件頁", anchor: "ch-3" });
+    // ISSUE TRACKER 裡共用的頁面:說明也寫在 ISSUE TRACKER 自己的手冊(不是專案管理系統的章節)
+    expect(helpTopicFor("/issues/timesheet", null, false).anchor).toBe("ch-12");
+    expect(helpTopicFor("/issues/org-chart", null, true).anchor).toBe("s-11-2");
+    expect(helpTopicFor("/issues/users", null, true).anchor).toBe("s-11-1");
+    expect(helpTopicFor("/issues/users", null, false).anchor).toBe("s-11-1");
+    expect(helpTopicFor("/issues/feedback", null, true).anchor).toBe("ch-13");
     expect(helpTopicFor("/issues/manual", null, false).anchor).toBe("");
-    expect(helpTopicFor("/issues/settings", null, false).anchor).toBe("s-24-9");
-    expect(helpTopicForElement((sel) => sel.includes("[data-issue-mantis]"), false)).toMatchObject({ anchor: "s-24-10" });
-    expect(helpTopicForElement((sel) => sel.includes("[data-issue-approval]"), false)).toMatchObject({ anchor: "s-24-11" });
-    expect(helpTopicForElement((sel) => sel.includes("[data-issue-flow]"), false)).toMatchObject({ anchor: "s-24-11" });
-    expect(helpTopicFor("/select-system", null, false).anchor).toBe("s-1-1");
-    expect(helpTopicFor("/no-access", null, false).anchor).toBe("s-1-1");
+    expect(helpTopicFor("/issues/settings", null, false).anchor).toBe("s-10-1");
+    expect(helpTopicForElement((sel) => sel.includes("[data-issue-mantis]"), false, "/issues")).toMatchObject({ anchor: "ch-8" });
+    expect(helpTopicForElement((sel) => sel.includes("[data-issue-approval]"), false, "/issues")).toMatchObject({ anchor: "s-4-3" });
+    expect(helpTopicForElement((sel) => sel.includes("[data-issue-flow]"), false, "/issues")).toMatchObject({ anchor: "s-4-1" });
+    // 共用頁面上的元素:在 ISSUE TRACKER 裡查 ISSUE TRACKER 的手冊,在專案管理系統裡查專案管理系統的手冊
+    expect(helpTopicForElement((sel) => sel.includes("[data-org-node]"), false, "/issues")).toMatchObject({ anchor: "s-11-2" });
+    expect(helpTopicForElement((sel) => sel.includes("[data-org-node]"), false)).toMatchObject({ anchor: "s-21-1b" });
+  });
+  it("ISSUE TRACKER 的元素標記只在 ISSUE TRACKER 查得到", () => {
+    expect(helpTopicForElement((sel) => sel.includes("[data-issue-flow]"), false)).toBeNull();
   });
 
   it("手冊連結跟著系統走:ISSUE TRACKER 的頁面開 /issues/manual,其他開 /manual", () => {
@@ -44,7 +49,7 @@ describe("helpTopicFor", () => {
     expect(systemBaseOf("/issues/users")).toBe("/issues");
     expect(systemBaseOf("/issuesx")).toBe("");
     expect(systemBaseOf("/boards/b1")).toBe("");
-    expect(manualHref("s-24-2", "/issues")).toBe("/issues/manual#s-24-2");
+    expect(manualHref("s-4-3", "/issues")).toBe("/issues/manual#s-4-3");
     expect(manualHref("", "/issues")).toBe("/issues/manual");
     expect(manualHref("ch-9")).toBe("/manual#ch-9");
   });
@@ -160,5 +165,18 @@ describe("every anchor the help button can open exists in the real manual", () =
     for (const anchor of ["s-21-1", "s-21-1b", "s-21-2", "s-21-2b", "s-21-3"]) {
       expect(adminChapter?.sections.map((s) => s.id)).toContain(anchor);
     }
+  });
+});
+
+describe("every anchor the ISSUE TRACKER help button can open exists in the ISSUE TRACKER manual", () => {
+  const manual = parseManual(readFileSync(path.join(process.cwd(), "docs", "ISSUE-TRACKER使用手冊.md"), "utf8"));
+  const ids = new Set(manual.chapters.flatMap((c) => [c.id, ...c.sections.map((s) => s.id)]));
+
+  it("has every chapter and section the table points at", () => {
+    expect(allIssueHelpAnchors().filter((a) => !ids.has(a))).toEqual([]);
+  });
+
+  it("has no admin-only chapter (the ISSUE TRACKER manager is not the system admin, so the manual marks roles inline)", () => {
+    expect(manual.chapters.some((c) => c.adminOnly)).toBe(false);
   });
 });

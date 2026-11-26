@@ -7,9 +7,8 @@ import { BookOpen, Check, Copy, Download, ExternalLink } from "lucide-react";
 import { setFeedbackStatus, type FeedbackRow } from "@/lib/actions/feedback";
 import { FEEDBACK_STATUS_LABELS, FEEDBACK_SYSTEM_LABELS, feedbackCsv, type FeedbackSystem } from "@/lib/feedback";
 import { debugPrompt, elementSummary } from "@/lib/feedbackContext";
-import { manualHref } from "@/lib/helpTopics";
+import { manualHref, systemBaseOf } from "@/lib/helpTopics";
 import { useDialogs } from "@/components/ui/DialogProvider";
-import { useSystemBase } from "@/components/help/useSystemBase";
 import { actionErrorMessage } from "@/lib/userError";
 
 type Filter = "OPEN" | "RESOLVED" | "ALL";
@@ -27,7 +26,6 @@ const TABS: { key: Filter; label: string }[] = [
 export function FeedbackList({ rows }: { rows: FeedbackRow[] }) {
   const router = useRouter();
   const { notify } = useDialogs();
-  const base = useSystemBase();
   const [filter, setFilter] = useState<Filter>("OPEN");
   const [system, setSystem] = useState<FeedbackSystem | "ALL">("ALL");
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -212,7 +210,7 @@ export function FeedbackList({ rows }: { rows: FeedbackRow[] }) {
                 <Link href={r.path} target="_blank" className="inline-flex items-center gap-1 text-blue-700 hover:underline dark:text-blue-300">
                   <ExternalLink size={11} /> 開啟該畫面
                 </Link>
-                <a href={manualHref(r.manualAnchor, base)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline dark:text-blue-300">
+                <a href={manualHref(r.manualAnchor, systemBaseOf(r.path))} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline dark:text-blue-300">
                   <BookOpen size={11} /> 對應的手冊章節
                 </a>
                 <button
