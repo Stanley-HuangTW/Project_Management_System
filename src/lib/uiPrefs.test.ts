@@ -47,3 +47,18 @@ describe("mergeUiPrefs", () => {
     expect(mergeUiPrefs(base, { boards: "garbage" }, 5)).toEqual(base);
   });
 });
+
+describe("各分頁的捲動位置", () => {
+  it("只認得有捲動區的分頁,位置合法才留", () => {
+    const out = parseUiPrefs({
+      boards: { b1: { tableLeft: 320, scroll: { report: { top: 400, left: 0 }, table: { top: 1, left: 1 }, risks: { top: "x", left: 0 }, gates: { top: -9, left: 12.6 } } } },
+    });
+    expect(out.boards?.b1.tableLeft).toBe(320);
+    expect(out.boards?.b1.scroll).toEqual({ report: { top: 400, left: 0 }, gates: { top: 0, left: 13 } });
+  });
+  it("逐分頁合併:更新報表的位置不會洗掉風險分頁的", () => {
+    const a = mergeUiPrefs({}, { boards: { b1: { scroll: { risks: { top: 100, left: 0 } } } } }, 1);
+    const b = mergeUiPrefs(a, { boards: { b1: { scroll: { report: { top: 250, left: 0 } } } } }, 2);
+    expect(b.boards?.b1.scroll).toEqual({ risks: { top: 100, left: 0 }, report: { top: 250, left: 0 } });
+  });
+});

@@ -16,6 +16,10 @@ export type BoardMemory = {
   view?: string;
   /** 表格縱向捲到哪裡(px)。 */
   tableTop?: number;
+  /** 表格橫向捲到哪裡(px)。 */
+  tableLeft?: number;
+  /** 其他分頁(看板、報表、風險、閘門、變更、預算……)各自捲到哪裡;分頁名稱 → 位置(px)。表格與甘特圖有自己的欄位。 */
+  scroll?: Record<string, { top: number; left: number }>;
   gantt?: {
     zoom?: GanttZoomPref;
     scalePct?: number;
@@ -39,6 +43,7 @@ export const MAX_BOARDS = 40;
 export const MAX_COLLAPSED = 2000;
 const VIEWS = new Set(["table", "kanban", "gantt", "report", "risks", "issues", "gates", "changes", "budget"]);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const SCROLL_VIEWS = new Set(["kanban", "report", "risks", "issues", "gates", "changes", "budget"]);
 
 function num(value: unknown, min: number, max: number): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : undefined;
@@ -69,6 +74,18 @@ function cleanBoard(raw: unknown): BoardMemory | null {
   if (typeof b.view === "string" && VIEWS.has(b.view)) out.view = b.view;
   const tableTop = num(b.tableTop, 0, 10_000_000);
   if (tableTop !== undefined) out.tableTop = tableTop;
+  const tableLeft = num(b.tableLeft, 0, 10_000_000);
+  if (tableLeft !== undefined) out.tableLeft = tableLeft;
+  if (b.scroll && typeof b.scroll === "object") {
+    const scroll: Record<string, { top: number; left: number }> = {};
+    for (const [view, pos] of Object.entries(b.scroll as Record<string, unknown>)) {
+      if (!SCROLL_VIEWS.has(view) || !pos || typeof pos !== "object") continue;
+      const top = num((pos as Record<string, unknown>).top, 0, 10_000_000);
+      const left = num((pos as Record<string, unknown>).left, 0, 10_000_000);
+      if (top !== undefined && left !== undefined) scroll[view] = { top, left };
+    }
+    if (Object.keys(scroll).length > 0) out.scroll = scroll;
+  }
   const gantt = cleanGantt(b.gantt);
   if (gantt) out.gantt = gantt;
   const at = num(b.at, 0, Number.MAX_SAFE_INTEGER);
@@ -109,6 +126,7 @@ export function mergeUiPrefs(current: unknown, patch: unknown, now: number = Dat
       const old = boards[id] ?? {};
       const next: BoardMemory = { ...old, ...memory, at: now };
       if (memory.gantt) next.gantt = { ...(old.gantt ?? {}), ...memory.gantt };
+      if (memory.scroll) next.scroll = { ...(old.scroll ?? {}), ...memory.scroll };
       boards[id] = next;
     }
     const keep = Object.entries(boards)

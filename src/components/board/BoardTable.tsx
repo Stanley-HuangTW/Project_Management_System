@@ -152,7 +152,12 @@ export function BoardTable({
   protoUnits = NO_PROTO_UNITS,
   initialTop,
   onTop,
+  initialLeft,
+  onLeft,
 }: {
+  /** 橫向捲到哪裡(px):一打開就回到那裡;捲動時回報。 */
+  initialLeft?: number;
+  onLeft?: (left: number) => void;
   /** 這個人上次看這塊表格時捲到哪裡(px);一打開就回到那裡。 */
   initialTop?: number;
   /** 捲動時回報位置(由外面延遲存到帳號上)。 */
@@ -241,9 +246,13 @@ export function BoardTable({
     });
   }
 
+  // 橫向捲到哪裡:新掛上來的欄位窗格(分組後來才展開 / 畫出來)要跟已經捲到的位置一致。
+  const leftRef = useRef(initialLeft ?? 0);
   function registerScrollPane(key: string, el: HTMLDivElement | null) {
-    if (el) scrollPanesRef.current.set(key, el);
-    else scrollPanesRef.current.delete(key);
+    if (el) {
+      scrollPanesRef.current.set(key, el);
+      if (leftRef.current > 0 && el.scrollLeft !== leftRef.current) el.scrollLeft = leftRef.current;
+    } else scrollPanesRef.current.delete(key);
   }
 
   // The frozen name column and the data columns are two separate, independently
@@ -260,6 +269,8 @@ export function BoardTable({
     for (const [key, el] of scrollPanesRef.current) {
       if (key !== sourceKey && el.scrollLeft !== left) el.scrollLeft = left;
     }
+    leftRef.current = left;
+    onLeft?.(Math.round(left));
   }
   const visibleIds = useMemo(
     () => computeVisibleItemIds(board.items, filters, searchQuery),
@@ -447,6 +458,16 @@ export function BoardTable({
 
   // 框選一欄的一段儲存格,Ctrl+V 把試算表複製的內容換進去(見 usePasteIntoRange)。
   const rowsRef = useRef<HTMLDivElement>(null);
+  // 橫向也回到上次的位置(欄位窗格一個個掛上來時各自對齊,這裡再把表頭窗格推一次,讓其他窗格跟上)。
+  useEffect(() => {
+    if (!initialLeft) return;
+    const id = requestAnimationFrame(() => {
+      const header = scrollPanesRef.current.get("header");
+      if (header) header.scrollLeft = initialLeft;
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // 回到上次捲到的位置:只在第一次畫出來做一次(有 highlight 連結時以那個項目為主,不搶捲動)。
   useEffect(() => {
     const el = rowsRef.current;

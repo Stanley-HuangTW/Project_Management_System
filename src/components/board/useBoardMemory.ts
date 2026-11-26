@@ -14,6 +14,7 @@ function sameJson(a: unknown, b: unknown): boolean {
 function applyPatch(base: BoardMemory, patch: BoardMemory): BoardMemory {
   const next: BoardMemory = { ...base, ...patch };
   if (patch.gantt) next.gantt = { ...(base.gantt ?? {}), ...patch.gantt };
+  if (patch.scroll) next.scroll = { ...(base.scroll ?? {}), ...patch.scroll };
   return next;
 }
 
