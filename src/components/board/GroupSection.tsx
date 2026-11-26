@@ -69,6 +69,8 @@ export function GroupSection({
   onToggleSelected,
   manualScheduleHint,
   collapsedIds,
+  initialCollapsed = false,
+  onCollapsedChange,
   onToggleCollapse,
   onExpandGroup,
   onCollapseGroup,
@@ -109,6 +111,9 @@ export function GroupSection({
   onToggleSelected?: (itemId: string, selected: boolean) => void;
   manualScheduleHint?: string;
   collapsedIds: Set<string>;
+  /** 這個分組一打開就是收起來的(上次收起來的);之後收放時回報,由上層記起來。 */
+  initialCollapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   onToggleCollapse: (itemId: string) => void;
   onExpandGroup: () => void;
   onCollapseGroup: () => void;
@@ -149,7 +154,7 @@ export function GroupSection({
   const canCreateItems = canManageGroupStructure(userRole, myGroupAccess.disciplines.size > 0);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: group.id, disabled: !canEditStructure });
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [name, setName] = useState(group.name);
   const [newItemName, setNewItemName] = useState("");
   const { notify, confirm } = useDialogs();
@@ -377,7 +382,10 @@ export function GroupSection({
         )}
         <button
           type="button"
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={() => {
+            setCollapsed(!collapsed);
+            onCollapsedChange?.(!collapsed);
+          }}
           className="text-neutral-500 dark:text-neutral-400"
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}

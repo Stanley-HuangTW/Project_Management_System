@@ -18,6 +18,12 @@ export type BoardMemory = {
   tableTop?: number;
   /** 表格橫向捲到哪裡(px)。 */
   tableLeft?: number;
+  /** 表格裡使用者展開的工作項(id)。預設全部收起來,所以只記展開的。 */
+  tableExpanded?: string[];
+  /** 表格裡收起來的分組(id)。 */
+  tableGroupsCollapsed?: string[];
+  /** 看板(Kanban)分頁橫向捲到哪裡(px)。 */
+  kanbanLeft?: number;
   /** 其他分頁(看板、報表、風險、閘門、變更、預算……)各自捲到哪裡;分頁名稱 → 位置(px)。表格與甘特圖有自己的欄位。 */
   scroll?: Record<string, { top: number; left: number }>;
   gantt?: {
@@ -41,6 +47,12 @@ export type UiPrefs = {
 
 export const MAX_BOARDS = 40;
 export const MAX_COLLAPSED = 2000;
+const MAX_GROUPS = 200;
+
+function ids(value: unknown, max: number): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, max);
+}
 const VIEWS = new Set(["table", "kanban", "gantt", "report", "risks", "issues", "gates", "changes", "budget"]);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const SCROLL_VIEWS = new Set(["kanban", "report", "risks", "issues", "gates", "changes", "budget"]);
@@ -76,6 +88,12 @@ function cleanBoard(raw: unknown): BoardMemory | null {
   if (tableTop !== undefined) out.tableTop = tableTop;
   const tableLeft = num(b.tableLeft, 0, 10_000_000);
   if (tableLeft !== undefined) out.tableLeft = tableLeft;
+  const kanbanLeft = num(b.kanbanLeft, 0, 10_000_000);
+  if (kanbanLeft !== undefined) out.kanbanLeft = kanbanLeft;
+  const tableExpanded = ids(b.tableExpanded, MAX_COLLAPSED);
+  if (tableExpanded) out.tableExpanded = tableExpanded;
+  const tableGroupsCollapsed = ids(b.tableGroupsCollapsed, MAX_GROUPS);
+  if (tableGroupsCollapsed) out.tableGroupsCollapsed = tableGroupsCollapsed;
   if (b.scroll && typeof b.scroll === "object") {
     const scroll: Record<string, { top: number; left: number }> = {};
     for (const [view, pos] of Object.entries(b.scroll as Record<string, unknown>)) {

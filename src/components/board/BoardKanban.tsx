@@ -162,7 +162,12 @@ export function BoardKanban({
   deputyTeam = [],
   holidays,
   completedAtByItem,
+  getMemory,
+  onLeft,
 }: {
+  /** 上次橫向捲到哪裡:掛上來時讀一次;捲動時用 onLeft 回報。 */
+  getMemory?: () => import("@/lib/uiPrefs").BoardMemory;
+  onLeft?: (left: number) => void;
   board: BoardWithData;
   statusColumns: ColumnData[];
   columnId: string;
@@ -261,7 +266,20 @@ export function BoardKanban({
     if (scrollRef.current && topScrollRef.current) {
       topScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
     }
+    if (scrollRef.current) onLeft?.(Math.round(scrollRef.current.scrollLeft));
   }
+
+  // 回到上次橫向捲到的位置:內容寬度量出來(欄位畫好)之後做一次。
+  const leftRestoredRef = useRef(false);
+  useEffect(() => {
+    const left = getMemory?.().kanbanLeft;
+    const el = scrollRef.current;
+    if (leftRestoredRef.current || !left || !el || contentWidth === 0) return;
+    leftRestoredRef.current = true;
+    el.scrollLeft = left;
+    if (topScrollRef.current) topScrollRef.current.scrollLeft = left;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentWidth]);
 
   function laneIdForItem(item: ItemData): string {
     if (!column) return UNSET_LANE;

@@ -102,7 +102,7 @@ export function BoardView({
     }
   );
   // 記住這個人在這塊看板上的畫面(分頁、捲動位置、甘特圖的刻度……),下次打開回到那裡。
-  const remember = useBoardMemorySaver(board.id, memory);
+  const { save: remember, getLive: getMemory } = useBoardMemorySaver(board.id, memory);
   // 表格與甘特圖各自記捲動位置;其他分頁(看板、報表、風險、閘門、變更、預算……)共用外面這個捲動區,
   // 這裡依分頁記:切過去時回到上次捲到的地方(內容是非同步載入的,所以每 0.1 秒試一次,最多 2 秒)。
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -112,7 +112,7 @@ export function BoardView({
     if (view === "table" || view === "gantt") return;
     const el = wrapRef.current;
     if (!el) return;
-    const target = scrollMemo.current[view];
+    const target = getMemory().scroll?.[view] ?? scrollMemo.current[view];
     el.scrollTop = 0;
     el.scrollLeft = 0;
     if (!target || (target.top === 0 && target.left === 0)) return;
@@ -131,7 +131,7 @@ export function BoardView({
       clearInterval(id);
       restoringRef.current = false;
     };
-  }, [view]);
+  }, [view, getMemory]);
   const viewSeenRef = useRef(view);
   useEffect(() => {
     if (viewSeenRef.current === view) return;
@@ -374,10 +374,11 @@ export function BoardView({
             holidays={holidays}
             eventSummaries={eventSummaries}
             protoUnits={protoUnits}
-            initialTop={memory?.tableTop}
+            getMemory={getMemory}
             onTop={(top) => remember({ tableTop: top })}
-            initialLeft={memory?.tableLeft}
             onLeft={(left) => remember({ tableLeft: left })}
+            onExpanded={(ids) => remember({ tableExpanded: ids })}
+            onCollapsedGroups={(ids) => remember({ tableGroupsCollapsed: ids })}
           />
         )}
         {view === "kanban" && (
@@ -392,6 +393,8 @@ export function BoardView({
             deputyTeam={deputyTeam}
             holidays={holidays}
             completedAtByItem={completedAtByItem}
+            getMemory={getMemory}
+            onLeft={(left) => remember({ kanbanLeft: left })}
           />
         )}
         {ganttMounted && (

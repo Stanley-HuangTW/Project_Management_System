@@ -62,3 +62,21 @@ describe("各分頁的捲動位置", () => {
     expect(b.boards?.b1.scroll).toEqual({ risks: { top: 100, left: 0 }, report: { top: 250, left: 0 } });
   });
 });
+
+describe("表格展開 / 收起與看板橫向位置", () => {
+  it("只留合法的 id;其他欄位照常", () => {
+    const out = parseUiPrefs({ boards: { b1: { tableExpanded: ["a", "", 5, "b"], tableGroupsCollapsed: ["g1"], kanbanLeft: 640.4 } } });
+    expect(out.boards?.b1).toEqual({ tableExpanded: ["a", "b"], tableGroupsCollapsed: ["g1"], kanbanLeft: 640 });
+  });
+  it("清單是整份換掉(展開的列變少就是變少),不是累加", () => {
+    const a = mergeUiPrefs({}, { boards: { b1: { tableExpanded: ["x", "y"] } } }, 1);
+    const b = mergeUiPrefs(a, { boards: { b1: { tableExpanded: ["y"] } } }, 2);
+    expect(b.boards?.b1.tableExpanded).toEqual(["y"]);
+    const c = mergeUiPrefs(b, { boards: { b1: { tableExpanded: [] } } }, 3);
+    expect(c.boards?.b1.tableExpanded).toEqual([]);
+  });
+  it("分組收起的清單上限 200", () => {
+    const many = Array.from({ length: 300 }, (_, i) => "g" + i);
+    expect(parseUiPrefs({ boards: { b1: { tableGroupsCollapsed: many } } }).boards?.b1.tableGroupsCollapsed).toHaveLength(200);
+  });
+});

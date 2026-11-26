@@ -25,6 +25,8 @@ function applyPatch(base: BoardMemory, patch: BoardMemory): BoardMemory {
  */
 export function useBoardMemorySaver(boardId: string, initial: BoardMemory | null) {
   const known = useRef<BoardMemory>(initial ?? {});
+  // 這次打開看板之後的最新狀態:切到別的分頁再切回來,重新掛上的表格 / 看板要從這裡讀,不是打開時的舊值。
+  const live = useRef<BoardMemory>(initial ?? {});
   const pending = useRef<BoardMemory>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -44,6 +46,7 @@ export function useBoardMemorySaver(boardId: string, initial: BoardMemory | null
 
   const save = useCallback(
     (patch: BoardMemory) => {
+      live.current = applyPatch(live.current, patch);
       pending.current = applyPatch(pending.current, patch);
       if (!timer.current) timer.current = setTimeout(flush, DELAY_MS);
     },
@@ -61,5 +64,6 @@ export function useBoardMemorySaver(boardId: string, initial: BoardMemory | null
     };
   }, [flush]);
 
-  return save;
+  const getLive = useCallback(() => live.current, []);
+  return { save, getLive };
 }

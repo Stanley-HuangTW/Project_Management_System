@@ -150,17 +150,21 @@ export function BoardTable({
   holidays,
   eventSummaries = NO_EVENTS,
   protoUnits = NO_PROTO_UNITS,
-  initialTop,
+  getMemory,
   onTop,
-  initialLeft,
   onLeft,
+  onExpanded,
+  onCollapsedGroups,
 }: {
-  /** 橫向捲到哪裡(px):一打開就回到那裡;捲動時回報。 */
-  initialLeft?: number;
+  /** 這個人上次看這塊表格的狀態(捲到哪裡、展開了哪些列、收起了哪些分組):掛上來時讀一次,回到那裡。 */
+  getMemory?: () => import("@/lib/uiPrefs").BoardMemory;
+  /** 橫向捲動時回報位置。 */
   onLeft?: (left: number) => void;
-  /** 這個人上次看這塊表格時捲到哪裡(px);一打開就回到那裡。 */
-  initialTop?: number;
-  /** 捲動時回報位置(由外面延遲存到帳號上)。 */
+  /** 展開 / 收起工作項後回報:使用者展開了哪些(預設全部收起來,只記展開的)。 */
+  onExpanded?: (ids: string[]) => void;
+  /** 收起 / 展開分組後回報:收起來的分組。 */
+  onCollapsedGroups?: (ids: string[]) => void;
+  /** 縱向捲動時回報位置(由外面延遲存到帳號上)。 */
   onTop?: (top: number) => void;
   board: BoardWithData;
   users: UserOption[];
@@ -205,7 +209,26 @@ export function BoardTable({
   // highlight-driven auto-expand below still opens the right ancestor
   // chain when needed) means a board's initial render cost tracks its
   // top-level item count, not its total item count.
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => allParentIds(board.items));
+  // 上次展開的列照樣展開(新出現的父項仍然預設收起來)。
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => {
+    const all = allParentIds(board.items);
+    const expanded = getMemory?.().tableExpanded;
+    if (!expanded) return all;
+    const open = new Set(expanded);
+    return new Set([...all].filter((id) => !open.has(id)));
+  });
+  // 展開 / 收起一變就記(第一次畫出來不算)。
+  const collapseReadyRef = useRef(false);
+  useEffect(() => {
+    if (!collapseReadyRef.current) {
+      collapseReadyRef.current = true;
+      return;
+    }
+    onExpanded?.([...allParentIds(board.items)].filter((id) => !collapsedIds.has(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsedIds]);
+  // 收起來的分組:分組的收放狀態在各分組自己身上,這裡只負責記。
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set(getMemory?.().tableGroupsCollapsed ?? []));
   // 父項被收成一行時看不到子項,勾它就連整個子樹一起勾(展開著的只勾自己)。
   const toggleSelected = useCallback(
     (itemId: string, selected: boolean) => {
@@ -247,7 +270,7 @@ export function BoardTable({
   }
 
   // 橫向捲到哪裡:新掛上來的欄位窗格(分組後來才展開 / 畫出來)要跟已經捲到的位置一致。
-  const leftRef = useRef(initialLeft ?? 0);
+  const leftRef = useRef(0);
   function registerScrollPane(key: string, el: HTMLDivElement | null) {
     if (el) {
       scrollPanesRef.current.set(key, el);
@@ -460,10 +483,13 @@ export function BoardTable({
   const rowsRef = useRef<HTMLDivElement>(null);
   // 橫向也回到上次的位置(欄位窗格一個個掛上來時各自對齊,這裡再把表頭窗格推一次,讓其他窗格跟上)。
   useEffect(() => {
-    if (!initialLeft) return;
+    const left = getMemory?.().tableLeft;
+    if (!left) return;
     const id = requestAnimationFrame(() => {
+      leftRef.current = left;
       const header = scrollPanesRef.current.get("header");
-      if (header) header.scrollLeft = initialLeft;
+      if (header) header.scrollLeft = left;
+      for (const pane of scrollPanesRef.current.values()) pane.scrollLeft = left;
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -471,9 +497,10 @@ export function BoardTable({
   // 回到上次捲到的位置:只在第一次畫出來做一次(有 highlight 連結時以那個項目為主,不搶捲動)。
   useEffect(() => {
     const el = rowsRef.current;
-    if (!el || !initialTop || highlightItemId) return;
+    const top = getMemory?.().tableTop;
+    if (!el || !top || highlightItemId) return;
     const id = requestAnimationFrame(() => {
-      el.scrollTop = initialTop;
+      el.scrollTop = top;
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -717,6 +744,14 @@ export function BoardTable({
                   onCollapseGroup={() => collapseGroup(itemsByGroup.get(group.id) ?? [])}
                   registerScrollPane={registerScrollPane}
                   onPaneScroll={handlePaneScroll}
+                  initialCollapsed={collapsedGroups.has(group.id)}
+                  onCollapsedChange={(collapsed) => {
+                    const next = new Set(collapsedGroups);
+                    if (collapsed) next.add(group.id);
+                    else next.delete(group.id);
+                    setCollapsedGroups(next);
+                    onCollapsedGroups?.([...next]);
+                  }}
                 />
               );
             })}
