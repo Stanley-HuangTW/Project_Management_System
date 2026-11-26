@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Table2, LayoutGrid, GanttChartSquare, BarChart3, ShieldAlert, Bug, DoorOpen, FileDiff, Wallet } from "lucide-react";
 import type { BoardWithData, UserOption, ExternalPredecessor } from "@/types/board";
@@ -34,6 +34,8 @@ import {
 import { ExportGanttModal } from "./ExportGanttModal";
 import { GroupRolesModal } from "./GroupRolesModal";
 import type { ProtoUnitsData } from "./ItemProtoUnitsContext";
+import type { BoardMemory } from "@/lib/uiPrefs";
+import { useBoardMemorySaver } from "./useBoardMemory";
 
 export function BoardView({
   board,
@@ -53,7 +55,10 @@ export function BoardView({
   eventSummaries,
   protoUnits,
   deputyTeam = [],
+  memory = null,
 }: {
+  /** 這個人上次在這塊看板停在哪個分頁、表格與甘特圖捲到哪裡……(帳號上存的),一打開就回到那裡。網址指定了分頁就以網址為主。 */
+  memory?: BoardMemory | null;
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
@@ -86,8 +91,24 @@ export function BoardView({
   protoUnits?: ProtoUnitsData;
 }) {
   const [view, setView] = useState<"table" | "kanban" | "gantt" | "report" | "risks" | "issues" | "gates" | "changes" | "budget">(
-    () => (initialView === "risks" || initialView === "gates" || initialView === "changes" || initialView === "gantt" || (initialView === "issues" && hasMantis) ? initialView : "table")
+    () => {
+      if (initialView === "risks" || initialView === "gates" || initialView === "changes" || initialView === "gantt" || (initialView === "issues" && hasMantis)) return initialView;
+      // 網址沒指定分頁(也沒有 highlight 連結)就回到這個人上次停的分頁。
+      const last = memory?.view;
+      if (!highlightItemId && !openRiskId && !openAction && last && last !== "issues" && ["table", "kanban", "gantt", "report", "risks", "gates", "changes", "budget"].includes(last)) {
+        return last as "table" | "kanban" | "gantt" | "report" | "risks" | "gates" | "changes" | "budget";
+      }
+      return "table";
+    }
   );
+  // 記住這個人在這塊看板上的畫面(分頁、捲動位置、甘特圖的刻度……),下次打開回到那裡。
+  const remember = useBoardMemorySaver(board.id, memory);
+  const viewSeenRef = useRef(view);
+  useEffect(() => {
+    if (viewSeenRef.current === view) return;
+    viewSeenRef.current = view;
+    remember({ view });
+  }, [view, remember]);
   // 看板欄的「本週完成」以實際切成完成的時間為準。
   const completedAtByItem = useMemo(
     () => Object.fromEntries(Object.entries(eventSummaries ?? {}).flatMap(([id, s]) => (s.completedAt ? [[id, s.completedAt]] : []))),
@@ -315,6 +336,8 @@ export function BoardView({
             holidays={holidays}
             eventSummaries={eventSummaries}
             protoUnits={protoUnits}
+            initialTop={memory?.tableTop}
+            onTop={(top) => remember({ tableTop: top })}
           />
         )}
         {view === "kanban" && (
@@ -344,6 +367,8 @@ export function BoardView({
             externalPreds={externalPreds}
             completedAtByItem={completedAtByItem}
             ownerDefaultPct={ownerDefaultPct}
+            memory={memory?.gantt}
+            onMemory={remember}
           />
         )}
         {view === "risks" && (

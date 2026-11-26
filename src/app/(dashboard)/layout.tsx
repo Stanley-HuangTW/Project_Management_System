@@ -15,6 +15,8 @@ import { getUnreadTotal } from "@/lib/chatServer";
 import { PROJECT_DASHBOARD_ROLES } from "@/lib/projectRoles";
 import { HelpButton } from "@/components/help/HelpButton";
 import { ElementPicker } from "@/components/help/ElementPicker";
+import { ThemeSync } from "@/components/ui/ThemeSync";
+import { parseUiPrefs } from "@/lib/uiPrefs";
 
 export default async function DashboardLayout({
   children,
@@ -28,7 +30,7 @@ export default async function DashboardLayout({
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, programId: true, ownerId: true },
     }),
-    prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true, boardOrder: true, programOrder: true, pmAccess: true, issueRole: true } }),
+    prisma.user.findUnique({ where: { id: session.userId }, select: { avatarUrl: true, boardOrder: true, programOrder: true, pmAccess: true, issueRole: true, uiPrefs: true } }),
   ]);
   // 沒有專案管理系統的使用權限:送去他能去的地方(直接輸入網址也進不來)。
   const access = currentUser ? systemAccess({ role: session.role, pmAccess: currentUser.pmAccess, issueRole: currentUser.issueRole }) : { pm: false, issues: false };
@@ -67,6 +69,7 @@ export default async function DashboardLayout({
 
   return (
     <DialogProvider>
+    <ThemeSync serverTheme={parseUiPrefs(currentUser?.uiPrefs).theme ?? null} impersonating={!!session.impersonatorId} />
     <ChatProvider enabled={chatEnabled} initialUnread={chatUnread}>
     <BoardAdminActionsProvider>
       <div className="flex h-screen w-full flex-col">

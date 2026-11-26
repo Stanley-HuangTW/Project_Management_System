@@ -94,6 +94,8 @@ model User {
   dashboardOrder String[] @default([])
   /// 儀表板的子類(分頁):[{ id, name, sections: [區塊 id] }]。沒設定 = 只有「全部」。
   dashboardTabs Json?
+  /// 這個人自己的畫面設定(顯示背景、各看板上次停在哪個分頁與捲動位置、甘特圖的刻度與收合……),換瀏覽器、換電腦都跟著人走。形狀見 src/lib/uiPrefs.ts。
+  uiPrefs Json?
 
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?

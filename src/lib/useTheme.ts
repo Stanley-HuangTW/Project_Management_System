@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { saveUiPrefs } from "@/lib/actions/uiPrefs";
 
 type Theme = "light" | "dark";
 
@@ -24,6 +25,8 @@ export function useTheme() {
     setThemeState(next);
     localStorage.setItem("theme", next);
     applyTheme(next);
+    // 顯示背景跟著帳號走(換瀏覽器、換電腦也一樣);存不成功不影響這一台的畫面。
+    void saveUiPrefs({ theme: next }).catch(() => {});
   }, []);
 
   return { theme, setTheme };

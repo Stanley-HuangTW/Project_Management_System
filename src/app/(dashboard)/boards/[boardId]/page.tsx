@@ -14,6 +14,7 @@ import { loadProtoUnitsData } from "@/lib/protoUnitsServer";
 import { hideBudgetOn } from "@/lib/budgetAccessServer";
 import { withoutItemCosts } from "@/lib/budgetAccess";
 import { externalPredecessors } from "@/lib/externalPredecessors";
+import { loadUiPrefs } from "@/lib/uiPrefsServer";
 
 export default async function BoardPage({
   params,
@@ -96,6 +97,7 @@ export default async function BoardPage({
       protoUnits={protoUnits}
       deputyTeam={await deputyTeamIdsOf(session.userId)}
       ownerDefaultPct={(await getSystemSettings()).ownerDefaultAllocationPct}
+      memory={session.impersonatorId ? null : ((await loadUiPrefs(session.userId)).boards?.[boardId] ?? null)}
     />
   );
 }

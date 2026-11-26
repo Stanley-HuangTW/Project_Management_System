@@ -104,6 +104,7 @@ import {
 } from "@/lib/ganttLink";
 import type { CascadedItem, ConstraintConflict } from "@/lib/predecessorLink";
 import { describeAncestorWarnings, describeCascade, describeConflicts } from "@/lib/cascadeText";
+import type { BoardMemory } from "@/lib/uiPrefs";
 import { getStatusOptions } from "@/types/column";
 import { computeVisibleItemIds, itemMatchesSearch, type ActiveFilter } from "@/lib/filter";
 import { useDialogs } from "@/components/ui/DialogProvider";
@@ -249,12 +250,18 @@ export function BoardGantt({
   highlightNonce,
   externalPreds,
   completedAtByItem,
+  memory,
+  onMemory,
 }: {
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
   currentUserId: string;
   holidays: Holiday[];
+  /** 這個人上次看這塊甘特圖時的狀態(時間刻度、顯示比例、名稱欄寬、收合的列、捲到哪裡),一打開就回到那裡。 */
+  memory?: BoardMemory["gantt"];
+  /** 狀態變了就回報,由外面(BoardView)合併、延遲存到帳號上。 */
+  onMemory?: (patch: BoardMemory) => void;
   /** 只掛在負責人欄位、沒有人員分配的工作項,算幾 % 的工作量(系統設定)。 */
   ownerDefaultPct: number;
   /** False while another view is showing. BoardView keeps this mounted so the
@@ -272,7 +279,7 @@ export function BoardGantt({
   /** 工作項 id → 切成完成的時間(ISO):前置實際完成晚於預定時,Pred 燈號要提醒後續工作項需要順延。 */
   completedAtByItem?: Record<string, string>;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(memory?.collapsed ?? []));
   const requestDelete = useDeleteItem();
   const { notify, confirm, choose } = useDialogs();
   // 「使用樣機」的資料(看板頁一次撈好放在 context);名稱旁的樣機標籤用。
@@ -285,15 +292,25 @@ export function BoardGantt({
   const [detailItem, setDetailItem] = useState<ItemData | null>(null);
   const [detailInitialTab, setDetailInitialTab] = useState<"updates" | "card">("updates");
   // 預設以週為單位、顯示比例 100%。
-  const [zoom, setZoom] = useState<Zoom>("week");
+  const [zoom, setZoom] = useState<Zoom>(memory?.zoom ?? "week");
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const [groupFilterId, setGroupFilterId] = useState("");
   const [parentFilterId, setParentFilterId] = useState("");
   // 依項目名稱搜尋(跟表格那一欄同一個規則:名稱包含、不分大小寫,符合的項目連同它的上層一起顯示)。
   const [searchQuery, setSearchQuery] = useState("");
   const searching = searchQuery.trim() !== "";
-  const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
-  const [scalePct, setScalePct] = useState(DEFAULT_SCALE_PCT);
+  const [labelWidth, setLabelWidth] = useState(memory?.labelWidth ?? DEFAULT_LABEL_WIDTH);
+  const [scalePct, setScalePct] = useState(memory?.scalePct ?? DEFAULT_SCALE_PCT);
+  // 時間刻度、顯示比例、收合的列一變就記到帳號上(第一次畫出來不算變)。
+  const memoryReadyRef = useRef(false);
+  useEffect(() => {
+    if (!memoryReadyRef.current) {
+      memoryReadyRef.current = true;
+      return;
+    }
+    onMemory?.({ gantt: { zoom, scalePct, collapsed: [...collapsed] } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom, scalePct, collapsed]);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -313,9 +330,11 @@ export function BoardGantt({
       const next = Math.min(MAX_LABEL_WIDTH, Math.max(MIN_LABEL_WIDTH, startWidth + (ev.clientX - startX)));
       setLabelWidth(next);
     }
-    function onUp() {
+    function onUp(ev: PointerEvent) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      // 手動拖寬的才記(自動量出來的寬度每次打開都會重算,名稱改了才不會被舊的寬度截掉)。
+      onMemory?.({ gantt: { labelWidth: Math.min(MAX_LABEL_WIDTH, Math.max(MIN_LABEL_WIDTH, startWidth + (ev.clientX - startX))) } });
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -340,6 +359,10 @@ export function BoardGantt({
   const topScrollRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ startX: number; startScrollLeft: number } | null>(null);
   const lastScroll = useRef<{ left: number; top: number } | null>(null);
+  const restoredRef = useRef(false);
+  // 捲到哪裡也記起來:最左邊那一天(用日期,時間軸範圍變了也停在同一天)與縱向位置。
+  // 要用到 days(在後面才算出來),所以由後面的 effect 把函式放進來。
+  const reportScrollRef = useRef<(() => void) | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const today = useMemo(() => new Date(new Date().toISOString().slice(0, 10)), []);
 
@@ -356,6 +379,7 @@ export function BoardGantt({
     // is already display:none and reports 0 for both offsets.
     lastScroll.current = { left: el.scrollLeft, top: el.scrollTop };
     if (topScrollRef.current) topScrollRef.current.scrollLeft = el.scrollLeft;
+    reportScrollRef.current?.();
   }
 
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -784,15 +808,27 @@ export function BoardGantt({
     return idx;
   }
 
+  useEffect(() => {
+    reportScrollRef.current = () => {
+      const el = scrollRef.current;
+      if (!el || days.length === 0 || !onMemory) return;
+      const day = days[Math.min(days.length - 1, Math.max(0, Math.floor(el.scrollLeft / dayWidth)))];
+      onMemory({ gantt: { leftDay: toIsoDate(day), top: Math.round(el.scrollTop) } });
+    };
+  });
+
   const headerSegments = useMemo(() => buildHeaderSegments(days, zoom), [days, zoom]);
   const todayIndex = days.length > 0 ? indexForDate(today) : -1;
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || todayIndex < 0) return;
-    // Today near the left edge (a couple of days' lead-in for context) rather
-    // than centered, so the default view opens onto upcoming work.
-    el.scrollLeft = Math.max(0, (todayIndex - 2) * dayWidth);
+    // 這個人上次看的那一天(第一次畫出來才用);沒有就是 Today near the left edge (a couple of
+    // days' lead-in for context) rather than centered, so the default view opens onto upcoming work.
+    const remembered = !restoredRef.current && memory?.leftDay ? indexForDate(new Date(memory.leftDay)) : -1;
+    if (!restoredRef.current && memory?.top !== undefined) el.scrollTop = memory.top;
+    restoredRef.current = true;
+    el.scrollLeft = remembered >= 0 ? remembered * dayWidth : Math.max(0, (todayIndex - 2) * dayWidth);
     syncFromMainScroll();
     // Only re-scroll when the zoom level or the underlying day range changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -992,7 +1028,7 @@ export function BoardGantt({
 
   // 名稱欄一開始就寬到看得到每個項目的全名(含收合著的子項目),照畫面上真正的字型量字,
   // 不是固定寬度。只做一次;使用者之後照樣可以拖。
-  const labelFittedRef = useRef(false);
+  const labelFittedRef = useRef(memory?.labelWidth !== undefined);
   useEffect(() => {
     if (labelFittedRef.current || board.items.length === 0) return;
     let cancelled = false;

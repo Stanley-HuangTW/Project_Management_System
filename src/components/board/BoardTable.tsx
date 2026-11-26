@@ -150,7 +150,13 @@ export function BoardTable({
   holidays,
   eventSummaries = NO_EVENTS,
   protoUnits = NO_PROTO_UNITS,
+  initialTop,
+  onTop,
 }: {
+  /** 這個人上次看這塊表格時捲到哪裡(px);一打開就回到那裡。 */
+  initialTop?: number;
+  /** 捲動時回報位置(由外面延遲存到帳號上)。 */
+  onTop?: (top: number) => void;
   board: BoardWithData;
   users: UserOption[];
   userRole: UserRole;
@@ -441,6 +447,16 @@ export function BoardTable({
 
   // 框選一欄的一段儲存格,Ctrl+V 把試算表複製的內容換進去(見 usePasteIntoRange)。
   const rowsRef = useRef<HTMLDivElement>(null);
+  // 回到上次捲到的位置:只在第一次畫出來做一次(有 highlight 連結時以那個項目為主,不搶捲動)。
+  useEffect(() => {
+    const el = rowsRef.current;
+    if (!el || !initialTop || highlightItemId) return;
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = initialTop;
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const pasteIntoRange = usePasteIntoRange({ board, users });
   const { range: cellRange } = useCellRangeSelection(rowsRef, pasteIntoRange);
   const rangeColumnName = cellRange ? (board.columns.find((c) => c.id === cellRange.columnId)?.name ?? "") : "";
@@ -628,7 +644,7 @@ export function BoardTable({
         </DndContext>
       </div>
 
-      <div ref={rowsRef} className="flex-1 overflow-y-auto p-2">
+      <div ref={rowsRef} onScroll={onTop ? (e) => onTop(Math.round(e.currentTarget.scrollTop)) : undefined} className="flex-1 overflow-y-auto p-2">
       <DndContext
         id="board-groups-dnd"
         sensors={sensors}
